@@ -30,7 +30,7 @@ PRIVATE_HOSTNAME = re.compile(
     r"(?i)(?<![A-Za-z0-9_.-])(?:[A-Za-z0-9-]+\.)+(?:local|lan|internal|home|corp)(?![A-Za-z0-9_.-])"
 )
 CREDENTIAL_ASSIGNMENT = re.compile(
-    r"(?ix)\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|passwd|private[_-]?key|secret)\b"
+    r"(?ix)(?:\b|_)(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|passwd|private[_-]?key|secret)\b"
     r"\s*[:=]\s*(?:[\"'](?P<quoted>[^\"'\r\n]{8,})[\"']|(?P<bare>[A-Za-z0-9][A-Za-z0-9_./+=:-]{11,}))"
 )
 TOKEN_SHAPE = re.compile(
@@ -49,11 +49,23 @@ SYNTHETIC_CREDENTIAL_VALUES = frozenset(
     {
         "test-key",
         "fixture-key-value",
+        "fixture-key",
         "fixture-profile-a",
         "fixture-profile-b",
         "offline-only-placeholder",
+        "not-a-release-value",
     }
 )
+CREDENTIAL_FILE_NAMES = frozenset({
+    ".env",
+    ".credentials",
+    "auth.json",
+    "credentials",
+    "credentials.json",
+    "secret.json",
+    "secrets.json",
+})
+CREDENTIAL_FILE_SUFFIXES = frozenset({".key", ".pem", ".p12", ".pfx"})
 REQUIRED_MANIFEST_TEXT = (
     "name: jev-decision",
     "author: bgrablin",
@@ -155,6 +167,25 @@ def _content_failures(relative: str, text: str) -> list[str]:
     return failures
 
 
+def _credential_path_failures(relative: str) -> list[str]:
+    name = Path(relative).name.casefold()
+    if name in CREDENTIAL_FILE_NAMES or name.endswith(tuple(CREDENTIAL_FILE_SUFFIXES)):
+        return [f"credential file is tracked in {relative}"]
+    if name.startswith(".env.") and name != ".env.example":
+        return [f"credential file is tracked in {relative}"]
+    return []
+
+
+def _text_from_bytes(data: bytes) -> str | None:
+    """Return UTF-8 text, or None for binary content such as branding images."""
+    if b"\0" in data:
+        return None
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
 def _manifest_failures(root: Path) -> list[str]:
     failures: list[str] = []
     manifest = root / "plugin.yaml"
@@ -235,20 +266,25 @@ def _history_failures(root: Path, text_suffixes: set[str]) -> list[str]:
     for commit in _history_commits(root):
         try:
             tree = subprocess.run(
-                ["git", "-C", str(root), "ls-tree", "-r", "--name-only", commit],
+                ["git", "-C", str(root), "ls-tree", "-r", "-z", "--name-only", commit],
                 capture_output=True,
                 check=False,
-                text=True,
                 timeout=30,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise RuntimeError("git history tree listing failed") from exc
         if tree.returncode != 0:
             raise RuntimeError("git history tree listing failed")
-        for relative in tree.stdout.splitlines():
-            path = Path(relative)
-            if relative == SELF_RELATIVE or path.suffix.casefold() not in text_suffixes:
+        for raw_relative in tree.stdout.split(b"\0"):
+            if not raw_relative:
                 continue
+            try:
+                relative = raw_relative.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise RuntimeError("git history tree contains a non-UTF-8 path") from exc
+            if relative == SELF_RELATIVE:
+                continue
+            failures.extend(_credential_path_failures(relative))
             try:
                 shown = subprocess.run(
                     ["git", "-C", str(root), "show", f"{commit}:{relative}"],
@@ -259,8 +295,10 @@ def _history_failures(root: Path, text_suffixes: set[str]) -> list[str]:
             except (OSError, subprocess.TimeoutExpired) as exc:
                 raise RuntimeError("git history file read failed") from exc
             if shown.returncode != 0:
+                raise RuntimeError(f"git history blob read failed: {relative}")
+            text = _text_from_bytes(shown.stdout)
+            if text is None:
                 continue
-            text = shown.stdout.decode("utf-8", errors="replace")
             for failure in _content_failures(relative, text):
                 failures.append(f"history {commit[:12]}: {failure}")
     return failures
@@ -274,8 +312,12 @@ def run_checks(root: Path, include_history: bool = False) -> list[str]:
     for path in tracked:
         relative = _relative(root, path)
         failures.extend(_tracked_path_failures(relative))
-        if path.suffix.casefold() in TEXT_SUFFIXES and relative != SELF_RELATIVE:
-            text = path.read_text(encoding="utf-8", errors="replace")
+        failures.extend(_credential_path_failures(relative))
+        if relative != SELF_RELATIVE:
+            text = _text_from_bytes(path.read_bytes())
+        else:
+            text = None
+        if text is not None:
             failures.extend(_content_failures(relative, text))
     if include_history:
         failures.extend(_history_failures(root, TEXT_SUFFIXES))

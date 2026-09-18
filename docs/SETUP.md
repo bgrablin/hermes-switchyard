@@ -45,18 +45,18 @@ Start a fresh Hermes session after installation or an update.
 
 ## Add the OpenRouter key safely
 
-If the plugin is already installed, use Hermes' secure provider prompt:
+If the plugin is already installed, rerun the manifest's secure masked-secret flow:
 
 ```text
-hermes auth add openrouter --type api-key
+hermes plugins install bgrablin/hermes-switchyard --force --enable
 ```
 
-Leave out `--api-key` so the value is requested interactively rather than placed in shell history. Never put the key in `hermes config set`, a shell variable saved to a file, a URL, a fixture, a repository file, or an issue report.
+Hermes reads the plugin manifest's `requires_env` entry and requests `OPENROUTER_API_KEY` through its masked secret prompt, then saves it in the active profile's `.env`. If the plugin is already installed, add `--force` to rerun the manifest prompt. Never put the key in `hermes auth add openrouter`, `hermes config set`, a shell variable saved to a file, a URL, a fixture, a repository file, or an issue report: the provider-pool command is not the profile environment secret consumed by `get_secret("OPENROUTER_API_KEY")`.
 
-Check provider status without displaying the key:
+Check plugin availability without displaying the key:
 
 ```text
-hermes auth status openrouter
+hermes plugins list --enabled
 ```
 
 The plugin reads the active profile's `OPENROUTER_API_KEY` secret. Profiles do not share this secret automatically. After adding or changing it, start a fresh Hermes session.

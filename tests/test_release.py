@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import ast
 import json
 import os
 import shutil
@@ -10,11 +11,15 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 from scripts.build_release import (
     RELEASE_FILES,
     ReleaseError,
     ReleaseVerificationError,
+    MAX_ARCHIVE_UNCOMPRESSED_BYTES,
+    MAX_MEMBER_UNCOMPRESSED_BYTES,
+    _has_register_binding,
     build_release,
     verify_archive,
 )
@@ -77,6 +82,58 @@ def _recompute_checksums(members: dict[str, bytes]) -> None:
 
 
 class ReleaseArchiveTests(unittest.TestCase):
+    def test_register_ast_check_accepts_reexports_and_rejects_text_mentions(self):
+        self.assertTrue(_has_register_binding(ast.parse("from .jev_decision import register")))
+        self.assertTrue(_has_register_binding(ast.parse("def register(ctx):\n    return None\n")))
+        self.assertFalse(_has_register_binding(ast.parse("# register\nvalue = 'register'\n")))
+        self.assertFalse(_has_register_binding(ast.parse("register = object()\n")))
+
+    def test_archive_member_size_limit_is_checked_before_read(self):
+        class FakeInfo:
+            filename = "payload.bin"
+            file_size = MAX_MEMBER_UNCOMPRESSED_BYTES + 1
+
+        class FakeArchive:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def infolist(self):
+                return [FakeInfo()]
+
+            def read(self, _name):
+                raise AssertionError("oversized member was read")
+
+        with mock.patch("scripts.build_release.zipfile.ZipFile", return_value=FakeArchive()):
+            with self.assertRaises(ReleaseVerificationError):
+                verify_archive(Path("not-a-real-archive.zip"))
+
+    def test_archive_cumulative_size_limit_is_checked_before_read(self):
+        class FakeInfo:
+            def __init__(self, name, size):
+                self.filename = name
+                self.file_size = size
+
+        class FakeArchive:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def infolist(self):
+                half = MAX_ARCHIVE_UNCOMPRESSED_BYTES // 2 + 1
+                return [FakeInfo("first.bin", half), FakeInfo("second.bin", half)]
+
+            def read(self, _name):
+                raise AssertionError("cumulative oversized member was read")
+
+        with mock.patch("scripts.build_release.zipfile.ZipFile", return_value=FakeArchive()):
+            with self.assertRaises(ReleaseVerificationError):
+                verify_archive(Path("not-a-real-archive.zip"))
+
     def test_same_commit_inputs_produce_same_archive_bytes_when_worktree_is_dirty(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
@@ -101,7 +158,7 @@ class ReleaseArchiveTests(unittest.TestCase):
             base = Path(directory)
             mirror, source_sha = _fixture_repo(base)
             (mirror / ".env").write_text(
-                "OPENROUTER_API_KEY=not-a-release-value\n", encoding="utf-8"
+                "OPENROUTER_API_KEY=fixture-key-value\n", encoding="utf-8"
             )
             result_file = mirror / "evaluation" / "results.json"
             result_file.parent.mkdir(parents=True)

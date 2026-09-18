@@ -55,6 +55,8 @@ MANIFEST_KEYS = frozenset(
 )
 FILE_ENTRY_KEYS = frozenset({"path", "sha256", "size"})
 REGULAR_BLOB_MODES = frozenset({"100644", "100755"})
+MAX_MEMBER_UNCOMPRESSED_BYTES = 16 * 1024 * 1024
+MAX_ARCHIVE_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
 
 
 class ReleaseError(RuntimeError):
@@ -353,7 +355,11 @@ def _verify_extracted_tree(destination: Path, manifest: dict[str, Any]) -> None:
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     except (OSError, SyntaxError, UnicodeDecodeError) as exc:
         raise ReleaseVerificationError("extracted Python entrypoint or package does not parse") from exc
-    if "register" not in source:
+    try:
+        tree = ast.parse(source, filename=str(root_entrypoint))
+    except (SyntaxError, UnicodeDecodeError) as exc:
+        raise ReleaseVerificationError("extracted Python entrypoint does not parse") from exc
+    if not _has_register_binding(tree):
         raise ReleaseVerificationError("extracted entrypoint does not expose register")
     try:
         extracted_metadata = _plugin_metadata(destination)
@@ -368,6 +374,31 @@ def _verify_extracted_tree(destination: Path, manifest: dict[str, Any]) -> None:
     if not manifest_path.is_file():
         raise ReleaseVerificationError("extracted plugin manifest is missing")
     _verify_readme_references(destination)
+
+
+def _has_register_binding(tree: ast.AST) -> bool:
+    """Return whether module scope binds the loader-visible ``register`` name."""
+    for node in getattr(tree, "body", ()):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "register":
+            return True
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                bound_name = alias.asname or alias.name.split(".", 1)[0]
+                if bound_name == "register":
+                    return True
+    return False
+
+
+def _bounded_archive_infos(infos: list[zipfile.ZipInfo]) -> None:
+    """Reject oversized members before any archive member is decompressed."""
+    total = 0
+    for info in infos:
+        size = info.file_size
+        if type(size) is not int or size < 0 or size > MAX_MEMBER_UNCOMPRESSED_BYTES:
+            raise ReleaseVerificationError("archive member exceeds the uncompressed-size limit")
+        total += size
+        if total > MAX_ARCHIVE_UNCOMPRESSED_BYTES:
+            raise ReleaseVerificationError("archive exceeds the cumulative uncompressed-size limit")
 
 
 def _verify_readme_references(destination: Path) -> None:
@@ -423,6 +454,7 @@ def verify_archive(
                 _safe_member_name(name)
             if len(names) != len(set(names)):
                 raise ReleaseVerificationError("archive contains duplicate members")
+            _bounded_archive_infos(infos)
             required = {SOURCE_MANIFEST_NAME, CHECKSUMS_NAME}
             if not required.issubset(names):
                 raise ReleaseVerificationError("archive is missing release metadata")

@@ -74,25 +74,21 @@ Future work includes a reviewed catalog admission, independent real-GUI coverage
 
 ## Safe credential setup
 
-The plugin manifest declares `OPENROUTER_API_KEY` as a required secret. Install with `--enable` and follow Hermes' masked prompt if it asks for the key. If the plugin is already installed, use Hermes' secure provider prompt without putting the value in shell history:
+The plugin manifest declares `OPENROUTER_API_KEY` as a required secret. Install with `--enable` and follow the manifest's masked secret prompt if it asks for the key. If the plugin is already installed, rerun the same install flow with `--force` without putting the value in shell history:
 
 ```text
-hermes auth add openrouter --type api-key
+hermes plugins install bgrablin/hermes-switchyard --enable
 ```
 
-The command above is intentionally missing `--api-key`; Hermes prompts for the value securely. Check provider status without printing the key:
+Hermes reads the manifest's `requires_env` entry, asks for `OPENROUTER_API_KEY` with its masked secret prompt, and saves the value in the active profile's `.env`. If the plugin is already installed, add `--force` to the same command so the manifest prompt runs again.
 
-```text
-hermes auth status openrouter
-```
-
-Then inspect enabled plugins:
+Do not use `hermes auth add openrouter` for this plugin. That command manages a provider credential pool; Switchyard calls Hermes' profile-scoped `get_secret("OPENROUTER_API_KEY")` and requires the manifest environment secret instead. Check the enabled plugin without displaying the key:
 
 ```text
 hermes plugins list --enabled
 ```
 
-If Hermes reports that `OPENROUTER_API_KEY` is missing, add it to the active profile through the secure Hermes credential flow, start a fresh Hermes session, and check the plugin list again. Logging in to Codex or changing `jev_model` does not fix a missing OpenRouter key.
+If Hermes reports that `OPENROUTER_API_KEY` is missing, rerun `hermes plugins install bgrablin/hermes-switchyard --force --enable` and follow the manifest's masked prompt, then start a fresh Hermes session and check the plugin list again. Logging in to Codex or changing `jev_model` does not fix a missing OpenRouter key.
 
 ## Windows prerequisites
 
