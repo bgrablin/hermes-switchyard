@@ -1,8 +1,7 @@
 name: jev-decision
 version: 0.3.2
 author: bgrablin
-manifest_version: 2
-api_version: 1
+manifest_version: 1
 description: Bounded Jev decisions for advisory routing and fixture-tested computer-use loops; no calibrated-quality or independent-completion claim.
 license: MIT
 homepage: https://github.com/bgrablin/hermes-switchyard

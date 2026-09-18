@@ -2,7 +2,7 @@
 
 Jev-powered selection for Hermes Agent.
 
-A native standalone Hermes plugin for bounded, advisory Jev decisions. It adds closed-set skill selection, explicit-metadata model routing, and an experimental Windows computer-use loop without modifying Hermes core.
+A native standalone Hermes plugin for bounded, advisory Jev decisions. It adds closed-set skill selection, explicit-metadata model routing, and a Windows computer-use loop without modifying Hermes core.
 
 Version: 0.3.2
 
@@ -10,7 +10,7 @@ Version: 0.3.2
 
 - `jev_skill_select` chooses from the caller's explicit skill candidates, or abstains when the local confidence, need, or winning-probability gates do not pass. It never loads a skill or edits the prompt.
 - `jev_model_route` filters candidates locally by explicit approval, data classes, capabilities, context limit, and cost. Jev supplies fit signals; code selects the cheapest qualified candidate. It never changes the runtime model and never tries an automatic fallback.
-- `jev_computer_use` is an experimental Windows-only multi-step pilot over Hermes' existing `computer_use` tool. It requires a complete goal, target application, explicit hotkey allowlists, and the public/sanitized-data attestation. `DONE` returns a completion candidate with `verified: false`; independent verification remains the coordinator's job.
+- `jev_computer_use` is a Windows-only multi-step pilot over Hermes' existing `computer_use` tool. It requires a complete goal, target application, explicit hotkey allowlists, and the public/sanitized-data attestation. `DONE` returns a completion candidate with `verified: false`; independent verification remains the coordinator's job.
 
 All three tools preserve the existing Hermes approval and dispatch surface. The model endpoint, model aliases, and provider fallback policy are closed sets in code. The plugin does not provide a quality-calibration claim, guardrail management, arbitrary endpoint selection, or credential-bearing destinations.
 

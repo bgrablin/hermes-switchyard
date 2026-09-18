@@ -593,7 +593,7 @@ class PluginEntryPointTests(unittest.TestCase):
         with mock.patch.object(jev_decision.sys, "platform", "win32"):
             jev_decision.register(context)
         prompt, options = context.prompts["jev-decision.windows-computer-use"]
-        self.assertIn("optional pilot", prompt)
+        self.assertIn("configurable capability", prompt)
         self.assertIn("only when the caller explicitly approves the pilot", prompt)
         self.assertIn("public or sanitized", prompt)
         self.assertIn("not blanket egress authorization", prompt)

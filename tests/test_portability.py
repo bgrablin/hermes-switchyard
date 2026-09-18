@@ -54,6 +54,22 @@ class PortabilityTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
+    def test_native_manifest_passes_hermes_parser_and_installer_when_available(self):
+        try:
+            from hermes_cli.plugins_cmd import _check_manifest_version, _read_manifest
+            from hermes_cli.plugins_manifest import parse_manifest_file
+        except ImportError as exc:
+            self.skipTest(f"Hermes native parser unavailable: {exc}")
+
+        raw_manifest = _read_manifest(ROOT)
+        parsed = parse_manifest_file(ROOT / "plugin.yaml", ROOT, source="project", prefix="")
+        self.assertIsNotNone(parsed)
+        _check_manifest_version(raw_manifest, parsed.name)
+        self.assertEqual(parsed.name, "jev-decision")
+        self.assertEqual(parsed.version, "0.3.2")
+        self.assertEqual(parsed.manifest_version, 1)
+        self.assertIsNone(parsed.api_version)
+
     def test_skill_resource_uses_relocated_package_and_ignores_cwd(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)

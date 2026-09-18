@@ -187,7 +187,7 @@ def register(ctx):
     if sys.platform == "win32" and hasattr(ctx, "register_system_prompt_section"):
         ctx.register_system_prompt_section(
             "jev-decision.windows-computer-use",
-            "Jev computer use is an optional pilot for multi-step Windows browser or native GUI goals. Use it "
+            "Jev computer use is a configurable capability for multi-step Windows browser or native GUI goals. Use it "
             "only when the caller explicitly approves the pilot and attests that all state is public or sanitized; "
             "that acknowledgement is not blanket egress authorization and does not override mandatory skills, "
             "the user's native/computer-use preference, or other required controls. If used, call jev_computer_use "

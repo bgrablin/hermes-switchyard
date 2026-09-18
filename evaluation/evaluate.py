@@ -265,7 +265,7 @@ def validation_probes(module: Any, public_fixture: dict[str, Any]) -> list[dict[
     def broken(_payload: dict) -> dict:
         raise RuntimeError("fixture-transport-text")
 
-    client = module.client.DecisionClient(api_key="offline-only-placeholder", transport=broken)
+    client = module.client.DecisionClient(api_key="test-key", transport=broken)
     try:
         client.decide(public_fixture["task"], {"answer": {"type": "noul"}}, public_or_sanitized_data_ack=True)
     except RuntimeError as exc:
