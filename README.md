@@ -53,7 +53,7 @@ Use the secure setup steps in [docs/SETUP.md](docs/SETUP.md). Never pass an API 
 
 - **Skill selection:** `jev_skill_select` recommends one skill from the candidate list supplied by Hermes. It never loads the skill; Hermes decides whether to load it.
 - **Model routing:** `jev_model_route` filters candidates using the metadata and requirements supplied by Hermes, then recommends the lowest-cost qualified candidate. It never changes the active Hermes model and does not try another provider when Jev fails.
-- **Windows computer use:** `jev_computer_use` runs bounded actions in a specified Windows application through Hermes' normal computer-use approval and action controls. It captures the target again before acting, refuses a changed target, and returns `verified: false` until Hermes independently checks the result.
+- **Windows computer use:** `jev_computer_use` runs bounded actions in a specified Windows application through Hermes' normal computer-use approval and action controls. It captures the target again before acting, refuses a changed target, and returns `verified: false`. Hermes must check the result separately; the tool does not certify success.
 
 The default Jev model is `typesafe/jev-1.13`. The implementation also accepts one dated alias for compatibility, but users should keep the default unless a reviewed release gives a different value. The endpoint, model aliases, and provider fallback policy are fixed in code.
 
@@ -78,13 +78,7 @@ Future work includes a reviewed catalog admission, independent real-GUI coverage
 
 ## Safe credential setup
 
-The plugin manifest declares `OPENROUTER_API_KEY` as a required secret. Install with `--enable` and follow the manifest's masked secret prompt if it asks for the key. If the plugin is already installed, rerun the same install flow with `--force` without putting the value in shell history:
-
-```text
-hermes plugins install bgrablin/hermes-switchyard --enable
-```
-
-Hermes reads the manifest's `requires_env` entry, asks for `OPENROUTER_API_KEY` with its masked secret prompt, and saves the value in the active profile's `.env`. If the plugin is already installed, add `--force` to the same command so the manifest prompt runs again.
+The installation step requests `OPENROUTER_API_KEY` through a masked prompt when the key is missing. Hermes reads the manifest's `requires_env` entry and saves the key in the active profile's `.env`. If you already supplied the key, there is no need to reinstall.
 
 Do not use `hermes auth add openrouter` for this plugin. That command manages a provider credential pool; Switchyard calls Hermes' profile-scoped `get_secret("OPENROUTER_API_KEY")` and requires the manifest environment secret instead. Check the enabled plugin without displaying the key:
 
@@ -132,7 +126,7 @@ The supported recovery is:
 hermes plugins doctor . --ci
 ```
 
-Plugin Doctor imports and registers plugin code in-process. It checks the real loader and is not a sandbox, so run it only against code you have reviewed.
+Plugin Doctor checks whether Hermes can import and register the plugin. It does not test a live Jev request or prove that a GUI task succeeded. It runs plugin code in-process, not in a sandbox, so use it only with trusted code.
 
 ## Updating and rollback
 
