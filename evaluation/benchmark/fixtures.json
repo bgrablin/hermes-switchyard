@@ -1,0 +1,369 @@
+{
+  "schema_version": 1,
+  "dataset_id": "hermes-switchyard-skill-selection-public-synthetic-v1",
+  "public_synthetic": true,
+  "label_frozen": true,
+  "label_freeze_note": "Expected labels are fixed in this file before any provider-backed run. Offline simulation fields are not observations.",
+  "candidate_catalog": [
+    {
+      "name": "git-change-preparation",
+      "description": "Prepare signed Git commits for publication, preserve truthful author attribution, and verify signer, committer, and push identity."
+    },
+    {
+      "name": "github-code-review",
+      "description": "Review pull request diffs, workflow permissions, and CI evidence; report concrete findings with file and line context."
+    },
+    {
+      "name": "docker-management",
+      "description": "Operate Docker containers, images, volumes, and Compose stacks with health checks and reversible changes."
+    },
+    {
+      "name": "kubernetes-patterns",
+      "description": "Write or debug Kubernetes manifests, rollout behavior, service wiring, and cluster resource settings."
+    },
+    {
+      "name": "postgres-patterns",
+      "description": "Design and troubleshoot PostgreSQL schemas, queries, indexes, migrations, and secure operational settings."
+    },
+    {
+      "name": "network-config-validation",
+      "description": "Validate router, firewall, switch, and VLAN configuration before deployment without applying unreviewed changes."
+    },
+    {
+      "name": "smart-home-local-apis",
+      "description": "Diagnose or configure Home Assistant and UniFi through local APIs, entity state, and device metadata."
+    },
+    {
+      "name": "document-intelligence",
+      "description": "Retrieve obligations and evidence from difficult documents, long PDFs, scanned pages, and public records."
+    },
+    {
+      "name": "spreadsheet-delivery-certification",
+      "description": "Check spreadsheet formulas, compatibility, rendering, and delivery integrity across office applications."
+    },
+    {
+      "name": "local-place-recommendations",
+      "description": "Find nearby places using location, hours, routes, and user-fit constraints."
+    },
+    {
+      "name": "literature-review",
+      "description": "Discover and synthesize scholarly sources with reproducible search notes, citations, and evidence boundaries."
+    },
+    {
+      "name": "software-release-governance",
+      "description": "Assess external software releases for authority, provenance, approvals, exact artifacts, and reproducible proof."
+    }
+  ],
+  "development_fixtures": [
+    {
+      "id": "dev_git_signed_patch_001",
+      "category": "clear_positive",
+      "public_synthetic": true,
+      "task": "Create a signed commit from this local patch and verify its author and committer records.",
+      "expected": {"label_type": "single", "status": "selected", "selected": "git-change-preparation", "required_skills": ["git-change-preparation"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "selected", "selected": "git-change-preparation", "selected_skills": ["git-change-preparation"]},
+        "switchyard": {"choice": "git-change-preparation", "confidence": 0.95, "winning_probability": 0.93, "needs_skill": 0.96, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "dev_no_fit_greeting_001",
+      "category": "no_fit",
+      "public_synthetic": true,
+      "task": "Write a friendly one-line greeting for a neighbor.",
+      "expected": {"label_type": "no_fit", "status": "abstained", "selected": null, "required_skills": []},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "abstained", "selected": null, "selected_skills": []},
+        "switchyard": {"choice": "local-place-recommendations", "confidence": 0.70, "winning_probability": 0.70, "needs_skill": 0.20, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "dev_near_release_pr_001",
+      "category": "near_miss",
+      "public_synthetic": true,
+      "task": "Check a release pull request for provenance evidence and approval before publishing it.",
+      "expected": {"label_type": "single", "status": "selected", "selected": "software-release-governance", "required_skills": ["software-release-governance"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "selected", "selected": "software-release-governance", "selected_skills": ["software-release-governance"]},
+        "switchyard": {"choice": "software-release-governance", "confidence": 0.91, "winning_probability": 0.89, "needs_skill": 0.92, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "dev_multi_source_synthesis_001",
+      "category": "multi_skill_or_ambiguous",
+      "public_synthetic": true,
+      "task": "Extract evidence from a long report and compare the studies it cites.",
+      "expected": {"label_type": "required_set", "status": "selected", "selected": null, "required_skills": ["document-intelligence", "literature-review"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "selected", "selected": "document-intelligence", "selected_skills": ["document-intelligence", "literature-review"]},
+        "switchyard": {"choice": "document-intelligence", "confidence": 0.88, "winning_probability": 0.84, "needs_skill": 0.93, "model": "typesafe/jev-1.13-20260917"}
+      }
+    }
+  ],
+  "heldout_fixtures": [
+    {
+      "id": "clear_git_identity_001",
+      "category": "clear_positive",
+      "public_synthetic": true,
+      "task": "Before a public push, turn the staged patch into a signed commit, retain an outside contributor's author line, and verify the resulting identities.",
+      "expected": {"label_type": "single", "status": "selected", "selected": "git-change-preparation", "required_skills": ["git-change-preparation"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "selected", "selected": "git-change-preparation", "selected_skills": ["git-change-preparation"]},
+        "switchyard": {"choice": "git-change-preparation", "confidence": 0.95, "winning_probability": 0.94, "needs_skill": 0.97, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "clear_pr_permissions_001",
+      "category": "clear_positive",
+      "public_synthetic": true,
+      "task": "Examine a pull request's changed workflow permissions and report only findings supported by its diff and checks.",
+      "expected": {"label_type": "single", "status": "selected", "selected": "github-code-review", "required_skills": ["github-code-review"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "selected", "selected": "github-code-review", "selected_skills": ["github-code-review"]},
+        "switchyard": {"choice": "github-code-review", "confidence": 0.94, "winning_probability": 0.92, "needs_skill": 0.95, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "clear_compose_health_001",
+      "category": "clear_positive",
+      "public_synthetic": true,
+      "task": "Inspect a Compose stack's mounted volumes and container health, then outline a reversible restart sequence.",
+      "expected": {"label_type": "single", "status": "selected", "selected": "docker-management", "required_skills": ["docker-management"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "selected", "selected": "docker-management", "selected_skills": ["docker-management"]},
+        "switchyard": {"choice": "docker-management", "confidence": 0.93, "winning_probability": 0.91, "needs_skill": 0.94, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "clear_postgres_migration_001",
+      "category": "clear_positive",
+      "public_synthetic": true,
+      "task": "Plan a low-downtime table change, including index impact and a rollback route.",
+      "expected": {"label_type": "single", "status": "selected", "selected": "postgres-patterns", "required_skills": ["postgres-patterns"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "selected", "selected": "postgres-patterns", "selected_skills": ["postgres-patterns"]},
+        "switchyard": {"choice": "postgres-patterns", "confidence": 0.94, "winning_probability": 0.91, "needs_skill": 0.95, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "clear_network_review_001",
+      "category": "clear_positive",
+      "public_synthetic": true,
+      "task": "Review a proposed firewall and switch VLAN update against a pre-deployment checklist; do not apply it.",
+      "expected": {"label_type": "single", "status": "selected", "selected": "network-config-validation", "required_skills": ["network-config-validation"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "selected", "selected": "network-config-validation", "selected_skills": ["network-config-validation"]},
+        "switchyard": {"choice": "network-config-validation", "confidence": 0.93, "winning_probability": 0.90, "needs_skill": 0.94, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "clear_public_pdf_obligations_001",
+      "category": "clear_positive",
+      "public_synthetic": true,
+      "task": "Extract deadlines, obligations, and citation anchors from a lengthy public procurement PDF.",
+      "expected": {"label_type": "single", "status": "selected", "selected": "document-intelligence", "required_skills": ["document-intelligence"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "selected", "selected": "document-intelligence", "selected_skills": ["document-intelligence"]},
+        "switchyard": {"choice": "document-intelligence", "confidence": 0.95, "winning_probability": 0.93, "needs_skill": 0.96, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "no_fit_unit_conversion_001",
+      "category": "no_fit",
+      "public_synthetic": true,
+      "task": "Convert 37 miles to kilometers and show one line of arithmetic.",
+      "expected": {"label_type": "no_fit", "status": "abstained", "selected": null, "required_skills": []},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "abstained", "selected": null, "selected_skills": []},
+        "switchyard": {"choice": "local-place-recommendations", "confidence": 0.71, "winning_probability": 0.71, "needs_skill": 0.18, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "no_fit_sky_explanation_001",
+      "category": "no_fit",
+      "public_synthetic": true,
+      "task": "Give a three-sentence explanation of why the sky looks blue.",
+      "expected": {"label_type": "no_fit", "status": "abstained", "selected": null, "required_skills": []},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "abstained", "selected": null, "selected_skills": []},
+        "switchyard": {"choice": "literature-review", "confidence": 0.69, "winning_probability": 0.69, "needs_skill": 0.16, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "no_fit_sort_words_001",
+      "category": "no_fit",
+      "public_synthetic": true,
+      "task": "Sort these six words alphabetically.",
+      "expected": {"label_type": "no_fit", "status": "abstained", "selected": null, "required_skills": []},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "abstained", "selected": null, "selected_skills": []},
+        "switchyard": {"choice": "document-intelligence", "confidence": 0.68, "winning_probability": 0.68, "needs_skill": 0.15, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "no_fit_reminder_rewrite_001",
+      "category": "no_fit",
+      "public_synthetic": true,
+      "task": "Rewrite this appointment reminder so it is neutral and under 40 words.",
+      "expected": {"label_type": "no_fit", "status": "abstained", "selected": null, "required_skills": []},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "abstained", "selected": null, "selected_skills": []},
+        "switchyard": {"choice": "github-code-review", "confidence": 0.67, "winning_probability": 0.67, "needs_skill": 0.14, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "no_fit_python_basics_001",
+      "category": "no_fit",
+      "public_synthetic": true,
+      "task": "Explain the difference between a Python list and a tuple with a tiny example.",
+      "expected": {"label_type": "no_fit", "status": "abstained", "selected": null, "required_skills": []},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "abstained", "selected": null, "selected_skills": []},
+        "switchyard": {"choice": "kubernetes-patterns", "confidence": 0.66, "winning_probability": 0.66, "needs_skill": 0.12, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "no_fit_button_colors_001",
+      "category": "no_fit",
+      "public_synthetic": true,
+      "task": "Pick two accessible colors for a generic dashboard button.",
+      "expected": {"label_type": "no_fit", "status": "abstained", "selected": null, "required_skills": []},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "abstained", "selected": null, "selected_skills": []},
+        "switchyard": {"choice": "spreadsheet-delivery-certification", "confidence": 0.65, "winning_probability": 0.65, "needs_skill": 0.13, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "near_cluster_rollout_001",
+      "category": "near_miss",
+      "public_synthetic": true,
+      "task": "Check a cluster deployment's image tag and rollout policy before suggesting a canary.",
+      "expected": {"label_type": "single", "status": "selected", "selected": "kubernetes-patterns", "required_skills": ["kubernetes-patterns"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "selected", "selected": "kubernetes-patterns", "selected_skills": ["kubernetes-patterns"]},
+        "switchyard": {"choice": "kubernetes-patterns", "confidence": 0.91, "winning_probability": 0.88, "needs_skill": 0.92, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "near_release_provenance_001",
+      "category": "near_miss",
+      "public_synthetic": true,
+      "task": "A GitHub release candidate needs provenance and approval evidence before publication.",
+      "expected": {"label_type": "single", "status": "selected", "selected": "software-release-governance", "required_skills": ["software-release-governance"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "selected", "selected": "github-code-review", "selected_skills": ["github-code-review"]},
+        "switchyard": {"choice": "github-code-review", "confidence": 0.90, "winning_probability": 0.82, "needs_skill": 0.86, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "near_dashboard_sql_001",
+      "category": "near_miss",
+      "public_synthetic": true,
+      "task": "Diagnose a slow SQL query from an analytics dashboard without changing the schema.",
+      "expected": {"label_type": "single", "status": "selected", "selected": "postgres-patterns", "required_skills": ["postgres-patterns"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "selected", "selected": "postgres-patterns", "selected_skills": ["postgres-patterns"]},
+        "switchyard": {"choice": "postgres-patterns", "confidence": 0.92, "winning_probability": 0.87, "needs_skill": 0.91, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "near_smart_plug_api_001",
+      "category": "near_miss",
+      "public_synthetic": true,
+      "task": "Read a local smart-plug state through a Home Assistant endpoint and distinguish an API problem from a device fault.",
+      "expected": {"label_type": "single", "status": "selected", "selected": "smart-home-local-apis", "required_skills": ["smart-home-local-apis"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "selected", "selected": "network-config-validation", "selected_skills": ["network-config-validation"]},
+        "switchyard": {"choice": "smart-home-local-apis", "confidence": 0.90, "winning_probability": 0.85, "needs_skill": 0.89, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "near_survey_sources_001",
+      "category": "near_miss",
+      "public_synthetic": true,
+      "task": "Compare methods and conflicting claims across a public survey paper's cited sources.",
+      "expected": {"label_type": "single", "status": "selected", "selected": "literature-review", "required_skills": ["literature-review"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "abstained", "selected": null, "selected_skills": []},
+        "switchyard": {"choice": "literature-review", "confidence": 0.89, "winning_probability": 0.84, "needs_skill": 0.88, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "near_workbook_export_001",
+      "category": "near_miss",
+      "public_synthetic": true,
+      "task": "Verify that formulas and page breaks survive a workbook export for a reviewer using two office suites.",
+      "expected": {"label_type": "single", "status": "selected", "selected": "spreadsheet-delivery-certification", "required_skills": ["spreadsheet-delivery-certification"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "selected", "selected": "spreadsheet-delivery-certification", "selected_skills": ["spreadsheet-delivery-certification"]},
+        "switchyard": {"choice": "spreadsheet-delivery-certification", "confidence": 0.92, "winning_probability": 0.86, "needs_skill": 0.90, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "multi_git_pr_review_001",
+      "category": "multi_skill_or_ambiguous",
+      "public_synthetic": true,
+      "task": "Prepare a signed commit for a pull request, then review the changed CI workflow for evidence-backed permission findings.",
+      "expected": {"label_type": "required_set", "status": "selected", "selected": null, "required_skills": ["git-change-preparation", "github-code-review"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "selected", "selected": "git-change-preparation", "selected_skills": ["git-change-preparation", "github-code-review"]},
+        "switchyard": {"choice": "git-change-preparation", "confidence": 0.87, "winning_probability": 0.82, "needs_skill": 0.92, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "multi_postgres_backup_001",
+      "category": "multi_skill_or_ambiguous",
+      "public_synthetic": true,
+      "task": "Plan a database migration and verify the containerized backup path can be restored during rollback.",
+      "expected": {"label_type": "required_set", "status": "selected", "selected": null, "required_skills": ["postgres-patterns", "docker-management"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "selected", "selected": "postgres-patterns", "selected_skills": ["postgres-patterns"]},
+        "switchyard": {"choice": "postgres-patterns", "confidence": 0.86, "winning_probability": 0.81, "needs_skill": 0.91, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "multi_report_studies_001",
+      "category": "multi_skill_or_ambiguous",
+      "public_synthetic": true,
+      "task": "Gather evidence from a long public report and synthesize a cited comparison of the underlying studies.",
+      "expected": {"label_type": "required_set", "status": "selected", "selected": null, "required_skills": ["document-intelligence", "literature-review"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "selected", "selected": "document-intelligence", "selected_skills": ["document-intelligence", "literature-review"]},
+        "switchyard": {"choice": "document-intelligence", "confidence": 0.88, "winning_probability": 0.83, "needs_skill": 0.93, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "multi_vlan_home_automation_001",
+      "category": "multi_skill_or_ambiguous",
+      "public_synthetic": true,
+      "task": "Validate a VLAN and firewall change, then check the local home-automation integration after the rollout.",
+      "expected": {"label_type": "required_set", "status": "selected", "selected": null, "required_skills": ["network-config-validation", "smart-home-local-apis"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "selected", "selected": "network-config-validation", "selected_skills": ["network-config-validation", "smart-home-local-apis"]},
+        "switchyard": {"choice": "network-config-validation", "confidence": 0.87, "winning_probability": 0.82, "needs_skill": 0.91, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "multi_release_pr_proof_001",
+      "category": "multi_skill_or_ambiguous",
+      "public_synthetic": true,
+      "task": "Review a release pull request and verify approval and provenance evidence before publication.",
+      "expected": {"label_type": "required_set", "status": "selected", "selected": null, "required_skills": ["github-code-review", "software-release-governance"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "selected", "selected": "software-release-governance", "selected_skills": ["software-release-governance", "github-code-review"]},
+        "switchyard": {"choice": "software-release-governance", "confidence": 0.88, "winning_probability": 0.83, "needs_skill": 0.92, "model": "typesafe/jev-1.13-20260917"}
+      }
+    },
+    {
+      "id": "ambiguous_container_cluster_001",
+      "category": "multi_skill_or_ambiguous",
+      "public_synthetic": true,
+      "task": "Investigate a service deployed across containers and a cluster; decide which operational guide should lead the first diagnostic step.",
+      "expected": {"label_type": "ambiguous", "status": "selected", "selected": null, "acceptable_skills": ["docker-management", "kubernetes-patterns"]},
+      "offline_simulation": {
+        "luna": {"model": "openai-codex/gpt-5.6-luna-900k", "provider": "openai-codex", "reasoning": "max", "status": "selected", "selected": "kubernetes-patterns", "selected_skills": ["kubernetes-patterns"]},
+        "switchyard": {"choice": "docker-management", "confidence": 0.77, "winning_probability": 0.76, "needs_skill": 0.86, "model": "typesafe/jev-1.13-20260917"}
+      }
+    }
+  ]
+}
