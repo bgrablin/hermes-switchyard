@@ -22,7 +22,7 @@ config_schema:
   jev_model: {type: str, default: "typesafe/jev-1.13", description: Exact Jev model slug from the two evidence-backed aliases}
   computer_max_steps: {type: int, default: 12, description: Default computer-use action budget}
   automatic_skill_recommendation: {type: bool, default: true, description: Enable bounded local skill recommendations in the pre_llm_call lifecycle hook}
-  automatic_skill_candidates: {type: list, default: [], description: Explicit skill candidate objects; an empty list uses the local available-skills index and descriptions are local-ranking metadata never sent to hosted Jev}
+  automatic_skill_candidates: {type: list, default: [], description: Explicit skill candidate objects; an empty list uses Hermes' active profile skills registry and descriptions are local-ranking metadata never sent to hosted Jev}
   automatic_skill_local_threshold: {type: float, default: 0.2, description: Local token-overlap threshold; it is an uncalibrated abstention policy}
   automatic_skill_local_margin: {type: float, default: 0.05, description: Required local winner margin; it is an uncalibrated abstention policy}
   automatic_skill_cache_seconds: {type: float, default: 30.0, description: Bounded per-process recommendation cache lifetime}

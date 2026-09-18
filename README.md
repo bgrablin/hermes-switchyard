@@ -14,9 +14,39 @@ Version: 0.3.2
 
 All three tools preserve the existing Hermes approval and dispatch surface. The model endpoint, model aliases, and provider fallback policy are closed sets in code. The plugin does not provide a quality-calibration claim, guardrail management, arbitrary endpoint selection, or credential-bearing destinations.
 
+## Automatic skill recommendations
+
+When the plugin is enabled, the `pre_llm_call` lifecycle hook is on by default.
+It discovers the active profile's skills through Hermes' supported `skills_list`
+registry, performs bounded local matching, and may add one advisory recommendation
+to the current user API message. This is turn-scoped context: it does not mutate
+the cached system prompt, load a skill, or change the toolset. Disable it with:
+
+```text
+hermes config set plugins.entries.jev-decision.settings.automatic_skill_recommendation false
+```
+
+Hosted Jev selection is off by default. Enable it only when the active profile is
+permitted to send public or already-sanitized task text and exact candidate names:
+
+```text
+hermes config set plugins.entries.jev-decision.settings.automatic_skill_jev true
+hermes config set plugins.entries.jev-decision.settings.automatic_skill_public_or_sanitized_data_ack true
+```
+
+The persistent acknowledgement covers the bounded current task and exact skill
+identifiers only. Candidate descriptions and conversation history remain local;
+the acknowledgement is an operator attestation, not DLP or authorization. A
+valid hosted abstention is preserved; local fallback is used only when the
+hosted decision is unavailable.
+
 ## Data boundary
 
-Every model-facing operation requires `public_or_sanitized_data_ack: true`. This is a caller attestation, not DLP or authorization. Do not send private, employer, regulated, credential, payment, or verification UI/data. Regex filtering is not permission to send data.
+Manual model-facing tools require `public_or_sanitized_data_ack: true` and all
+model-facing operations must use public or already-sanitized data. This is a
+caller/operator attestation, not DLP or authorization. Do not send private,
+employer, regulated, credential, payment, or verification UI/data; regex
+filtering is not permission to send data.
 
 ## Install from the private repository
 
@@ -88,7 +118,7 @@ Doctor uses isolated registration and a temporary Hermes home. It is a validatio
 - Native general-plugin discovery is supported on Hermes hosts that implement `plugin.yaml` plus root `__init__.py` with `register(ctx)`.
 - Linux and Windows Python 3.11+ are covered by offline CI. The computer-use pilot remains Windows-only; routing and skill selection are host-independent.
 - Synthetic tests do not call the network or drive a real GUI. A live smoke is not a substitute for coordinator-owned verification.
-- Jev outputs are advisory and uncalibrated. Abstention is a valid result. The plugin never loads skills, changes prompts, changes runtime models, or certifies GUI completion.
+- Jev outputs are advisory and uncalibrated. Abstention is a valid result. The plugin does not mutate the cached system prompt, load skills automatically, change runtime models, or certify GUI completion; automatic recommendations are turn-scoped context only.
 
 ## License and references
 

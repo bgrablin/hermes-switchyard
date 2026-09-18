@@ -16,7 +16,7 @@ from unittest import mock
 from jev_decision.automatic import (
     AutomaticSkillRecommender,
     build_pre_llm_call_hook,
-    extract_available_skill_candidates,
+    discover_available_skill_candidates,
 )
 from jev_decision.client import DecisionClient
 
@@ -45,6 +45,14 @@ class _Context:
 
 class AutomaticRecommendationTests(unittest.TestCase):
     @staticmethod
+    def _skills_api():
+        try:
+            from tools import skills_tool
+        except ImportError as exc:
+            raise unittest.SkipTest(f"Hermes skills API unavailable: {exc}") from exc
+        return skills_tool
+
+    @staticmethod
     def _history():
         return [
             {
@@ -63,7 +71,12 @@ class AutomaticRecommendationTests(unittest.TestCase):
     def test_local_lifecycle_hook_selects_relevant_skill_and_abstains_on_no_fit(self):
         import jev_decision
 
-        context = _Context()
+        context = _Context({
+            "automatic_skill_candidates": [
+                {"name": "docker-management", "description": "Manage Docker containers and Compose services."},
+                {"name": "network-printer-operations", "description": "Operate network printers and scanners."},
+            ]
+        })
         with mock.patch.object(jev_decision, "_secret", side_effect=AssertionError("hosted path must stay off")):
             jev_decision.register(context)
         hook = context.hooks["pre_llm_call"]
@@ -85,52 +98,50 @@ class AutomaticRecommendationTests(unittest.TestCase):
         )
         self.assertIsNone(no_fit)
 
-    def test_available_skill_parser_uses_system_index_only(self):
-        candidates = extract_available_skill_candidates(self._history())
+    def test_skill_registry_discovery_uses_public_response_schema(self):
+        payload = {
+            "success": True,
+            "skills": [
+                {"name": "docker-management", "description": "Manage Docker containers", "category": "devops"},
+                {"name": "network-printer-operations", "description": "Operate network printers", "category": "devops"},
+            ],
+            "categories": ["devops"],
+            "count": 2,
+            "hint": "Use skill_view(name)",
+        }
+        with mock.patch.object(self._skills_api(), "skills_list", return_value=json.dumps(payload)):
+            candidates = discover_available_skill_candidates()
         self.assertEqual(
             [candidate["name"] for candidate in candidates],
             ["docker-management", "network-printer-operations"],
         )
-        serialized = json.dumps(candidates)
-        self.assertNotIn("PRIVATE_HISTORY_MARKER", serialized)
 
-    def test_available_skill_catalog_survives_long_system_prefix(self):
-        prefix = "System context. " * 400
-        history = [{
-            "role": "system",
-            "content": prefix + (
-                "\n<available_skills>\n"
-                "  devops:\n"
-                "    - docker-management: Manage Docker containers and Compose services.\n"
-                "</available_skills>"
-            ),
-        }]
-        candidates = extract_available_skill_candidates(history)
-        self.assertEqual([candidate["name"] for candidate in candidates], ["docker-management"])
+    def test_skill_registry_discovery_bounds_large_catalog(self):
+        payload = {
+            "success": True,
+            "skills": [
+                {"name": f"synthetic-{index}", "description": "public skill"}
+                for index in range(300)
+            ],
+        }
+        with mock.patch.object(self._skills_api(), "skills_list", return_value=json.dumps(payload)):
+            candidates = discover_available_skill_candidates()
+        self.assertEqual(len(candidates), 255)
+        self.assertEqual(candidates[-1]["name"], "synthetic-254")
 
-    def test_available_skill_catalog_close_tag_can_follow_large_catalog(self):
-        entries = [
-            f"    - synthetic-skill-{index}: " + ("public catalog description " * 12)
-            for index in range(40)
-        ]
-        entries.append("    - docker-management: Manage Docker containers and Compose services.")
-        content = "prefix\n<available_skills>\n" + "\n".join(entries) + "\n</available_skills>"
-        self.assertGreater(len(content), 4_000)
-        candidates = extract_available_skill_candidates([{"role": "system", "content": content}])
-        self.assertIn("docker-management", [candidate["name"] for candidate in candidates])
-
-    def test_realistic_hermes_available_skills_payload_is_discovered(self):
-        content = (
-            "## Hermes Agent\n\n"
-            "Available capabilities and policy context.\n\n"
-            "<available_skills>\n"
-            "  devops:\n"
-            "    - docker-management: Manage Docker containers, images, and Compose.\n"
-            "  smart-home:\n"
-            "    - network-printer-operations: Operate network printers and scanners.\n"
-            "</available_skills>\n"
-        )
-        candidates = extract_available_skill_candidates([{"role": "system", "content": content}])
+    def test_realistic_hermes_skill_registry_schema_is_used(self):
+        payload = {
+            "success": True,
+            "skills": [
+                {"name": "docker-management", "description": "Manage Docker containers, images, and Compose.", "category": "devops"},
+                {"name": "network-printer-operations", "description": "Operate network printers and scanners.", "category": "devops"},
+            ],
+            "categories": ["devops"],
+            "count": 2,
+            "hint": "Use skill_view(name) to see full content, tags, and linked files",
+        }
+        with mock.patch.object(self._skills_api(), "skills_list", return_value=json.dumps(payload)):
+            candidates = discover_available_skill_candidates()
         self.assertEqual(
             [candidate["name"] for candidate in candidates],
             ["docker-management", "network-printer-operations"],
@@ -173,20 +184,18 @@ class AutomaticRecommendationTests(unittest.TestCase):
             client_factory=lambda: DecisionClient(api_key="fixture-key", transport=transport),
         )
         assert hook is not None
-        result = hook(
-            user_message="public Docker maintenance request",
-            conversation_history=[
-                {
-                    "role": "system",
-                    "content": (
-                        "<available_skills>\n"
-                        "    - docker-management: SYNTHETIC_PROMPT_DESCRIPTION_MARKER\n"
-                        "</available_skills>"
-                    ),
-                },
-                {"role": "user", "content": "PRIVATE_HISTORY_MARKER"},
-            ],
-        )
+        registry_payload = {
+            "success": True,
+            "skills": [{
+                "name": "docker-management",
+                "description": "SYNTHETIC_PROMPT_DESCRIPTION_MARKER",
+            }],
+        }
+        with mock.patch.object(self._skills_api(), "skills_list", return_value=json.dumps(registry_payload)):
+            result = hook(
+                user_message="public Docker maintenance request",
+                conversation_history=[{"role": "user", "content": "PRIVATE_HISTORY_MARKER"}],
+            )
         self.assertIsNotNone(result)
         wire = json.dumps(payloads[0], sort_keys=True)
         self.assertNotIn("SYNTHETIC_PROMPT_DESCRIPTION_MARKER", wire)
@@ -241,6 +250,40 @@ class AutomaticRecommendationTests(unittest.TestCase):
         self.assertIn("public Docker maintenance request", wire)
         self.assertEqual(payloads[0]["provider"], {"allow_fallbacks": False})
 
+    def test_valid_hosted_abstention_does_not_fallback_to_local_winner(self):
+        calls = []
+
+        def transport(payload):
+            calls.append(payload)
+            return {
+                "model": "typesafe/jev-1.13",
+                "answers": {
+                    "skill": {
+                        "choice": "docker-management",
+                        "confidence": 0.60,
+                        "probabilities": {"docker-management": 0.60, "printer": 0.40},
+                    },
+                    "needs_skill": {"noul": 0.60},
+                },
+                "usage": {},
+            }
+
+        recommender = AutomaticSkillRecommender(
+            configured_candidates=[
+                {"name": "docker-management", "description": "Manage Docker containers"},
+                {"name": "printer", "description": "Operate network printers"},
+            ],
+            hosted_enabled=True,
+            public_or_sanitized_data_ack=True,
+            client_factory=lambda: DecisionClient(api_key="fixture-key", transport=transport),
+        )
+        result = recommender.recommend("Diagnose a Docker container")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(result["status"], "abstained")
+        self.assertIsNone(result["selected"])
+        self.assertEqual(result["source"], "none")
+        self.assertIn("threshold", result["abstention_reason"])
+
     def test_hosted_path_without_attestation_does_not_construct_client(self):
         constructed = []
 
@@ -271,6 +314,12 @@ class AutomaticRecommendationTests(unittest.TestCase):
             home = workspace / "hermes"
             plugin = home / "plugins" / "jev-decision"
             plugin.parent.mkdir(parents=True)
+            skill = home / "skills" / "devops" / "docker-management"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text(
+                "---\nname: docker-management\ndescription: Manage Docker containers.\n---\n# Docker\n",
+                encoding="utf-8",
+            )
             shutil.copytree(root, plugin)
             (home / "config.yaml").write_text(
                 "plugins:\n  enabled:\n    - jev-decision\n", encoding="utf-8"
@@ -291,7 +340,7 @@ class AutomaticRecommendationTests(unittest.TestCase):
                     results = manager.invoke_hook(
                         "pre_llm_call",
                         user_message="Diagnose a Docker Compose container",
-                        conversation_history=self._history(),
+                        conversation_history=[],
                     )
                     self.assertTrue(any("docker-management" in str(item) for item in results))
                 finally:

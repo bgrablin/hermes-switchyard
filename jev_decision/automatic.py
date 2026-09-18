@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 MAX_RETRIEVED_CANDIDATES = 32
 MAX_CATALOG_CANDIDATES = 255
 MAX_TASK_CHARS = 4_000
-MAX_CATALOG_TEXT_CHARS = 64_000
 MAX_CANDIDATE_NAME_CHARS = 128
 MAX_DESCRIPTION_CHARS = 1_000
 DEFAULT_LOCAL_THRESHOLD = 0.20
@@ -34,8 +33,6 @@ MAX_CACHE_SECONDS = 300.0
 DEFAULT_CACHE_SIZE = 32
 
 _TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_:+.-]*")
-_SKILL_LINE_RE = re.compile(r"^\s{4}-\s+(.+?)\s*$")
-_NAMES_ONLY_LINE_RE = re.compile(r"^\s{2}.+\[names only\]:\s*(.+?)\s*$")
 
 # These words do not identify a specialist skill. Keeping this list local makes
 # the default path deterministic and avoids an auxiliary model call.
@@ -66,16 +63,6 @@ def _coerce_bounded_text(value: Any, max_chars: int) -> str:
 def _coerce_text(value: Any) -> str:
     """Return bounded user-task text for the hosted decision boundary."""
     return _coerce_bounded_text(value, MAX_TASK_CHARS)
-
-
-def _coerce_system_text(value: Any) -> str:
-    """Return bounded system text for local catalog discovery.
-
-    System prompts can contain a long prefix before ``<available_skills>``;
-    keep a separate larger bound so catalog discovery is not coupled to the
-    smaller user-task egress bound.
-    """
-    return _coerce_bounded_text(value, MAX_CATALOG_TEXT_CHARS)
 
 
 def _tokens(value: str) -> set[str]:
@@ -121,55 +108,42 @@ def _validate_candidates(raw: Any, *, limit: int) -> tuple[dict[str, str], ...]:
     return tuple(result)
 
 
-def extract_available_skill_candidates(history: Any) -> tuple[dict[str, str], ...]:
-    """Extract only the local ``<available_skills>`` index from system messages.
+def discover_available_skill_candidates() -> tuple[dict[str, str], ...]:
+    """Discover the active profile's skills through Hermes' public skills API.
 
-    The current user message and prior conversation turns are deliberately not
-    used as a catalog source. The extracted descriptions are local ranking data;
-    hosted routing later replaces them with identifiers only.
+    ``pre_llm_call`` receives the conversation messages before Hermes prepends
+    the cached system prompt, so that payload is not a reliable skill catalog.
+    ``tools.skills_tool.skills_list()`` is the supported profile-scoped registry
+    surface and already filters disabled/platform-ineligible skills. Descriptions
+    remain local ranking metadata and are bounded before use.
     """
-    if not isinstance(history, list):
+    try:
+        from tools.skills_tool import skills_list
+
+        response = skills_list()
+        payload = json.loads(response) if isinstance(response, str) else response
+        rows = payload.get("skills") if isinstance(payload, Mapping) else None
+        if not isinstance(rows, list):
+            return ()
+        candidates: list[dict[str, str]] = []
+        for item in rows[:MAX_CATALOG_CANDIDATES]:
+            if not isinstance(item, Mapping):
+                continue
+            try:
+                candidate = _validate_candidates(
+                    [{
+                        "name": item.get("name"),
+                        "description": item.get("description") or item.get("name") or "",
+                    }],
+                    limit=1,
+                )[0]
+            except ValueError:
+                continue
+            candidates.append(candidate)
+        return tuple(candidates)
+    except Exception as exc:  # noqa: BLE001 -- catalog discovery is fail-open
+        logger.debug("skill registry discovery failed: %s", type(exc).__name__)
         return ()
-    raw: list[dict[str, str]] = []
-    seen: set[str] = set()
-    for message in history:
-        if not isinstance(message, Mapping) or message.get("role") != "system":
-            continue
-        text = _coerce_system_text(message.get("content"))
-        start = text.find("<available_skills>")
-        if start < 0:
-            continue
-        end = text.find("</available_skills>", start + len("<available_skills>"))
-        if end < 0:
-            continue
-        block = text[start + len("<available_skills>"):end]
-        for line in block.splitlines():
-            match = _SKILL_LINE_RE.match(line)
-            names_only = _NAMES_ONLY_LINE_RE.match(line)
-            values: list[tuple[str, str]] = []
-            if match:
-                entry = match.group(1)
-                if ": " in entry:
-                    name, description = entry.split(": ", 1)
-                else:
-                    name, description = entry, entry
-                values.append((name.strip(), description.strip()))
-            elif names_only:
-                values.extend((name.strip(), name.strip()) for name in names_only.group(1).split(","))
-            for name, description in values:
-                try:
-                    candidate = _validate_candidates(
-                        [{"name": name, "description": description}], limit=1
-                    )[0]
-                except ValueError:
-                    continue
-                if candidate["name"] in seen:
-                    continue
-                seen.add(candidate["name"])
-                raw.append(candidate)
-                if len(raw) >= MAX_CATALOG_CANDIDATES:
-                    return tuple(raw)
-    return tuple(raw)
 
 
 def _rank_candidates(task: str, candidates: tuple[dict[str, str], ...]) -> list[tuple[float, int, dict[str, str]]]:
@@ -338,12 +312,22 @@ class AutomaticSkillRecommender:
                         "abstention_reason": None,
                     }
                 )
-            elif local_selected:
+            elif hosted is None and local_selected:
+                # A transport/client failure is unavailable; preserve the
+                # deterministic local result. A valid Jev abstention below is
+                # a deliberate safety decision and must not be overridden.
                 result["status"] = "selected"
                 result["source"] = "local"
                 result["abstention_reason"] = None
             elif isinstance(hosted, dict):
-                result["abstention_reason"] = hosted.get("abstention_reason") or "hosted_abstention"
+                result.update(
+                    {
+                        "status": "abstained",
+                        "selected": None,
+                        "source": "none",
+                        "abstention_reason": hosted.get("abstention_reason") or "hosted_abstention",
+                    }
+                )
 
         if result["selected"] is not None:
             result["status"] = "selected"
@@ -400,11 +384,13 @@ def build_pre_llm_call_hook(
     configured = bool(recommender.configured_candidates)
 
     def on_pre_llm_call(*, user_message: Any = None, conversation_history: Any = None, **_: Any) -> dict[str, str] | None:
-        prompt_candidates = () if configured else extract_available_skill_candidates(conversation_history)
+        # Hermes' conversation_history does not include the cached system prompt
+        # that advertises skills. Discover the active profile registry directly.
+        catalog_candidates = () if configured else discover_available_skill_candidates()
         result = recommender.recommend(
             user_message,
-            candidates=prompt_candidates,
-            candidates_from_prompt=not configured,
+            candidates=catalog_candidates,
+            candidates_from_prompt=False,
         )
         setattr(on_pre_llm_call, "last_result", dict(result))
         selected = result.get("selected")
