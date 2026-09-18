@@ -46,23 +46,28 @@ jobs:
         with:
           enable-cache: false
 
-      - name: Check out pinned Hermes source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: NousResearch/hermes-agent
-          ref: ${{ env.HERMES_UPSTREAM_SHA }}
-          path: .ci/hermes-agent
-          persist-credentials: false
-          fetch-depth: 1
+      - name: Fetch pinned Hermes source outside the candidate workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          hermes_root="$RUNNER_TEMP/hermes-agent"
+          rm -rf "$hermes_root"
+          mkdir -p "$hermes_root"
+          git -C "$hermes_root" init --quiet
+          git -C "$hermes_root" remote add origin https://github.com/NousResearch/hermes-agent.git
+          git -C "$hermes_root" fetch --no-tags --depth=1 origin "$HERMES_UPSTREAM_SHA"
+          git -C "$hermes_root" -c core.autocrlf=false checkout --quiet --detach "$HERMES_UPSTREAM_SHA"
+          test "$(git -C "$hermes_root" rev-parse --verify HEAD)" = "$HERMES_UPSTREAM_SHA"
 
       - name: Install pinned Hermes with the upstream supported setup
         shell: bash
         run: |
           set -euo pipefail
+          hermes_root="$RUNNER_TEMP/hermes-agent"
           hermes_venv="$RUNNER_TEMP/switchyard-hermes-venv"
           uv venv "$hermes_venv" --python 3.11
-          UV_NO_CONFIG=1 uv pip install --python "$hermes_venv/bin/python" -e "$GITHUB_WORKSPACE/.ci/hermes-agent[all,dev]"
-          test "$(git -C .ci/hermes-agent rev-parse --verify HEAD)" = "$HERMES_UPSTREAM_SHA"
+          UV_NO_CONFIG=1 uv pip install --python "$hermes_venv/bin/python" -e "$hermes_root[all,dev]"
+          test "$(git -C "$hermes_root" rev-parse --verify HEAD)" = "$HERMES_UPSTREAM_SHA"
           printf 'HERMES_PYTHON=%s\n' "$hermes_venv/bin/python" >> "$GITHUB_ENV"
           printf 'HERMES_HOME=%s\n' "$RUNNER_TEMP/switchyard-hermes-home" >> "$GITHUB_ENV"
           printf '%s\n' "$hermes_venv/bin" >> "$GITHUB_PATH"
@@ -96,19 +101,25 @@ jobs:
             --archive "$(find dist -maxdepth 1 -type f -name 'hermes-switchyard-*.zip' -print -quit)" \
             --source-root "$GITHUB_WORKSPACE" \
             --source-sha "$SWITCHYARD_SOURCE_SHA" \
-            --upstream-root "$GITHUB_WORKSPACE/.ci/hermes-agent" \
+            --upstream-root "$RUNNER_TEMP/hermes-agent" \
             --upstream-sha "$HERMES_UPSTREAM_SHA" \
             --report "$RUNNER_TEMP/switchyard-release-receipts/release-verification.json"
 
       - name: Write release candidate summary
         if: always()
         shell: bash
+        env:
+          JOB_STATUS: ${{ job.status }}
         run: |
           {
             echo "## Release candidate"
             echo "- Source SHA: ${SWITCHYARD_SOURCE_SHA:-unavailable}"
             echo "- Hermes source SHA: $HERMES_UPSTREAM_SHA"
-            echo "- Archive: source-bound and extracted-loader verified"
+            if [ "$JOB_STATUS" = "success" ]; then
+              echo "- Candidate verification: passed"
+            else
+              echo "- Candidate verification: failed or incomplete (job status: $JOB_STATUS)"
+            fi
             echo "- Publication: no tags, releases, or repository writes"
           } >> "$GITHUB_STEP_SUMMARY"
 

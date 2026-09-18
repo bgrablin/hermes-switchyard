@@ -75,11 +75,12 @@ def _schema_summary(name: str, schema: Any) -> dict[str, Any]:
     required = parameters.get("required")
     if not isinstance(properties, dict) or not isinstance(required, list):
         raise NativeCompatibilityError(f"registered tool {name!r} has malformed parameter fields")
-    if not set(required).issubset(properties):
-        raise NativeCompatibilityError(f"registered tool {name!r} requires an undeclared field")
     required_fields = EXPECTED_REQUIRED_FIELDS[name]
-    if not required_fields.issubset(set(properties)):
-        raise NativeCompatibilityError(f"registered tool {name!r} is missing its public contract fields")
+    required_set = set(required)
+    if not required_fields.issubset(required_set):
+        raise NativeCompatibilityError(f"registered tool {name!r} does not require its public contract fields")
+    if not required_set.issubset(set(properties)):
+        raise NativeCompatibilityError(f"registered tool {name!r} requires an undeclared field")
     acknowledgement = properties.get("public_or_sanitized_data_ack")
     if not isinstance(acknowledgement, dict) or acknowledgement.get("type") != "boolean":
         raise NativeCompatibilityError(f"registered tool {name!r} lacks the acknowledgement gate")

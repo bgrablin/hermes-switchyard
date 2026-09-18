@@ -36,14 +36,7 @@ jobs:
       trusted_ref: ${{ steps.source.outputs.trusted_ref }}
       trusted_sha: ${{ steps.source.outputs.trusted_sha }}
     steps:
-      - name: Check out workflow source without using manual input
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: bgrablin/release-packaging
-          persist-credentials: false
-          fetch-depth: 1
-
-      - name: Validate manual selector against the explicit allowlist
+      - name: Validate manual selector against the immutable workflow allowlist
         id: selector
         shell: bash
         env:
@@ -51,11 +44,16 @@ jobs:
           REQUESTED_SHA: ${{ inputs.trusted_sha }}
         run: |
           set -euo pipefail
-          python scripts/ci/validate_live_source.py \
-            --repository "$GITHUB_REPOSITORY" \
-            --ref "$REQUESTED_REF" \
-            --source-sha "$REQUESTED_SHA" \
-            --selector-only
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$GITHUB_REPOSITORY" = "$TRUSTED_REPOSITORY"
+          case "$REQUESTED_REF" in
+            main|bgrablin/release-packaging) ;;
+            *) echo '::error::ref is not in the explicit live-contract allowlist'; exit 1 ;;
+          esac
+          if [[ ! "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo '::error::source SHA must be exact lowercase hexadecimal'
+            exit 1
+          fi
 
       - name: Check out main when main was explicitly selected
         if: inputs.trusted_ref == 'main'
@@ -81,6 +79,8 @@ jobs:
           REQUESTED_SHA: ${{ inputs.trusted_sha }}
         run: |
           set -euo pipefail
+          checked_out_sha="$(git rev-parse --verify HEAD)"
+          test "$checked_out_sha" = "$REQUESTED_SHA"
           python scripts/ci/validate_live_source.py \
             --repository "$GITHUB_REPOSITORY" \
             --ref "$REQUESTED_REF" \
@@ -121,6 +121,8 @@ jobs:
           TRUSTED_SHA: ${{ needs.authorize-source.outputs.trusted_sha }}
         run: |
           set -euo pipefail
+          checked_out_sha="$(git rev-parse --verify HEAD)"
+          test "$checked_out_sha" = "$TRUSTED_SHA"
           python scripts/ci/validate_live_source.py \
             --repository "$GITHUB_REPOSITORY" \
             --ref "$TRUSTED_REF" \
@@ -137,23 +139,28 @@ jobs:
         with:
           enable-cache: false
 
-      - name: Check out pinned Hermes source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: NousResearch/hermes-agent
-          ref: 8503ee4459316ce092b5d69b7d396c27aa03d0be
-          path: .ci/hermes-agent
-          persist-credentials: false
-          fetch-depth: 1
+      - name: Fetch pinned Hermes source outside the candidate workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          hermes_root="$RUNNER_TEMP/hermes-agent"
+          rm -rf "$hermes_root"
+          mkdir -p "$hermes_root"
+          git -C "$hermes_root" init --quiet
+          git -C "$hermes_root" remote add origin https://github.com/NousResearch/hermes-agent.git
+          git -C "$hermes_root" fetch --no-tags --depth=1 origin "$HERMES_UPSTREAM_SHA"
+          git -C "$hermes_root" -c core.autocrlf=false checkout --quiet --detach "$HERMES_UPSTREAM_SHA"
+          test "$(git -C "$hermes_root" rev-parse --verify HEAD)" = "$HERMES_UPSTREAM_SHA"
 
       - name: Install pinned Hermes with the upstream supported setup
         shell: bash
         run: |
           set -euo pipefail
+          hermes_root="$RUNNER_TEMP/hermes-agent"
           hermes_venv="$RUNNER_TEMP/switchyard-hermes-venv"
           uv venv "$hermes_venv" --python 3.11
-          UV_NO_CONFIG=1 uv pip install --python "$hermes_venv/bin/python" -e "$GITHUB_WORKSPACE/.ci/hermes-agent[all,dev]"
-          test "$(git -C .ci/hermes-agent rev-parse --verify HEAD)" = "$HERMES_UPSTREAM_SHA"
+          UV_NO_CONFIG=1 uv pip install --python "$hermes_venv/bin/python" -e "$hermes_root[all,dev]"
+          test "$(git -C "$hermes_root" rev-parse --verify HEAD)" = "$HERMES_UPSTREAM_SHA"
           printf 'HERMES_PYTHON=%s\n' "$hermes_venv/bin/python" >> "$GITHUB_ENV"
           printf 'HERMES_HOME=%s\n' "$RUNNER_TEMP/switchyard-hermes-home" >> "$GITHUB_ENV"
           printf '%s\n' "$hermes_venv/bin" >> "$GITHUB_PATH"
@@ -186,7 +193,7 @@ jobs:
           set -euo pipefail
           "$HERMES_PYTHON" scripts/ci/live_jev_contract.py \
             --plugin-root "$GITHUB_WORKSPACE" \
-            --upstream-root "$GITHUB_WORKSPACE/.ci/hermes-agent" \
+            --upstream-root "$RUNNER_TEMP/hermes-agent" \
             --source-sha "$TRUSTED_SHA" \
             --upstream-sha "$HERMES_UPSTREAM_SHA" \
             --secret-home "$HERMES_HOME" \
