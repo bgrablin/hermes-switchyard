@@ -6,7 +6,7 @@ Version: 0.3.2
 
 [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) is a structured decision model. Hermes Switchyard is the Hermes plugin integration around Jev: it applies local policy, requires a public-or-sanitized data confirmation, keeps actions bounded, and leaves final verification to Hermes. Jev is not Switchyard, and Switchyard does not claim to reproduce every Jev capability.
 
-![Hermes Switchyard brand logo sheet showing the primary H-shaped track-switch mark with charcoal and amber variants](docs/assets/hermes-switchyard-branding.png)
+![Hermes Switchyard logo and wordmark](docs/assets/hermes-switchyard-branding.png)
 
 Switchyard helps Hermes choose among options without taking ownership of the decision. It does not modify Hermes core, silently change the active model, load skills automatically, or claim that a recommendation or GUI action is correct.
 
