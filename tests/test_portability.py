@@ -15,6 +15,7 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parent.parent
+from scripts import check_portability
 
 
 def _offline_env() -> dict[str, str]:
@@ -164,6 +165,26 @@ class PortabilityTests(unittest.TestCase):
             self.assertEqual(jev_decision._secret(), "fixture-profile-a")
             active_profile["name"] = "B"
             self.assertEqual(jev_decision._secret(), "fixture-profile-b")
+
+    def test_unknown_suffix_text_is_scanned_but_binary_branding_is_not(self):
+        self.assertIsNone(check_portability._text_from_bytes(b"\x89PNG\x00binary"))
+        failures = check_portability._content_failures(
+            "fixtures.data", "OPENROUTER_API_KEY=" + "definitely-not-a-fixture-value"
+        )
+        self.assertTrue(any("credential-shaped assignment" in failure for failure in failures))
+        self.assertEqual(check_portability._credential_path_failures(".env"), ["credential file is tracked in .env"])
+        self.assertEqual(check_portability._credential_path_failures(".env.example"), [])
+
+    def test_history_uses_nul_paths_and_fails_closed_on_unreadable_blob(self):
+        responses = [
+            subprocess.CompletedProcess([], 0, stdout="commit\n", stderr=""),
+            subprocess.CompletedProcess([], 0, stdout=b"odd\nname.data\0", stderr=b""),
+            subprocess.CompletedProcess([], 1, stdout=b"", stderr=b"missing"),
+        ]
+        with mock.patch("scripts.check_portability.subprocess.run", side_effect=responses) as run:
+            with self.assertRaises(RuntimeError):
+                check_portability._history_failures(Path("/repo"), set())
+        self.assertEqual(run.call_args_list[1].args[0][4:8], ["-r", "-z", "--name-only", "commit"])
 
 
 if __name__ == "__main__":

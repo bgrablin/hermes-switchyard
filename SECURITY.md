@@ -1,6 +1,6 @@
 # Security
 
-This plugin handles model-facing state and can dispatch Hermes `computer_use` actions. Report suspected vulnerabilities through the private security channel for the repository rather than opening a public issue with secrets, credentials, raw UI captures, or private logs.
+This plugin handles model-facing state and can dispatch Hermes `computer_use` actions. Do not open a public issue with secrets, credentials, raw UI captures, or private logs. Use the repository's GitHub private vulnerability reporting channel when it is available; otherwise contact the maintainer through the repository profile before public disclosure.
 
 Operational boundaries:
 

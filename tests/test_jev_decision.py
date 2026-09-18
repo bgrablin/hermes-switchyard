@@ -566,7 +566,7 @@ class PluginEntryPointTests(unittest.TestCase):
         self.assertEqual(client.call_count, 0)
         self.assertEqual(context.dispatch_calls, [])
 
-    def test_windows_prompt_keeps_computer_use_pilot_optional(self):
+    def test_windows_prompt_keeps_computer_use_pilot_configurable(self):
         import jev_decision
 
         class Context:

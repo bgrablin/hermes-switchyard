@@ -1,0 +1,63 @@
+name: Bug report
+description: Report a reproducible problem with sanitized details.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not paste API keys, tokens, passwords, private UI text, raw screenshots, personal paths, private hostnames, or work data. Replace sensitive values with short placeholders.
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: Give the version from the manifest or installed plugin listing.
+      placeholder: "0.3.2"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      description: Select the operating system where the problem occurred.
+      options:
+        - Linux
+        - Windows
+        - macOS
+        - WSL
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: hermes-version
+    attributes:
+      label: Hermes version
+      description: Include the Hermes version and source when known.
+      placeholder: "Hermes Agent 0.21.x"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Sanitized reproduction
+      description: List the smallest command sequence or tool input that shows the problem. Remove secrets and private data.
+      placeholder: |
+        1. Run ...
+        2. Configure ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include stable error codes and sanitized output. Do not include credentials or raw UI data.
+    validations:
+      required: true

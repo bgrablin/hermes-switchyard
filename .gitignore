@@ -21,8 +21,9 @@ __pycache__/
 .ruff_cache/
 .cache/
 
-# Evaluation output, raw runs, and local evidence
+# Evaluation output, release archives, raw runs, and local evidence
 evaluation/*results*.json
+dist/
 HANDOFF*.md
 *-HANDOFF.md
 local-evidence/

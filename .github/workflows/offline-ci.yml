@@ -3,14 +3,20 @@ name: offline-ci
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: offline-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -27,9 +33,14 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Compile portability surface
         run: python -m compileall -q jev_decision evaluation tests scripts
-      - name: Check repository portability
+      - name: Check repository portability and public hygiene
         run: python scripts/check_portability.py
       - name: Run offline tests
         run: python -m unittest discover -s tests -v
       - name: Run synthetic evaluation
         run: python evaluation/evaluate.py --validate --output evaluation/ci-results.json
+
+# The exact-SHA native Hermes gate is a manual release prerequisite. The
+# upstream lockfile currently needs a reviewed dependency-install decision on
+# the pinned commit; see docs/RELEASE.md. This avoids a green job that never
+# ran the real Hermes parser.
