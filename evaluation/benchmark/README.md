@@ -72,6 +72,7 @@ Normalized arm input
 
     {
       "schema_version": 1,
+      "measurement_schema_version": 1,
       "arm": "luna",
       "collection_mode": "live",
       "dataset_hash": "from offline report",
@@ -107,4 +108,4 @@ For `switchyard`, the resolved model must be one of the actual Jev aliases and t
 
 Scope boundary
 
-No live mode was executed here, no model API was called, and no credential was read. Luna `max` is a user-selected baseline setting, not Hermes' quickest default. No numerical improvement is claimed. A whole-agent study must use fresh Hermes runs with and without the advisor, the same Luna model/reasoning/toolset, the same synthetic tasks, and coordinator-owned outcome verification. This directory only enables that later evidence collection; it is not proof of whole-agent gains.
+Live collection is operator-initiated and is not run by import, offline tests, or the normal CI workflow. Retained live evidence must be inspected at its exact source and request hashes; failed measurements remain failed and cannot enter a comparative report. Luna `max` is a user-selected baseline setting, not Hermes' quickest default. No numerical improvement is claimed. A whole-agent study must use fresh Hermes runs with and without the advisor, the same Luna model/reasoning/toolset, the same synthetic tasks, and independently verified outcomes. This directory enables that evidence collection; it is not proof of whole-agent gains.

@@ -230,7 +230,7 @@ def run_lexical_case(case: dict[str, Any], meta: dict[str, Any], source: dict[st
         result,
         source["benchmark"],
         wall_ms=(time.perf_counter() - started) * 1000,
-        provider_ms=0.0,
+        provider_ms=None,
         selector_calls=0,
         provider_calls=0,
         coordination_calls=0,

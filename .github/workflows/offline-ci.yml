@@ -31,5 +31,7 @@ jobs:
         run: python scripts/check_portability.py
       - name: Run offline tests
         run: python -m unittest discover -s tests -v
+      - name: Run benchmark contract tests
+        run: python -m unittest discover -s evaluation/benchmark -p "test_*.py" -v
       - name: Run synthetic evaluation
         run: python evaluation/evaluate.py --validate --output evaluation/ci-results.json

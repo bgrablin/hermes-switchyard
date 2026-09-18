@@ -111,6 +111,22 @@ def _usage_receipt_excerpt(usage: dict[str, Any]) -> dict[str, Any] | None:
     return excerpt or None
 
 
+def _read_usage_receipt(path: Path) -> dict[str, Any]:
+    """Read a completed-or-partial Hermes usage receipt without exposing raw errors."""
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _subprocess_output_text(value: Any) -> str:
+    """Normalize TimeoutExpired output without retaining stderr or arbitrary objects."""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value if isinstance(value, str) else ""
+
+
 def _luna_failure_error(
     exc: BaseException, *, stdout: str, usage: dict[str, Any], exit_code: int | None,
 ) -> dict[str, Any]:
@@ -166,11 +182,15 @@ def collect(args: argparse.Namespace) -> int:
             stdout = completed.stdout
             exit_code = completed.returncode
             if usage_path.exists():
-                usage = json.loads(usage_path.read_text(encoding="utf-8"))
+                usage = _read_usage_receipt(usage_path)
             result = _parse_success(completed.stdout, usage) if completed.returncode == 0 else (_ for _ in ()).throw(RuntimeError("hermes_oneshot_failed"))
             provider_calls = result.pop("provider_calls")
             successful = True
         except Exception as exc:  # noqa: BLE001 - retain a bounded failed measurement
+            if isinstance(exc, subprocess.TimeoutExpired):
+                stdout = _subprocess_output_text(exc.stdout)
+            if not usage and usage_path.exists():
+                usage = _read_usage_receipt(usage_path)
             result = {
                 "status": "failed", "selected": None, "selected_skills": [], "abstention_reason": None,
                 "model": benchmark.LUNA_MODEL, "provider": "openai-codex", "reasoning": "max", "usage": null_usage(),

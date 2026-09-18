@@ -52,6 +52,7 @@ class BenchmarkContractTests(unittest.TestCase):
         self.assertFalse(report["timing_claims_allowed"])
         self.assertEqual(report["heldout_case_count"], 24)
         self.assertEqual(report["arms"]["switchyard"]["no_fit"]["cases"], 6)
+        self.assertEqual(report["arms"]["lexical"]["timing"]["provider_timing_observation_count"], 0)
 
     def test_missing_case_refuses_comparative_summary(self):
         rows = {case["id"]: benchmark.run_offline_case(case, self.meta, self.routing, self.source)
