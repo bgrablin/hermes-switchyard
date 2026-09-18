@@ -284,6 +284,7 @@ def _history_failures(root: Path, text_suffixes: set[str]) -> list[str]:
                 raise RuntimeError("git history tree contains a non-UTF-8 path") from exc
             if relative == SELF_RELATIVE:
                 continue
+            failures.extend(_tracked_path_failures(relative))
             failures.extend(_credential_path_failures(relative))
             try:
                 shown = subprocess.run(

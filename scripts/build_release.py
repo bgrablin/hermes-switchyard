@@ -130,13 +130,11 @@ def _source_files_from_git(root: Path, source_sha: str) -> dict[str, bytes]:
     """Read the allowlisted payload from immutable blobs in one Git commit."""
     root = Path(root).resolve()
     source_sha = _require_source_sha(source_sha)
-    _git_output(
-        root,
-        "cat-file",
-        "-e",
-        f"{source_sha}^{{commit}}",
-        operation="verify the source commit",
-    )
+    object_type = _git_output(
+        root, "cat-file", "-t", source_sha, operation="verify the source commit"
+    ).strip()
+    if object_type != b"commit":
+        raise ReleaseError("source SHA must identify a commit object directly")
     listing = _git_output(
         root,
         "ls-tree",
@@ -379,9 +377,9 @@ def _verify_extracted_tree(destination: Path, manifest: dict[str, Any]) -> None:
 def _has_register_binding(tree: ast.AST) -> bool:
     """Return whether module scope binds the loader-visible ``register`` name."""
     for node in getattr(tree, "body", ()):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "register":
+        if isinstance(node, ast.FunctionDef) and node.name == "register":
             return True
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
+        if isinstance(node, ast.ImportFrom):
             for alias in node.names:
                 bound_name = alias.asname or alias.name.split(".", 1)[0]
                 if bound_name == "register":
