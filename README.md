@@ -6,7 +6,7 @@ Version: 0.3.2
 
 [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) is a model built for structured decisions. Switchyard brings it to Hermes: recommend a skill, choose a model from an approved list, or select the next action in a Windows application.
 
-Jev makes the recommendation. Switchyard applies the configured limits, and Hermes checks the result. This plugin uses Jev; it does not provide every feature that Jev supports.
+Jev supplies decision scores. Switchyard applies its eligibility and confidence rules; for model routing, it selects the cheapest qualified model. Hermes checks the result. This plugin uses Jev; it does not provide every feature that Jev supports.
 
 ![Hermes Switchyard logo and wordmark](docs/assets/hermes-switchyard-branding.png)
 
@@ -68,7 +68,7 @@ For Windows computer use, Jev may receive the goal, target application, window t
 The tools are advisory and bounded:
 
 - A high confidence score is not proof that a choice is correct.
-- Jev can decline to choose when it is uncertain. This is called abstention.
+- Switchyard can return no selection when eligibility or confidence checks fail. This is called abstention.
 - The plugin does not load skills, edit prompts, change runtime models, or certify GUI completion.
 - Provider fallback is disabled. A failed Jev request does not silently move to another provider.
 - Skill selection and model routing work on Linux and Windows. `jev_computer_use` is available only when Hermes runs on Windows.
