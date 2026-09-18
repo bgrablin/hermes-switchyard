@@ -1,0 +1,42 @@
+# Secrets, credentials, and local Hermes state
+.env
+.env.*
+!.env.example
+auth.json
+**/auth.json
+config.yaml
+config.yml
+**/config.yaml
+**/config.yml
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Python and tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# Evaluation output, raw runs, and local evidence
+evaluation/*results*.json
+HANDOFF*.md
+*-HANDOFF.md
+local-evidence/
+evaluation/raw/
+evaluation/runs/
+evaluation/evidence/
+raw-runs/
+evidence/
+.hermes/
+*.jsonl
+*.log
+
+# Local editor and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,22 @@
+name: jev-decision
+version: 0.3.2
+author: bgrablin
+manifest_version: 2
+api_version: 1
+description: Bounded Jev decisions for advisory routing and fixture-tested computer-use loops; no calibrated-quality or independent-completion claim.
+license: MIT
+homepage: https://github.com/bgrablin/hermes-switchyard
+tags: [jev, computer-use, routing, skills]
+requires_env:
+  - name: OPENROUTER_API_KEY
+    description: OpenRouter inference key for the fixed Decisions endpoint and evidence-backed Jev aliases
+    url: https://openrouter.ai/keys
+    secret: true
+provides_tools:
+  - jev_computer_use
+  - jev_skill_select
+  - jev_model_route
+config_schema:
+  api_endpoint: {type: str, default: "https://openrouter.ai/api/alpha/decisions", description: Must remain the fixed OpenRouter Decisions endpoint; other values fail closed}
+  jev_model: {type: str, default: "typesafe/jev-1.13", description: Exact Jev model slug from the two evidence-backed aliases}
+  computer_max_steps: {type: int, default: 12, description: Default computer-use action budget}

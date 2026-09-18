@@ -1,0 +1,214 @@
+{
+  "schema_version": 1,
+  "public_synthetic": true,
+  "fixtures": [
+    {
+      "id": "skill_docker_clear",
+      "kind": "skill",
+      "label": "clear_positive_docker",
+      "task": "Run a public Docker Compose service, inspect its container logs, and explain the container state.",
+      "candidates": [
+        {"name": "docker-management", "description": "Manage Docker containers, images, volumes, and Compose."},
+        {"name": "network-printer-operations", "description": "Operate network printers and scanners via IPPS/AirScan."},
+        {"name": "architecture-diagram", "description": "Dark-themed SVG architecture/cloud/infra diagrams as HTML."}
+      ],
+      "expected": {"status": "selected", "selected": "docker-management", "semantic_class": "strict"},
+      "synthetic_response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "skill": {"choice": "docker-management", "confidence": 0.96, "probabilities": {"docker-management": 0.94, "network-printer-operations": 0.03, "architecture-diagram": 0.03}},
+          "needs_skill": {"noul": 0.96}
+        },
+        "usage": {"cost": 0.001},
+        "latency_ms": 1.0
+      },
+      "public_synthetic": true
+    },
+    {
+      "id": "skill_network_printer_clear",
+      "kind": "skill",
+      "label": "clear_positive_network_printer",
+      "task": "Troubleshoot a public LAN printer that is not discoverable and verify IPPS scanning behavior.",
+      "candidates": [
+        {"name": "docker-management", "description": "Manage Docker containers, images, volumes, and Compose."},
+        {"name": "network-printer-operations", "description": "Operate network printers and scanners via IPPS/AirScan."},
+        {"name": "architecture-diagram", "description": "Dark-themed SVG architecture/cloud/infra diagrams as HTML."}
+      ],
+      "expected": {"status": "selected", "selected": "network-printer-operations", "semantic_class": "strict"},
+      "synthetic_response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "skill": {"choice": "network-printer-operations", "confidence": 0.96, "probabilities": {"docker-management": 0.03, "network-printer-operations": 0.94, "architecture-diagram": 0.03}},
+          "needs_skill": {"noul": 0.96}
+        },
+        "usage": {"cost": 0.001},
+        "latency_ms": 1.0
+      },
+      "public_synthetic": true
+    },
+    {
+      "id": "skill_architecture_diagram_clear",
+      "kind": "skill",
+      "label": "clear_positive_architecture_diagram",
+      "task": "Create a dark-themed SVG architecture diagram for a public cloud and infrastructure design.",
+      "candidates": [
+        {"name": "docker-management", "description": "Manage Docker containers, images, volumes, and Compose."},
+        {"name": "network-printer-operations", "description": "Operate network printers and scanners via IPPS/AirScan."},
+        {"name": "architecture-diagram", "description": "Dark-themed SVG architecture/cloud/infra diagrams as HTML."}
+      ],
+      "expected": {"status": "selected", "selected": "architecture-diagram", "semantic_class": "strict"},
+      "synthetic_response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "skill": {"choice": "architecture-diagram", "confidence": 0.96, "probabilities": {"docker-management": 0.03, "network-printer-operations": 0.03, "architecture-diagram": 0.94}},
+          "needs_skill": {"noul": 0.96}
+        },
+        "usage": {"cost": 0.001},
+        "latency_ms": 1.0
+      },
+      "public_synthetic": true
+    },
+    {
+      "id": "skill_python_no_skill",
+      "kind": "skill",
+      "label": "simple_no_skill_python",
+      "task": "Explain what a Python list comprehension does using a small public generic example.",
+      "candidates": [
+        {"name": "docker-management", "description": "Manage Docker containers, images, volumes, and Compose."},
+        {"name": "network-printer-operations", "description": "Operate network printers and scanners via IPPS/AirScan."},
+        {"name": "architecture-diagram", "description": "Dark-themed SVG architecture/cloud/infra diagrams as HTML."}
+      ],
+      "expected": {"status": "abstained", "selected": null, "semantic_class": "strict"},
+      "synthetic_response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "skill": {"choice": "docker-management", "confidence": 0.95, "probabilities": {"docker-management": 0.90, "network-printer-operations": 0.05, "architecture-diagram": 0.05}},
+          "needs_skill": {"noul": 0.05}
+        },
+        "usage": {"cost": 0.001},
+        "latency_ms": 1.0
+      },
+      "public_synthetic": true
+    },
+    {
+      "id": "skill_casual_greeting_no_skill",
+      "kind": "skill",
+      "label": "simple_no_skill_greeting",
+      "task": "Say hello to a user in a friendly, concise way.",
+      "candidates": [
+        {"name": "docker-management", "description": "Manage Docker containers, images, volumes, and Compose."},
+        {"name": "network-printer-operations", "description": "Operate network printers and scanners via IPPS/AirScan."},
+        {"name": "architecture-diagram", "description": "Dark-themed SVG architecture/cloud/infra diagrams as HTML."}
+      ],
+      "expected": {"status": "abstained", "selected": null, "semantic_class": "strict"},
+      "synthetic_response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "skill": {"choice": "docker-management", "confidence": 0.95, "probabilities": {"docker-management": 0.90, "network-printer-operations": 0.05, "architecture-diagram": 0.05}},
+          "needs_skill": {"noul": 0.05}
+        },
+        "usage": {"cost": 0.001},
+        "latency_ms": 1.0
+      },
+      "public_synthetic": true
+    },
+    {
+      "id": "skill_unrelated_choices_rejected",
+      "kind": "skill",
+      "label": "unrelated_choices_all_rejected",
+      "task": "Choose a public generic dinner recipe for tonight.",
+      "candidates": [
+        {"name": "docker-management", "description": "Manage Docker containers, images, volumes, and Compose."},
+        {"name": "network-printer-operations", "description": "Operate network printers and scanners via IPPS/AirScan."},
+        {"name": "architecture-diagram", "description": "Dark-themed SVG architecture/cloud/infra diagrams as HTML."}
+      ],
+      "expected": {"status": "abstained", "selected": null, "semantic_class": "strict"},
+      "synthetic_response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "skill": {"choice": "docker-management", "confidence": 0.95, "probabilities": {"docker-management": 0.90, "network-printer-operations": 0.05, "architecture-diagram": 0.05}},
+          "needs_skill": {"noul": 0.05}
+        },
+        "usage": {"cost": 0.001},
+        "latency_ms": 1.0
+      },
+      "public_synthetic": true
+    },
+    {
+      "id": "skill_excel_read_near_miss",
+      "kind": "skill",
+      "label": "near_miss_ambiguous_excel_read",
+      "task": "Review a public Excel workbook for a possible financial model: inspect sheets and existing formulas, but do not decide whether to build one.",
+      "candidates": [
+        {"name": "xlsx", "description": "Create, read, and edit general Excel workbooks and CSVs."},
+        {"name": "excel-author", "description": "Build auditable financial models with checked formulas."}
+      ],
+      "expected": {"status": "selected", "selected": "xlsx", "semantic_class": "ambiguous"},
+      "synthetic_response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "skill": {"choice": "xlsx", "confidence": 0.84, "probabilities": {"xlsx": 0.83, "excel-author": 0.17}},
+          "needs_skill": {"noul": 0.90}
+        },
+        "usage": {"cost": 0.001},
+        "latency_ms": 1.0
+      },
+      "public_synthetic": true
+    },
+    {
+      "id": "skill_financial_model_near_miss",
+      "kind": "skill",
+      "label": "near_miss_clear_financial_model",
+      "task": "Build an auditable public financial model in Excel with checked formulas.",
+      "candidates": [
+        {"name": "xlsx", "description": "Create, read, and edit general Excel workbooks and CSVs."},
+        {"name": "excel-author", "description": "Build auditable financial models with checked formulas."}
+      ],
+      "expected": {"status": "selected", "selected": "excel-author", "semantic_class": "strict"},
+      "synthetic_response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {
+          "skill": {"choice": "excel-author", "confidence": 0.95, "probabilities": {"xlsx": 0.06, "excel-author": 0.94}},
+          "needs_skill": {"noul": 0.96}
+        },
+        "usage": {"cost": 0.001},
+        "latency_ms": 1.0
+      },
+      "public_synthetic": true
+    },
+    {
+      "id": "model_cheap_incompatible_excluded",
+      "kind": "model",
+      "label": "cheap_incompatible_candidate_excluded",
+      "task": "Use a public browser-capable route to inspect a public documentation page.",
+      "requirements": {"data_classes": ["public"], "tool_capabilities": ["browser"], "context_limit": 4096, "budget": 1.0},
+      "candidates": [
+        {"id": "cheap-incompatible", "description": "Low-cost terminal-only route.", "approved": true, "data_classes_allowed": ["public"], "tool_capabilities": ["terminal"], "context_limit": 8192, "cost": 0.01},
+        {"id": "cheap-suitable", "description": "Low-cost browser route.", "approved": true, "data_classes_allowed": ["public"], "tool_capabilities": ["browser"], "context_limit": 8192, "cost": 0.05},
+        {"id": "expensive-suitable", "description": "Higher-cost browser route.", "approved": true, "data_classes_allowed": ["public"], "tool_capabilities": ["browser"], "context_limit": 8192, "cost": 0.50}
+      ],
+      "expected": {"status": "selected", "selected": "cheap-suitable", "semantic_class": "strict", "network": true},
+      "synthetic_response": {
+        "model": "typesafe/jev-1.13-20260917",
+        "answers": {"fit_0": {"noul": 0.95}, "fit_1": {"noul": 0.95}},
+        "usage": {"cost": 0.001},
+        "latency_ms": 2.0
+      },
+      "public_synthetic": true
+    },
+    {
+      "id": "model_no_eligible_no_network",
+      "kind": "model",
+      "label": "no_eligible_candidate_no_network",
+      "task": "Use a public browser-capable route to inspect a public documentation page.",
+      "requirements": {"data_classes": ["public"], "tool_capabilities": ["browser"], "context_limit": 4096, "budget": 1.0},
+      "candidates": [
+        {"id": "cheap-incompatible", "description": "Approved terminal-only route.", "approved": true, "data_classes_allowed": ["public"], "tool_capabilities": ["terminal"], "context_limit": 8192, "cost": 0.01},
+        {"id": "unapproved-suitable", "description": "Browser route not approved for this run.", "approved": false, "data_classes_allowed": ["public"], "tool_capabilities": ["browser"], "context_limit": 8192, "cost": 0.02}
+      ],
+      "expected": {"status": "abstained", "selected": null, "semantic_class": "strict", "network": false},
+      "synthetic_response": null,
+      "public_synthetic": true
+    }
+  ]
+}

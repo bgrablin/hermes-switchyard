@@ -1,0 +1,394 @@
+"""Closed-set skill and model routing with fail-closed policy gates.
+
+Jev is an advisory decision service. This module performs all identifier, policy,
+and cost checks locally before it asks Jev for an uncalibrated fit signal. It
+never loads a skill, edits a prompt, or changes the runtime model.
+"""
+from __future__ import annotations
+
+import math
+from typing import Any
+
+
+# These are conservative local policy thresholds. Choice confidence is output
+# concentration; Noul values are intended yes/no probabilities, but calibration
+# for correctness is not independently established.
+DEFAULT_SKILL_CHOICE_CONFIDENCE_THRESHOLD = 0.80
+DEFAULT_SKILL_NEEDS_THRESHOLD = 0.80
+DEFAULT_SKILL_WINNING_PROBABILITY_THRESHOLD = 0.80
+DEFAULT_MODEL_CAPABILITY_FIT_THRESHOLD = 0.80
+
+_MODEL_REQUIREMENT_KEYS = frozenset({
+    "data_classes",
+    "tool_capabilities",
+    "context_limit",
+    "budget",
+})
+
+
+def _require_public_data_ack(acknowledged: bool) -> None:
+    if acknowledged is not True:
+        raise PermissionError(
+            "public_or_sanitized_data_ack must be true: this is a caller attestation, not DLP; "
+            "do not send private, employer, or regulated UI/data to a model"
+        )
+
+
+def _bounded_number(value: Any, name: str) -> float:
+    if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1:
+        raise ValueError(f"{name} must be a finite number in [0, 1]")
+    return float(value)
+
+
+def _positive_integer(value: Any, name: str) -> int:
+    if type(value) is not int or value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
+
+
+def _nonnegative_number(value: Any, name: str) -> float:
+    if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+        raise ValueError(f"{name} must be a finite non-negative number")
+    return float(value)
+
+
+def _string_list(value: Any, name: str) -> list[str]:
+    if not isinstance(value, list) or any(type(item) is not str or not item for item in value):
+        raise ValueError(f"{name} must be a list of non-empty strings")
+    if len(set(value)) != len(value):
+        raise ValueError(f"{name} must not contain duplicate values")
+    return list(value)
+
+
+def _criteria(candidates: list[dict], key: str) -> dict[str, str]:
+    """Build Jev criteria without normalizing candidate identifiers."""
+    if not isinstance(candidates, list) or not candidates or len(candidates) > 255:
+        raise ValueError("candidates must contain 1 to 255 entries")
+    out: dict[str, str] = {}
+    for item in candidates:
+        if not isinstance(item, dict):
+            raise ValueError("each candidate must be an object")
+        identifier = item.get(key)
+        if type(identifier) is not str or not identifier:
+            raise ValueError("candidate identifiers must be non-empty strings")
+        if identifier != identifier.strip():
+            raise ValueError("candidate identifiers must not have leading or trailing whitespace")
+        if identifier in out:
+            raise ValueError("candidate identifiers must be unique and exact")
+        description = item.get("description", "")
+        if type(description) is not str:
+            raise ValueError("candidate descriptions must be strings")
+        out[identifier] = description or identifier
+    return out
+
+
+def _choice_metrics(answer: Any, criteria: dict[str, str], name: str) -> tuple[str, float, dict[str, float]]:
+    if not isinstance(answer, dict):
+        raise TypeError(f"Jev response is missing answer {name}")
+    choice = answer.get("choice")
+    probabilities = answer.get("probabilities")
+    confidence = answer.get("confidence")
+    if choice not in criteria or not isinstance(probabilities, dict) or set(probabilities) != set(criteria):
+        raise ValueError(f"Jev choice {name} is outside the offered criteria")
+    parsed = {key: _bounded_number(value, f"{name}.probabilities[{key!r}]") for key, value in probabilities.items()}
+    if abs(sum(parsed.values()) - 1.0) >= 0.02:
+        raise ValueError(f"Jev choice {name} probabilities do not form a distribution")
+    confidence_value = _bounded_number(confidence, f"{name}.confidence")
+    if parsed[choice] < max(parsed.values()) - 1e-6:
+        raise ValueError(f"Jev choice {name} is not the winning choice")
+    return choice, confidence_value, parsed
+
+
+def _decision_metadata(result: Any) -> dict[str, Any]:
+    if not isinstance(result, dict):
+        raise TypeError("Jev response must be an object")
+    answers = result.get("answers")
+    if not isinstance(answers, dict):
+        raise TypeError("Jev response has no answers object")
+    usage = result.get("usage") or {}
+    if not isinstance(usage, dict):
+        raise TypeError("Jev response usage must be an object")
+    return {
+        "model": result.get("model"),
+        "latency_ms": result.get("latency_ms"),
+        "usage": usage,
+    }
+
+
+def select_skill(
+    *,
+    task: str,
+    candidates: list[dict],
+    client: Any,
+    choice_confidence_threshold: float = DEFAULT_SKILL_CHOICE_CONFIDENCE_THRESHOLD,
+    needs_skill_threshold: float = DEFAULT_SKILL_NEEDS_THRESHOLD,
+    winning_probability_threshold: float = DEFAULT_SKILL_WINNING_PROBABILITY_THRESHOLD,
+    public_or_sanitized_data_ack: bool = False,
+) -> dict:
+    """Return an advisory skill choice or an explicit abstention.
+
+    Thresholds are bounded local policy values and are deliberately not presented
+    as calibrated probabilities. The caller remains responsible for deciding
+    whether to load a skill; this function never performs that mutation.
+    """
+    _require_public_data_ack(public_or_sanitized_data_ack)
+    thresholds = {
+        "choice_confidence": _bounded_number(choice_confidence_threshold, "choice_confidence_threshold"),
+        "needs_skill": _bounded_number(needs_skill_threshold, "needs_skill_threshold"),
+        "winning_probability": _bounded_number(winning_probability_threshold, "winning_probability_threshold"),
+    }
+    criteria = _criteria(candidates, "name")
+    questions = {
+        "skill": {
+            "type": "choice",
+            "instructions": (
+                "Which available skill best matches this task? Choose only one offered candidate. "
+                "The result is advisory and must not load a skill automatically."
+            ),
+            "criteria": criteria,
+        },
+        "needs_skill": {
+            "type": "noul",
+            "instructions": (
+                "Does this task need one of the offered skills? Answer the literal yes/no "
+                "question using the Noul probability primitive."
+            ),
+            "criteria": {
+                "true": "A candidate provides specialized procedure or constraints needed for the task",
+                "false": "The task is simple or none of the candidates adds material value",
+            },
+        },
+    }
+    result = client.decide(
+        {"task": task, "skills": [{"name": key, "description": value} for key, value in criteria.items()]},
+        questions,
+        public_or_sanitized_data_ack=True,
+    )
+    metadata = _decision_metadata(result)
+    answers = result["answers"]
+    selected_candidate, confidence, probabilities = _choice_metrics(answers.get("skill"), criteria, "skill")
+    needs_answer = answers.get("needs_skill")
+    if not isinstance(needs_answer, dict):
+        raise TypeError("Jev response is missing answer needs_skill")
+    needs_score = _bounded_number(needs_answer.get("noul"), "needs_skill.noul")
+    reasons: list[str] = []
+    if confidence < thresholds["choice_confidence"]:
+        reasons.append("choice_confidence_below_threshold")
+    if needs_score < thresholds["needs_skill"]:
+        reasons.append("needs_skill_below_threshold")
+    winning_probability = probabilities[selected_candidate]
+    if winning_probability < thresholds["winning_probability"]:
+        reasons.append("winning_probability_below_threshold")
+    selected = None if reasons else selected_candidate
+    return {
+        "status": "selected" if selected is not None else "abstained",
+        "selected": selected,
+        "abstention_reason": ";".join(reasons) if reasons else None,
+        "needs_skill_noul": needs_score,
+        # Compatibility name retained as a score label, not a calibrated probability claim.
+        "needs_skill_probability": needs_score,
+        "confidence": confidence,
+        "winning_probability": winning_probability,
+        "probabilities": probabilities,
+        "thresholds": thresholds,
+        **metadata,
+    }
+
+
+def _model_requirements(requirements: dict) -> dict[str, Any]:
+    if not isinstance(requirements, dict):
+        raise ValueError("requirements must be an object")
+    unknown = set(requirements) - _MODEL_REQUIREMENT_KEYS
+    if unknown:
+        raise ValueError(f"unsupported model requirement fields: {sorted(unknown)!r}")
+    parsed: dict[str, Any] = {}
+    if "data_classes" in requirements:
+        parsed["data_classes"] = _string_list(requirements["data_classes"], "requirements.data_classes")
+    if "tool_capabilities" in requirements:
+        parsed["tool_capabilities"] = _string_list(
+            requirements["tool_capabilities"], "requirements.tool_capabilities"
+        )
+    if "context_limit" in requirements:
+        parsed["context_limit"] = _positive_integer(requirements["context_limit"], "requirements.context_limit")
+    if "budget" in requirements:
+        parsed["budget"] = _nonnegative_number(requirements["budget"], "requirements.budget")
+    return parsed
+
+
+def _model_candidates(candidates: list[dict]) -> list[dict[str, Any]]:
+    if not isinstance(candidates, list) or not candidates or len(candidates) > 255:
+        raise ValueError("candidates must contain 1 to 255 entries")
+    # Validate exact identifiers and common descriptions first.
+    _criteria(candidates, "id")
+    records: list[dict[str, Any]] = []
+    for position, item in enumerate(candidates):
+        identifier = item["id"]
+        approved = item.get("approved")
+        if type(approved) is not bool:
+            raise ValueError(f"candidate {identifier!r} requires an explicit boolean approved field")
+        description = item.get("description", "")
+        if type(description) is not str:
+            raise ValueError(f"candidate {identifier!r} description must be a string")
+        allowed = None
+        if "data_classes_allowed" in item:
+            allowed = _string_list(item["data_classes_allowed"], f"candidate {identifier!r}.data_classes_allowed")
+        capabilities = None
+        if "tool_capabilities" in item:
+            capabilities = _string_list(item["tool_capabilities"], f"candidate {identifier!r}.tool_capabilities")
+        context_limit = None
+        if "context_limit" in item:
+            context_limit = _positive_integer(item["context_limit"], f"candidate {identifier!r}.context_limit")
+        cost = None
+        if "cost" in item:
+            cost = _nonnegative_number(item["cost"], f"candidate {identifier!r}.cost")
+        records.append({
+            "id": identifier,
+            "description": description,
+            "approved": approved,
+            "data_classes_allowed": allowed,
+            "tool_capabilities": capabilities,
+            "context_limit": context_limit,
+            "cost": cost,
+            "position": position,
+        })
+    return records
+
+
+def _eligible_model_candidates(
+    candidates: list[dict[str, Any]], requirements: dict[str, Any]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    eligible: list[dict[str, Any]] = []
+    excluded: list[dict[str, Any]] = []
+    required_classes = set(requirements.get("data_classes", []))
+    required_tools = set(requirements.get("tool_capabilities", []))
+    required_context = requirements.get("context_limit")
+    budget = requirements.get("budget")
+    for candidate in candidates:
+        reasons: list[str] = []
+        if candidate["approved"] is not True:
+            reasons.append("not_approved")
+        if candidate["cost"] is None:
+            # A cost is always required because the final choice is code-owned and
+            # must be provably the cheapest qualified candidate.
+            reasons.append("missing_cost")
+        if required_classes:
+            allowed = candidate["data_classes_allowed"]
+            if allowed is None:
+                reasons.append("missing_data_classes_allowed")
+            elif not required_classes.issubset(allowed):
+                reasons.append("data_class_not_allowed")
+        if required_tools:
+            capabilities = candidate["tool_capabilities"]
+            if capabilities is None:
+                reasons.append("missing_tool_capabilities")
+            elif not required_tools.issubset(capabilities):
+                reasons.append("tool_capability_missing")
+        if required_context is not None:
+            context_limit = candidate["context_limit"]
+            if context_limit is None:
+                reasons.append("missing_context_limit")
+            elif context_limit < required_context:
+                reasons.append("context_limit_too_small")
+        if budget is not None and candidate["cost"] is not None and candidate["cost"] > budget:
+            reasons.append("over_budget")
+        if reasons:
+            excluded.append({"id": candidate["id"], "reasons": reasons})
+        else:
+            eligible.append(candidate)
+    return eligible, excluded
+
+
+def _noul_score(answer: Any, name: str) -> float:
+    if not isinstance(answer, dict):
+        raise TypeError(f"Jev response is missing answer {name}")
+    return _bounded_number(answer.get("noul"), f"{name}.noul")
+
+
+def _route_metadata(result: Any) -> dict[str, Any]:
+    metadata = _decision_metadata(result)
+    if metadata["usage"].get("cost") is not None:
+        metadata["usage"] = dict(metadata["usage"])
+        metadata["usage"]["cost"] = _nonnegative_number(metadata["usage"]["cost"], "usage.cost")
+    return metadata
+
+
+def route_model(
+    *,
+    task: str,
+    candidates: list[dict],
+    requirements: dict,
+    client: Any,
+    capability_fit_threshold: float = DEFAULT_MODEL_CAPABILITY_FIT_THRESHOLD,
+    public_or_sanitized_data_ack: bool = False,
+) -> dict:
+    """Filter model candidates locally, ask Jev for fit scores, then pick cheapest.
+
+    Policy metadata is never inferred from descriptions. No runtime model is
+    changed and no automatic fallback is attempted when the route abstains.
+    """
+    _require_public_data_ack(public_or_sanitized_data_ack)
+    fit_threshold = _bounded_number(capability_fit_threshold, "capability_fit_threshold")
+    parsed_requirements = _model_requirements(requirements)
+    records = _model_candidates(candidates)
+    eligible, excluded = _eligible_model_candidates(records, parsed_requirements)
+    base = {
+        "status": "abstained",
+        "selected": None,
+        "eligible_candidates": [candidate["id"] for candidate in eligible],
+        "excluded_candidates": excluded,
+        "qualified_candidates": [],
+        "capability_fit_scores": {},
+        "capability_fit_threshold": fit_threshold,
+        "selection_policy": "cheapest qualified candidate; advisory only; runtime model is unchanged",
+        "model": None,
+        "latency_ms": None,
+        "usage": {},
+    }
+    if not eligible:
+        base["abstention_reason"] = "no_eligible_candidates"
+        return base
+
+    questions: dict[str, dict[str, Any]] = {}
+    eligible_state: list[dict[str, Any]] = []
+    for index, candidate in enumerate(eligible):
+        question_name = f"fit_{index}"
+        questions[question_name] = {
+            "type": "noul",
+            "instructions": (
+                f"Does eligible_candidates[{index}] with id {candidate['id']!r} have the capability fit "
+                "for the task? Answer the literal yes/no question using the Noul probability primitive."
+            ),
+            "criteria": {"true": "The candidate capabilities fit the task", "false": "They do not"},
+        }
+        eligible_state.append({
+            "question": question_name,
+            "id": candidate["id"],
+            "description": candidate["description"],
+            "data_classes_allowed": candidate["data_classes_allowed"],
+            "tool_capabilities": candidate["tool_capabilities"],
+            "context_limit": candidate["context_limit"],
+            "cost": candidate["cost"],
+        })
+    result = client.decide(
+        {"task": task, "requirements": parsed_requirements, "eligible_candidates": eligible_state},
+        questions,
+        public_or_sanitized_data_ack=True,
+    )
+    metadata = _route_metadata(result)
+    answers = result["answers"]
+    scores: dict[str, float] = {}
+    qualified: list[dict[str, Any]] = []
+    for index, candidate in enumerate(eligible):
+        score = _noul_score(answers.get(f"fit_{index}"), f"fit_{index}")
+        scores[candidate["id"]] = score
+        if score >= fit_threshold:
+            qualified.append(candidate)
+    base.update(metadata)
+    base["capability_fit_scores"] = scores
+    base["qualified_candidates"] = [candidate["id"] for candidate in qualified]
+    if not qualified:
+        base["abstention_reason"] = "no_candidate_met_capability_fit_threshold"
+        return base
+    selected = min(qualified, key=lambda candidate: (candidate["cost"], candidate["position"]))
+    base.update({"status": "selected", "selected": selected["id"], "abstention_reason": None})
+    return base
