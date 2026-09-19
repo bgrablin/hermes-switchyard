@@ -1,5 +1,5 @@
 """Native standalone entrypoint for the Jev Hermes plugin."""
 
-from .jev_decision import register
+from .hermes_switchyard import register
 
 __all__ = ["register"]

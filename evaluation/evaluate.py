@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Small offline/live evaluator for an isolated jev_decision candidate."""
+"""Small offline/live evaluator for an isolated hermes_switchyard candidate."""
 from __future__ import annotations
 
 import argparse
@@ -16,7 +16,7 @@ from typing import Any
 MAX_FIXTURES = 10
 MAX_REQUESTS = 12
 EXPECTED_MODEL = "typesafe/jev-1.13-20260917"
-PACKAGE = "jev_decision"
+PACKAGE = "hermes_switchyard"
 SOURCE_SUFFIXES = {".py", ".yaml", ".yml", ".md"}
 
 
@@ -283,14 +283,14 @@ def validation_probes(module: Any, public_fixture: dict[str, Any]) -> list[dict[
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Evaluate an isolated jev_decision plugin candidate")
+    parser = argparse.ArgumentParser(description="Evaluate an isolated hermes_switchyard plugin candidate")
     parser.add_argument("--validate", action="store_true", help="run offline synthetic validation (default)")
     parser.add_argument("--live", action="store_true", help="make bounded OpenRouter Decisions API calls")
     parser.add_argument(
         "--plugin-parent",
         type=Path,
         default=None,
-        help="parent containing jev_decision/ (default: this repository)",
+        help="parent containing hermes_switchyard/ (default: this repository)",
     )
     parser.add_argument(
         "--output",

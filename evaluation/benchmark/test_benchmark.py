@@ -144,7 +144,7 @@ class BenchmarkContractTests(unittest.TestCase):
     def test_plugin_fingerprint_includes_root_entrypoint(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as temp_dir:
             plugin = Path(temp_dir)
-            package = plugin / "jev_decision"
+            package = plugin / "hermes_switchyard"
             package.mkdir()
             (package / "routing.py").write_text("ROUTE = 1\n", encoding="utf-8")
             (plugin / "plugin.yaml").write_text("name: test\n", encoding="utf-8")

@@ -24,6 +24,7 @@ RECEIPT_TERMINAL_STATES = frozenset(
         "local_selection",
         "hosted_selection",
         "hosted_abstention",
+        "hosted_failure",
         "hosted_failure_local_fallback",
         "hosted_skipped",
         "cache_hit",
@@ -42,6 +43,16 @@ HOSTED_ERROR_CODES = frozenset(
 HOSTED_SKIP_REASONS = frozenset(
     {
         "disabled",
+        "ack_required",
+        "local_scan_unknown_structured",
+        "local_scan_unclassifiable",
+        "local_scan_control_character",
+        "local_scan_prompt_injection",
+        "local_scan_payment_data",
+        "local_scan_verification_data",
+        "local_scan_contact_identifier",
+        "local_scan_secret_like_value",
+        "local_scan_restricted_data",
         "public_or_sanitized_data_ack_required",
         "client_unavailable",
         "local_confident",
@@ -49,6 +60,18 @@ HOSTED_SKIP_REASONS = frozenset(
         "empty_task",
         "no_candidates",
         "diagnostic_value_unavailable",
+    }
+)
+USAGE_NUMERIC_KEYS = frozenset(
+    {
+        "cost",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "input_tokens",
+        "output_tokens",
+        "cached_tokens",
+        "reasoning_tokens",
     }
 )
 RECEIPT_FIELDS = frozenset(
@@ -176,12 +199,11 @@ def safe_usage(value: Any) -> dict[str, float]:
         return {}
     result: dict[str, float] = {}
     for key, item in value.items():
-        safe_key = safe_identifier(key)
-        if safe_key is None or type(item) not in (int, float):
+        if key not in USAGE_NUMERIC_KEYS or type(item) not in (int, float):
             continue
         numeric = finite_nonnegative(item, default=-1.0)
         if numeric >= 0:
-            result[safe_key] = numeric
+            result[key] = numeric
     return result
 
 
@@ -296,7 +318,7 @@ def validate_receipt(receipt: Any) -> bool:
             return False
     usage = receipt["total_usage"]
     if not isinstance(usage, dict) or any(
-        safe_identifier(key) is None or not _finite(value) for key, value in usage.items()
+        key not in USAGE_NUMERIC_KEYS or not _finite(value) for key, value in usage.items()
     ):
         return False
     source_sha = receipt["source_sha"]

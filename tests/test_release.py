@@ -83,7 +83,7 @@ def _recompute_checksums(members: dict[str, bytes]) -> None:
 
 class ReleaseArchiveTests(unittest.TestCase):
     def test_register_ast_check_accepts_reexports_and_rejects_text_mentions(self):
-        self.assertTrue(_has_register_binding(ast.parse("from .jev_decision import register")))
+        self.assertTrue(_has_register_binding(ast.parse("from .hermes_switchyard import register")))
         self.assertTrue(_has_register_binding(ast.parse("def register(ctx):\n    return None\n")))
         self.assertFalse(_has_register_binding(ast.parse("# register\nvalue = 'register'\n")))
         self.assertFalse(_has_register_binding(ast.parse("register = object()\n")))
@@ -146,7 +146,7 @@ class ReleaseArchiveTests(unittest.TestCase):
                 second,
                 source_root=repo,
                 expected_source_sha=source_sha,
-                expected_version="0.4.1",
+                expected_version="0.4.2",
             )
             self.assertTrue(result["integrity_verified"])
             self.assertTrue(result["source_verified"])

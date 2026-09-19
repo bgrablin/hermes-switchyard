@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.2
+
+- Uses standalone `hosted_sanitized` automatic routing with persistent acknowledgement and strict local per-turn scanning.
+- Resolves provider, model, endpoint, and profile-scoped secret settings at each invocation.
+- Adds local `status` and `guide` commands plus an explicit `test --live` billed-request gate.
+- Adds the separate typed `jev_skill_select_many` catalog-selection contract without loading or mutating skills.
+
 ## 0.4.1
 
 - Renamed the machine plugin ID from `jev-decision` to `hermes-switchyard` so installed-plugin surfaces use the product name. The `jev_decision` Python package, Jev tool names, setup command, and operations skill remain stable.

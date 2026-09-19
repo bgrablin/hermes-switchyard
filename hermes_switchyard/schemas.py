@@ -62,6 +62,19 @@ COMPUTER_USE = {
                 "uniqueItems": True,
                 "description": "Explicit semantic hotkeys permitted for this call. Omitted means no hotkeys.",
             },
+            "text_inputs": {
+                "type": "array", "maxItems": 16,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "field_label": {"type": "string", "minLength": 1, "maxLength": 128},
+                        "value": {"type": "string", "minLength": 1, "maxLength": 2000},
+                    },
+                    "required": ["field_label", "value"],
+                    "additionalProperties": False,
+                },
+                "description": "Optional bounded caller values. Values are matched locally to one exact visible field label and never sent to Jev.",
+            },
             "public_or_sanitized_data_ack": _ACKNOWLEDGEMENT,
             "deadline_seconds": _DEADLINE,
         },

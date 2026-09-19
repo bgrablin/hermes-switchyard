@@ -67,7 +67,7 @@ class PortabilityTests(unittest.TestCase):
         self.assertIsNotNone(parsed)
         _check_manifest_version(raw_manifest, parsed.name)
         self.assertEqual(parsed.name, "hermes-switchyard")
-        self.assertEqual(parsed.version, "0.4.1")
+        self.assertEqual(parsed.version, "0.4.2")
         self.assertEqual(parsed.manifest_version, 1)
         self.assertIsNone(parsed.api_version)
 
@@ -81,7 +81,7 @@ class PortabilityTests(unittest.TestCase):
             script = textwrap.dedent(
                 """
                 from pathlib import Path
-                import jev_decision
+                import hermes_switchyard
 
                 class Context:
                     def __init__(self):
@@ -100,7 +100,7 @@ class PortabilityTests(unittest.TestCase):
                         self.skill_path = Path(path)
 
                 context = Context()
-                jev_decision.register(context)
+                hermes_switchyard.register(context)
                 assert context.skill_path is not None
                 assert context.skill_path.is_file()
                 print(context.skill_path)
@@ -118,7 +118,7 @@ class PortabilityTests(unittest.TestCase):
             )
             self.assertEqual(completed.returncode, 0, completed.stderr)
             resource = Path(completed.stdout.strip())
-            expected = relocated / "jev_decision" / "skills" / "jev-decision-operations" / "SKILL.md"
+            expected = relocated / "hermes_switchyard" / "skills" / "jev-decision-operations" / "SKILL.md"
             self.assertEqual(resource, expected)
 
     def test_evaluation_default_parent_and_report_are_portable(self):
@@ -146,7 +146,7 @@ class PortabilityTests(unittest.TestCase):
             self.assertNotIn(str(ROOT), output.read_text(encoding="utf-8"))
 
     def test_secret_resolution_is_deferred_to_profile_scoped_provider(self):
-        import jev_decision
+        import hermes_switchyard
 
         active_profile = {"name": "A"}
         values = {"A": "fixture-profile-a", "B": "fixture-profile-b"}
@@ -162,9 +162,9 @@ class PortabilityTests(unittest.TestCase):
             sys.modules,
             {"agent": agent_package, "agent.secret_scope": secret_scope},
         ):
-            self.assertEqual(jev_decision._secret(), "fixture-profile-a")
+            self.assertEqual(hermes_switchyard._secret(), "fixture-profile-a")
             active_profile["name"] = "B"
-            self.assertEqual(jev_decision._secret(), "fixture-profile-b")
+            self.assertEqual(hermes_switchyard._secret(), "fixture-profile-b")
 
     def test_unknown_suffix_text_is_scanned_but_binary_branding_is_not(self):
         self.assertIsNone(check_portability._text_from_bytes(b"\x89PNG\x00binary"))

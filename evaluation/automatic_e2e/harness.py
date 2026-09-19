@@ -45,7 +45,7 @@ TASKS = (
 
 
 def _source_manifest(repo: Path) -> tuple[dict[str, str], str]:
-    paths = [repo / "plugin.yaml"] + sorted((repo / "jev_decision").rglob("*.py"))
+    paths = [repo / "plugin.yaml"] + sorted((repo / "hermes_switchyard").rglob("*.py"))
     manifest: dict[str, str] = {}
     for path in paths:
         if "__pycache__" in path.parts:
@@ -177,7 +177,7 @@ def _run_arm(
         pre_llm_callbacks = list(manager.iter_hook_callbacks("pre_llm_call"))
         pre_api_callbacks = list(manager.iter_hook_callbacks("pre_api_request"))
         automatic_callback = next(
-            (callback for callback in pre_llm_callbacks if "jev_decision" in getattr(callback, "__module__", "")),
+            (callback for callback in pre_llm_callbacks if "hermes_switchyard" in getattr(callback, "__module__", "")),
             None,
         )
         observer_callback = next(
