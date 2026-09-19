@@ -66,8 +66,8 @@ class PortabilityTests(unittest.TestCase):
         parsed = parse_manifest_file(ROOT / "plugin.yaml", ROOT, source="project", prefix="")
         self.assertIsNotNone(parsed)
         _check_manifest_version(raw_manifest, parsed.name)
-        self.assertEqual(parsed.name, "jev-decision")
-        self.assertEqual(parsed.version, "0.4.0")
+        self.assertEqual(parsed.name, "hermes-switchyard")
+        self.assertEqual(parsed.version, "0.4.1")
         self.assertEqual(parsed.manifest_version, 1)
         self.assertIsNone(parsed.api_version)
 

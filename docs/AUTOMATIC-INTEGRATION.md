@@ -10,7 +10,7 @@ The feature is advisory only:
 - it uses local token matching by default;
 - hosted Jev is disabled by default and requires a separate configuration switch plus a public/sanitized-data attestation.
 
-The current plugin manifest is version `0.4.0` and declares `pre_llm_call` in `provides_hooks`.
+The current plugin manifest is version `0.4.1` and declares `pre_llm_call` in `provides_hooks`.
 
 ## Runtime flow
 
@@ -58,7 +58,7 @@ The attestation is not DLP, authorization, or a privacy guarantee. Do not enable
 
 ## Configuration
 
-All settings are profile-scoped under `plugins.entries.jev-decision.settings`:
+All settings are profile-scoped under `plugins.entries.hermes-switchyard.settings`:
 
 | Key | Default | Effect |
 | --- | ---: | --- |
@@ -118,7 +118,7 @@ The local hook can abstain when the registry is empty, no candidate overlap exis
 To make the smoke deterministic, configure an explicit candidate list before starting a fresh process:
 
 ```text
-hermes config set plugins.entries.jev-decision.settings.automatic_skill_candidates '[{"name":"docker-management","description":"Manage Docker containers and Compose services."}]'
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_candidates '[{"name":"docker-management","description":"Manage Docker containers and Compose services."}]'
 ```
 
 The config command parses list and mapping literals as YAML/JSON values. The list is still validated by the plugin and is not a permission grant.
@@ -126,8 +126,8 @@ The config command parses list and mapping literals as YAML/JSON values. The lis
 For a hosted public/synthetic smoke, configure the account first, then explicitly enable the hosted path:
 
 ```text
-hermes config set plugins.entries.jev-decision.settings.automatic_skill_jev true
-hermes config set plugins.entries.jev-decision.settings.automatic_skill_public_or_sanitized_data_ack true
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_jev true
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack true
 ```
 
 Use only a task and configured metadata that are public or already sanitized. Start a fresh process, then run the same public request. A hosted failure or timeout may preserve a local selection; a valid hosted abstention remains abstention. No fallback provider or model is selected.

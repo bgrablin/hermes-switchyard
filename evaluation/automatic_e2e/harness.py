@@ -65,7 +65,7 @@ def _copy_skill(src: Path, dst: Path) -> None:
 
 def _prepare_home(repo: Path, root: Path, automatic: bool) -> tuple[Path, Path]:
     home = root / "hermes-home"
-    plugin = home / "plugins" / "jev-decision"
+    plugin = home / "plugins" / "hermes-switchyard"
     plugin.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(
         repo,
@@ -96,7 +96,7 @@ def _prepare_home(repo: Path, root: Path, automatic: bool) -> tuple[Path, Path]:
     empty_bundled = root / "empty-bundled"
     empty_bundled.mkdir()
     (home / "config.yaml").write_text(
-        """plugins:\n  enabled:\n    - jev-decision\n    - auto-e2e-observer\n  entries:\n    jev-decision:\n      settings:\n        automatic_skill_recommendation: %s\n        automatic_skill_jev: true\n        automatic_skill_public_or_sanitized_data_ack: true\n        automatic_skill_cache_seconds: 300\nagent:\n  max_turns: 8\n"""
+        """plugins:\n  enabled:\n    - hermes-switchyard\n    - auto-e2e-observer\n  entries:\n    hermes-switchyard:\n      settings:\n        automatic_skill_recommendation: %s\n        automatic_skill_jev: true\n        automatic_skill_public_or_sanitized_data_ack: true\n        automatic_skill_cache_seconds: 300\nagent:\n  max_turns: 8\n"""
         % ("true" if automatic else "false"),
         encoding="utf-8",
     )

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+
+- Renamed the machine plugin ID from `jev-decision` to `hermes-switchyard` so installed-plugin surfaces use the product name. The `jev_decision` Python package, Jev tool names, setup command, and operations skill remain stable.
+- Corrected two security-scanner false positives in operator documentation so the repository passes Hermes' plugin security gate without `--force`.
+- Added migration guidance: remove the legacy `jev-decision` installation before installing `hermes-switchyard` so duplicate registrations cannot load together.
+
 ## 0.4.0
 
 - Adds `jev_assess` with validated Choice, Score, and Noul support.

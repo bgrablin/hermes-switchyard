@@ -2,7 +2,7 @@
 
 Jev-powered advisory selection, general typed assessment, and cross-platform Cua Driver computer-use support for Hermes Agent.
 
-Version: 0.4.0
+Version: 0.4.1
 
 [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) is a structured decision model. Hermes Switchyard is the Hermes plugin integration around Jev: it applies local policy, requires a public-or-sanitized data confirmation, keeps actions bounded, and leaves final verification to Hermes. Jev owns typed judgments; Switchyard owns validation, routing, execution boundaries, and evidence.
 
@@ -27,7 +27,7 @@ The command installs and enables the plugin. To inspect the installed files befo
 ```text
 hermes plugins install bgrablin/hermes-switchyard --no-enable
 hermes plugins list
-hermes plugins enable jev-decision
+hermes plugins enable hermes-switchyard
 ```
 
 The repository command requires no GitHub login or token. Catalog installation is not available until a human admits the plugin to the Hermes catalog; use the repository command above.
@@ -60,9 +60,9 @@ Use the secure setup steps in [docs/SETUP.md](docs/SETUP.md). Never pass an API 
 When the plugin is enabled, the `pre_llm_call` lifecycle hook is on by default. It discovers the **full** active profile skill registry through Hermes' supported `skills_list` API and performs a fast local match for fallback. After the public/sanitized-data attestation is enabled, hosted Jev evaluates every turn by default. This deliberately prefers the stronger Jev decision over saving its small request cost. Set `automatic_skill_jev_mode` to `uncertain_only` only when latency matters more than Jev coverage.
 
 ```text
-hermes config set plugins.entries.jev-decision.settings.automatic_skill_jev true
-hermes config set plugins.entries.jev-decision.settings.automatic_skill_jev_mode always
-hermes config set plugins.entries.jev-decision.settings.automatic_skill_public_or_sanitized_data_ack true
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_jev true
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_jev_mode always
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack true
 ```
 
 When hosted Jev is enabled with the attestation, the full catalog is searched through bounded Choice fan-out and descriptions are included as semantic evidence. Candidate names, bounded descriptions, and the current task may leave the host. Conversation history and full skill bodies do not. A valid Jev abstention is preserved; transport failure may preserve a local winner.
@@ -94,7 +94,7 @@ The plugin can use either `TYPESAFE_API_KEY` or `OPENROUTER_API_KEY`. Both are o
 ```text
 hermes plugins install bgrablin/hermes-switchyard --enable
 hermes jev-decision setup --provider typesafe
-hermes config set plugins.entries.jev-decision.settings.jev_provider auto
+hermes config set plugins.entries.hermes-switchyard.settings.jev_provider auto
 ```
 
 Do not use `hermes auth add openrouter` for this plugin. Switchyard reads profile-scoped secrets through Hermes' secret scope. Check readiness without displaying a key:
@@ -118,11 +118,11 @@ Cua Driver supports background desktop actions on Windows, macOS, and Linux. Swi
 
 ## Configuration
 
-Settings are profile-scoped under `plugins.entries.jev-decision.settings`:
+Settings are profile-scoped under `plugins.entries.hermes-switchyard.settings`:
 
 ```text
-hermes config set plugins.entries.jev-decision.settings.jev_provider auto
-hermes config set plugins.entries.jev-decision.settings.computer_max_steps 100
+hermes config set plugins.entries.hermes-switchyard.settings.jev_provider auto
+hermes config set plugins.entries.hermes-switchyard.settings.computer_max_steps 100
 ```
 
 `jev_provider` is `auto`, `typesafe`, or `openrouter`. `api_endpoint` may only be the fixed direct TypeSafe or OpenRouter endpoint. Leave `jev_model` empty to select the provider default. Each Hermes profile has its own settings and secret scope.
@@ -149,10 +149,10 @@ Plugin Doctor checks whether Hermes can import and register the plugin. It does 
 For an unpinned repository install:
 
 ```text
-hermes plugins update jev-decision
+hermes plugins update hermes-switchyard
 ```
 
-An exact-SHA install does not move implicitly. Reinstall with `--force --ref` and the reviewed commit described in [docs/RELEASE.md](docs/RELEASE.md), then enable the plugin if required. Check the result with `hermes plugins list` and `hermes plugins doctor . --ci` before enabling it.
+An exact-SHA install does not move implicitly. Remove the installed copy, reinstall the reviewed commit with `--ref` as described in [docs/RELEASE.md](docs/RELEASE.md), then enable the plugin if required. Check the result with `hermes plugins list` and `hermes plugins doctor . --ci` before enabling it.
 
 These operations replace only the plugin under the active profile's plugin directory. They do not patch Hermes core. Keep the previous reviewed SHA as the rollback target.
 

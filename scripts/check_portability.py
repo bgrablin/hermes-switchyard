@@ -68,7 +68,7 @@ CREDENTIAL_FILE_NAMES = frozenset({
 })
 CREDENTIAL_FILE_SUFFIXES = frozenset({".key", ".pem", ".p12", ".pfx"})
 REQUIRED_MANIFEST_TEXT = (
-    "name: jev-decision",
+    "name: hermes-switchyard",
     "author: bgrablin",
     "jev_computer_use",
     "jev_skill_select",

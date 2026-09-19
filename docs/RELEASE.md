@@ -54,7 +54,7 @@ The normal install command downloads the plugin from this public GitHub reposito
 hermes plugins install bgrablin/hermes-switchyard --enable
 ```
 
-The `--enable` form installs and enables in one step. To inspect first, use `--no-enable`, then run `hermes plugins list` and `hermes plugins enable jev-decision`.
+The `--enable` form installs and enables in one step. To inspect first, use `--no-enable`, then run `hermes plugins list` and `hermes plugins enable hermes-switchyard`.
 
 For a reproducible install, first verify that the current checkout is the reviewed release commit, then use its exact SHA:
 
@@ -64,7 +64,7 @@ git cat-file -e "$RELEASE_SHA^{commit}"
 hermes plugins install bgrablin/hermes-switchyard --ref "$RELEASE_SHA" --enable
 ```
 
-This uses a commit SHA, not a moving branch or tag. The plugin ID remains `jev-decision` for enable, disable, list, and configuration commands.
+This uses a commit SHA, not a moving branch or tag. The plugin ID is `hermes-switchyard` for enable, disable, list, update, and configuration commands. Version 0.4.0 installations using the legacy `jev-decision` ID must be removed before the renamed plugin is installed.
 
 The catalog name form is for a future catalog admission. Until admission, use the repository form above.
 

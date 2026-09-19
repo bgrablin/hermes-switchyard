@@ -369,7 +369,7 @@ class AutomaticRecommendationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
             home = workspace / "hermes"
-            plugin = home / "plugins" / "jev-decision"
+            plugin = home / "plugins" / "hermes-switchyard"
             plugin.parent.mkdir(parents=True)
             skill = home / "skills" / "devops" / "docker-management"
             skill.mkdir(parents=True)
@@ -379,7 +379,7 @@ class AutomaticRecommendationTests(unittest.TestCase):
             )
             shutil.copytree(root, plugin)
             (home / "config.yaml").write_text(
-                "plugins:\n  enabled:\n    - jev-decision\n", encoding="utf-8"
+                "plugins:\n  enabled:\n    - hermes-switchyard\n", encoding="utf-8"
             )
             empty_bundled = workspace / "empty-bundled"
             empty_bundled.mkdir()
