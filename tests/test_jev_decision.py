@@ -87,7 +87,13 @@ class SyntheticDispatch:
                 raise AssertionError("fixture ran out of captures")
             return self.captures.pop(0)
         self.action_calls.append(dict(args))
-        return {"ok": True, "action": args.get("action")}
+        return {
+            "ok": True,
+            "action": args.get("action"),
+            "effect": {"confirmed": True, "status": "applied"},
+            "verdict": "confirmed",
+            "escalation": None,
+        }
 
     @staticmethod
     def assert_tool(tool_name):
@@ -712,7 +718,7 @@ class ComputerUseTests(unittest.TestCase):
         self.assertEqual(result["status"], "blocked")
         self.assertEqual(dispatch.action_calls, [])
 
-    def test_explicit_key_has_one_dispatch_without_foreground_retry(self):
+    def test_explicit_key_returns_partial_receipt_without_foreground_retry(self):
         class FailingKeyDispatch(SyntheticDispatch):
             def __call__(self, tool_name, args):
                 self.assert_tool(tool_name)
@@ -723,14 +729,148 @@ class ComputerUseTests(unittest.TestCase):
                 return {"ok": False, "error": "key delivery failed"}
 
         dispatch = FailingKeyDispatch([_capture(), _capture()])
-        with self.assertRaises(RuntimeError):
-            run_computer_goal(
-                goal="save", app="Chrome", max_steps=1, dispatch=dispatch,
-                client=ComputerClient(["HOTKEY"]), allowed_hotkeys=["SAVE"],
-                public_or_sanitized_data_ack=True,
-            )
+        result = run_computer_goal(
+            goal="save", app="Chrome", max_steps=1, dispatch=dispatch,
+            client=ComputerClient(["HOTKEY"]), allowed_hotkeys=["SAVE"],
+            public_or_sanitized_data_ack=True,
+        )
         self.assertEqual(len(dispatch.action_calls), 1)
         self.assertEqual(dispatch.action_calls[0], {"action": "key", "keys": "ctrl+s"})
+        self.assertEqual(result["status"], "partial_failure")
+        self.assertTrue(result["reconcile_before_retry"])
+        self.assertEqual(result["attempted_action_count"], 1)
+
+    def test_uncertain_operation_abstains_before_target_or_action(self):
+        class UncertainClient(ComputerClient):
+            def decide(self, state, questions, *, public_or_sanitized_data_ack=False):
+                self.calls.append((state, questions))
+                return {
+                    "model": "typesafe/jev-1.13",
+                    "answers": {
+                        "operation": _choice(
+                            questions["operation"]["criteria"],
+                            "CLICK",
+                            confidence=0.0,
+                            probabilities={key: 1 / len(questions["operation"]["criteria"]) for key in questions["operation"]["criteria"]},
+                        ),
+                        "hotkey": _choice(questions["hotkey"]["criteria"]),
+                    },
+                    "usage": {},
+                }
+
+        dispatch = SyntheticDispatch([_capture()])
+        result = run_computer_goal(
+            goal="click Go", app="Chrome", max_steps=1, dispatch=dispatch,
+            client=UncertainClient([]), public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["status"], "abstained")
+        self.assertEqual(dispatch.action_calls, [])
+
+    def test_no_target_choice_abstains_without_action(self):
+        class NoTargetClient(ComputerClient):
+            def decide(self, state, questions, *, public_or_sanitized_data_ack=False):
+                self.calls.append((state, questions))
+                answers = {}
+                for name, question in questions.items():
+                    if name == "operation":
+                        answers[name] = _choice(question["criteria"], "CLICK")
+                    elif name.startswith("click_target"):
+                        answers[name] = _choice(question["criteria"], "__jev_no_target__")
+                    else:
+                        answers[name] = _choice(question["criteria"])
+                return {"model": "typesafe/jev-1.13", "answers": answers, "usage": {}}
+
+        dispatch = SyntheticDispatch([_capture(), _capture()])
+        result = run_computer_goal(
+            goal="click Go", app="Chrome", max_steps=1, dispatch=dispatch,
+            client=NoTargetClient([]), public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["status"], "abstained")
+        self.assertEqual(dispatch.action_calls, [])
+
+    def test_unconfirmed_effect_stops_and_preserves_action_receipt(self):
+        class NoopDispatch(SyntheticDispatch):
+            def __call__(self, tool_name, args):
+                result = super().__call__(tool_name, args)
+                if args.get("action") != "capture":
+                    result["effect"] = {"confirmed": False, "status": "suspected_noop"}
+                    result["verdict"] = "suspected_noop"
+                return result
+
+        dispatch = NoopDispatch([_capture(), _capture()])
+        result = run_computer_goal(
+            goal="click Go", app="Chrome", max_steps=2, dispatch=dispatch,
+            client=ComputerClient(["CLICK", "DONE"]), public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["status"], "unconfirmed_effect")
+        self.assertEqual(len(result["actions"]), 1)
+        self.assertEqual(len(dispatch.action_calls), 1)
+
+    def test_escalation_stops_after_side_effect_without_continuing(self):
+        class EscalatingDispatch(SyntheticDispatch):
+            def __call__(self, tool_name, args):
+                result = super().__call__(tool_name, args)
+                if args.get("action") != "capture":
+                    result["escalation"] = {"required": True}
+                    result["verdict"] = "escalate"
+                return result
+
+        dispatch = EscalatingDispatch([_capture(), _capture()])
+        result = run_computer_goal(
+            goal="click Go", app="Chrome", max_steps=2, dispatch=dispatch,
+            client=ComputerClient(["CLICK", "DONE"]), public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["status"], "escalated")
+        self.assertEqual(len(result["actions"]), 1)
+        self.assertTrue(result["reconcile_before_retry"])
+
+    def test_drag_finalists_carry_source_context_and_exclude_source_destination(self):
+        captures = [
+            {
+                "app": "Chrome",
+                "window_title": "Drag",
+                "elements": [
+                    {"index": 1, "role": "Button", "label": "Same"},
+                    {"index": 2, "role": "Button", "label": "Same"},
+                ],
+            }
+            for _ in range(4)
+        ]
+        dispatch = SyntheticDispatch(captures)
+
+        class DragClient:
+            def __init__(self):
+                self.states = []
+
+            def decide(self, state, questions, *, public_or_sanitized_data_ack=False):
+                self.states.append((state, questions))
+                answers = {}
+                for name, question in questions.items():
+                    criteria = question["criteria"]
+                    if name == "operation":
+                        answers[name] = _choice(criteria, "DRAG")
+                    elif name.startswith("drag_source"):
+                        answers[name] = _choice(criteria, "1")
+                    elif name.startswith("drag_target"):
+                        if "1" in criteria:
+                            raise AssertionError("source was offered as destination")
+                        answers[name] = _choice(criteria, "2")
+                    else:
+                        answers[name] = _choice(criteria)
+                return {"model": "typesafe/jev-1.13", "answers": answers, "usage": {}}
+
+        client = DragClient()
+        result = run_computer_goal(
+            goal="drag the first button to the second", app="Chrome", max_steps=1,
+            dispatch=dispatch, client=client, public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["actions"][0]["operation"], "DRAG")
+        source_state = next(state for state, questions in client.states if "drag_source" in questions)
+        destination_state = next(state for state, questions in client.states if "drag_target" in questions)
+        self.assertEqual(source_state["selected_operation"], "DRAG")
+        self.assertEqual(source_state["target_role"], "source")
+        self.assertEqual(destination_state["target_role"], "destination")
+        self.assertEqual(destination_state["selected_source_id"], "1")
 
     def test_changed_target_is_refused_before_action_dispatch(self):
         dispatch = SyntheticDispatch([_capture(label="Go"), _capture(label="Other")])

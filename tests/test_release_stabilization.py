@@ -1,0 +1,411 @@
+"""Release-stabilization regression tests written before implementation."""
+from __future__ import annotations
+
+import json
+import math
+import unittest
+from contextlib import contextmanager
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+from jev_decision import schemas
+from jev_decision.automatic import AutomaticSkillRecommender
+from jev_decision.client import DecisionClient
+from jev_decision.routing import route_model, select_skill
+
+
+class _Response:
+    def __init__(self, body: bytes, status: int = 200, headers: dict[str, str] | None = None):
+        self.body = body
+        self.status = status
+        self.reason = "fixture"
+        self.headers = headers or {}
+        self.will_close = False
+        self.read_sizes: list[int | None] = []
+
+    def read(self, size: int | None = None) -> bytes:
+        self.read_sizes.append(size)
+        if size is None:
+            return self.body
+        return self.body[:size]
+
+    def close(self) -> None:
+        pass
+
+
+class _Connection:
+    def __init__(self, response: _Response):
+        self.response = response
+        self.closed = False
+        self.timeout = None
+
+    def request(self, *_args, **_kwargs):
+        pass
+
+    def getresponse(self):
+        return self.response
+
+    def close(self):
+        self.closed = True
+
+
+class ResponseBoundaryTests(unittest.TestCase):
+    def _client(self, response: _Response) -> DecisionClient:
+        connection = _Connection(response)
+        client = DecisionClient(api_key="fixture", timeout=2)
+        client._connection = connection
+        return client
+
+    def test_provider_control_fields_are_removed_from_validated_response(self):
+        client = DecisionClient(
+            api_key="fixture",
+            transport=lambda _payload: {
+                "model": "typesafe/jev-1.13",
+                "answers": {"answer": {"noul": 0.9}},
+                "usage": {},
+                "provider_control": {"override": "unsafe"},
+                "system_fingerprint": "not-for-callers",
+            },
+        )
+        result = client.decide(
+            "public",
+            {"answer": {"type": "noul", "instructions": "Is it true?"}},
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertNotIn("provider_control", result)
+        self.assertNotIn("system_fingerprint", result)
+
+    def test_duplicate_json_keys_are_rejected_before_typed_validation(self):
+        body = b'{"model":"typesafe/jev-1.13","model":"typesafe/jev-1.13","answers":{}}'
+        response = _Response(body)
+        client = self._client(response)
+        with mock.patch("jev_decision.client.http.client.HTTPSConnection", return_value=client._connection):
+            client._connection = None
+            with self.assertRaises(RuntimeError):
+                client.decide(
+                    "public",
+                    {"answer": {"type": "noul", "instructions": "Is it true?"}},
+                    public_or_sanitized_data_ack=True,
+                )
+
+    def test_nonfinite_json_constants_are_rejected_even_in_unknown_fields(self):
+        client = DecisionClient(
+            api_key="fixture",
+            transport=lambda _payload: {
+                "model": "typesafe/jev-1.13",
+                "answers": {"answer": {"noul": 0.9}},
+                "usage": {},
+                "diagnostic": math.nan,
+            },
+        )
+        with self.assertRaises(ValueError):
+            client.decide(
+                "public",
+                {"answer": {"type": "noul", "instructions": "Is it true?"}},
+                public_or_sanitized_data_ack=True,
+            )
+
+    def test_http_body_is_read_with_a_hard_cap(self):
+        from jev_decision import client as module
+
+        response = _Response(b"x" * (module.MAX_RESPONSE_BYTES + 1))
+        connection = _Connection(response)
+        with mock.patch.object(module.http.client, "HTTPSConnection", return_value=connection):
+            client = DecisionClient(api_key="fixture")
+            with self.assertRaises(RuntimeError):
+                client.decide(
+                    "public",
+                    {"answer": {"type": "noul", "instructions": "Is it true?"}},
+                    public_or_sanitized_data_ack=True,
+                )
+        self.assertEqual(response.read_sizes, [module.MAX_RESPONSE_BYTES + 1])
+        self.assertTrue(connection.closed)
+
+    def test_http_error_json_is_strict_and_bounded(self):
+        from jev_decision import client as module
+
+        response = _Response(
+            b'{"error":"bad","error":"worse"}',
+            status=400,
+            headers={"Content-Length": "31"},
+        )
+        connection = _Connection(response)
+        with mock.patch.object(module.http.client, "HTTPSConnection", return_value=connection):
+            client = DecisionClient(api_key="fixture")
+            with self.assertRaises(RuntimeError):
+                client.decide(
+                    "public",
+                    {"answer": {"type": "noul", "instructions": "Is it true?"}},
+                    public_or_sanitized_data_ack=True,
+                )
+        self.assertEqual(response.read_sizes, [module.MAX_ERROR_BYTES + 1])
+        self.assertTrue(connection.closed)
+
+
+class RoutingBoundaryTests(unittest.TestCase):
+    def test_catalog_batches_fit_the_complete_serialized_request(self):
+        calls: list[dict] = []
+
+        def transport(payload):
+            calls.append(payload)
+            return {
+                "model": "typesafe/jev-1.13",
+                "answers": {name: {"noul": 0.9} for name in payload["questions"]},
+                "usage": {},
+            }
+
+        client = DecisionClient(api_key="fixture", transport=transport)
+        candidates = [
+            {
+                "id": f"model-{index}",
+                "description": "long public metadata " + ("x" * 700),
+                "approved": True,
+                "cost": index + 1,
+            }
+            for index in range(100)
+        ]
+        result = route_model(
+            task="public task",
+            candidates=candidates,
+            requirements={},
+            client=client,
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(len(result["capability_fit_scores"]), 100)
+        self.assertTrue(all(len(json.dumps(payload, ensure_ascii=False).encode()) <= 96_000 for payload in calls))
+
+    def test_long_skill_catalogs_are_partitioned_by_complete_request_bytes(self):
+        calls: list[dict] = []
+
+        def transport(payload):
+            calls.append(payload)
+            answers = {}
+            for name, question in payload["questions"].items():
+                criteria = question.get("criteria", {})
+                if name == "needs_skill":
+                    answers[name] = {"noul": 0.95}
+                    continue
+                selected = "skill-179" if "skill-179" in criteria else next(iter(criteria))
+                probabilities = {
+                    key: (0.95 if key == selected else 0.05 / max(1, len(criteria) - 1))
+                    for key in criteria
+                }
+                answers[name] = {
+                    "choice": selected,
+                    "probabilities": probabilities,
+                    "confidence": 0.95,
+                }
+            return {"model": "typesafe/jev-1.13", "answers": answers, "usage": {}}
+
+        candidates = [
+            {
+                "name": f"skill-{index}",
+                "description": "public long description " + ("x" * 700),
+            }
+            for index in range(180)
+        ]
+        result = select_skill(
+            task="public task",
+            candidates=candidates,
+            client=DecisionClient(api_key="fixture", transport=transport),
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["selected"], "skill-179")
+        self.assertGreater(len(calls), 1)
+        self.assertTrue(
+            all(len(json.dumps(payload, ensure_ascii=False).encode()) <= 96_000 for payload in calls)
+        )
+        offered = {
+            candidate["name"]
+            for payload in calls
+            for candidate in payload["state"].get("skills", [])
+        }
+        self.assertEqual(offered, {candidate["name"] for candidate in candidates})
+
+    def test_multi_skill_contract_returns_typed_list_without_using_single_selector(self):
+        from jev_decision.routing import select_skills
+
+        class Client:
+            def decide(self, _state, questions, *, public_or_sanitized_data_ack=False):
+                return {
+                    "model": "typesafe/jev-1.13",
+                    "answers": {name: {"noul": 0.95 if name.endswith("0") else 0.1} for name in questions},
+                    "usage": {},
+                }
+
+        result = select_skills(
+            task="public task",
+            candidates=[
+                {"name": "skill-a", "description": "A"},
+                {"name": "skill-b", "description": "B"},
+            ],
+            client=Client(),
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["selected"], ["skill-a"])
+        self.assertIsInstance(result["scores"], dict)
+
+    def test_recommendation_cache_key_is_hash_only_and_changes_with_route_identity(self):
+        route = {"endpoint": "https://api.typesafe.ai/v1/systemone", "model": "jev-latest", "profile": "A"}
+        recommender = AutomaticSkillRecommender(
+            configured_candidates=[{"name": "skill-a", "description": "A"}],
+            cache_identity=lambda: route,
+        )
+        recommender.recommend("public task")
+        key = next(iter(recommender._cache))
+        self.assertRegex(key, r"^[0-9a-f]{64}$")
+        route["profile"] = "B"
+        second = recommender.recommend("public task")
+        self.assertFalse(second["cache_hit"])
+
+
+class NamespaceAndAckTests(unittest.TestCase):
+    def test_model_facing_acknowledgement_is_explicitly_required(self):
+        for schema in (schemas.ASSESS, schemas.COMPUTER_USE, schemas.SKILL_SELECT, schemas.MODEL_ROUTE, schemas.MULTI_SKILL_SELECT):
+            self.assertIn("public_or_sanitized_data_ack", schema["parameters"]["required"])
+            self.assertIs(schema["parameters"]["properties"]["public_or_sanitized_data_ack"]["default"], False)
+
+    def test_status_and_guide_are_local_and_live_test_requires_explicit_flag(self):
+        import jev_decision
+
+        status = SimpleNamespace(switchyard_command="status", json_output=True)
+        with mock.patch.object(jev_decision, "_secret", side_effect=AssertionError("status must stay local")):
+            self.assertEqual(jev_decision._cli_handler(status), 0)
+        guide = SimpleNamespace(switchyard_command="guide")
+        with mock.patch.object(jev_decision, "_secret", side_effect=AssertionError("guide must stay local")):
+            self.assertEqual(jev_decision._cli_handler(guide), 0)
+        live = SimpleNamespace(switchyard_command="test", live=False, public_or_sanitized_data_ack=False)
+        self.assertNotEqual(jev_decision._cli_handler(live), 0)
+
+    def test_registered_route_resolves_config_and_secret_each_call(self):
+        import jev_decision
+
+        class FakeClient:
+            instances: list["FakeClient"] = []
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+                self.closed = False
+                type(self).instances.append(self)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                self.close()
+
+            def close(self):
+                self.closed = True
+
+            def decide(self, _state, questions, *, public_or_sanitized_data_ack=False):
+                return {
+                    "model": self.kwargs["model"],
+                    "answers": {name: {"noul": 0.9} for name in questions},
+                    "usage": {},
+                }
+
+        class Context:
+            def __init__(self):
+                self.settings = {
+                    "jev_provider": "openrouter",
+                    "api_endpoint": "https://openrouter.ai/api/alpha/decisions",
+                    "jev_model": "typesafe/jev-1.13",
+                }
+                self.tools = {}
+
+            def get_config(self, key, default=None):
+                return self.settings.get(key, default)
+
+            def register_auxiliary_task(self, *_args, **_kwargs):
+                pass
+
+            def register_tool(self, *, name, handler, **_kwargs):
+                self.tools[name] = handler
+
+            def register_skill(self, *_args, **_kwargs):
+                pass
+
+            def register_hook(self, *_args, **_kwargs):
+                pass
+
+        active = {"profile": "A", "secret": "secret-a"}
+        context = Context()
+        with mock.patch.object(jev_decision, "DecisionClient", FakeClient), \
+             mock.patch.object(jev_decision, "_secret", side_effect=lambda _provider: active["secret"]):
+            jev_decision.register(context)
+            first = json.loads(context.tools["jev_assess"]({
+                "state": "public",
+                "questions": {"answer": {"type": "noul", "instructions": "Is it true?"}},
+                "public_or_sanitized_data_ack": True,
+            }))
+            active["profile"] = "B"
+            active["secret"] = "secret-b"
+            context.settings["jev_model"] = "typesafe/jev-1.13-20260917"
+            second = json.loads(context.tools["jev_assess"]({
+                "state": "public",
+                "questions": {"answer": {"type": "noul", "instructions": "Is it true?"}},
+                "public_or_sanitized_data_ack": True,
+            }))
+        self.assertEqual(first["model"], "typesafe/jev-1.13")
+        self.assertEqual(second["model"], "typesafe/jev-1.13-20260917")
+        self.assertEqual([item.kwargs["api_key"] for item in FakeClient.instances], ["secret-a", "secret-b"])
+        self.assertTrue(all(item.closed for item in FakeClient.instances))
+
+    def test_automatic_recommender_reuses_and_explicitly_closes_pooled_client(self):
+        from jev_decision.automatic import AutomaticSkillRecommender
+
+        class PooledClient:
+            def __init__(self):
+                self.closed = 0
+
+            def decide(self, _state, questions, *, public_or_sanitized_data_ack=False):
+                criteria = questions["skill"]["criteria"]
+                selected = next(iter(criteria))
+                return {
+                    "model": "typesafe/jev-1.13",
+                    "answers": {
+                        "skill": {
+                            "choice": selected,
+                            "probabilities": {selected: 1.0},
+                            "confidence": 0.95,
+                        },
+                        "needs_skill": {"noul": 0.95},
+                    },
+                    "usage": {},
+                }
+
+            def close(self):
+                self.closed += 1
+
+        created: list[PooledClient] = []
+
+        def factory():
+            created.append(PooledClient())
+            return created[-1]
+
+        recommender = AutomaticSkillRecommender(
+            configured_candidates=[{"name": "skill-a", "description": "A"}],
+            hosted_enabled=True,
+            public_or_sanitized_data_ack=True,
+            client_factory=factory,
+            cache_seconds=0,
+        )
+        recommender.recommend("public task")
+        recommender.recommend("another public task")
+        self.assertEqual(len(created), 1)
+        recommender.close()
+        self.assertEqual(created[0].closed, 1)
+
+    def test_current_identity_is_canonical_and_only_known_readme_path_migrates(self):
+        root = Path(__file__).resolve().parent.parent
+        manifest = (root / "plugin.yaml").read_text(encoding="utf-8")
+        readme = (root / "README.md").read_text(encoding="utf-8")
+        self.assertIn("name: hermes-switchyard", manifest)
+        self.assertIn("version: 0.4.2", manifest)
+        self.assertNotIn("plugins doctor /path/to/jev-decision", readme)
+        self.assertIn("hermes jev-decision", readme)
+
+
+if __name__ == "__main__":
+    unittest.main()
