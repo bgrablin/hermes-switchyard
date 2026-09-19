@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-PLUGIN_NAME = "jev-decision"
+PLUGIN_NAME = "hermes-switchyard"
 SOURCE_MANIFEST_NAME = "SOURCE-MANIFEST.json"
 RECEIPT_SOURCE_SHA_UNAVAILABLE = "unavailable"
 RECEIPT_VERSION_UNAVAILABLE = "unavailable"

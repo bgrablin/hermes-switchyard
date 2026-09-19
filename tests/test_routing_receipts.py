@@ -100,14 +100,16 @@ class ReceiptSchemaTests(unittest.TestCase):
     def test_source_sha_comes_only_from_a_validated_release_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "plugin.yaml").write_text("name: jev-decision\nversion: 0.4.0\n", encoding="utf-8")
+            (root / "plugin.yaml").write_text(
+                "name: hermes-switchyard\nversion: 0.4.1\n", encoding="utf-8"
+            )
             manifest = {
                 "files": [{"path": "plugin.yaml", "sha256": "0" * 64, "size": 1}],
                 "format": 1,
                 "manifest_version": 1,
-                "plugin": "jev-decision",
+                "plugin": "hermes-switchyard",
                 "source_sha": "a" * 40,
-                "version": "0.4.0",
+                "version": "0.4.1",
             }
             (root / "SOURCE-MANIFEST.json").write_text(json.dumps(manifest), encoding="utf-8")
             self.assertEqual(receipt_state.resolve_source_sha(root), "a" * 40)
