@@ -400,6 +400,71 @@ class ReceiptEndToEndTests(unittest.TestCase):
         self.assertGreater(receipt["total_usage"].get("cost", 0.0), 0.0)
         self.assertEqual(receipt["terminal_state"], "hosted_selection")
 
+    def test_exact_outbound_candidate_identifiers_are_scanned_before_client_creation(self):
+        client_calls = []
+
+        def client_factory():
+            client_calls.append(True)
+            raise AssertionError("restricted outbound payload must be rejected before client creation")
+
+        recommender = AutomaticSkillRecommender(
+            configured_candidates=[
+                {"name": "password-recovery", "description": "PRIVATE_DESCRIPTION_MARKER"},
+            ],
+            hosted_enabled=True,
+            hosted_mode="always",
+            public_or_sanitized_data_ack=True,
+            client_factory=client_factory,
+        )
+        result = recommender.recommend(
+            "public task",
+            turn_egress_policy=_allowed_policy("SANITIZED_TASK_MARKER"),
+        )
+        self.assertEqual(client_calls, [])
+        self.assertFalse(result["hosted_attempted"])
+        self.assertEqual(result["hosted_skipped"], "local_scan_restricted_data")
+        self.assertNotIn("PRIVATE_DESCRIPTION_MARKER", json.dumps(result, sort_keys=True))
+
+    def test_exact_hosted_wire_contains_only_accepted_task_and_candidate_identifiers(self):
+        payloads = []
+
+        def transport(payload):
+            payloads.append(payload)
+            key = next(iter(payload["questions"]))
+            criteria = payload["questions"][key]["criteria"]
+            selected = next(iter(criteria))
+            return {
+                "model": "typesafe/jev-1.13",
+                "answers": {
+                    key: {
+                        "choice": selected,
+                        "confidence": 1.0,
+                        "probabilities": {name: (1.0 if name == selected else 0.0) for name in criteria},
+                    }
+                },
+                "usage": {},
+            }
+
+        recommender = AutomaticSkillRecommender(
+            configured_candidates=[
+                {"name": "public-skill", "description": "PRIVATE_DESCRIPTION_MARKER"},
+            ],
+            hosted_enabled=True,
+            hosted_mode="always",
+            public_or_sanitized_data_ack=True,
+            client_factory=lambda: DecisionClient(api_key="fixture-key", transport=transport),
+        )
+        recommender.recommend(
+            "ORIGINAL_TASK_MARKER",
+            turn_egress_policy=_allowed_policy("SANITIZED_TASK_MARKER"),
+        )
+        wire = json.dumps(payloads, sort_keys=True)
+        self.assertIn("SANITIZED_TASK_MARKER", wire)
+        self.assertIn("public-skill", wire)
+        self.assertNotIn("ORIGINAL_TASK_MARKER", wire)
+        self.assertNotIn("PRIVATE_DESCRIPTION_MARKER", wire)
+        self.assertNotIn("fixture-key", wire)
+
 
 if __name__ == "__main__":
     unittest.main()

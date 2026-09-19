@@ -101,10 +101,12 @@ class SyntheticDispatch:
             raise AssertionError(f"unexpected tool {tool_name!r}")
 
 
-def _capture(*, label="Go", title="Docs", app="Chrome", role="Button", bounds=None):
+def _capture(*, label="Go", title="Docs", app="Chrome", role="Button", bounds=None, focused=None):
     element = {"index": 1, "role": role, "label": label}
     if bounds is not None:
         element["bounds"] = bounds
+    if focused is not None:
+        element["focused"] = focused
     return {
         "app": app,
         "window_title": title,
@@ -645,33 +647,51 @@ class ComputerUseTests(unittest.TestCase):
         dispatch = SyntheticDispatch(captures)
 
         class DenseClient:
+            def __init__(self):
+                self.calls = []
+                self.states = []
+
             def decide(self, _state, questions, *, public_or_sanitized_data_ack=False):
                 if public_or_sanitized_data_ack is not True:
                     raise AssertionError("test client requires the acknowledgement")
+                self.states.append(_state)
+                self.calls.append(questions)
                 answers = {}
                 for name, question in questions.items():
                     criteria = question["criteria"]
                     if name == "operation":
                         answers[name] = _choice(criteria, "CLICK")
                     elif name.startswith("click_target"):
-                        selected = "299" if "299" in criteria else (
-                            "__jev_no_target__" if "__jev_no_target__" in criteria else next(iter(criteria))
-                        )
+                        if "_final_" in name:
+                            selected = "299"
+                        elif "299" in criteria:
+                            selected = "299"
+                        else:
+                            selected = next(key for key in criteria if key != "__jev_no_target__")
                         answers[name] = _choice(criteria, selected)
                     else:
                         answers[name] = _choice(criteria)
                 return {"model": "typesafe/jev-1.13", "answers": answers, "usage": {}}
 
+        client = DenseClient()
         result = run_computer_goal(
             goal="click Action 299",
             app="Chrome",
             max_steps=1,
             dispatch=dispatch,
-            client=DenseClient(),
+            client=client,
             public_or_sanitized_data_ack=True,
         )
         self.assertEqual(dispatch.action_calls, [{"action": "click", "element": 299}])
         self.assertEqual(result["actions"][0]["element"], 299)
+        self.assertEqual(len(client.calls), 3)
+        self.assertEqual(len(client.calls[1]), 2)
+        self.assertEqual(result["jev_request_count"], 3)
+        self.assertEqual(result["native_action_count"], 1)
+        operation_state = client.states[0]
+        summaries = operation_state["control_partition_summaries"]
+        self.assertEqual(sum(item["count"] for item in summaries), 300)
+        self.assertTrue(any(item["start_position"] <= 150 <= item["end_position"] for item in summaries))
 
     def test_checkbox_control_is_offered_to_jev(self):
         dispatch = SyntheticDispatch([_capture(label="Agree", role="CheckBox"), _capture(label="Agree", role="CheckBox"), _capture(label="Agree", role="CheckBox")])
@@ -717,6 +737,100 @@ class ComputerUseTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "blocked")
         self.assertEqual(dispatch.action_calls, [])
+
+    def test_timeout_after_side_effect_preserves_partial_progress_receipt(self):
+        class TimeoutAfterClickClient(ComputerClient):
+            def decide(self, state, questions, *, public_or_sanitized_data_ack=False):
+                if len(self.calls) >= 2:
+                    raise TimeoutError("aggregate deadline expired")
+                return super().decide(
+                    state,
+                    questions,
+                    public_or_sanitized_data_ack=public_or_sanitized_data_ack,
+                )
+
+        dispatch = SyntheticDispatch([_capture(), _capture(), _capture()])
+        result = run_computer_goal(
+            goal="click then continue", app="Chrome", max_steps=2,
+            dispatch=dispatch, client=TimeoutAfterClickClient(["CLICK"]),
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["status"], "partial_failure")
+        self.assertEqual(result["completed_action_count"], 1)
+        self.assertEqual(result["attempted_action_count"], 1)
+        self.assertEqual(result["failure_phase"], "operation_decision")
+        self.assertTrue(result["reconcile_before_retry"])
+
+    def test_action_dispatch_timeout_preserves_attempted_action_receipt(self):
+        class TimeoutDispatch(SyntheticDispatch):
+            def __call__(self, tool_name, args):
+                if args.get("action") != "capture":
+                    self.action_calls.append(dict(args))
+                    raise TimeoutError("native dispatch deadline")
+                return super().__call__(tool_name, args)
+
+        dispatch = TimeoutDispatch([_capture(), _capture()])
+        result = run_computer_goal(
+            goal="click Go", app="Chrome", max_steps=1,
+            dispatch=dispatch, client=ComputerClient(["CLICK"]),
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["status"], "partial_failure")
+        self.assertEqual(result["completed_action_count"], 0)
+        self.assertEqual(result["attempted_action_count"], 1)
+        self.assertEqual(result["failure_phase"], "action_dispatch")
+        self.assertTrue(result["reconcile_before_retry"])
+
+    def test_target_selection_timeout_after_side_effect_preserves_partial_progress(self):
+        class TimeoutOnSecondTargetClient(ComputerClient):
+            def decide(self, state, questions, *, public_or_sanitized_data_ack=False):
+                if any(name.startswith("click_target") for name in questions):
+                    target_call_count = sum(
+                        any(name.startswith("click_target") for name in prior_questions)
+                        for _prior_state, prior_questions in self.calls
+                    )
+                    if target_call_count >= 1:
+                        raise TimeoutError("target selection deadline")
+                return super().decide(
+                    state,
+                    questions,
+                    public_or_sanitized_data_ack=public_or_sanitized_data_ack,
+                )
+
+        dispatch = SyntheticDispatch([_capture(), _capture(), _capture()])
+        result = run_computer_goal(
+            goal="click twice", app="Chrome", max_steps=2,
+            dispatch=dispatch, client=TimeoutOnSecondTargetClient(["CLICK", "CLICK"]),
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["status"], "partial_failure")
+        self.assertEqual(result["completed_action_count"], 1)
+        self.assertEqual(result["attempted_action_count"], 1)
+        self.assertEqual(result["failure_phase"], "target_selection")
+        self.assertTrue(result["reconcile_before_retry"])
+
+    def test_drag_target_selection_timeout_after_side_effect_preserves_partial_progress(self):
+        class TimeoutOnDragSourceClient(ComputerClient):
+            def decide(self, state, questions, *, public_or_sanitized_data_ack=False):
+                if any(name.startswith("drag_source") for name in questions):
+                    raise TimeoutError("drag source deadline")
+                return super().decide(
+                    state,
+                    questions,
+                    public_or_sanitized_data_ack=public_or_sanitized_data_ack,
+                )
+
+        dispatch = SyntheticDispatch([_capture(), _capture(), _capture()])
+        result = run_computer_goal(
+            goal="click then drag", app="Chrome", max_steps=2,
+            dispatch=dispatch, client=TimeoutOnDragSourceClient(["CLICK", "DRAG"]),
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["status"], "partial_failure")
+        self.assertEqual(result["completed_action_count"], 1)
+        self.assertEqual(result["attempted_action_count"], 1)
+        self.assertEqual(result["failure_phase"], "target_selection")
+        self.assertTrue(result["reconcile_before_retry"])
 
     def test_explicit_key_returns_partial_receipt_without_foreground_retry(self):
         class FailingKeyDispatch(SyntheticDispatch):
@@ -786,6 +900,8 @@ class ComputerUseTests(unittest.TestCase):
             client=NoTargetClient([]), public_or_sanitized_data_ack=True,
         )
         self.assertEqual(result["status"], "abstained")
+        self.assertEqual(result["jev_request_count"], 2)
+        self.assertEqual(len(result["decisions"]), 2)
         self.assertEqual(dispatch.action_calls, [])
 
     def test_unconfirmed_effect_stops_and_preserves_action_receipt(self):
@@ -956,9 +1072,8 @@ class ComputerUseTests(unittest.TestCase):
             _capture(label="Search field", role="Edit"),
             _capture(label="Search field", role="Edit"),
             _capture(label="Search field", role="Edit"),
-            _capture(label="Search field", role="Edit"),
         ])
-        client = ComputerClient(["TYPE_TEXT"])
+        client = ComputerClient(["SET_VALUE"])
         result = run_computer_goal(
             goal="enter public text", app="Chrome", max_steps=1,
             dispatch=dispatch, client=client,
@@ -967,10 +1082,77 @@ class ComputerUseTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "step_limit")
         self.assertEqual(dispatch.action_calls, [{"action": "set_value", "element": 1, "value": "bounded caller text"}])
+        self.assertEqual(dispatch.capture_calls, 3)
         wire = json.dumps(client.calls, sort_keys=True)
         receipt = json.dumps(result, sort_keys=True)
         self.assertNotIn("bounded caller text", wire)
         self.assertNotIn("bounded caller text", receipt)
+
+    def test_type_text_uses_native_type_only_for_fresh_focused_control(self):
+        dispatch = SyntheticDispatch([
+            _capture(label="Search field", role="Edit", focused=True),
+            _capture(label="Search field", role="Edit", focused=True),
+            _capture(label="Search field", role="Edit", focused=True),
+        ])
+        client = ComputerClient(["TYPE_TEXT"])
+        result = run_computer_goal(
+            goal="type public text into the focused field", app="Chrome", max_steps=1,
+            dispatch=dispatch, client=client,
+            text_inputs=[{"field_label": "Search field", "value": "bounded caller text"}],
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["status"], "step_limit")
+        self.assertEqual(dispatch.action_calls, [{"action": "type", "text": "bounded caller text"}])
+        self.assertEqual(dispatch.capture_calls, 3)
+
+    def test_platform_role_spelling_is_normalized_before_target_selection(self):
+        dispatch = SyntheticDispatch([
+            _capture(label="Continue", role="button"),
+            _capture(label="Continue", role="button"),
+            _capture(label="Continue", role="button"),
+        ])
+        result = run_computer_goal(
+            goal="click Continue", app="Chrome", max_steps=1,
+            dispatch=dispatch, client=ComputerClient(["CLICK"]),
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["status"], "step_limit")
+        self.assertEqual(dispatch.action_calls, [{"action": "click", "element": 1}])
+
+    def test_repetition_detection_uses_fresh_post_action_state_identity(self):
+        def state_capture(status):
+            return {
+                "app": "Chrome",
+                "window_title": "Stable",
+                "elements": [
+                    {"index": 1, "role": "Button", "label": "Continue"},
+                    {"index": 2, "role": "Text", "label": f"Progress {status}"},
+                ],
+            }
+
+        dispatch = SyntheticDispatch([
+            state_capture(0), state_capture(0), state_capture(1),
+            state_capture(1), state_capture(2),
+            state_capture(2), state_capture(3),
+        ])
+        result = run_computer_goal(
+            goal="continue until complete", app="Chrome", max_steps=3,
+            dispatch=dispatch, client=ComputerClient(["CLICK", "CLICK", "CLICK"]),
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["status"], "step_limit")
+        self.assertEqual(result["completed_action_count"], 3)
+
+    def test_repetition_detection_stalls_on_identical_fresh_post_action_state(self):
+        stable = _capture(label="Continue", title="Stable")
+        dispatch = SyntheticDispatch([stable.copy() for _ in range(7)])
+        result = run_computer_goal(
+            goal="continue until complete", app="Chrome", max_steps=5,
+            dispatch=dispatch, client=ComputerClient(["CLICK", "CLICK", "CLICK", "CLICK", "CLICK"]),
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["status"], "stalled")
+        self.assertEqual(result["completed_action_count"], 3)
 
     def test_caller_text_input_absent_or_ambiguous_abstains_before_side_effect(self):
         for inputs in (
@@ -1005,7 +1187,7 @@ class ComputerUseTests(unittest.TestCase):
             _capture(label=raw_before, role="Edit"),
             _capture(label=raw_after, role="Edit"),
         ])
-        client = ComputerClient(["TYPE_TEXT"])
+        client = ComputerClient(["SET_VALUE"])
         helper_calls = []
 
         def text_helper(goal, field, context, history):

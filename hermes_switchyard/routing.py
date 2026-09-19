@@ -575,10 +575,14 @@ def select_skills(
             questions = {
                 f"{_MULTI_SKILL_PREFIX}{offset + index}": {
                     "type": "noul",
-                    "instructions": "Does this offered skill materially help with the task?",
+                    "instructions": (
+                        "Does this exact offered skill materially help with the task? "
+                        f"Candidate identifier: {item['name']}. "
+                        f"Candidate description: {item.get('description', '')}"
+                    ),
                     "criteria": {"true": "The skill helps", "false": "The skill does not help"},
                 }
-                for index, _item in enumerate(batch)
+                for index, item in enumerate(batch)
             }
             operation_remaining_deadline()
             result = client.decide(

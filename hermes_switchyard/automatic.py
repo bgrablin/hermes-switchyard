@@ -189,6 +189,19 @@ def _validate_name(name: Any) -> str:
     return name
 
 
+def _hosted_payload_scan_reason(task: str, candidates: list[dict[str, str]]) -> str | None:
+    """Scan the exact fields that would cross the hosted boundary."""
+    reason = _local_scan_reason(task, task)
+    if reason is not None:
+        return reason
+    for candidate in candidates:
+        name = candidate["name"]
+        reason = _local_scan_reason(name, name)
+        if reason is not None:
+            return reason
+    return None
+
+
 def _validate_candidates(raw: Any, *, limit: int | None) -> tuple[dict[str, str], ...]:
     if not isinstance(raw, (list, tuple)) or not raw or (limit is not None and len(raw) > limit):
         bound = f"1 to {limit}" if limit is not None else "at least 1"
@@ -585,6 +598,15 @@ class AutomaticSkillRecommender:
             result.update(evaluation.metadata)
 
         should_host = self.hosted_mode == "always" or local_selected is None
+        hosted_candidates = [{"name": item["name"]} for item in candidate_set]
+        outbound_scan_reason = (
+            _hosted_payload_scan_reason(
+                evaluation.allowed_payload if evaluation is not None and evaluation.allowed_payload is not None else "",
+                hosted_candidates,
+            )
+            if should_host and evaluation is not None and evaluation.allowed
+            else None
+        )
         if self.routing_mode == "local_only":
             result["hosted_skipped"] = "routing_mode_local_only"
             result["routing_status"] = "local_selection" if local_selected else "local_abstention"
@@ -599,6 +621,10 @@ class AutomaticSkillRecommender:
             result["hosted_skipped"] = "local_confident"
             result["routing_status"] = "hosted_skipped"
             result["routing_reason"] = "local_confident"
+        elif outbound_scan_reason is not None:
+            result["hosted_skipped"] = outbound_scan_reason
+            result["routing_status"] = "hosted_skipped"
+            result["routing_reason"] = outbound_scan_reason
         elif self.client_factory is None:
             result["hosted_skipped"] = "client_unavailable"
             result["routing_status"] = "hosted_skipped"
@@ -607,7 +633,6 @@ class AutomaticSkillRecommender:
             # Only the host-provided bounded payload crosses this boundary. The
             # original task, history, descriptions, and skill bodies do not.
             result["hosted_attempted"] = True
-            hosted_candidates = [{"name": item["name"]} for item in candidate_set]
             try:
                 hosted = select_skill(
                     task=evaluation.allowed_payload if evaluation is not None else "",
@@ -667,18 +692,23 @@ class AutomaticSkillRecommender:
 
 
 def _copy_redacted_jev_metadata(result: dict[str, Any], hosted: Mapping[str, Any]) -> None:
-    """Copy only bounded numeric Jev metadata into an internal result."""
+    """Copy only bounded non-payload Jev metadata into an internal result."""
     for field in (
         "latency_ms", "total_latency_ms", "request_count", "offered_count", "excluded_count",
     ):
         value = hosted.get(field)
         if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
             result[f"jev_{field}"] = value
-    usage = hosted.get("usage")
-    if isinstance(usage, Mapping):
-        numeric_usage = receipt_state.safe_usage(usage)
-        if numeric_usage:
-            result["jev_usage"] = numeric_usage
+    for field in ("model", "request_id", "shortlist_policy"):
+        value = hosted.get(field)
+        if isinstance(value, str) and 0 < len(value) <= 128 and value.isprintable():
+            result[f"jev_{field}"] = value
+    for field in ("usage", "total_usage"):
+        usage = hosted.get(field)
+        if isinstance(usage, Mapping):
+            bounded_usage = receipt_state.safe_usage(usage)
+            if bounded_usage:
+                result[f"jev_{field}"] = bounded_usage
 
 
 def redacted_routing_metadata(result: Mapping[str, Any]) -> dict[str, Any]:

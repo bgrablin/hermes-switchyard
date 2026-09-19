@@ -193,13 +193,18 @@ def nonnegative_int(value: Any, default: int = 0) -> int:
     return value if type(value) is int and value >= 0 else default
 
 
-def safe_usage(value: Any) -> dict[str, float]:
+def safe_usage(value: Any) -> dict[str, float | None]:
     """Copy only bounded numeric usage fields into a receipt."""
     if not isinstance(value, Mapping):
         return {}
-    result: dict[str, float] = {}
+    result: dict[str, float | None] = {}
     for key, item in value.items():
-        if key not in USAGE_NUMERIC_KEYS or type(item) not in (int, float):
+        if key not in USAGE_NUMERIC_KEYS:
+            continue
+        if key == "cost" and item is None:
+            result[key] = None
+            continue
+        if type(item) not in (int, float):
             continue
         numeric = finite_nonnegative(item, default=-1.0)
         if numeric >= 0:

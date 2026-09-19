@@ -315,7 +315,8 @@ class NamespaceAndAckTests(unittest.TestCase):
         import hermes_switchyard
 
         status = SimpleNamespace(switchyard_command="status", json_output=True)
-        with mock.patch.object(hermes_switchyard, "_secret", side_effect=AssertionError("status must stay local")):
+        with mock.patch.object(hermes_switchyard, "_secret", return_value=""), \
+             mock.patch.object(hermes_switchyard, "DecisionClient", side_effect=AssertionError("status must stay network-free")):
             self.assertEqual(hermes_switchyard._cli_handler(status), 0)
         guide = SimpleNamespace(switchyard_command="guide")
         with mock.patch.object(hermes_switchyard, "_secret", side_effect=AssertionError("guide must stay local")):
