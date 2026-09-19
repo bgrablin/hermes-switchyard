@@ -70,7 +70,7 @@ The standalone envelope contract is:
 }
 ```
 
-`decision` must be `allow`, `data_class` must be `public` or `sanitized`, and `allowed_payload` must be non-empty, control-safe, and at most 4,000 characters. Explicit `deny`, `unknown`, malformed, or restricted envelopes fail closed before `client_factory()` is called. With no envelope, the plugin scans the bounded task locally. The envelope is optional strengthening, not a required Hermes seam; the plugin owns its local classification and does not pretend to be a DLP engine.
+The accepted envelope shape uses `allow` for `decision`, `public` or `sanitized` for `data_class`, and a non-empty, control-safe `allowed_payload` of at most 4,000 characters. Envelopes containing `deny`, `unknown`, malformed, or restricted values fail closed before `client_factory()` is called. With no envelope, the plugin scans the bounded task locally. The envelope is optional strengthening, not a required Hermes seam; the plugin owns its local classification and is not a DLP engine.
 
 When the envelope is allowed and `automatic_skill_jev_mode` is `always`, Jev is called even when local matching is confident. `uncertain_only` is an explicit latency-saving override. The automatic hosted state contains only the allowed payload and candidate identifiers. It contains no candidate descriptions, conversation history, or skill bodies. Large catalogs still use partition fan-out and recursive reduction; the provider's 255-option Choice limit is not a catalog limit.
 
