@@ -28,6 +28,11 @@ LIVE_COLLECTORS = {
 }
 PROVIDER_ARMS = frozenset({"luna", "switchyard"})
 COMPARATIVE_ARMS = frozenset({"lexical", "luna", "switchyard"})
+COLLECTOR_SOURCE_FILES = {
+    "luna": ("collector_common.py", "collect_luna.py"),
+    "switchyard": ("collector_common.py", "collect_switchyard.py"),
+}
+MAX_ABSTENTION_REASON_CHARS = 512
 STOP = frozenset("a an and are as at be before by can do for from has have in is it of on or that the then this to with without".split())
 LEXICAL_MIN = 0.20
 LEXICAL_MARGIN = 0.05
@@ -58,7 +63,19 @@ def public_case(case: dict[str, Any]) -> dict[str, Any]:
     return {key: case[key] for key in ("id", "category", "task", "expected", "public_synthetic")}
 
 
-def source_hashes(plugin_path: Path) -> dict[str, str]:
+def collector_source_hashes() -> dict[str, str]:
+    file_hashes = {
+        name: file_digest(ROOT / name)
+        for names in COLLECTOR_SOURCE_FILES.values()
+        for name in names
+    }
+    return {
+        arm: digest({name: file_hashes[name] for name in names})
+        for arm, names in COLLECTOR_SOURCE_FILES.items()
+    }
+
+
+def source_hashes(plugin_path: Path) -> dict[str, Any]:
     benchmark_files = {name: file_digest(ROOT / name) for name in ("benchmark.py", "fixtures.json", "baseline_prompt.md")}
     plugin_files = {}
     package = plugin_path / "jev_decision"
@@ -74,6 +91,7 @@ def source_hashes(plugin_path: Path) -> dict[str, str]:
         "prompt": file_digest(PROMPT),
         "plugin": digest(plugin_files),
         "plugin_files": plugin_files,
+        "collector_hashes": collector_source_hashes(),
     }
 
 
@@ -141,6 +159,32 @@ def load_book(path: Path = FIXTURES) -> tuple[dict[str, Any], dict[str, Any]]:
         case["id"]: digest({"catalog": catalog, "task": case["task"], "prompt_hash": template_hash})
         for case in heldout
     }
+    arm_request_hashes = {
+        arm: {
+            case["id"]: digest({
+                "arm": arm,
+                "catalog": catalog,
+                "task": case["task"],
+                "template_hash": template_hash if arm == "luna" else None,
+            })
+            for case in heldout
+        }
+        for arm in COMPARATIVE_ARMS
+    }
+    arm_request_identities = {
+        arm: {
+            case["id"]: {
+                "arm": arm,
+                "case_id": case["id"],
+                "task_hash": task_hashes[case["id"]],
+                "candidate_catalog_hash": catalog_hash,
+                "template_hash": template_hash if arm == "luna" else None,
+                "request_hash": arm_request_hashes[arm][case["id"]],
+            }
+            for case in heldout
+        }
+        for arm in COMPARATIVE_ARMS
+    }
     meta = {
         "catalog": catalog,
         "names": names,
@@ -150,6 +194,9 @@ def load_book(path: Path = FIXTURES) -> tuple[dict[str, Any], dict[str, Any]]:
         "template_hash": template_hash,
         "task_hashes": task_hashes,
         "request_hashes": request_hashes,
+        "arm_request_hashes": arm_request_hashes,
+        "arm_request_identities": arm_request_identities,
+        "collector_hashes": collector_source_hashes(),
         "request_identities": {
             case["id"]: {
                 "case_id": case["id"],
@@ -279,15 +326,21 @@ def usage_view(raw: Any, arm: str) -> dict[str, Any]:
 def record(case: dict[str, Any], meta: dict[str, Any], arm: str, output: dict[str, Any], source_hash: str, *, wall_ms: float | None,
            provider_ms: float | None, selector_calls: int, provider_calls: int, coordination_calls: int, simulated: bool,
            timing_status: str, actual_call: bool = False, measurement_status: str | None = None,
+           collector_source_hash: str | None = None,
            measurement_provenance: dict[str, Any] | None = None, error: dict[str, Any] | None = None) -> dict[str, Any]:
     selected_skills = output.get("selected_skills")
     if selected_skills is None:
         selected_skills = [output["selected"]] if output.get("selected") is not None else []
     if measurement_status is None:
         measurement_status = "simulated" if simulated else "ok"
+    if collector_source_hash is None:
+        collector_source_hash = meta.get("collector_hashes", {}).get(arm)
+    request_hash = meta.get("arm_request_hashes", {}).get(arm, meta["request_hashes"])[case["id"]]
+    request_identity = meta.get("arm_request_identities", {}).get(arm, meta["request_identities"])[case["id"]]
     return {"arm": arm, "case_id": case["id"], "dataset_hash": meta["dataset_hash"], "fixture_hash": meta["case_hashes"][case["id"]],
-            "request_hash": meta["request_hashes"][case["id"]], "request_identity": copy.deepcopy(meta["request_identities"][case["id"]]),
+            "request_hash": request_hash, "request_identity": copy.deepcopy(request_identity),
             "candidate_catalog_hash": meta["catalog_hash"], "source_hash": source_hash,
+            "collector_source_hash": collector_source_hash,
             "status": output.get("status"), "selected": output.get("selected"), "selected_skills": selected_skills,
             "abstention_reason": output.get("abstention_reason"), "model": output.get("model"), "provider": output.get("provider"),
             "reasoning": output.get("reasoning"), "usage": usage_view(output.get("usage"), arm), "wall_ms": wall_ms,
@@ -328,9 +381,11 @@ def _validate_measurement_provenance(row: dict[str, Any], arm: str, case: dict[s
     require(provenance.get("arm") == arm and provenance.get("case_id") == case["id"], "live_measurement_identity")
     require(provenance.get("dataset_hash") == meta["dataset_hash"], "live_measurement_dataset_hash")
     require(provenance.get("candidate_catalog_hash") == meta["catalog_hash"], "live_measurement_catalog_hash")
+    require(provenance.get("collector_source_hash") == row["collector_source_hash"], "live_measurement_collector_source_hash")
     require(provenance.get("request_hash") == row["request_hash"], "live_measurement_request_hash")
     require(provenance.get("request_identity") == row["request_identity"], "live_measurement_request_identity")
-    require(isinstance(provenance.get("template_hash"), str) and provenance["template_hash"] == meta["template_hash"], "live_measurement_template_hash")
+    expected_template_hash = meta["template_hash"] if arm == "luna" else None
+    require(provenance.get("template_hash") == expected_template_hash, "live_measurement_template_hash")
     require(isinstance(provenance.get("recorded_at_utc"), str) and provenance["recorded_at_utc"].strip(), "live_measurement_timestamp")
     require(provenance.get("measurement_scope") == row["timing_scope"], "live_measurement_scope")
     require(type(provenance.get("provider_call_count")) is int and provenance["provider_call_count"] == row["provider_call_count"], "live_measurement_call_count")
@@ -361,10 +416,12 @@ def _validate_measurement_provenance(row: dict[str, Any], arm: str, case: dict[s
 def validate_record(row: dict[str, Any], arm: str, case: dict[str, Any], meta: dict[str, Any], *, live: bool) -> None:
     """Validate one normalized row before it can enter a comparative summary."""
     require(isinstance(row, dict) and row.get("arm") == arm and row.get("case_id") == case["id"], "record_identity")
+    expected_request_hash = meta.get("arm_request_hashes", {}).get(arm, meta["request_hashes"])[case["id"]]
+    expected_request_identity = meta.get("arm_request_identities", {}).get(arm, meta["request_identities"])[case["id"]]
     for key, expected_value in (("dataset_hash", meta["dataset_hash"]), ("fixture_hash", meta["case_hashes"][case["id"]]),
-                                ("request_hash", meta["request_hashes"][case["id"]]), ("candidate_catalog_hash", meta["catalog_hash"])):
+                                ("request_hash", expected_request_hash), ("candidate_catalog_hash", meta["catalog_hash"])):
         require(row.get(key) == expected_value, f"mixed_or_wrong_{key}")
-    require(row.get("request_identity") == meta["request_identities"][case["id"]], "request_identity_mismatch")
+    require(row.get("request_identity") == expected_request_identity, "request_identity_mismatch")
     require(row.get("public_synthetic_ack") is True, "public_synthetic_ack_required")
     require(row.get("measurement_schema_version") == MEASUREMENT_SCHEMA_VERSION, "measurement_schema_version")
     require(type(row.get("actual_call")) is bool and type(row.get("simulated")) is bool, "measurement_flags")
@@ -373,6 +430,12 @@ def validate_record(row: dict[str, Any], arm: str, case: dict[str, Any], meta: d
     status = row.get("status")
     selected = row.get("selected")
     skills = row.get("selected_skills")
+    abstention_reason = row.get("abstention_reason")
+    require(
+        abstention_reason is None
+        or (type(abstention_reason) is str and len(abstention_reason) <= MAX_ABSTENTION_REASON_CHARS and "\x00" not in abstention_reason),
+        "invalid_abstention_reason",
+    )
     require(isinstance(skills, list) and all(type(skill) is str for skill in skills), "arm_input_selected_skills")
     assert isinstance(skills, list)
     require(len(set(skills)) == len(skills) and set(skills) <= set(meta["names"]), "arm_input_selected_skills")
@@ -405,6 +468,11 @@ def validate_record(row: dict[str, Any], arm: str, case: dict[str, Any], meta: d
     if arm == "switchyard":
         require(row["selector_invocation_count"] == 1 and row["coordination_call_count"] == 1, "switchyard_call_counts")
     require(isinstance(row.get("source_hash"), str) and row["source_hash"], "missing_source_hash")
+    expected_collector_hash = meta.get("collector_hashes", {}).get(arm)
+    if arm in PROVIDER_ARMS:
+        require(isinstance(expected_collector_hash, str) and row.get("collector_source_hash") == expected_collector_hash, "collector_source_hash_mismatch")
+    else:
+        require(row.get("collector_source_hash") is None, "local_arm_collector_source_hash")
     if live:
         require(row["simulated"] is False, "live_requires_non_simulated_record")
         if row["measurement_status"] == "ok":

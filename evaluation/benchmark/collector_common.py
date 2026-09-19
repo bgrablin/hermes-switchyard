@@ -29,6 +29,7 @@ def new_payload(arm: str, meta: dict[str, Any]) -> dict[str, Any]:
         "arm": arm,
         "dataset_hash": meta["dataset_hash"],
         "candidate_catalog_hash": meta["catalog_hash"],
+        "collector_source_hash": meta["collector_hashes"][arm],
         "public_synthetic_ack": True,
         "records": [],
     }
@@ -50,6 +51,8 @@ def load_payload(path: Path, arm: str, meta: dict[str, Any], *, resume: bool) ->
         raise ValueError("existing_output_header_mismatch")
     if payload.get("dataset_hash") != meta["dataset_hash"] or payload.get("candidate_catalog_hash") != meta["catalog_hash"]:
         raise ValueError("existing_output_dataset_mismatch")
+    if payload.get("collector_source_hash") != meta["collector_hashes"][arm]:
+        raise ValueError("existing_output_collector_source_mismatch")
     if payload.get("public_synthetic_ack") is not True or not isinstance(payload.get("records"), list):
         raise ValueError("existing_output_contract_mismatch")
     return payload
@@ -109,9 +112,10 @@ def provenance(*, arm: str, collector: str, case: dict[str, Any], meta: dict[str
         "case_id": case["id"],
         "dataset_hash": meta["dataset_hash"],
         "candidate_catalog_hash": meta["catalog_hash"],
-        "request_hash": meta["request_hashes"][case["id"]],
-        "request_identity": meta["request_identities"][case["id"]],
-        "template_hash": meta["template_hash"],
+        "collector_source_hash": meta["collector_hashes"][arm],
+        "request_hash": meta["arm_request_hashes"][arm][case["id"]],
+        "request_identity": meta["arm_request_identities"][arm][case["id"]],
+        "template_hash": meta["template_hash"] if arm == "luna" else None,
         "recorded_at_utc": utc_now(),
         "measurement_scope": timing_scope,
         "provider_call_count": provider_calls,

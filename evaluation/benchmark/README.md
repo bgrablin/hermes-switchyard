@@ -82,7 +82,7 @@ Normalized arm input
         "case_id": "...",
         "dataset_hash": "...", "fixture_hash": "...", "request_hash": "...",
         "request_identity": {"case_id": "...", "task_hash": "...", "candidate_catalog_hash": "...", "template_hash": "...", "request_hash": "..."},
-        "candidate_catalog_hash": "...", "source_hash": "...",
+        "candidate_catalog_hash": "...", "source_hash": "...", "collector_source_hash": "...",
         "status": "selected" or "abstained",
         "selected": "exact-name" or null,
         "selected_skills": ["exact-name"],
@@ -104,7 +104,7 @@ Normalized arm input
       }]
     }
 
-For `switchyard`, the resolved model must be one of the actual Jev aliases and the provider-call count must include the explicit selector call’s provider request. For every arm, use the exact hashes emitted by the harness. Do not hand-edit labels or result hashes. A failed measurement may have `status: "failed"`, empty selection fields, and a non-empty bounded `error`; it cannot produce a comparative report.
+For `switchyard`, the resolved model must be one of the actual Jev aliases and the provider-call count must include the explicit selector call’s provider request. Switchyard request identities are arm-specific and have `template_hash: null`; the Luna baseline alone uses the prompt template hash. Every provider row also carries the exact collector source hash. For every arm, use the exact hashes emitted by the harness. Do not hand-edit labels or result hashes. A failed measurement may have `status: "failed"`, empty selection fields, and a non-empty bounded `error`; it cannot produce a comparative report.
 
 Scope boundary
 

@@ -115,6 +115,27 @@ class BenchmarkContractTests(unittest.TestCase):
         with self.assertRaises(benchmark.BenchmarkRefusal):
             benchmark.summarize(self.book, self.meta, arms, mode="offline", source=self.source)
 
+    def test_abstention_reason_is_typed_and_bounded(self):
+        case = self.book["heldout_fixtures"][0]
+        row = copy.deepcopy(benchmark.run_offline_case(case, self.meta, self.routing, self.source)["luna"])
+        row["abstention_reason"] = {"unexpected": "object"}
+        with self.assertRaises(ValueError):
+            benchmark.validate_record(row, "luna", case, self.meta, live=False)
+        row["abstention_reason"] = "x" * (benchmark.MAX_ABSTENTION_REASON_CHARS + 1)
+        with self.assertRaises(ValueError):
+            benchmark.validate_record(row, "luna", case, self.meta, live=False)
+
+    def test_switchyard_request_and_collector_identity_are_not_luna_prompt_identity(self):
+        case = self.book["heldout_fixtures"][0]
+        rows = benchmark.run_offline_case(case, self.meta, self.routing, self.source)
+        self.assertEqual(rows["luna"]["request_identity"]["template_hash"], self.meta["template_hash"])
+        self.assertIsNone(rows["switchyard"]["request_identity"]["template_hash"])
+        self.assertNotEqual(rows["luna"]["request_hash"], rows["switchyard"]["request_hash"])
+        self.assertEqual(rows["switchyard"]["collector_source_hash"], self.meta["collector_hashes"]["switchyard"])
+        rows["switchyard"]["collector_source_hash"] = "wrong-collector"
+        with self.assertRaises(ValueError):
+            benchmark.validate_record(rows["switchyard"], "switchyard", case, self.meta, live=False)
+
     def test_switchyard_ingest_rejects_multiple_selected_skills(self):
         rows = {case["id"]: benchmark.run_offline_case(case, self.meta, self.routing, self.source)["switchyard"]
                 for case in self.book["heldout_fixtures"]}
