@@ -2,6 +2,7 @@ import json
 import copy
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import benchmark
@@ -252,6 +253,68 @@ class BenchmarkContractTests(unittest.TestCase):
         mutated["task"] += " Mutated after the frozen request was hashed."
         with self.assertRaises(ValueError):
             benchmark.render_luna_prompt(mutated, self.meta)
+
+    def test_live_success_requires_an_observed_provider_response(self):
+        case = self.book["heldout_fixtures"][0]
+        row = copy.deepcopy(benchmark.run_offline_case(case, self.meta, self.routing, self.source)["switchyard"])
+        row.update({
+            "simulated": False,
+            "actual_call": True,
+            "measurement_status": "ok",
+            "provider": "openrouter",
+            "wall_ms": 10.0,
+            "provider_call_ms": 4.0,
+            "timing_status": "actual_provider_observation",
+            "error": None,
+        })
+        row["measurement_provenance"] = {
+            **provenance(
+                arm="switchyard",
+                collector=benchmark.LIVE_COLLECTORS["switchyard"],
+                case=case,
+                meta=self.meta,
+                provider_calls=1,
+                successful=True,
+                wall_observed=True,
+                provider_time_observed=True,
+                usage_observed=False,
+            ),
+            "provider_response_observed": False,
+        }
+        with self.assertRaises(ValueError):
+            benchmark.validate_record(row, "switchyard", case, self.meta, live=True)
+
+    def test_ingest_rejects_non_object_json_root(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as temp_dir:
+            path = Path(temp_dir) / "array.json"
+            path.write_text("[]", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "arm_input_root"):
+                benchmark.ingest(path, "lexical", self.book["heldout_fixtures"], self.meta, live=False, max_requests=None)
+
+    def test_multi_skill_capability_excludes_ambiguous_cases(self):
+        rows = {case["id"]: benchmark.run_offline_case(case, self.meta, self.routing, self.source)
+                for case in self.book["heldout_fixtures"]}
+        report = benchmark.summarize(
+            self.book, self.meta,
+            {arm: {cid: rows[cid][arm] for cid in rows} for arm in ("lexical", "luna", "switchyard")},
+            mode="offline", source=self.source,
+        )
+        required_count = sum(case["expected"]["label_type"] == "required_set" for case in self.book["heldout_fixtures"])
+        ambiguous_count = sum(case["expected"]["label_type"] == "ambiguous" for case in self.book["heldout_fixtures"])
+        self.assertGreater(ambiguous_count, 0)
+        self.assertEqual(report["arms"]["switchyard"]["multi_skill_capability"]["cases"], required_count)
+
+    def test_refusal_output_creates_parent_directory(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as temp_dir:
+            output = Path(temp_dir) / "nested" / "refusal.json"
+            args = benchmark.argparse.Namespace(
+                mode="live", dataset="heldout", plugin_path=str(PLUGIN), lexical_input=None,
+                luna_input=None, switchyard_input=None, public_synthetic_ack=False,
+                max_requests=None, output=output,
+            )
+            with mock.patch.object(benchmark.argparse.ArgumentParser, "parse_args", return_value=args):
+                self.assertEqual(benchmark.main(), 2)
+            self.assertEqual(json.loads(output.read_text(encoding="utf-8"))["status"], "refused")
 
     def test_live_run_computes_local_lexical_arm_and_claims_only_provider_timing(self):
         paths = {}

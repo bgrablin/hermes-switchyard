@@ -27,8 +27,8 @@ Metrics and honesty rules
 - Strict single-skill cases have top-1 exact-match metrics; a Luna multi-selection is not a top-1 hit.
 - No-fit cases use a separate false-positive rate. Suppressing a no-fit request is not a positive hit.
 - Positive abstention and positive miss are counted only on positive cases.
-- Required-set and ambiguous cases report multi-skill capability coverage separately. One selected skill is not silently scored as the complete set.
-- Ambiguous cases report whether the selection is in the labelled acceptable set; they are not folded into strict top-1 accuracy.
+- Required-set cases report multi-skill capability coverage. One selected skill is not silently scored as the complete set.
+- Ambiguous cases use their own accepted-set metric; they are not folded into multi-skill capability or strict top-1 accuracy.
 - Candidate coverage reports whether every labelled target is present in the offered catalog.
 - Each record carries dataset, fixture, request, candidate-catalog, and arm source hashes.
 - Usage fields are null when unavailable, never zero by assumption. Included Codex quota tokens and Jev PAYG dollars are separate fields. The report never turns those into a “cheaper” claim.

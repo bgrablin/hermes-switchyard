@@ -395,6 +395,8 @@ def _validate_measurement_provenance(row: dict[str, Any], arm: str, case: dict[s
     require(type(provenance.get("provider_time_observed")) is bool, "live_measurement_provider_time_flag")
     require(type(provenance.get("usage_observed")) is bool, "live_measurement_usage_flag")
     successful = row["measurement_status"] == "ok"
+    if successful:
+        require(provenance["provider_response_observed"] is True, "successful_provider_response_required")
     require(provenance["wall_time_observed"] == (row["wall_ms"] is not None), "live_measurement_wall_observation")
     require(provenance["provider_time_observed"] == (row["provider_call_ms"] is not None), "live_measurement_provider_time_observation")
     if not provenance["usage_observed"]:
@@ -499,6 +501,8 @@ def validate_record(row: dict[str, Any], arm: str, case: dict[str, Any], meta: d
 
 def ingest(path: Path, arm: str, cases: list[dict[str, Any]], meta: dict[str, Any], *, live: bool, max_requests: int | None) -> dict[str, dict[str, Any]]:
     payload = json.loads(path.read_text(encoding="utf-8"))
+    require(isinstance(payload, dict), "arm_input_root")
+    assert isinstance(payload, dict)
     require(payload.get("schema_version") == 1 and payload.get("arm") == arm, "arm_input_header")
     require(payload.get("dataset_hash") == meta["dataset_hash"], "arm_input_dataset_hash")
     require(payload.get("candidate_catalog_hash") == meta["catalog_hash"], "arm_input_catalog_hash")
@@ -643,7 +647,7 @@ def summarize(book: dict[str, Any], meta: dict[str, Any], arms: dict[str, dict[s
         positive = [item for case, item in zip(cases, scored) if case["expected"]["label_type"] != "no_fit"]
         required = [item for case, item in zip(cases, scored) if case["expected"]["label_type"] == "required_set"]
         ambiguous = [item for case, item in zip(cases, scored) if case["expected"]["label_type"] == "ambiguous"]
-        multi_skill = required + ambiguous
+        multi_skill = required
         targets = [item for item in scored if item["required_or_acceptable_skills"]]
         covered = sum(1 for item in targets if set(item["required_or_acceptable_skills"]) <= set(meta["names"]))
         top1_correct = sum(bool(item["top1_correct"]) for item in top)
@@ -744,6 +748,7 @@ def main() -> int:
     except (ValueError, BenchmarkRefusal, OSError, json.JSONDecodeError) as exc:
         report = {"status": "refused", "reason": type(exc).__name__, "detail": str(exc)}
         if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print(json.dumps(report, indent=2, sort_keys=True))
         return 2
