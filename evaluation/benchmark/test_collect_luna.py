@@ -10,6 +10,7 @@ from unittest import mock
 
 import collect_luna
 from collect_luna import _parse_success, _sanitize_luna_response_excerpt
+from collector_common import luna_usage
 
 
 USAGE = {
@@ -24,6 +25,29 @@ USAGE = {
 
 
 class LunaFailureEvidenceTests(unittest.TestCase):
+    def test_usage_includes_official_auxiliary_token_and_cost_totals(self):
+        usage = luna_usage({
+            "input_tokens": 100,
+            "output_tokens": 20,
+            "total_tokens": 120,
+            "estimated_cost_usd": 0.01,
+            "auxiliary": {
+                "input_tokens": 8,
+                "output_tokens": 2,
+                "total_tokens": 10,
+                "estimated_cost_usd": 0.003,
+            },
+            "total_including_auxiliary": {
+                "api_calls": 2,
+                "total_tokens": 130,
+                "estimated_cost_usd": 0.013,
+            },
+        })
+        self.assertEqual(usage["input_tokens"], 108)
+        self.assertEqual(usage["output_tokens"], 22)
+        self.assertEqual(usage["total_tokens"], 130)
+        self.assertEqual(usage["reported_dollar_cost"], 0.013)
+
     def test_selected_response_without_selected_skills_normalizes_single_selection(self):
         raw = json.dumps({
             "status": "selected",

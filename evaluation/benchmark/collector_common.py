@@ -148,11 +148,23 @@ def null_usage() -> dict[str, Any]:
 
 def luna_usage(raw: dict[str, Any]) -> dict[str, Any]:
     """Copy only official Hermes usage fields; absent values remain null."""
+    auxiliary_value = raw.get("auxiliary")
+    total_value = raw.get("total_including_auxiliary")
+    auxiliary: dict[str, Any] = auxiliary_value if isinstance(auxiliary_value, dict) else {}
+    total: dict[str, Any] = total_value if isinstance(total_value, dict) else {}
+
+    def combined(field: str) -> int | float | None:
+        result: int | float | None = None
+        for value in (raw.get(field), auxiliary.get(field)):
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                result = value if result is None else result + value
+        return result
+
     return {
-        "input_tokens": raw.get("input_tokens"),
-        "output_tokens": raw.get("output_tokens"),
-        "total_tokens": raw.get("total_tokens"),
+        "input_tokens": combined("input_tokens"),
+        "output_tokens": combined("output_tokens"),
+        "total_tokens": total.get("total_tokens", combined("total_tokens")),
         "included_codex_quota_tokens": raw.get("included_codex_quota_tokens"),
         "jev_payg_dollars": None,
-        "reported_dollar_cost": raw.get("estimated_cost_usd"),
+        "reported_dollar_cost": total.get("estimated_cost_usd", combined("estimated_cost_usd")),
     }
