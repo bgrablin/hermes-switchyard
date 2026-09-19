@@ -8,7 +8,7 @@ Version: 0.3.2
 
 Jev supplies decision scores. Switchyard applies its eligibility and confidence rules; for model routing, it selects the cheapest qualified model. Hermes checks the result. This plugin uses Jev; it does not provide every feature that Jev supports.
 
-![Hermes Switchyard logo and wordmark](docs/assets/hermes-switchyard-branding.png)
+![Hermes Switchyard H logo and HERMES SWITCHYARD wordmark](docs/assets/hermes-switchyard-branding.png)
 
 Switchyard gives Hermes another way to choose among a defined set of options. It does not modify Hermes core, silently change the active model, load skills automatically, or claim that a recommendation or GUI action is correct.
 
@@ -38,14 +38,14 @@ After installing or updating, start a fresh Hermes session so it loads the new p
 
 GitHub access lets you download the plugin. To use Jev, you also need:
 
-- An OpenRouter account.
-- An OpenRouter API key stored in the active Hermes profile as `OPENROUTER_API_KEY`.
+- An [OpenRouter](https://openrouter.ai/) account.
+- An [OpenRouter API key](https://openrouter.ai/keys) stored in the active Hermes profile as `OPENROUTER_API_KEY`.
 - Enough OpenRouter credit or current account allowance for the request.
 - Access through OpenRouter to the approved Jev model, `typesafe/jev-1.13`.
 
-Your ChatGPT or Codex subscription does not cover Jev requests. Those use your OpenRouter account and its credit or allowance.
+ChatGPT and Codex subscriptions are separate from Jev. A Codex subscription pays for Codex usage. It does not pay Jev fees or OpenRouter requests. Jev uses your OpenRouter account and its credit or allowance.
 
-Switchyard currently connects through OpenRouter, not directly to TypeSafe. Requests go to `https://openrouter.ai/api/alpha/decisions`.
+Direct TypeSafe account or API access is not currently supported, and there is no direct TypeSafe adapter. The plugin uses only the fixed OpenRouter Decisions endpoint: `https://openrouter.ai/api/alpha/decisions`.
 
 Use the secure setup steps in [docs/SETUP.md](docs/SETUP.md). Never pass an API key with a command-line argument or store it in a URL, repository file, fixture, or issue report.
 
@@ -78,9 +78,9 @@ Future work includes a reviewed catalog admission, independent real-GUI coverage
 
 ## Safe credential setup
 
-The installation step requests `OPENROUTER_API_KEY` through a masked prompt when the key is missing. Hermes reads the manifest's `requires_env` entry and saves the key in the active profile's `.env`. If you already supplied the key, there is no need to reinstall.
+The installation step requests `OPENROUTER_API_KEY` through a masked prompt when the key is missing. Hermes stores it in the active profile. If you already supplied the key, there is no need to reinstall.
 
-Do not use `hermes auth add openrouter` for this plugin. That command manages a provider credential pool; Switchyard calls Hermes' profile-scoped `get_secret("OPENROUTER_API_KEY")` and requires the manifest environment secret instead. Check the enabled plugin without displaying the key:
+Do not use `hermes auth add openrouter` for this plugin. That command manages a provider credential pool; Switchyard reads the profile-scoped `OPENROUTER_API_KEY` secret instead. Check the enabled plugin without displaying the key:
 
 ```text
 hermes plugins list --enabled
