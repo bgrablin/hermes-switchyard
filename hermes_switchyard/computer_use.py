@@ -7,6 +7,7 @@ not replace or bypass the executor's approval and targeting gates.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -20,6 +21,7 @@ from typing import Any
 from .client import (
     DEFAULT_OPERATION_DEADLINE_SECONDS,
     EXPECTED_MODEL,
+    MAX_QUESTIONS_PER_REQUEST,
     MAX_REQUEST_BYTES,
     MAX_OPERATION_REQUESTS,
     operation_remaining_deadline,
@@ -31,6 +33,18 @@ _ALLOWED_ROLES = {
     "Menu", "MenuBar", "MenuItem", "TreeItem", "List", "ListItem", "DataItem", "ComboBox", "Edit",
     "TextBox", "Slider", "Spinner", "ScrollBar", "SplitButton", "Calendar", "DateTime", "Document",
 }
+_ROLE_ALIASES = {
+    re.sub(r"[^a-z0-9]", "", role.casefold()): role
+    for role in _ALLOWED_ROLES
+}
+_ROLE_ALIASES.update({
+    "pushbutton": "Button",
+    "radiobutton": "RadioButton",
+    "checkbox": "CheckBox",
+    "textbox": "TextBox",
+    "editcontrol": "Edit",
+    "tab": "TabItem",
+})
 _DENIED_EXACT_LABELS = {
     "back", "reload", "minimize", "maximize", "close", "new tab", "tab search",
     "bookmark this tab", "extensions", "reading list - pinned",
@@ -131,12 +145,19 @@ def _decode(result: Any) -> dict[str, Any]:
 
 
 
+def _normalize_role(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    key = re.sub(r"[^a-z0-9]", "", value.casefold())
+    return _ROLE_ALIASES.get(key, "")
+
+
 def _safe_controls(capture: dict[str, Any], excluded_labels: set[str] | None = None) -> list[dict[str, Any]]:
     controls = []
     excluded = {label.casefold() for label in (excluded_labels or set())}
     for element in capture.get("elements") or []:
         raw_label = str(element.get("label") or "").strip()
-        role = str(element.get("role") or "")
+        role = _normalize_role(element.get("role"))
         label = _sanitize_label(raw_label)
         if not label or role not in _ALLOWED_ROLES or element.get("index") is None:
             continue
@@ -149,10 +170,35 @@ def _safe_controls(capture: dict[str, Any], excluded_labels: set[str] | None = N
             index = int(element["index"])
         except (TypeError, ValueError):
             continue
-        controls.append({"index": index, "role": role, "label": label[:100]})
+        controls.append({
+            "index": index,
+            "role": role,
+            "label": label[:100],
+            "focused": element.get("focused") is True,
+        })
     controls.sort(key=lambda item: (item["role"] not in {"TabItem", "PageTab"}, item["index"]))
     return controls
 
+
+def _control_partition_summaries(
+    controls: list[dict[str, Any]], *, partition_size: int = 64,
+) -> list[dict[str, Any]]:
+    """Represent every safe control in bounded operation-level semantics."""
+    summaries: list[dict[str, Any]] = []
+    for offset in range(0, len(controls), partition_size):
+        chunk = controls[offset:offset + partition_size]
+        role_counts: dict[str, int] = {}
+        for item in chunk:
+            role = item["role"]
+            role_counts[role] = role_counts.get(role, 0) + 1
+        summaries.append({
+            "start_position": offset + 1,
+            "end_position": offset + len(chunk),
+            "count": len(chunk),
+            "role_counts": role_counts,
+            "focused_count": sum(item["focused"] is True for item in chunk),
+        })
+    return summaries
 
 
 def _raw_control_identity(capture: dict[str, Any], index: int) -> tuple[Any, ...] | None:
@@ -170,7 +216,7 @@ def _raw_control_identity(capture: dict[str, Any], index: int) -> tuple[Any, ...
             bounds = tuple(bounds)
         elif bounds is not None:
             bounds = repr(bounds)
-        return (element.get("index"), role, label, app, bounds)
+        return (element.get("index"), role, label, app, bounds, element.get("focused") is True)
     return None
 
 
@@ -200,6 +246,27 @@ def _capture_identity(capture: dict[str, Any]) -> tuple[str, str]:
         title if isinstance(title, str) else "",
     )
 
+
+def _progress_capture_identity(capture: dict[str, Any]) -> str:
+    """Hash the complete fresh local UI identity for repetition detection."""
+    elements = []
+    for element in capture.get("elements") or []:
+        if not isinstance(element, dict):
+            continue
+        bounds = element.get("bounds")
+        if isinstance(bounds, tuple):
+            bounds = list(bounds)
+        elements.append({
+            "index": element.get("index"),
+            "role": _normalize_role(element.get("role")) or str(element.get("role") or ""),
+            "label": element.get("label"),
+            "app": element.get("app"),
+            "bounds": bounds,
+            "focused": element.get("focused") is True,
+        })
+    material = {"capture": _capture_identity(capture), "elements": elements}
+    encoded = json.dumps(material, ensure_ascii=False, sort_keys=True, default=repr).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _verify_fresh_capture(
@@ -390,6 +457,46 @@ def _target_questions(
     return result
 
 
+def _packed_question_batches(
+    state: dict[str, Any], questions: dict[str, dict[str, Any]],
+) -> list[dict[str, dict[str, Any]]]:
+    """Pack independent questions into the fewest bounded serial requests."""
+    batches: list[dict[str, dict[str, Any]]] = []
+    current: dict[str, dict[str, Any]] = {}
+    for name, question in questions.items():
+        trial = {**current, name: question}
+        if current and (
+            len(trial) > MAX_QUESTIONS_PER_REQUEST
+            or _target_request_size(state, trial) > MAX_REQUEST_BYTES
+        ):
+            batches.append(current)
+            current = {name: question}
+        else:
+            current = trial
+        if _target_request_size(state, current) > MAX_REQUEST_BYTES:
+            raise ValueError("a CUA target question exceeds the bounded serialized request budget")
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _record_provider_decision(
+    sink: list[dict[str, Any]], result: dict[str, Any], *, phase: str,
+    operation: str | None,
+) -> dict[str, Any]:
+    """Preserve one bounded Jev request receipt, including failed later phases."""
+    record = {
+        "phase": phase,
+        "operation": operation,
+        "latency_ms": result.get("latency_ms"),
+        "model": result.get("model"),
+        "request_id": result.get("request_id"),
+        "usage": result.get("usage") or {},
+    }
+    sink.append(record)
+    return record
+
+
 def _select_target(
     *,
     state: dict[str, Any],
@@ -400,6 +507,7 @@ def _select_target(
     client: Any,
     selected_operation: str,
     target_role: str,
+    decision_sink: list[dict[str, Any]],
     selected_source_id: str | None = None,
 ) -> tuple[str | None, dict[str, Any], dict[str, str], list[dict[str, Any]]]:
     """Select across bounded target partitions, then compare finalists globally."""
@@ -423,49 +531,66 @@ def _select_target(
     receipts: list[dict[str, Any]] = []
     criteria_by_target: dict[str, str] = {}
     answer_by_target: dict[str, Any] = {}
-    for name, question in questions.items():
+    for batch in _packed_question_batches(model_state, questions):
         operation_remaining_deadline()
-        result = client.decide(model_state, {name: question}, public_or_sanitized_data_ack=True)
+        result = client.decide(model_state, batch, public_or_sanitized_data_ack=True)
         operation_remaining_deadline()
         receipts.append(result)
-        answer = result["answers"][name]
-        criteria = question["criteria"]
-        if not _choice_accepts(answer, criteria):
-            return None, {"status": "abstained", "reason": "target_uncertain"}, {}, receipts
-        choice = answer.get("choice")
-        if choice not in criteria:
-            raise ValueError("Jev returned a target outside the offered action space")
-        if choice in {"none", _TARGET_NONE}:
-            continue
-        finalists.append(str(choice))
-        criteria_by_target[str(choice)] = criteria[str(choice)]
-        answer_by_target[str(choice)] = answer
-    if not finalists:
-        return None, {}, {}, receipts
-    while len(finalists) > 1:
-        next_round: list[str] = []
-        for offset in range(0, len(finalists), 255):
-            chunk = finalists[offset:offset + 255]
-            criteria = {target: criteria_by_target[target] for target in chunk}
-            name = f"{prefix}_final_{offset // 255}"
-            question = {
-                "type": "choice",
-                "instructions": "Choose the best target for the already selected operation from these partition finalists.",
-                "criteria": criteria,
-            }
-            operation_remaining_deadline()
-            result = client.decide(model_state, {name: question}, public_or_sanitized_data_ack=True)
-            operation_remaining_deadline()
-            receipts.append(result)
-            answer = result["answers"][name]
+        _record_provider_decision(
+            decision_sink, result, phase="target_selection", operation=selected_operation,
+        )
+        answers = result.get("answers") if isinstance(result, dict) else None
+        if not isinstance(answers, dict) or set(answers) != set(batch):
+            raise ValueError("Jev target answer keys do not exactly match the request batch")
+        for name, question in batch.items():
+            answer = answers[name]
+            criteria = question["criteria"]
             if not _choice_accepts(answer, criteria):
                 return None, {"status": "abstained", "reason": "target_uncertain"}, {}, receipts
             choice = answer.get("choice")
             if choice not in criteria:
-                raise ValueError("Jev returned a finalist outside the offered action space")
-            target = str(choice)
-            answer_by_target[target] = answer
-            next_round.append(target)
+                raise ValueError("Jev returned a target outside the offered action space")
+            if choice in {"none", _TARGET_NONE}:
+                continue
+            finalists.append(str(choice))
+            criteria_by_target[str(choice)] = criteria[str(choice)]
+            answer_by_target[str(choice)] = answer
+    if not finalists:
+        return None, {}, {}, receipts
+    while len(finalists) > 1:
+        next_round: list[str] = []
+        round_questions: dict[str, dict[str, Any]] = {}
+        for offset in range(0, len(finalists), 255):
+            chunk = finalists[offset:offset + 255]
+            criteria = {target: criteria_by_target[target] for target in chunk}
+            name = f"{prefix}_final_{offset // 255}"
+            round_questions[name] = {
+                "type": "choice",
+                "instructions": "Choose the best target for the already selected operation from these partition finalists.",
+                "criteria": criteria,
+            }
+        for batch in _packed_question_batches(model_state, round_questions):
+            operation_remaining_deadline()
+            result = client.decide(model_state, batch, public_or_sanitized_data_ack=True)
+            operation_remaining_deadline()
+            receipts.append(result)
+            _record_provider_decision(
+                decision_sink, result, phase="target_selection", operation=selected_operation,
+            )
+            answers = result.get("answers") if isinstance(result, dict) else None
+            if not isinstance(answers, dict) or set(answers) != set(batch):
+                raise ValueError("Jev finalist answer keys do not exactly match the request batch")
+            for name, question in batch.items():
+                criteria = question["criteria"]
+                answer = answers[name]
+                if not _choice_accepts(answer, criteria):
+                    return None, {"status": "abstained", "reason": "target_uncertain"}, {}, receipts
+                choice = answer.get("choice")
+                if choice not in criteria:
+                    raise ValueError("Jev returned a finalist outside the offered action space")
+                target = str(choice)
+                answer_by_target[target] = answer
+                next_round.append(target)
         finalists = next_round
     target = finalists[0]
     return target, answer_by_target[target], {target: criteria_by_target[target]}, receipts
@@ -497,7 +622,15 @@ def _semantic_action_state(action_result: dict[str, Any]) -> dict[str, Any]:
         raw_status = effect.get("status")
         if isinstance(raw_status, str):
             effect_status = raw_status.strip().casefold()[:64] or "unknown"
+    elif isinstance(effect, str):
+        effect_status = effect.strip().casefold()[:64] or "unknown"
+        if effect_status in {"confirmed", "applied", "completed"}:
+            effect_confirmed = True
+        elif effect_status in {"unconfirmed", "unverifiable", "suspected_noop", "failed"}:
+            effect_confirmed = False
     raw_verdict = action_result.get("verdict")
+    if isinstance(raw_verdict, dict):
+        raw_verdict = raw_verdict.get("decision")
     verdict = raw_verdict.strip().casefold()[:64] if isinstance(raw_verdict, str) else "unknown"
     escalation = action_result.get("escalation")
     escalation_required = (
@@ -537,6 +670,8 @@ def _operation_receipt(
         "text_calls": text_calls,
         "operation_id": operation_id,
         "attempted_action_count": len(actions),
+        "native_action_count": len(actions),
+        "jev_request_count": len(decisions),
         "completed_action_count": sum(
             action.get("effect_confirmed") is True for action in actions
         ),
@@ -636,9 +771,14 @@ def _run_computer_goal_impl(
         controls = _safe_controls(capture)
         click_roles = _ALLOWED_ROLES - {"Document"}
         text_roles = {"Edit", "TextBox", "ComboBox", "Document"}
-        value_roles = {"ComboBox", "Slider", "Spinner", "List", "ListItem", "Calendar", "DateTime"}
+        value_roles = {
+            "Edit", "TextBox", "ComboBox", "Document", "Slider", "Spinner",
+            "List", "ListItem", "Calendar", "DateTime",
+        }
         has_text_target = any(
-            item["role"] in text_roles and _caller_value_for_target(item, caller_text_inputs) is not None
+            item["role"] in text_roles
+            and item["focused"] is True
+            and _caller_value_for_target(item, caller_text_inputs) is not None
             for item in controls
         )
         has_value_target = any(
@@ -646,7 +786,9 @@ def _run_computer_goal_impl(
             for item in controls
         )
         if text_helper is not None:
-            has_text_target = has_text_target or any(item["role"] in text_roles for item in controls)
+            has_text_target = has_text_target or any(
+                item["role"] in text_roles and item["focused"] is True for item in controls
+            )
             has_value_target = has_value_target or any(item["role"] in value_roles for item in controls)
         operation_criteria = {
             "CLICK": "Activate one offered visible control",
@@ -694,6 +836,7 @@ def _run_computer_goal_impl(
             "window_title": capture.get("window_title"),
             "safe_visible_controls": state_controls,
             "control_count": len(controls),
+            "control_partition_summaries": _control_partition_summaries(controls),
             "target_space_partitioned": len(controls) > 255,
             "available_target_counts": {
                 "click": sum(item["role"] in click_roles for item in controls),
@@ -705,8 +848,18 @@ def _run_computer_goal_impl(
             "action_count": len(actions),
         }
         operation_remaining_deadline()
-        decision = client.decide(state, questions, public_or_sanitized_data_ack=True)
-        operation_remaining_deadline()
+        try:
+            decision = client.decide(state, questions, public_or_sanitized_data_ack=True)
+            operation_remaining_deadline()
+        except Exception:
+            if actions:
+                return _operation_receipt(
+                    operation_id=operation_id, goal=goal, app=app, actions=actions,
+                    decisions=decisions, text_calls=text_calls, started=started,
+                    status="partial_failure", capture=capture,
+                    failure_phase="operation_decision",
+                )
+            raise
         if not isinstance(decision, dict) or not isinstance(decision.get("answers"), dict):
             raise TypeError("Jev computer decision has no answers object")
         answers = decision["answers"]
@@ -731,6 +884,9 @@ def _run_computer_goal_impl(
         operation = operation_answer.get("choice")
         if operation not in operation_criteria:
             raise ValueError("Jev returned an operation outside the offered action space")
+        operation_record = _record_provider_decision(
+            decisions, decision, phase="operation_selection", operation=str(operation),
+        )
         target = None
         semantic = None
         target_answer: dict[str, Any] = {}
@@ -740,40 +896,87 @@ def _run_computer_goal_impl(
         drag_source_criteria: dict[str, str] = {}
         target_receipts: list[dict[str, Any]] = []
         if operation in {"CLICK", "DOUBLE_CLICK", "RIGHT_CLICK", "MIDDLE_CLICK"}:
-            target, target_answer, target_criteria, target_receipts = _select_target(
-                state=state, controls=controls, roles=click_roles, prefix="click_target",
-                instructions="Choose only an offered element index for the selected click operation.", client=client,
-                selected_operation=operation, target_role="target",
-            )
+            try:
+                target, target_answer, target_criteria, target_receipts = _select_target(
+                    state=state, controls=controls, roles=click_roles, prefix="click_target",
+                    instructions="Choose only an offered element index for the selected click operation.", client=client,
+                    selected_operation=operation, target_role="target", decision_sink=decisions,
+                )
+            except Exception:
+                if actions:
+                    return _operation_receipt(
+                        operation_id=operation_id, goal=goal, app=app, actions=actions,
+                        decisions=decisions, text_calls=text_calls, started=started,
+                        status="partial_failure", capture=capture, failure_phase="target_selection",
+                    )
+                raise
         elif operation == "TYPE_TEXT":
-            target, target_answer, target_criteria, target_receipts = _select_target(
-                state=state, controls=controls, roles=text_roles, prefix="text_target",
-                instructions="Choose the offered editable field for text entry.", client=client,
-                selected_operation=operation, target_role="target",
-            )
+            focused_controls = [item for item in controls if item["focused"] is True]
+            try:
+                target, target_answer, target_criteria, target_receipts = _select_target(
+                    state=state, controls=focused_controls, roles=text_roles, prefix="text_target",
+                    instructions="Choose the offered currently focused editable field for native text entry.", client=client,
+                    selected_operation=operation, target_role="target", decision_sink=decisions,
+                )
+            except Exception:
+                if actions:
+                    return _operation_receipt(
+                        operation_id=operation_id, goal=goal, app=app, actions=actions,
+                        decisions=decisions, text_calls=text_calls, started=started,
+                        status="partial_failure", capture=capture, failure_phase="target_selection",
+                    )
+                raise
         elif operation == "SET_VALUE":
-            target, target_answer, target_criteria, target_receipts = _select_target(
-                state=state, controls=controls, roles=value_roles, prefix="value_target",
-                instructions="Choose the offered control for setting a semantic value.", client=client,
-                selected_operation=operation, target_role="target",
-            )
+            try:
+                target, target_answer, target_criteria, target_receipts = _select_target(
+                    state=state, controls=controls, roles=value_roles, prefix="value_target",
+                    instructions="Choose the offered control for setting a semantic value.", client=client,
+                    selected_operation=operation, target_role="target", decision_sink=decisions,
+                )
+            except Exception:
+                if actions:
+                    return _operation_receipt(
+                        operation_id=operation_id, goal=goal, app=app, actions=actions,
+                        decisions=decisions, text_calls=text_calls, started=started,
+                        status="partial_failure", capture=capture, failure_phase="target_selection",
+                    )
+                raise
         elif operation == "DRAG":
-            drag_source, drag_source_answer, drag_source_criteria, source_receipts = _select_target(
-                state=state, controls=controls, roles=click_roles, prefix="drag_source",
-                instructions="Choose the offered drag source control.", client=client,
-                selected_operation=operation, target_role="source",
-            )
+            try:
+                drag_source, drag_source_answer, drag_source_criteria, source_receipts = _select_target(
+                    state=state, controls=controls, roles=click_roles, prefix="drag_source",
+                    instructions="Choose the offered drag source control.", client=client,
+                    selected_operation=operation, target_role="source", decision_sink=decisions,
+                )
+            except Exception:
+                if actions:
+                    return _operation_receipt(
+                        operation_id=operation_id, goal=goal, app=app, actions=actions,
+                        decisions=decisions, text_calls=text_calls, started=started,
+                        status="partial_failure", capture=capture, failure_phase="target_selection",
+                    )
+                raise
             if drag_source is None:
                 return _operation_receipt(
                     operation_id=operation_id, goal=goal, app=app, actions=actions,
                     decisions=decisions, text_calls=text_calls, started=started,
                     status="abstained", capture=capture, failure_phase="source_selection",
                 )
-            target, target_answer, target_criteria, destination_receipts = _select_target(
-                state=state, controls=controls, roles=click_roles, prefix="drag_target",
-                instructions="Choose the offered drag destination control.", client=client,
-                selected_operation=operation, target_role="destination", selected_source_id=drag_source,
-            )
+            try:
+                target, target_answer, target_criteria, destination_receipts = _select_target(
+                    state=state, controls=controls, roles=click_roles, prefix="drag_target",
+                    instructions="Choose the offered drag destination control.", client=client,
+                    selected_operation=operation, target_role="destination", decision_sink=decisions,
+                    selected_source_id=drag_source,
+                )
+            except Exception:
+                if actions:
+                    return _operation_receipt(
+                        operation_id=operation_id, goal=goal, app=app, actions=actions,
+                        decisions=decisions, text_calls=text_calls, started=started,
+                        status="partial_failure", capture=capture, failure_phase="target_selection",
+                    )
+                raise
             target_receipts = source_receipts + destination_receipts
         if operation in {"CLICK", "DOUBLE_CLICK", "RIGHT_CLICK", "MIDDLE_CLICK", "TYPE_TEXT", "SET_VALUE"} and target is None:
             return _operation_receipt(
@@ -809,26 +1012,14 @@ def _run_computer_goal_impl(
             semantic = str(hotkey_answer["choice"])
             if semantic not in step_hotkeys:
                 raise ValueError("Jev returned a hotkey outside the offered action space")
-        decisions.append({
-            "operation": operation,
+        operation_record.update({
             "target": target,
             "drag_source": drag_source,
             "semantic_hotkey": semantic,
             "operation_confidence": operation_answer.get("confidence"),
             "target_confidence": target_answer.get("confidence"),
             "drag_source_confidence": drag_source_answer.get("confidence"),
-            "latency_ms": decision.get("latency_ms"),
-            "model": decision.get("model"),
-            "usage": decision.get("usage") or {},
         })
-        for receipt in target_receipts:
-            decisions.append({
-                "operation": operation,
-                "phase": "target_selection",
-                "latency_ms": receipt.get("latency_ms"),
-                "model": receipt.get("model"),
-                "usage": receipt.get("usage") or {},
-            })
         if operation == "DONE":
             status = "completion_candidate"
             break
@@ -930,16 +1121,24 @@ def _run_computer_goal_impl(
             if not isinstance(value, str) or not value.strip() or len(value) > 2_000:
                 raise ValueError("text helper returned no safe field value")
             value = value.strip()
-            # Text generation may be slow or may inspect/mutate external state.
-            # Re-capture after it and before the side effect as a second gate.
-            helper_capture = _capture(dispatch, app)
-            _verify_fresh_capture(capture, helper_capture, expected_control_identity)
-            capture = helper_capture
-            controls = _safe_controls(capture)
-            chosen = next((item for item in controls if item["index"] == chosen["index"]), None)
-            if chosen is None:
-                raise StaleTargetError("editable control changed after text generation")
-            arguments = {"action": "set_value", "element": chosen["index"], "value": value}
+            if text_helper is not None:
+                # A helper may be slow or may inspect/mutate external state, so
+                # re-capture after it. Caller-supplied values are already local
+                # and use the fresh pre-action capture above without another
+                # redundant native capture.
+                helper_capture = _capture(dispatch, app)
+                _verify_fresh_capture(capture, helper_capture, expected_control_identity)
+                capture = helper_capture
+                controls = _safe_controls(capture)
+                chosen = next((item for item in controls if item["index"] == chosen["index"]), None)
+                if chosen is None:
+                    raise StaleTargetError("editable control changed after text generation")
+            if operation == "TYPE_TEXT":
+                if chosen["focused"] is not True:
+                    raise StaleTargetError("native text target is no longer focused")
+                arguments = {"action": "type", "text": value}
+            else:
+                arguments = {"action": "set_value", "element": chosen["index"], "value": value}
             label = chosen["label"]
             action_element = chosen["index"]
             text_calls.append({"operation": operation, "field": chosen["label"], "chars": len(value)})
@@ -985,7 +1184,11 @@ def _run_computer_goal_impl(
             operation_remaining_deadline()
         except TimeoutError:
             actions.append(action_record)
-            raise
+            return _operation_receipt(
+                operation_id=operation_id, goal=goal, app=app, actions=actions,
+                decisions=decisions, text_calls=text_calls, started=started,
+                status="partial_failure", capture=capture, failure_phase="action_dispatch",
+            )
         except Exception:
             actions.append(action_record)
             return _operation_receipt(
@@ -1014,35 +1217,41 @@ def _run_computer_goal_impl(
                 decisions=decisions, text_calls=text_calls, started=started,
                 status="unconfirmed_effect", capture=capture, failure_phase="action_effect",
             )
-        target_identity = (
+        selected_target_identity = (
             _raw_control_identity(capture, action_element)
             if action_element is not None else _capture_identity(capture)
         )
-        progress_signature = (
-            operation,
-            target_identity,
-            _capture_identity(capture),
-            semantic_state["effect_confirmed"],
-            semantic_state["effect_status"],
-            semantic_state["verdict"],
-            semantic_state["escalation"],
-        )
-        progress_history.append(progress_signature)
-        if len(progress_history) >= 3 and len(set(progress_history[-3:])) == 1:
-            status = "stalled"
-            break
         try:
             operation_remaining_deadline()
-            capture = _capture(dispatch, app)
+            post_action_capture = _capture(dispatch, app)
             operation_remaining_deadline()
         except TimeoutError:
-            raise
+            return _operation_receipt(
+                operation_id=operation_id, goal=goal, app=app, actions=actions,
+                decisions=decisions, text_calls=text_calls, started=started,
+                status="partial_failure", capture=capture,
+                failure_phase="post_action_capture",
+            )
         except Exception:
             return _operation_receipt(
                 operation_id=operation_id, goal=goal, app=app, actions=actions,
                 decisions=decisions, text_calls=text_calls, started=started,
                 status="partial_failure", capture=capture, failure_phase="post_action_capture",
             )
+        progress_signature = (
+            operation,
+            selected_target_identity,
+            _progress_capture_identity(post_action_capture),
+            semantic_state["effect_confirmed"],
+            semantic_state["effect_status"],
+            semantic_state["verdict"],
+            semantic_state["escalation"],
+        )
+        progress_history.append(progress_signature)
+        capture = post_action_capture
+        if len(progress_history) >= 3 and len(set(progress_history[-3:])) == 1:
+            status = "stalled"
+            break
 
     return _operation_receipt(
         operation_id=operation_id, goal=goal, app=app, actions=actions,

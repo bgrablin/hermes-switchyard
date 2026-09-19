@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import os
 import sys
 from pathlib import Path
 
 from . import receipt_state, schemas
 from .automatic import _config_float, build_pre_llm_call_hook
-from .client import DEFAULT_ENDPOINT, DEFAULT_OPERATION_DEADLINE_SECONDS, TYPESAFE_ENDPOINT, DecisionClient
+from .client import (
+    DEFAULT_ENDPOINT,
+    DEFAULT_OPERATION_DEADLINE_SECONDS,
+    MAX_DECISION_REQUESTS,
+    TYPESAFE_ENDPOINT,
+    DecisionClient,
+    request_budget_scope,
+)
 from .computer_use import StaleTargetError, run_computer_goal
 from .routing import route_model, select_skill, select_skills
 
@@ -16,8 +25,23 @@ from .routing import route_model, select_skill, select_skills
 def _cli_handler(args):
     command = getattr(args, "switchyard_command", None) or getattr(args, "jev_command", None)
     if command == "status":
-        payload = {"plugin": "hermes-switchyard", "status": "installed", "network": False}
-        print(json.dumps(payload, sort_keys=True) if getattr(args, "json_output", False) else "Hermes Switchyard: installed (local status only)")
+        credential_presence = {}
+        for provider in ("typesafe", "openrouter"):
+            try:
+                credential_presence[provider] = bool(_secret(provider))
+            except Exception:  # local secret-store status can be unavailable or locked
+                credential_presence[provider] = False
+        payload = {
+            "plugin": "hermes-switchyard",
+            "status": "ready" if any(credential_presence.values()) else "credential_required",
+            "network": False,
+            "credential_presence": credential_presence,
+        }
+        print(
+            json.dumps(payload, sort_keys=True)
+            if getattr(args, "json_output", False)
+            else f"Hermes Switchyard: {payload['status']} (local status only)"
+        )
         return 0
     if command == "guide":
         print("Hermes Switchyard uses Jev for bounded decisions. Use setup to save a provider key; use test --live only when a billed request is intended.")
@@ -26,7 +50,45 @@ def _cli_handler(args):
         if getattr(args, "live", False) is not True or getattr(args, "public_or_sanitized_data_ack", False) is not True:
             print("Refusing live test: pass --live and --public-or-sanitized-data-ack.")
             return 2
-        return 0 if _secret(getattr(args, "provider", "auto")) else 1
+        requested_provider = getattr(args, "provider", "auto")
+        provider = requested_provider
+        if provider == "auto":
+            provider = "typesafe" if _secret("typesafe") else "openrouter"
+        key = _secret(provider)
+        if not key:
+            print(json.dumps({"status": "failed", "reason": "credential_required"}, sort_keys=True))
+            return 1
+        endpoint = TYPESAFE_ENDPOINT if provider == "typesafe" else DEFAULT_ENDPOINT
+        model = "jev-latest" if provider == "typesafe" else "typesafe/jev-1.13"
+        active_client = DecisionClient(api_key=key, endpoint=endpoint, model=model)
+        try:
+            result = active_client.decide(
+                {
+                    "task": "Hermes Switchyard explicitly billed connectivity test",
+                    "data_class": "public_synthetic",
+                },
+                {
+                    "connectivity": {
+                        "type": "noul",
+                        "instructions": "Is this a bounded public synthetic connectivity test?",
+                    }
+                },
+                public_or_sanitized_data_ack=True,
+            )
+        except Exception:  # provider and transport text must not reach CLI output
+            print(json.dumps({"status": "failed", "reason": "provider_request_failed"}, sort_keys=True))
+            return 1
+        finally:
+            active_client.close()
+        print(json.dumps({
+            "status": "passed",
+            "provider": provider,
+            "model": result.get("model"),
+            "request_id": result.get("request_id"),
+            "latency_ms": result.get("latency_ms"),
+            "usage": result.get("usage") or {},
+        }, sort_keys=True))
+        return 0
     if command == "receipt":
         receipt = receipt_state.read_latest_receipt()
         if receipt is None:
@@ -199,6 +261,22 @@ def register(ctx):
     def computer_route_available():
         return sys.platform in {"win32", "darwin", "linux"} and route_available()
 
+    def cache_identity():
+        """Return live route scope with only a one-way credential generation."""
+        endpoint, model, provider = _route()
+        credential = _secret(provider)
+        credential_sha256 = hashlib.sha256(
+            f"hermes-switchyard:{provider}:".encode("utf-8")
+            + credential.encode("utf-8")
+        ).hexdigest()
+        return {
+            "provider": provider,
+            "endpoint": endpoint,
+            "model": model,
+            "profile": os.environ.get("HERMES_PROFILE", "default"),
+            "credential_sha256": credential_sha256,
+        }
+
     def setting_bool(key, default):
         value = ctx.get_config(key, default=default)
         return value if type(value) is bool else default
@@ -221,11 +299,7 @@ def register(ctx):
             "automatic_skill_public_or_sanitized_data_ack", False
         ),
         client_factory=client,
-        cache_identity=lambda: {
-            "provider": ctx.get_config("jev_provider", default="auto"),
-            "endpoint": ctx.get_config("api_endpoint", default=DEFAULT_ENDPOINT),
-            "model": ctx.get_config("jev_model", default=None),
-        },
+        cache_identity=cache_identity,
         local_threshold=_config_float(
             ctx.get_config("automatic_skill_local_threshold", default=0.20),
             0.20,
@@ -259,27 +333,37 @@ def register(ctx):
             questions = args.get("questions")
             if not isinstance(questions, dict) or not questions:
                 raise ValueError("questions must be a non-empty object")
-            return json.dumps(with_client(lambda active_client: active_client.decide(
-                    state,
-                    questions,
-                    public_or_sanitized_data_ack=args.get("public_or_sanitized_data_ack", False),
-                )))
+            def assess(active_client):
+                with request_budget_scope(
+                    active_client,
+                    MAX_DECISION_REQUESTS,
+                    deadline_seconds=args.get("deadline_seconds", DEFAULT_OPERATION_DEADLINE_SECONDS),
+                ):
+                    return active_client.decide(
+                        state,
+                        questions,
+                        public_or_sanitized_data_ack=args.get("public_or_sanitized_data_ack", False),
+                    )
+            return json.dumps(with_client(assess))
         except Exception as exc:  # noqa: BLE001 -- tool handlers return structured errors
             return _error(exc)
 
     def computer_handler(args, **kwargs):
         try:
             _require_public_data_ack(args)
+            def native_dispatch(tool_name, tool_args):
+                return ctx.dispatch_tool(tool_name, tool_args, **kwargs)
             result = with_client(lambda active_client: run_computer_goal(
                 goal=args.get("goal") or "",
                 app=args.get("app") or "",
                 max_steps=int(args.get("max_steps") or default_steps),
                 min_actions_before_done=int(args.get("min_actions_before_done") or 0),
-                dispatch=ctx.dispatch_tool,
+                dispatch=native_dispatch,
                 client=active_client,
                 text_inputs=args.get("text_inputs"),
                 allowed_hotkeys=args.get("allowed_hotkeys"),
                 public_or_sanitized_data_ack=args.get("public_or_sanitized_data_ack", False),
+                deadline_seconds=args.get("deadline_seconds", DEFAULT_OPERATION_DEADLINE_SECONDS),
             ))
             return json.dumps(result)
         except Exception as exc:  # noqa: BLE001 -- tool handlers return structured errors
@@ -296,6 +380,7 @@ def register(ctx):
                     needs_skill_threshold=args.get("needs_skill_threshold", schemas.DEFAULT_SKILL_NEEDS_THRESHOLD),
                     winning_probability_threshold=args.get("winning_probability_threshold", schemas.DEFAULT_SKILL_WINNING_PROBABILITY_THRESHOLD),
                     public_or_sanitized_data_ack=args.get("public_or_sanitized_data_ack", False),
+                    deadline_seconds=args.get("deadline_seconds", DEFAULT_OPERATION_DEADLINE_SECONDS),
                 )))
         except Exception as exc:  # noqa: BLE001 -- tool handlers return structured errors
             return _error(exc)
@@ -310,7 +395,7 @@ def register(ctx):
                     selection_threshold=args.get("selection_threshold", schemas.DEFAULT_SKILL_NEEDS_THRESHOLD),
                     max_selections=args.get("max_selections"),
                     public_or_sanitized_data_ack=args.get("public_or_sanitized_data_ack", False),
-                    deadline_seconds=args.get("deadline_seconds", schemas.DEFAULT_OPERATION_DEADLINE_SECONDS),
+                    deadline_seconds=args.get("deadline_seconds", DEFAULT_OPERATION_DEADLINE_SECONDS),
                 )))
         except Exception as exc:  # noqa: BLE001 -- tool handlers return structured errors
             return _error(exc)
@@ -325,6 +410,7 @@ def register(ctx):
                     client=active_client,
                     capability_fit_threshold=args.get("capability_fit_threshold", schemas.DEFAULT_MODEL_CAPABILITY_FIT_THRESHOLD),
                     public_or_sanitized_data_ack=args.get("public_or_sanitized_data_ack", False),
+                    deadline_seconds=args.get("deadline_seconds", DEFAULT_OPERATION_DEADLINE_SECONDS),
                 )))
         except Exception as exc:  # noqa: BLE001 -- tool handlers return structured errors
             return _error(exc)

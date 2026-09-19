@@ -474,6 +474,11 @@ class DecisionClient:
             if not isinstance(answer, dict):
                 raise TypeError(f"Jev response is missing answer {name}")
             question_type = question["type"]
+            answer_type = answer.get("type")
+            if answer_type is not None:
+                if answer_type != question_type:
+                    raise ValueError(f"Jev answer {name} type does not match the requested question")
+                answer = {key: value for key, value in answer.items() if key != "type"}
             if question_type == "choice":
                 if set(answer) != {"choice", "probabilities", "confidence"}:
                     raise ValueError(f"Jev choice {name} has unexpected response fields")
