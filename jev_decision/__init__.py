@@ -151,10 +151,20 @@ def register(ctx):
         value = ctx.get_config(key, default=default)
         return value if type(value) is bool else default
 
+    configured_routing_mode = ctx.get_config("automatic_skill_routing_mode", default=None)
+    if configured_routing_mode is None:
+        # Current Hermes core does not provide turn_egress_policy or consume
+        # callback metadata. Hosted mode therefore remains fail-closed until a
+        # compatible host supplies the seam; legacy false still means local-only.
+        configured_routing_mode = (
+            "hosted_sanitized"
+            if setting_bool("automatic_skill_jev", True)
+            else "local_only"
+        )
     automatic_hook = build_pre_llm_call_hook(
         enabled=setting_bool("automatic_skill_recommendation", True),
         configured_candidates=ctx.get_config("automatic_skill_candidates", default=[]),
-        hosted_enabled=setting_bool("automatic_skill_jev", True),
+        routing_mode=configured_routing_mode,
         hosted_mode=ctx.get_config("automatic_skill_jev_mode", default="always"),
         public_or_sanitized_data_ack=setting_bool(
             "automatic_skill_public_or_sanitized_data_ack", False

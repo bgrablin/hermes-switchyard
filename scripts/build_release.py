@@ -47,6 +47,7 @@ RELEASE_FILES = (
     "docs/assets/hermes-switchyard-overview.png",
     "jev_decision/__init__.py",
     "jev_decision/automatic.py",
+    "jev_decision/egress.py",
     "jev_decision/receipt_state.py",
     "jev_decision/client.py",
     "jev_decision/computer_use.py",

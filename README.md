@@ -4,7 +4,7 @@ Jev-powered advisory selection, general typed assessment, and cross-platform Cua
 
 Version: 0.4.1
 
-[Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) is a structured decision model. Hermes Switchyard is the Hermes plugin integration around Jev: it applies local policy, requires a public-or-sanitized data confirmation, keeps actions bounded, and leaves final verification to Hermes. Jev owns typed judgments; Switchyard owns validation, routing, execution boundaries, and evidence.
+[Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) is a structured decision model. Hermes Switchyard is the Hermes plugin integration around Jev: it applies local policy, supports a host-owned per-turn egress contract for automatic hosted routing, keeps actions bounded, and leaves final verification to Hermes. The current Hermes core callback does not yet propagate that contract or surface routing metadata, so this plugin-only release does not claim production hosted-routing closure. A persistent public-or-sanitized acknowledgement is retained for compatibility but is not DLP or automatic authorization. Jev owns typed judgments; Switchyard owns validation, routing, execution boundaries, and evidence.
 
 Jev supplies decision scores. Switchyard applies its eligibility and confidence rules; for model routing, it selects the cheapest qualified model. Hermes checks the result. This plugin uses Jev; it does not provide every feature that Jev supports.
 
@@ -57,19 +57,20 @@ Use the secure setup steps in [docs/SETUP.md](docs/SETUP.md). Never pass an API 
 
 ## Automatic skill recommendations
 
-When the plugin is enabled, the `pre_llm_call` lifecycle hook is on by default. It discovers the **full** active profile skill registry through Hermes' supported `skills_list` API and performs a fast local match for fallback. After the public/sanitized-data attestation is enabled, hosted Jev evaluates every turn by default. This deliberately prefers the stronger Jev decision over saving its small request cost. Set `automatic_skill_jev_mode` to `uncertain_only` only when latency matters more than Jev coverage.
+When the plugin is enabled, the `pre_llm_call` lifecycle hook is on by default. It discovers the **full** active profile skill registry through Hermes' supported `skills_list` API and performs a fast local match. The standalone routing contract supports `hosted_sanitized`, but the current Hermes core does not pass `turn_egress_policy` or consume callback metadata; current-core sessions therefore keep hosted construction fail-closed and use local matching. This plugin-only release does not claim production hosted routing or close the dependent host-integration issues. A compatible host may explicitly supply the envelope to exercise the contract. Set `automatic_skill_routing_mode` to `local_only` or `off` when hosted routing is not wanted. Set `automatic_skill_jev_mode` to `uncertain_only` only when latency matters more than Jev coverage.
 
 ```text
-hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_jev true
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode hosted_sanitized
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_jev_mode always
-hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack true
 ```
 
-When hosted Jev is enabled with the attestation, the full catalog is searched through bounded Choice fan-out and descriptions are included as semantic evidence. Candidate names, bounded descriptions, and the current task may leave the host. Conversation history and full skill bodies do not. A valid Jev abstention is preserved; transport failure may preserve a local winner.
+The host must supply a typed envelope with `version: 1`, `decision: "allow"`, `data_class: "public"` or `"sanitized"`, and bounded `allowed_payload`. Missing, denied, unknown, restricted, or malformed turns fail closed before the hosted client is constructed. The persistent acknowledgement is not a substitute.
+
+Automatic hosted Jev receives only the envelope's allowed payload and exact candidate identifiers. Candidate descriptions, conversation history, and full skill bodies remain local. A valid Jev abstention is preserved; a transport failure may preserve a local winner. A compatible host can consume the hook's redacted routing status/reason metadata; current Hermes core does not surface that metadata. No production egress-enforcement or operator-status claim is made without the corresponding core seam.
 
 ## Privacy and data handling
 
-Jev tools require `public_or_sanitized_data_ack: true` in their input. This means the input has been checked for permitted use. The flag does not scan or redact data, grant permission to share it, or bypass other controls.
+Jev tools require `public_or_sanitized_data_ack: true` in their input. This means the input has been checked for permitted use. The flag does not scan or redact data, grant permission to share it, or bypass other controls. Automatic skill recommendations use a separate host-owned per-turn envelope; the persistent flag cannot authorize their hosted egress.
 
 For Cua Driver computer use, Jev may receive the goal, target application, window title, safe control labels, visible context, and recent actions through the selected Jev endpoint. Text-field contents are sent only to the configured Hermes text helper after a field is selected. Do not send private, employer, regulated, credential, password, API-key, token, payment, or verification-code data.
 

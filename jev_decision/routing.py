@@ -68,7 +68,13 @@ def _string_list(value: Any, name: str) -> list[str]:
     return list(value)
 
 
-def _criteria(candidates: list[dict], key: str, *, max_entries: int | None = _CHOICE_MAX_OPTIONS) -> dict[str, str]:
+def _criteria(
+    candidates: list[dict],
+    key: str,
+    *,
+    max_entries: int | None = _CHOICE_MAX_OPTIONS,
+    include_descriptions: bool = True,
+) -> dict[str, str]:
     """Build Jev criteria without normalizing candidate identifiers."""
     if not isinstance(candidates, list) or not candidates or (max_entries is not None and len(candidates) > max_entries):
         bound = f"1 to {max_entries}" if max_entries is not None else "at least 1"
@@ -84,10 +90,15 @@ def _criteria(candidates: list[dict], key: str, *, max_entries: int | None = _CH
             raise ValueError("candidate identifiers must not have leading or trailing whitespace")
         if identifier in out:
             raise ValueError("candidate identifiers must be unique and exact")
-        description = item.get("description", "")
-        if type(description) is not str:
-            raise ValueError("candidate descriptions must be strings")
-        out[identifier] = description or identifier
+        if include_descriptions:
+            description = item.get("description", "")
+            if type(description) is not str:
+                raise ValueError("candidate descriptions must be strings")
+            out[identifier] = description or identifier
+        else:
+            # Automatic hosted routing sends only identifiers. Do not even read
+            # the description field on this path.
+            out[identifier] = identifier
     return out
 
 
@@ -144,12 +155,12 @@ def _aggregate_metadata(calls: list[dict[str, Any]]) -> dict[str, Any]:
     return {"total_latency_ms": latency, "total_usage": usage, "request_count": request_count}
 
 
-def _skill_chunks(candidates: list[dict]) -> list[list[dict]]:
+def _skill_chunks(candidates: list[dict], *, include_descriptions: bool = True) -> list[list[dict]]:
     chunks: list[list[dict]] = []
     current: list[dict] = []
     for candidate in candidates:
         trial = current + [candidate]
-        criteria = _criteria(trial, "name", max_entries=None)
+        criteria = _criteria(trial, "name", max_entries=None, include_descriptions=include_descriptions)
         criteria[_SKILL_NONE] = "No candidate in this partition materially fits the task"
         size = len(json.dumps(criteria, ensure_ascii=False).encode("utf-8"))
         if current and (len(trial) > _SKILL_PARTITION_SIZE or size > _PARTITION_CRITERIA_BYTES):
@@ -171,6 +182,7 @@ def _select_skill_small(
     needs_skill_threshold: float = DEFAULT_SKILL_NEEDS_THRESHOLD,
     winning_probability_threshold: float = DEFAULT_SKILL_WINNING_PROBABILITY_THRESHOLD,
     public_or_sanitized_data_ack: bool = False,
+    include_descriptions: bool = True,
 ) -> dict:
     """Return an advisory skill choice or an explicit abstention.
 
@@ -184,7 +196,7 @@ def _select_skill_small(
         "needs_skill": _bounded_number(needs_skill_threshold, "needs_skill_threshold"),
         "winning_probability": _bounded_number(winning_probability_threshold, "winning_probability_threshold"),
     }
-    criteria = _criteria(candidates, "name")
+    criteria = _criteria(candidates, "name", include_descriptions=include_descriptions)
     questions = {
         "skill": {
             "type": "choice",
@@ -206,8 +218,13 @@ def _select_skill_small(
             },
         },
     }
+    skills_state = (
+        [{"name": key, "description": value} for key, value in criteria.items()]
+        if include_descriptions
+        else [{"name": key} for key in criteria]
+    )
     result = client.decide(
-        {"task": task, "skills": [{"name": key, "description": value} for key, value in criteria.items()]},
+        {"task": task, "skills": skills_state},
         questions,
         public_or_sanitized_data_ack=True,
     )
@@ -252,6 +269,7 @@ def _skill_partition_winners(
     candidates: list[dict],
     client: Any,
     include_needs_skill: bool,
+    include_descriptions: bool = True,
 ) -> tuple[list[dict], list[dict[str, Any]], float | None]:
     """Evaluate every bounded partition and retain one finalist from each."""
     if not candidates:
@@ -259,8 +277,8 @@ def _skill_partition_winners(
     winners: list[dict] = []
     metadata: list[dict[str, Any]] = []
     needs_score: float | None = None
-    for partition, chunk in enumerate(_skill_chunks(candidates)):
-        criteria = _criteria(chunk, "name")
+    for partition, chunk in enumerate(_skill_chunks(candidates, include_descriptions=include_descriptions)):
+        criteria = _criteria(chunk, "name", include_descriptions=include_descriptions)
         if _SKILL_NONE in criteria:
             raise ValueError(f"candidate name {_SKILL_NONE!r} is reserved")
         criteria[_SKILL_NONE] = "No candidate in this partition materially fits the task"
@@ -313,6 +331,7 @@ def _select_skill_impl(
     needs_skill_threshold: float = DEFAULT_SKILL_NEEDS_THRESHOLD,
     winning_probability_threshold: float = DEFAULT_SKILL_WINNING_PROBABILITY_THRESHOLD,
     public_or_sanitized_data_ack: bool = False,
+    include_descriptions: bool = True,
 ) -> dict:
     """Select a skill, reducing arbitrarily large catalogs through Jev fan-out.
 
@@ -327,6 +346,7 @@ def _select_skill_impl(
             needs_skill_threshold=needs_skill_threshold,
             winning_probability_threshold=winning_probability_threshold,
             public_or_sanitized_data_ack=public_or_sanitized_data_ack,
+            include_descriptions=include_descriptions,
         )
     if len(candidates) <= _CHOICE_MAX_OPTIONS:
         return _select_skill_small(
@@ -335,12 +355,13 @@ def _select_skill_impl(
             needs_skill_threshold=needs_skill_threshold,
             winning_probability_threshold=winning_probability_threshold,
             public_or_sanitized_data_ack=public_or_sanitized_data_ack,
+            include_descriptions=include_descriptions,
         )
 
     _require_public_data_ack(public_or_sanitized_data_ack)
     # Validate the complete catalog before any network call. This prevents a
     # malformed tail from being hidden by partitioning.
-    _criteria(candidates, "name", max_entries=None)
+    _criteria(candidates, "name", max_entries=None, include_descriptions=include_descriptions)
     pool = list(candidates)
     rounds = 0
     reduction_metadata: list[dict[str, Any]] = []
@@ -351,6 +372,7 @@ def _select_skill_impl(
             candidates=pool,
             client=client,
             include_needs_skill=rounds == 0,
+            include_descriptions=include_descriptions,
         )
         rounds += 1
         reduction_metadata.extend(metadata)
@@ -381,6 +403,7 @@ def _select_skill_impl(
         needs_skill_threshold=needs_skill_threshold,
         winning_probability_threshold=winning_probability_threshold,
         public_or_sanitized_data_ack=True,
+        include_descriptions=include_descriptions,
     )
     result["candidate_count"] = len(candidates)
     result["offered_count"] = len(candidates)
@@ -404,6 +427,7 @@ def select_skill(
     needs_skill_threshold: float = DEFAULT_SKILL_NEEDS_THRESHOLD,
     winning_probability_threshold: float = DEFAULT_SKILL_WINNING_PROBABILITY_THRESHOLD,
     public_or_sanitized_data_ack: bool = False,
+    include_descriptions: bool = True,
 ) -> dict:
     with request_budget_scope(client, MAX_DECISION_REQUESTS):
         return _select_skill_impl(
@@ -412,6 +436,7 @@ def select_skill(
             needs_skill_threshold=needs_skill_threshold,
             winning_probability_threshold=winning_probability_threshold,
             public_or_sanitized_data_ack=public_or_sanitized_data_ack,
+            include_descriptions=include_descriptions,
         )
 
 
