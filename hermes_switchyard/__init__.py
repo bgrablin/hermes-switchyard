@@ -109,6 +109,24 @@ def _require_public_data_ack(args):
         )
 
 
+def _load_skill_context(name: str, *, task_id: str | None = None) -> str:
+    """Load one exact skill through Hermes' supported skill loader."""
+    from tools.skills_tool import skill_view
+
+    response = (
+        skill_view(name=name, task_id=task_id)
+        if task_id is not None
+        else skill_view(name=name)
+    )
+    payload = json.loads(response) if isinstance(response, str) else response
+    if not isinstance(payload, dict) or payload.get("success") is not True:
+        raise RuntimeError("skill loader rejected recommendation")
+    content = payload.get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError("skill loader returned no content")
+    return content
+
+
 def register(ctx):
     default_steps = int(ctx.get_config("computer_max_steps", default=100))
     if hasattr(ctx, "register_cli_command"):
@@ -226,6 +244,10 @@ def register(ctx):
             minimum=0.0,
             maximum=300.0,
         ),
+        consumer_mode=ctx.get_config(
+            "automatic_skill_consumer_mode", default="advisory"
+        ),
+        skill_loader=_load_skill_context,
     )
     if automatic_hook is not None and hasattr(ctx, "register_hook"):
         ctx.register_hook("pre_llm_call", automatic_hook)

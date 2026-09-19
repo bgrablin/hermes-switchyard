@@ -1,7 +1,9 @@
-"""Automatic, bounded skill recommendations through Hermes ``pre_llm_call``.
+"""Automatic, bounded skill routing through Hermes ``pre_llm_call``.
 
-The hook is advisory only: it never loads a skill, changes a toolset, or rewrites
-Hermes' system prompt. Local matching supplies a deterministic fallback. Hosted Jev is preferred when hosted_sanitized mode is enabled, standing user
+The hook defaults to advisory mode. Its opt-in typed consumer can load one
+accepted skill through Hermes' normal skill loader without changing a toolset or
+rewriting the cached system prompt. Local matching supplies a deterministic
+fallback. Hosted Jev is preferred when hosted_sanitized mode is enabled, standing user
 acknowledgement is true, and the local per-turn scan accepts the bounded task. A
 host envelope is optional strengthening and may provide a narrower sanitized
 payload. The automatic hosted payload then contains only the accepted task and
@@ -872,6 +874,22 @@ def _format_recommendation(name: str) -> str:
     )
 
 
+def _explicit_skill_override(task: Any, candidates: Any) -> str | None:
+    """Return an explicitly requested candidate, if the turn names one."""
+    text = _coerce_bounded_text(task, MAX_TASK_CHARS).lower()
+    for candidate in candidates or ():
+        name = candidate.get("name") if isinstance(candidate, Mapping) else candidate
+        if not isinstance(name, str) or not name:
+            continue
+        escaped = re.escape(name.lower())
+        if re.search(rf"(?:^|\s)/{escaped}(?:\s|$)", text) or re.search(
+            rf"\b(?:use|load)\s+(?:the\s+)?(?:skill\s+)?[`'\"]?{escaped}(?:[`'\"]|\b)",
+            text,
+        ):
+            return name
+    return None
+
+
 def build_pre_llm_call_hook(
     *,
     enabled: bool = True,
@@ -885,10 +903,17 @@ def build_pre_llm_call_hook(
     local_threshold: float = DEFAULT_LOCAL_THRESHOLD,
     local_margin: float = DEFAULT_LOCAL_MARGIN,
     cache_seconds: float = DEFAULT_CACHE_SECONDS,
+    consumer_mode: str = "advisory",
+    skill_loader: Callable[..., str] | None = None,
 ) -> Callable[..., dict[str, Any] | None] | None:
     """Build a genuine Hermes ``pre_llm_call`` callback, or disable it."""
     if enabled is not True:
         return None
+    if consumer_mode not in {"advisory", "load"}:
+        raise ValueError("consumer_mode must be advisory or load")
+    if consumer_mode == "load" and skill_loader is None:
+        raise ValueError("load consumer mode requires a skill_loader")
+    active_skill_loader = skill_loader
     try:
         recommender = AutomaticSkillRecommender(
             configured_candidates=configured_candidates,
@@ -907,6 +932,7 @@ def build_pre_llm_call_hook(
         return None
 
     configured = bool(recommender.configured_candidates)
+    consumed_turns: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
 
     def on_pre_llm_call(
         *,
@@ -914,8 +940,17 @@ def build_pre_llm_call_hook(
         conversation_history: Any = None,
         turn_egress_policy: Any = None,
         egress_policy: Any = None,
+        session_id: Any = None,
+        turn_id: Any = None,
         **_: Any,
     ) -> dict[str, Any] | None:
+        turn_key = (
+            (str(session_id), str(turn_id))
+            if isinstance(session_id, str) and session_id and isinstance(turn_id, str) and turn_id
+            else None
+        )
+        if turn_key is not None and turn_key in consumed_turns:
+            return dict(consumed_turns[turn_key])
         # Hermes' conversation_history does not include the cached system prompt
         # that advertises skills. Discover the active profile registry directly.
         del conversation_history  # local-only input; never part of an egress payload
@@ -938,7 +973,65 @@ def build_pre_llm_call_hook(
         setattr(on_pre_llm_call, "last_routing_metadata", dict(metadata))
         selected = result.get("selected")
         if not isinstance(selected, str) or not selected:
-            return {"metadata": metadata}
-        return {"context": _format_recommendation(selected), "metadata": metadata}
+            metadata["skill_recommendation"] = {
+                "status": "abstained",
+                "selected": None,
+                "source": result.get("source", "none"),
+                "loaded_once": False,
+            }
+            response = {"metadata": metadata}
+        elif consumer_mode == "advisory":
+            metadata["skill_recommendation"] = {
+                "status": "advisory",
+                "selected": selected,
+                "source": result.get("source", "none"),
+                "loaded_once": False,
+            }
+            response = {"context": _format_recommendation(selected), "metadata": metadata}
+        else:
+            candidates = recommender.configured_candidates if configured else catalog_candidates
+            override = _explicit_skill_override(user_message, candidates)
+            if override is not None:
+                status, loaded_context = "explicit_override", None
+            else:
+                try:
+                    if active_skill_loader is None:
+                        raise RuntimeError("skill loader is unavailable")
+                    loaded_context = active_skill_loader(selected, task_id=session_id)
+                    if not isinstance(loaded_context, str) or not loaded_context.strip():
+                        raise ValueError("skill loader returned no content")
+                    status = "loaded"
+                except Exception:  # noqa: BLE001 -- consumer fails closed to advisory context
+                    logger.warning("automatic skill consumer rejected %s", selected, exc_info=True)
+                    status, loaded_context = "load_failed", None
+            loaded_once = status == "loaded"
+            metadata["skill_recommendation"] = {
+                "status": status,
+                "selected": selected,
+                "source": result.get("source", "none"),
+                "loaded_once": loaded_once,
+            }
+            receipt = dict(recommender.last_receipt or {})
+            receipt.update(
+                {
+                    "consumer_status": status,
+                    "loaded_skill": selected if loaded_once else None,
+                    "loaded_source": result.get("source", "none") if loaded_once else None,
+                    "skill_load_verified": loaded_once,
+                    "advisory_only": not loaded_once,
+                }
+            )
+            recommender.last_receipt = receipt
+            receipt_state.store_latest_receipt(receipt)
+            setattr(on_pre_llm_call, "last_receipt", dict(receipt))
+            response = {
+                "context": loaded_context or _format_recommendation(selected),
+                "metadata": metadata,
+            }
+        if turn_key is not None:
+            consumed_turns[turn_key] = dict(response)
+            while len(consumed_turns) > DEFAULT_CACHE_SIZE:
+                consumed_turns.popitem(last=False)
+        return response
 
     return on_pre_llm_call
