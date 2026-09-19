@@ -48,13 +48,13 @@ The repository owner decides whether a candidate is ready for publication. That 
 
 ## Installation choices
 
-The normal install command is short and works while the repository is private when GitHub authentication is already available to Git:
+The normal install command downloads the plugin from the public GitHub repository:
 
 ```text
 hermes plugins install bgrablin/hermes-switchyard --enable
 ```
 
-The same command remains valid after a future public release. Do not put a token in a URL, command, or issue report. The `--enable` form installs and enables in one step. To inspect first, use `--no-enable`, then run `hermes plugins list` and `hermes plugins enable jev-decision`.
+No GitHub login or token is required. The `--enable` form installs and enables in one step. To inspect first, use `--no-enable`, then run `hermes plugins list` and `hermes plugins enable jev-decision`.
 
 For a reproducible install, first verify that the current checkout is the reviewed release commit, then use its exact SHA:
 

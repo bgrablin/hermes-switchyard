@@ -16,7 +16,7 @@ Switchyard gives Hermes another way to choose among a defined set of options. It
 
 ### Quick install
 
-The repository is private at present. Git must already have read access to the repository. If it does not, authenticate GitHub with `gh auth login` or configure a Git credential helper, then run this one-liner:
+Install directly from the public GitHub repository:
 
 ```text
 hermes plugins install bgrablin/hermes-switchyard --enable
@@ -30,13 +30,13 @@ hermes plugins list
 hermes plugins enable jev-decision
 ```
 
-Do not put a GitHub token in a clone URL, command, issue report, or repository file. Catalog installation is not available until a human admits the plugin to the Hermes catalog; use the repository command above.
+No GitHub login or token is required for this public repository. Catalog installation is not available until a human admits the plugin to the Hermes catalog; use the repository command above.
 
 After installing or updating, start a fresh Hermes session so it loads the new plugin. Restart only the Hermes process that needs to load the change.
 
 ## Setup requirements
 
-A GitHub login is only the download requirement. A working Jev call requires one of these profile-scoped secrets:
+A working Jev call requires one of these profile-scoped secrets:
 
 - `TYPESAFE_API_KEY` for the direct TypeSafe endpoint. This is the preferred low-latency route when available.
 - `OPENROUTER_API_KEY` for OpenRouter's Decisions endpoint.

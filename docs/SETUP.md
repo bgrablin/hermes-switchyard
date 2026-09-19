@@ -2,7 +2,7 @@
 
 Hermes Switchyard has two separate setup boundaries:
 
-1. GitHub access to download the private repository.
+1. Network access to download the public GitHub repository.
 2. TypeSafe or OpenRouter access for live Jev decisions.
 
 A ChatGPT or Codex subscription is separate and does not pay Jev or OpenRouter request charges.
@@ -13,7 +13,7 @@ For skill selection, model routing, and `jev_assess`:
 
 - Hermes Agent with the native plugin contract: `plugin.yaml`, a root `__init__.py`, and `register(ctx)`.
 - Python 3.11 or newer for the repository's offline checks.
-- GitHub read access to `bgrablin/hermes-switchyard` while the repository is private.
+- Network access to `github.com/bgrablin/hermes-switchyard`.
 - Either a TypeSafe API key in the active profile as `TYPESAFE_API_KEY`, or an OpenRouter API key as `OPENROUTER_API_KEY`.
 - Enough account credit or current allowance for the selected route.
 
@@ -22,8 +22,6 @@ For `jev_computer_use`, Hermes must have the Cua Driver-backed `computer_use` to
 The supported endpoints are `https://api.typesafe.ai/v1/systemone` and `https://openrouter.ai/api/alpha/decisions`. `jev_provider: auto` prefers direct TypeSafe when its key exists.
 
 ## Install
-
-If Git does not already have access to the private repository, authenticate GitHub with `gh auth login` or configure a Git credential helper. Do not put a token in a Git URL.
 
 Install and enable the plugin with the supported one-liner:
 
