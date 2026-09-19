@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import math
-import ast
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
@@ -488,26 +487,26 @@ class NamespaceAndAckTests(unittest.TestCase):
         self.assertIn("name: hermes-switchyard", manifest)
         self.assertIn("version: 0.4.2", manifest)
         self.assertNotIn("plugins doctor /path/to/jev-decision", readme)
-        self.assertIn("hermes jev-decision", readme)
+        self.assertIn("hermes switchyard", readme)
+        self.assertNotIn("hermes jev-decision", readme)
 
-    def test_legacy_shim_is_non_registering_and_release_is_canonical_only(self):
+    def test_release_is_canonical_only(self):
         root = Path(__file__).resolve().parent.parent
-        shim = ast.parse((root / "jev_decision/__init__.py").read_text(encoding="utf-8"))
-        module_calls = [
-            node
-            for node in ast.walk(shim)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "register"
-        ]
-        self.assertEqual(module_calls, [])
-        import jev_decision
-
-        self.assertFalse(hasattr(jev_decision, "register"))
+        forbidden = "jev" + "_decision"
         self.assertIn("hermes_switchyard/__init__.py", RELEASE_FILES)
-        self.assertIn("hermes_switchyard/skills/jev-decision-operations/SKILL.md", RELEASE_FILES)
-        self.assertFalse(any(path.startswith("jev_decision/") for path in RELEASE_FILES))
-        self.assertTrue((root / "jev_decision/skills/jev-decision-operations/SKILL.md").is_file())
+        self.assertIn("hermes_switchyard/skills/hermes-switchyard-operations/SKILL.md", RELEASE_FILES)
+        self.assertTrue(
+            (root / "hermes_switchyard/skills/hermes-switchyard-operations/SKILL.md").is_file()
+        )
+        for path in root.rglob("*"):
+            if ".git" in path.parts or not path.is_file():
+                continue
+            self.assertNotIn(forbidden, path.as_posix())
+            try:
+                content = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            self.assertNotIn(forbidden, content, path.as_posix())
 
 
 if __name__ == "__main__":

@@ -208,7 +208,7 @@ def _manifest_failures(root: Path) -> list[str]:
         if readme_version is None or readme_version.group(1) != version:
             failures.append("README version does not match plugin.yaml")
 
-    skill = root / "hermes_switchyard" / "skills" / "jev-decision-operations" / "SKILL.md"
+    skill = root / "hermes_switchyard" / "skills" / "hermes-switchyard-operations" / "SKILL.md"
     if version is not None and skill.is_file():
         skill_version = _yaml_scalar(skill.read_text(encoding="utf-8", errors="replace"), "version")
         if skill_version != version:

@@ -96,7 +96,7 @@ Every automatic recommendation ends by creating one typed receipt. The terminal 
 The supported operator diagnostic command is:
 
 ```text
-hermes jev-decision receipt --json
+hermes switchyard receipt --json
 ```
 
 It prints the latest receipt retained by the plugin. The receipt contains stable source, selection, attempt, error/skip, model, request, latency, usage, candidate-count, and shortlist-policy fields. `verified` is always `false` and `advisory_only` is always `true`; a receipt never proves that a skill was loaded, a model changed, or a GUI action completed. If no attempt has produced a receipt, the command prints a structured `no_receipt` diagnostic and exits non-zero.
@@ -130,8 +130,8 @@ The automatic hosted path sends only the host-approved `allowed_payload` and exa
 The selected credential is separate from a Codex or ChatGPT subscription. Save either provider key through Switchyard's masked setup command; never put a key in a URL, shell history, config value, repository file, or issue report.
 
 ```text
-hermes jev-decision setup --provider typesafe
-# or: hermes jev-decision setup --provider openrouter
+hermes switchyard setup --provider typesafe
+# or: hermes switchyard setup --provider openrouter
 ```
 
 `hermes plugins list --enabled` is a metadata/readiness check; it must not print credentials. Profiles do not share secrets automatically.

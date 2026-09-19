@@ -46,9 +46,9 @@ Start a fresh Hermes session after installation or an update.
 Run exactly one provider-specific setup command and enter the key only in its masked prompt:
 
 ```text
-hermes jev-decision setup --provider typesafe
+hermes switchyard setup --provider typesafe
 # or
-hermes jev-decision setup --provider openrouter
+hermes switchyard setup --provider openrouter
 ```
 
 Do not put a key in `hermes auth add`, a command argument, URL, fixture, repository file, or issue report. Check plugin availability without displaying keys:
@@ -122,7 +122,7 @@ If neither `TYPESAFE_API_KEY` nor `OPENROUTER_API_KEY` is available, Hermes can 
 
 Recover without changing code:
 
-1. Run `hermes jev-decision setup --provider typesafe` or use `--provider openrouter` and enter the key only in the masked prompt.
+1. Run `hermes switchyard setup --provider typesafe` or use `--provider openrouter` and enter the key only in the masked prompt.
 2. Start a fresh Hermes session.
 3. Run `hermes plugins list --enabled`.
 4. Run `hermes plugins doctor . --ci` from the plugin root if discovery remains unclear.

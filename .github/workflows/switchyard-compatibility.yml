@@ -116,7 +116,7 @@ jobs:
         run: |
           set -euo pipefail
           unset OPENROUTER_API_KEY GH_TOKEN GITHUB_TOKEN GITHUB_PAT
-          "$HERMES_PYTHON" -m compileall -q jev_decision evaluation tests scripts
+          "$HERMES_PYTHON" -m compileall -q hermes_switchyard evaluation tests scripts
           "$HERMES_PYTHON" scripts/check_portability.py
           "$HERMES_PYTHON" -m unittest discover -s tests -v 2>&1 | tee "$RUNNER_TEMP/switchyard-receipts/offline-tests.log"
           "$HERMES_PYTHON" evaluation/evaluate.py --validate --output "$RUNNER_TEMP/switchyard-receipts/synthetic-results.json"
