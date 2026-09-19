@@ -48,6 +48,7 @@ TRACKED_OPERATIONAL_NAME = re.compile(
 SYNTHETIC_CREDENTIAL_VALUES = frozenset(
     {
         "test-key",
+        "fixture-key",
         "fixture-key-value",
         "fixture-key",
         "fixture-profile-a",
