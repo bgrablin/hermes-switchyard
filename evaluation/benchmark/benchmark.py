@@ -757,11 +757,20 @@ def main() -> int:
     parser.add_argument("--max-requests", type=int, help="required explicit live cap, maximum 60")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
+    output_aliases_input = bool(
+        args.output
+        and any(
+            Path(candidate).expanduser().resolve() == args.output.expanduser().resolve()
+            for candidate in (args.lexical_input, args.luna_input, args.switchyard_input)
+            if candidate
+        )
+    )
     try:
+        require(not output_aliases_input, "output_aliases_input")
         report = run(args)
     except (ValueError, BenchmarkRefusal, OSError, json.JSONDecodeError) as exc:
         report = {"status": "refused", "reason": type(exc).__name__, "detail": str(exc)}
-        if args.output:
+        if args.output and not output_aliases_input:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print(json.dumps(report, indent=2, sort_keys=True))

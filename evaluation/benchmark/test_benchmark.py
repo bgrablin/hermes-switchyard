@@ -339,6 +339,19 @@ class BenchmarkContractTests(unittest.TestCase):
         self.assertFalse(result["ambiguous_hit"])
         self.assertTrue(result["positive_miss"])
 
+    def test_output_cannot_overwrite_input_evidence(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as temp_dir:
+            receipt = Path(temp_dir) / "luna.json"
+            receipt.write_text('{"retained": true}\n', encoding="utf-8")
+            args = benchmark.argparse.Namespace(
+                mode="live", dataset="heldout", plugin_path=str(PLUGIN), lexical_input=None,
+                luna_input=str(receipt), switchyard_input="switchyard.json",
+                public_synthetic_ack=True, max_requests=48, output=receipt,
+            )
+            with mock.patch.object(benchmark.argparse.ArgumentParser, "parse_args", return_value=args):
+                self.assertEqual(benchmark.main(), 2)
+            self.assertEqual(receipt.read_text(encoding="utf-8"), '{"retained": true}\n')
+
     def test_refusal_output_creates_parent_directory(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as temp_dir:
             output = Path(temp_dir) / "nested" / "refusal.json"
