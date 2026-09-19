@@ -2,7 +2,7 @@
 
 This guide enables the implemented automatic skill recommendation hook for the `hermes-switchyard` plugin.
 
-The default path is local and does not call Jev. Hosted Jev is a separate, explicitly enabled path. Neither path loads a skill or changes the active Hermes model.
+The product default is `hosted_sanitized`, which prefers Jev when the host provides an allowed per-turn egress envelope. The plugin still has explicit `off` and `local_only` modes. Neither local or hosted path loads a skill or changes the active Hermes model. The persistent acknowledgement setting is deprecated compatibility state, not authorization.
 
 ## 1. Install the pinned plugin
 
@@ -27,17 +27,16 @@ hermes plugins doctor . --ci
 
 Plugin Doctor checks discovery, import, registration, declared hooks, and tools. It does not prove model quality, privacy, skill correctness, or GUI completion.
 
-## 2. Start with privacy-closed local recommendations
+## 2. Start with an explicit local-only recommendation mode
 
-Local recommendations are enabled by default. To make the setting explicit:
+Local recommendations are enabled by default. To keep all automatic hosted construction off:
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_recommendation true
-hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_jev false
-hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack false
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode local_only
 ```
 
-The false attestation keeps hosted requests closed even though Jev is preferred by default once that gate is enabled. The local fallback uses Hermes' active profile `skills_list()` registry. It searches the full registry locally and abstains when the score is too low or the winner is too close to the runner-up. Hosted Jev can search the full catalog through partition fan-out.
+`local_only` never constructs a Jev client. The local matcher uses Hermes' active profile `skills_list()` registry. It searches the full registry locally and abstains when the score is too low or the winner is too close to the runner-up. A persistent acknowledgement does not change this mode.
 
 For a controlled candidate list, set YAML/JSON as one shell argument:
 
@@ -75,19 +74,24 @@ Expected behavior when `docker-management` is available to the session:
 
 The recommendation is context sent to the model, not a separate status banner. The assistant may ignore it. If the profile registry is empty, the candidate list is ambiguous, or the request has no overlap, abstention is expected.
 
-## 5. Configure hosted Jev only for public or sanitized tasks
+## 5. Configure hosted Jev only after a per-turn allow decision
 
 Hosted Jev requires either a TypeSafe account/key or an OpenRouter account/key, plus available allowance. `jev_provider: auto` prefers direct TypeSafe. Codex or ChatGPT subscription billing does not pay for either route.
 
-Enable hosted recommendations only after deciding that every task and bounded skill metadata sent by this feature is public or already sanitized. Descriptions are included as semantic evidence; conversation history and full skill bodies remain local:
+Set the explicit hosted mode only when the host can classify and sanitize each turn before the callback:
 
 ```text
-hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_jev true
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode hosted_sanitized
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_jev_mode always
-hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack true
 ```
 
-`always` is the default because Jev requests are inexpensive and provide stronger semantic coverage than token overlap. Use `uncertain_only` only as an explicit latency-saving override. The confirmation is not DLP or authorization. Do not enable hosted Jev for private, employer, regulated, credential, payment, verification, or otherwise restricted content. Start a fresh process after changing hosted settings. Transport failure may preserve a local recommendation; a valid hosted abstention remains abstention.
+The host must pass a versioned envelope such as:
+
+```json
+{"version":1,"decision":"allow","data_class":"sanitized","reason_code":"host_policy_allowed","allowed_payload":"sanitized public task"}
+```
+
+Only `allowed_payload` and candidate identifiers are sent to Jev. Candidate descriptions, history, and full skill bodies stay local. Missing, denied, unknown, malformed, or restricted turns fail closed before client construction. `always` calls Jev even for a confident local match. Use `uncertain_only` only as an explicit latency-saving override. A valid hosted abstention stays abstained; only an unavailable transport may preserve a local recommendation.
 
 ## 6. Disable or roll back
 
@@ -100,8 +104,7 @@ hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_rec
 Disable hosted requests but keep local matching:
 
 ```text
-hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_jev false
-hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack false
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode local_only
 ```
 
 Remove the automatic settings and return to manifest defaults:
@@ -111,6 +114,7 @@ hermes config unset plugins.entries.hermes-switchyard.settings.automatic_skill_c
 hermes config unset plugins.entries.hermes-switchyard.settings.automatic_skill_local_threshold
 hermes config unset plugins.entries.hermes-switchyard.settings.automatic_skill_local_margin
 hermes config unset plugins.entries.hermes-switchyard.settings.automatic_skill_cache_seconds
+hermes config unset plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode
 hermes config unset plugins.entries.hermes-switchyard.settings.automatic_skill_jev
 hermes config unset plugins.entries.hermes-switchyard.settings.automatic_skill_jev_mode
 hermes config unset plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack
@@ -141,7 +145,7 @@ Keep the previous 40-character SHA as the rollback target. Verify the installed 
 - If `hermes-switchyard` is absent, enable it or inspect the install result.
 - If the plugin is enabled but no recommendation appears, check that the current process is fresh and that the request matches an available skill or configured candidate.
 - If the local path abstains, inspect the threshold and margin settings. Lowering them increases selection frequency; these are uncalibrated local policies, not quality probabilities.
-- If hosted Jev is not attempted, confirm `automatic_skill_jev: true` and `automatic_skill_public_or_sanitized_data_ack: true`. To replace the profile-scoped credential without exposing it, use Switchyard's masked provider setup:
+- If hosted Jev is not attempted, inspect the redacted routing reason. `per_turn_policy_missing`, `per_turn_policy_unknown`, `per_turn_policy_invalid`, `per_turn_policy_denied`, and `restricted_data_class` mean that the host did not authorize this turn. `client_unavailable` means no configured route was available. A persistent acknowledgement does not override any of these states. To replace the profile-scoped credential without exposing it, use Switchyard's masked provider setup:
 
 ```text
 hermes jev-decision setup --provider typesafe

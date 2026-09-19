@@ -151,10 +151,20 @@ def register(ctx):
         value = ctx.get_config(key, default=default)
         return value if type(value) is bool else default
 
+    configured_routing_mode = ctx.get_config("automatic_skill_routing_mode", default=None)
+    if configured_routing_mode is None:
+        # Compatibility for profiles that predate the explicit mode. The old
+        # boolean can disable hosted routing, but the old acknowledgement can
+        # never enable or authorize it.
+        configured_routing_mode = (
+            "hosted_sanitized"
+            if setting_bool("automatic_skill_jev", True)
+            else "local_only"
+        )
     automatic_hook = build_pre_llm_call_hook(
         enabled=setting_bool("automatic_skill_recommendation", True),
         configured_candidates=ctx.get_config("automatic_skill_candidates", default=[]),
-        hosted_enabled=setting_bool("automatic_skill_jev", True),
+        routing_mode=configured_routing_mode,
         hosted_mode=ctx.get_config("automatic_skill_jev_mode", default="always"),
         public_or_sanitized_data_ack=setting_bool(
             "automatic_skill_public_or_sanitized_data_ack", False

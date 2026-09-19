@@ -21,6 +21,7 @@ from jev_decision.automatic import (
     discover_available_skill_candidates,
 )
 from jev_decision.client import DecisionClient
+from jev_decision.egress import evaluate_turn_egress_policy
 
 
 class _Context:
@@ -80,6 +81,16 @@ class AutomaticRecommendationTests(unittest.TestCase):
             {"role": "user", "content": "PRIVATE_HISTORY_MARKER"},
         ]
 
+    @staticmethod
+    def _allowed_policy(payload="SANITIZED_TASK_MARKER"):
+        return {
+            "version": 1,
+            "decision": "allow",
+            "data_class": "sanitized",
+            "reason_code": "synthetic_fixture_allowed",
+            "allowed_payload": payload,
+        }
+
     def test_local_lifecycle_hook_selects_relevant_skill_and_abstains_on_no_fit(self):
         import jev_decision
 
@@ -108,7 +119,8 @@ class AutomaticRecommendationTests(unittest.TestCase):
             user_message="Explain the difference between Python lists and tuples",
             conversation_history=self._history(),
         )
-        self.assertIsNone(no_fit)
+        self.assertIsNotNone(no_fit)
+        self.assertEqual(no_fit["metadata"]["routing_reason"], "per_turn_policy_missing")
 
     def test_skill_registry_discovery_uses_public_response_schema(self):
         payload = {
@@ -218,10 +230,11 @@ class AutomaticRecommendationTests(unittest.TestCase):
             result = hook(
                 user_message="public Docker maintenance request",
                 conversation_history=[{"role": "user", "content": "PRIVATE_HISTORY_MARKER"}],
+                turn_egress_policy=self._allowed_policy(),
             )
         self.assertIsNotNone(result)
         wire = json.dumps(payloads[0], sort_keys=True)
-        self.assertIn("SYNTHETIC_PROMPT_DESCRIPTION_MARKER", wire)
+        self.assertNotIn("SYNTHETIC_PROMPT_DESCRIPTION_MARKER", wire)
         self.assertNotIn("PRIVATE_HISTORY_MARKER", wire)
         self.assertIn("docker-management", wire)
 
@@ -262,6 +275,7 @@ class AutomaticRecommendationTests(unittest.TestCase):
                 {"role": "system", "content": "PRIVATE_HISTORY_MARKER"},
                 {"role": "assistant", "content": "private prior turn"},
             ],
+            turn_egress_policy=self._allowed_policy(),
         )
         self.assertIsNotNone(result)
         self.assertIn("docker-management", result["context"])
@@ -269,9 +283,10 @@ class AutomaticRecommendationTests(unittest.TestCase):
         wire = json.dumps(payloads[0], sort_keys=True)
         self.assertNotIn("PRIVATE_HISTORY_MARKER", wire)
         self.assertNotIn("private prior turn", wire)
-        self.assertIn("SYNTHETIC_CONFIGURED_DESCRIPTION_MARKER", wire)
+        self.assertNotIn("SYNTHETIC_CONFIGURED_DESCRIPTION_MARKER", wire)
         self.assertIn("docker-management", wire)
-        self.assertIn("public Docker maintenance request", wire)
+        self.assertIn("SANITIZED_TASK_MARKER", wire)
+        self.assertNotIn("public Docker maintenance request", wire)
         self.assertEqual(payloads[0]["provider"], {"allow_fallbacks": False})
 
     def test_valid_hosted_abstention_does_not_fallback_to_local_winner(self):
@@ -302,12 +317,15 @@ class AutomaticRecommendationTests(unittest.TestCase):
             public_or_sanitized_data_ack=True,
             client_factory=lambda: DecisionClient(api_key="fixture-key", transport=transport),
         )
-        result = recommender.recommend("Diagnose a Docker container")
+        result = recommender.recommend(
+            "Diagnose a Docker container",
+            turn_egress_policy=self._allowed_policy("SANITIZED_DOCKER_TASK"),
+        )
         self.assertEqual(len(calls), 1)
         self.assertEqual(result["status"], "abstained")
         self.assertIsNone(result["selected"])
         self.assertEqual(result["source"], "none")
-        self.assertIn("threshold", result["abstention_reason"])
+        self.assertEqual(result["abstention_reason"], "hosted_abstention")
 
     def test_hosted_default_calls_jev_even_when_local_match_is_confident(self):
         calls = []
@@ -332,10 +350,13 @@ class AutomaticRecommendationTests(unittest.TestCase):
                 {"name": "docker-management", "description": "Manage Docker containers"},
             ],
             hosted_enabled=True,
-            public_or_sanitized_data_ack=True,
+            public_or_sanitized_data_ack=False,
             client_factory=lambda: DecisionClient(api_key="fixture-key", transport=transport),
         )
-        result = recommender.recommend("Diagnose a Docker container")
+        result = recommender.recommend(
+            "Diagnose a Docker container",
+            turn_egress_policy=self._allowed_policy("SANITIZED_DOCKER_TASK"),
+        )
         self.assertEqual(len(calls), 1)
         self.assertTrue(result["hosted_attempted"])
         self.assertEqual(result["source"], "jev")
@@ -356,8 +377,170 @@ class AutomaticRecommendationTests(unittest.TestCase):
         result = recommender.recommend("Docker maintenance")
         self.assertEqual(result["selected"], "docker-management")
         self.assertEqual(result["source"], "local")
-        self.assertEqual(result["hosted_skipped"], "public_or_sanitized_data_ack_required")
+        self.assertEqual(result["hosted_skipped"], "per_turn_policy_missing")
         self.assertEqual(constructed, [])
+
+    def test_legacy_ack_cannot_authorize_restricted_turn(self):
+        constructed = []
+
+        def forbidden_client():
+            constructed.append(True)
+            raise AssertionError("restricted turn must not construct hosted client")
+
+        hook = build_pre_llm_call_hook(
+            configured_candidates=[{"name": "docker-management", "description": "Docker"}],
+            hosted_enabled=True,
+            public_or_sanitized_data_ack=True,
+            client_factory=forbidden_client,
+        )
+        assert hook is not None
+        hook(
+            user_message="private Docker maintenance request",
+            conversation_history=self._history(),
+            turn_egress_policy={
+                "version": 1,
+                "decision": "deny",
+                "data_class": "private",
+                "reason_code": "private_turn",
+            },
+        )
+        self.assertEqual(constructed, [])
+        self.assertEqual(hook.last_result["routing_reason"], "restricted_data_class")
+
+    def test_egress_contract_is_fail_closed_and_metadata_never_contains_payload(self):
+        cases = [
+            (None, "per_turn_policy_missing"),
+            ({"version": 1, "decision": "unknown", "data_class": "unknown"}, "per_turn_policy_unknown"),
+            ({
+                "version": 1,
+                "decision": "allow",
+                "data_class": "private",
+                "allowed_payload": "SYNTHETIC_RESTRICTED_PAYLOAD",
+            }, "restricted_data_class"),
+            ({
+                "version": 1,
+                "decision": "allow",
+                "data_class": "sanitized",
+            }, "per_turn_policy_invalid"),
+            ({
+                "version": 2,
+                "decision": "allow",
+                "data_class": "sanitized",
+                "allowed_payload": "SYNTHETIC_RESTRICTED_PAYLOAD",
+            }, "per_turn_policy_invalid"),
+        ]
+        for policy, reason in cases:
+            with self.subTest(reason=reason):
+                evaluation = evaluate_turn_egress_policy(policy)
+                self.assertFalse(evaluation.allowed)
+                self.assertEqual(evaluation.reason_code, reason)
+                self.assertNotIn("SYNTHETIC_RESTRICTED_PAYLOAD", json.dumps(evaluation.metadata))
+
+    def test_explicit_routing_modes_are_observable_and_bounded(self):
+        constructed = []
+
+        def forbidden_client():
+            constructed.append(True)
+            raise AssertionError("non-hosted mode must not construct hosted client")
+
+        candidates = [{"name": "docker-management", "description": "Docker"}]
+        off = AutomaticSkillRecommender(
+            configured_candidates=candidates,
+            routing_mode="off",
+            client_factory=forbidden_client,
+        ).recommend("Docker maintenance", turn_egress_policy=self._allowed_policy())
+        self.assertEqual(off["routing_status"], "disabled")
+        self.assertEqual(off["routing_reason"], "routing_mode_off")
+
+        local = AutomaticSkillRecommender(
+            configured_candidates=candidates,
+            routing_mode="local_only",
+            client_factory=forbidden_client,
+        ).recommend("Docker maintenance", turn_egress_policy=self._allowed_policy())
+        self.assertEqual(local["source"], "local")
+        self.assertEqual(local["hosted_skipped"], "routing_mode_local_only")
+        self.assertEqual(constructed, [])
+
+    def test_unknown_and_restricted_turns_fail_before_client_construction(self):
+        constructed = []
+
+        def forbidden_client():
+            constructed.append(True)
+            raise AssertionError("policy-denied turn must not construct hosted client")
+
+        recommender = AutomaticSkillRecommender(
+            configured_candidates=[{"name": "docker-management", "description": "Docker"}],
+            routing_mode="hosted_sanitized",
+            public_or_sanitized_data_ack=True,
+            client_factory=forbidden_client,
+        )
+        policies = [
+            {
+                "version": 1,
+                "decision": "unknown",
+                "data_class": "unknown",
+                "reason_code": "synthetic_unknown",
+            },
+            {
+                "version": 1,
+                "decision": "allow",
+                "data_class": "employer",
+                "reason_code": "synthetic_restricted",
+                "allowed_payload": "SYNTHETIC_RESTRICTED_PAYLOAD",
+            },
+        ]
+        reasons = ["per_turn_policy_unknown", "restricted_data_class"]
+        for policy, reason in zip(policies, reasons):
+            with self.subTest(reason=reason):
+                result = recommender.recommend("Docker maintenance", turn_egress_policy=policy)
+                self.assertEqual(result["routing_reason"], reason)
+                self.assertEqual(result["hosted_attempted"], False)
+        self.assertEqual(constructed, [])
+
+    def test_redacted_metadata_excludes_local_and_provider_text(self):
+        payloads = []
+
+        def transport(payload):
+            payloads.append(payload)
+            return {
+                "answers": {
+                    "skill": {
+                        "choice": "docker-management",
+                        "confidence": 0.99,
+                        "probabilities": {"docker-management": 1.0},
+                    },
+                    "needs_skill": {"noul": 0.99},
+                },
+                "usage": {"prompt_tokens": 3, "error": "SYNTHETIC_PROVIDER_ERROR"},
+            }
+
+        hook = build_pre_llm_call_hook(
+            configured_candidates=[{
+                "name": "docker-management",
+                "description": "SYNTHETIC_CANDIDATE_DESCRIPTION_MARKER",
+            }],
+            routing_mode="hosted_sanitized",
+            public_or_sanitized_data_ack=True,
+            client_factory=lambda: DecisionClient(api_key="fixture-key", transport=transport),
+        )
+        assert hook is not None
+        result = hook(
+            user_message="SYNTHETIC_TASK_MARKER",
+            conversation_history=[{"role": "user", "content": "PRIVATE_HISTORY_MARKER"}],
+            turn_egress_policy=self._allowed_policy("SYNTHETIC_SANITIZED_PAYLOAD"),
+        )
+        serialized_metadata = json.dumps(hook.last_metadata, sort_keys=True)
+        serialized_result = json.dumps(hook.last_result, sort_keys=True)
+        self.assertIn("metadata", result)
+        for marker in (
+            "SYNTHETIC_TASK_MARKER",
+            "SYNTHETIC_CANDIDATE_DESCRIPTION_MARKER",
+            "PRIVATE_HISTORY_MARKER",
+            "SYNTHETIC_PROVIDER_ERROR",
+        ):
+            self.assertNotIn(marker, serialized_metadata)
+            self.assertNotIn(marker, serialized_result)
+        self.assertIn("SYNTHETIC_SANITIZED_PAYLOAD", json.dumps(payloads[0]))
 
     def test_real_hermes_loader_registers_hook_when_available(self):
         try:
