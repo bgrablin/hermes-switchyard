@@ -16,7 +16,7 @@ Switchyard gives Hermes another way to choose among a defined set of options. It
 
 ### Quick install
 
-Install directly from the public GitHub repository:
+Install from the GitHub repository. Git must already have read access while the repository is private; after publication, no GitHub login or token is required:
 
 ```text
 hermes plugins install bgrablin/hermes-switchyard --enable
@@ -30,7 +30,7 @@ hermes plugins list
 hermes plugins enable jev-decision
 ```
 
-No GitHub login or token is required for this public repository. Catalog installation is not available until a human admits the plugin to the Hermes catalog; use the repository command above.
+The repository command works with existing GitHub read access before publication and without a GitHub login or token after publication. Catalog installation is not available until a human admits the plugin to the Hermes catalog; use the repository command above.
 
 After installing or updating, start a fresh Hermes session so it loads the new plugin. Restart only the Hermes process that needs to load the change.
 

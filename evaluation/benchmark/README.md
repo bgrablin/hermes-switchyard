@@ -1,6 +1,6 @@
 # Hermes Switchyard skill-selection benchmark
 
-This directory (`evaluation/benchmark/`) is an offline-first, public-ready selector microbenchmark. It does not modify Hermes core, the Switchyard plugin, configuration, live profiles, Windows components, or the source repository.
+This directory (`evaluation/benchmark/`) is an offline-first selector microbenchmark intended to remain usable before and after repository publication. It does not modify Hermes core, the Switchyard plugin, configuration, live profiles, Windows components, or the source repository.
 
 The heldout set is 24 public synthetic cases: six clear positives, six no-fit requests, six near-misses, and six multi-skill/ambiguous requests. The catalog has 12 generic public skill descriptions. Labels are frozen in `fixtures.json` before any provider-backed execution. Four development fixtures are separate and are never included in the heldout report.
 
