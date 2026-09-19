@@ -1,10 +1,16 @@
 """Invariant tests for the CI source gate and live usage receipts."""
 from __future__ import annotations
 
+import io
 import unittest
+from contextlib import redirect_stdout
 
 from scripts.ci.live_jev_contract import LiveContractError, _usage_receipt
-from scripts.ci.validate_live_source import TrustedSourceError, validate_trusted_source
+from scripts.ci.validate_live_source import (
+    TrustedSourceError,
+    main,
+    validate_trusted_source,
+)
 
 
 class CiContractTests(unittest.TestCase):
@@ -39,6 +45,27 @@ class CiContractTests(unittest.TestCase):
                 requested_sha=source_sha,
                 checked_out_sha="b" * 40,
             )
+
+    def test_live_source_cli_does_not_echo_source_sha(self):
+        source_sha = "a" * 40
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(
+                main(
+                    [
+                        "--repository",
+                        "bgrablin/hermes-switchyard",
+                        "--ref",
+                        "bgrablin/release-packaging",
+                        "--source-sha",
+                        source_sha,
+                        "--selector-only",
+                    ]
+                ),
+                0,
+            )
+        self.assertEqual(output.getvalue(), "trusted live-contract source validated\n")
+        self.assertNotIn(source_sha, output.getvalue())
 
     def test_live_receipt_requires_numeric_provider_usage(self):
         receipt = _usage_receipt({"cost": 0.01, "total_tokens": 12, "ignored": "not emitted"})

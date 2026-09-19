@@ -68,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         checked_out_sha = args.source_sha if args.selector_only else _checked_out_sha(args.checkout)
-        report = validate_trusted_source(
+        validate_trusted_source(
             repository=args.repository,
             ref=args.ref,
             requested_sha=args.source_sha,
@@ -77,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
     except TrustedSourceError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
-    print(f"trusted live-contract source: {report['repository']} {report['ref']} {report['source_sha']}")
+    print("trusted live-contract source validated")
     return 0
 
 
