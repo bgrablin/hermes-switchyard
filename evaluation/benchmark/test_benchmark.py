@@ -242,6 +242,19 @@ class BenchmarkContractTests(unittest.TestCase):
         result = benchmark.outcome(case, row)
         self.assertFalse(result["top1_correct"])
 
+    def test_required_set_over_selection_is_not_complete(self):
+        case = next(case for case in self.book["heldout_fixtures"] if case["expected"]["label_type"] == "required_set")
+        row = copy.deepcopy(benchmark.run_offline_case(case, self.meta, self.routing, self.source)["luna"])
+        row.update({
+            "status": "selected",
+            "selected": case["expected"]["required_skills"][0],
+            "selected_skills": list(self.meta["names"]),
+        })
+        result = benchmark.outcome(case, row)
+        self.assertEqual(result["coverage"], 1.0)
+        self.assertFalse(result["required_set_complete"])
+        self.assertTrue(result["positive_miss"])
+
     def test_partial_provider_timing_is_null_with_coverage(self):
         rows = [copy.deepcopy(benchmark.run_offline_case(case, self.meta, self.routing, self.source)["switchyard"])
                 for case in self.book["heldout_fixtures"][:2]]

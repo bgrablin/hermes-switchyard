@@ -547,8 +547,10 @@ def outcome(case: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
     top1_defined = label == "single"
     top1_correct = (row["status"] == "selected" and len(row["selected_skills"]) == 1 and row["selected"] == expected.get("selected")) if top1_defined else None
     no_fit_fp = (not positive and row["status"] == "selected")
+    required_set_complete = None
     if label == "required_set":
-        positive_miss = coverage < 1.0
+        required_set_complete = row["status"] == "selected" and actual == target
+        positive_miss = not required_set_complete
         ambiguous_hit = None
     elif label == "ambiguous":
         ambiguous_hit = row["status"] == "selected" and len(actual) == 1 and actual <= target
@@ -563,6 +565,7 @@ def outcome(case: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
             "top1_defined": top1_defined, "top1_correct": top1_correct, "no_fit_false_positive": no_fit_fp,
             "positive_abstention": positive and abstained, "positive_miss": positive and positive_miss,
             "required_or_acceptable_skills": sorted(target), "coverage": coverage, "ambiguous_hit": ambiguous_hit,
+            "required_set_complete": required_set_complete,
             "fixture_hash": row["fixture_hash"], "request_hash": row["request_hash"]}
 
 
@@ -671,10 +674,10 @@ def summarize(book: dict[str, Any], meta: dict[str, Any], arms: dict[str, dict[s
             "positive_abstention": {"cases": sum(item["positive_abstention"] for item in positive), "rate": sum(item["positive_abstention"] for item in positive) / len(positive)},
             "positive_miss": {"cases": sum(item["positive_miss"] for item in positive), "rate": sum(item["positive_miss"] for item in positive) / len(positive)},
             "candidate_coverage": {"target_cases": len(targets), "covered_cases": covered, "rate": covered / len(targets) if targets else None},
-            "multi_skill_capability": {"cases": len(multi_skill), "complete_cases": sum(value == 1.0 for value in multi_coverage),
+            "multi_skill_capability": {"cases": len(multi_skill), "complete_cases": sum(bool(item["required_set_complete"]) for item in multi_skill),
                                        "mean_coverage": sum(multi_coverage) / len(multi_coverage) if multi_coverage else None,
                                        "coverage_is_not_top1": True},
-            "required_set": {"cases": len(required), "complete": sum(item["coverage"] == 1.0 for item in required),
+            "required_set": {"cases": len(required), "complete": sum(bool(item["required_set_complete"]) for item in required),
                              "mean_coverage": sum(item["coverage"] for item in required) / len(required) if required else None},
             "ambiguous": {"cases": len(ambiguous), "accepted": sum(bool(item["ambiguous_hit"]) for item in ambiguous),
                           "accepted_rate": sum(bool(item["ambiguous_hit"]) for item in ambiguous) / len(ambiguous) if ambiguous else None},
