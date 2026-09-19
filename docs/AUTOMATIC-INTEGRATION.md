@@ -52,9 +52,23 @@ The hosted path runs only when all of these are true:
 
 Hosted Jev receives the bounded current task plus exact candidate identifiers and bounded descriptions. Conversation history and full skill bodies stay local. Large catalogs use partition fan-out and recursive reduction; the provider's 255-option Choice limit is not a catalog limit.
 
-The hosted request uses the selected fixed Jev endpoint with OpenRouter fallbacks disabled. Hosted failure or timeout is unavailable and may preserve a valid local recommendation; a valid hosted abstention remains abstention and does not fall back locally. Hosted metadata may be retained in the callback's internal `last_result` for diagnostics, but it is not a user-facing completion claim.
+The hosted request uses the selected fixed Jev endpoint with OpenRouter fallbacks disabled. Hosted failure or timeout is unavailable and may preserve a valid local recommendation; a valid hosted abstention remains abstention and does not fall back locally. Hosted metadata is retained only in the typed routing receipt and callback state; it is not a user-facing completion claim.
 
 The attestation is not DLP, authorization, or a privacy guarantee. Do not enable hosted Jev for private, employer, regulated, credential, payment, verification, or otherwise restricted content. Do not infer a retention or zero-data-retention property from a successful request.
+
+## Routing receipts and diagnostics
+
+Every automatic recommendation ends by creating one typed receipt. The terminal state is one of `local_selection`, `hosted_selection`, `hosted_abstention`, `hosted_failure_local_fallback`, `hosted_skipped`, or `cache_hit`. A cache-hit receipt reports no hosted attempt, request, latency, usage, or request ID for that attempt; the selected source remains the origin of the cached result.
+
+The supported operator diagnostic command is:
+
+```text
+hermes jev-decision receipt --json
+```
+
+It prints the latest receipt retained by the plugin. The receipt contains stable source, selection, attempt, error/skip, model, request, latency, usage, candidate-count, and shortlist-policy fields. `verified` is always `false` and `advisory_only` is always `true`; a receipt never proves that a skill was loaded, a model changed, or a GUI action completed. If no attempt has produced a receipt, the command prints a structured `no_receipt` diagnostic and exits non-zero.
+
+Receipts include the plugin version and an exact source SHA when a validated `SOURCE-MANIFEST.json` is present, such as in a release archive. Source checkouts without that release manifest use the explicit `unavailable` value rather than guessing from Git state. Task text, candidate descriptions, conversation history, credentials, local paths, and provider exception text are not serialized.
 
 ## Configuration
 
@@ -134,7 +148,8 @@ Use only a task and configured metadata that are public or already sanitized. St
 
 ## Source anchors
 
-- `jev_decision/automatic.py` — profile-scoped registry discovery, local ranking, hosted gating, cache, and hook callback
+- `jev_decision/automatic.py` — profile-scoped registry discovery, local ranking, hosted gating, cache, receipts, and hook callback
+- `jev_decision/receipt_state.py` — source identity, receipt contract validation, and plugin-owned diagnostic state
 - `jev_decision/__init__.py` — plugin settings and `ctx.register_hook("pre_llm_call", ...)`
 - `plugin.yaml` — manifest hook declaration and configuration defaults
 - Hermes `tools/skills_tool.py` — public profile-scoped `skills_list()` response used for catalog discovery

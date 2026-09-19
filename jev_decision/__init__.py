@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import schemas
+from . import receipt_state, schemas
 from .automatic import _config_float, build_pre_llm_call_hook
 from .client import DEFAULT_ENDPOINT, TYPESAFE_ENDPOINT, DecisionClient
 from .computer_use import StaleTargetError, run_computer_goal
@@ -14,8 +14,17 @@ from .routing import route_model, select_skill
 
 
 def _cli_handler(args):
-    if getattr(args, "jev_command", None) != "setup":
-        print("Usage: hermes jev-decision setup --provider <typesafe|openrouter>")
+    command = getattr(args, "jev_command", None)
+    if command == "receipt":
+        receipt = receipt_state.read_latest_receipt()
+        if receipt is None:
+            print(json.dumps({"status": "unavailable", "reason": "no_receipt"}, sort_keys=True))
+            return 1
+        indent = None if getattr(args, "json_output", False) else 2
+        print(json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=indent))
+        return 0
+    if command != "setup":
+        print("Usage: hermes jev-decision <setup|receipt> [--provider ...|--json]")
         return 2
     provider = args.provider
     key_name = "TYPESAFE_API_KEY" if provider == "typesafe" else "OPENROUTER_API_KEY"
@@ -35,6 +44,8 @@ def _setup_cli(parser):
     commands = parser.add_subparsers(dest="jev_command")
     setup = commands.add_parser("setup", help="Save one Jev provider key through a masked prompt")
     setup.add_argument("--provider", required=True, choices=("typesafe", "openrouter"))
+    receipt = commands.add_parser("receipt", help="Show the latest automatic-routing receipt")
+    receipt.add_argument("--json", action="store_true", dest="json_output", help="Emit compact JSON")
     parser.set_defaults(func=_cli_handler)
 
 
