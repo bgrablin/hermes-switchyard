@@ -141,6 +141,23 @@ class BenchmarkContractTests(unittest.TestCase):
         for files in benchmark.COLLECTOR_SOURCE_FILES.values():
             self.assertIn("benchmark.py", files)
 
+    def test_plugin_fingerprint_includes_root_entrypoint(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as temp_dir:
+            plugin = Path(temp_dir)
+            package = plugin / "jev_decision"
+            package.mkdir()
+            (package / "routing.py").write_text("ROUTE = 1\n", encoding="utf-8")
+            (plugin / "plugin.yaml").write_text("name: test\n", encoding="utf-8")
+            entrypoint = plugin / "__init__.py"
+            entrypoint.write_text("REGISTER = 1\n", encoding="utf-8")
+
+            before = benchmark.source_hashes(plugin)
+            self.assertIn("__init__.py", before["plugin_files"])
+
+            entrypoint.write_text("REGISTER = 2\n", encoding="utf-8")
+            after = benchmark.source_hashes(plugin)
+            self.assertNotEqual(before["plugin"], after["plugin"])
+
     def test_live_validation_enforces_collector_specific_timing_status(self):
         case = self.book["heldout_fixtures"][0]
         row = copy.deepcopy(benchmark.run_offline_case(case, self.meta, self.routing, self.source)["switchyard"])

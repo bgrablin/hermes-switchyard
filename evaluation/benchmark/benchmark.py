@@ -82,9 +82,10 @@ def source_hashes(plugin_path: Path) -> dict[str, Any]:
     for path in sorted(package.rglob("*")):
         if path.is_file() and path.suffix in {".py", ".yaml", ".yml", ".md"}:
             plugin_files[path.relative_to(plugin_path).as_posix()] = file_digest(path)
-    manifest = plugin_path / "plugin.yaml"
-    if manifest.is_file():
-        plugin_files[manifest.relative_to(plugin_path).as_posix()] = file_digest(manifest)
+    for filename in ("__init__.py", "plugin.yaml"):
+        path = plugin_path / filename
+        if path.is_file():
+            plugin_files[filename] = file_digest(path)
     require(plugin_files, "plugin_source_hashes_empty")
     return {
         "benchmark": digest(benchmark_files),
