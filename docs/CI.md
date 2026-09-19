@@ -6,6 +6,8 @@ This repository has three separate CI boundaries. Offline checks never call Open
 
 `.github/workflows/switchyard-compatibility.yml` runs the plugin's Python test and hygiene surface on Ubuntu and Windows with Python 3.11, 3.12, and 3.13. The matrix uses the supported Hermes range `>=3.11,<3.14`; Python 3.14 is not a supported Hermes runtime for this gate.
 
+The six-entry matrix runs once for each pull-request revision and once after a change reaches `main`. Feature-branch pushes do not also start a duplicate matrix run. Superseded runs for the same pull request or branch are cancelled. Maintainers can still use `workflow_dispatch` for an explicit rerun.
+
 Each matrix job:
 
 1. Fetches Hermes Agent at `8503ee4459316ce092b5d69b7d396c27aa03d0be` into the runner's temporary directory outside the candidate workspace.
