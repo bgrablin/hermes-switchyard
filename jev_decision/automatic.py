@@ -16,9 +16,9 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
-from pathlib import Path
 from typing import Any
 
+from . import receipt_state
 from .routing import select_skill
 
 logger = logging.getLogger(__name__)
@@ -36,28 +36,10 @@ DEFAULT_CACHE_SIZE = 32
 # Stable, privacy-safe terminal states for the routing-receipt surface. These
 # names identify every automatic-routing outcome without carrying task text,
 # candidate descriptions, conversation history, or credentials.
-RECEIPT_TERMINAL_STATES = frozenset(
-    {
-        "local_selection",
-        "hosted_selection",
-        "hosted_abstention",
-        "hosted_failure_local_fallback",
-        "hosted_skipped",
-        "cache_hit",
-    }
-)
+RECEIPT_TERMINAL_STATES = receipt_state.RECEIPT_TERMINAL_STATES
 # Stable local error codes for hosted failures. Provider exception text, local
 # paths, usernames, and hostnames are never placed in a receipt.
-HOSTED_ERROR_CODES = frozenset(
-    {
-        "transport_or_execution_failure",
-        "ack_required",
-        "validation_failure",
-        "typed_response_failure",
-        "request_budget_exhausted",
-        "plugin_error",
-    }
-)
+HOSTED_ERROR_CODES = receipt_state.HOSTED_ERROR_CODES
 # Field values that must never survive into a receipt, even if they are present
 # on an intermediate recommendation result.
 _RECEIPT_FORBIDDEN_MARKERS = (
@@ -284,6 +266,11 @@ class AutomaticSkillRecommender:
             while len(self._cache) > self.cache_size:
                 self._cache.popitem(last=False)
 
+    def _record_receipt(self, result: dict[str, Any]) -> None:
+        receipt = build_routing_receipt(result)
+        self.last_receipt = receipt
+        receipt_state.store_latest_receipt(receipt)
+
     def recommend(
         self,
         task: Any,
@@ -293,7 +280,17 @@ class AutomaticSkillRecommender:
     ) -> dict[str, Any]:
         task_text = _coerce_text(task)
         if not task_text:
-            return {"status": "abstained", "selected": None, "abstention_reason": "empty_task"}
+            result = {
+                "status": "abstained",
+                "selected": None,
+                "source": "none",
+                "abstention_reason": "empty_task",
+                "hosted_attempted": False,
+                "hosted_skipped": "empty_task",
+                "cache_hit": False,
+            }
+            self._record_receipt(result)
+            return result
 
         if self.configured_candidates:
             candidate_set = self.configured_candidates
@@ -303,17 +300,39 @@ class AutomaticSkillRecommender:
             except ValueError:
                 candidate_set = ()
         if not candidate_set:
-            return {
+            result = {
                 "status": "abstained",
                 "selected": None,
+                "source": "none",
                 "abstention_reason": "no_candidates",
+                "hosted_attempted": False,
+                "hosted_skipped": "no_candidates",
+                "cache_hit": False,
             }
+            self._record_receipt(result)
+            return result
 
         fingerprint = tuple((item["name"], item["description"]) for item in candidate_set)
         key = (task_text, fingerprint, self.hosted_enabled, self.hosted_mode, self.public_or_sanitized_data_ack)
         cached = self._cached(key)
         if cached is not None:
-            self.last_receipt = build_routing_receipt(cached)
+            cached["hosted_attempted"] = False
+            cached["hosted_error"] = None
+            cached["hosted_skipped"] = "cache_hit"
+            for field, empty in (
+                ("jev_model", None),
+                ("jev_request_id", None),
+                ("jev_latency_ms", 0.0),
+                ("jev_usage", {}),
+                ("jev_total_latency_ms", 0.0),
+                ("jev_total_usage", {}),
+                ("jev_request_count", 0),
+                ("jev_offered_count", 0),
+                ("jev_excluded_count", 0),
+                ("jev_shortlist_policy", None),
+            ):
+                cached[field] = empty
+            self._record_receipt(cached)
             return cached
 
         ranked = _rank_candidates(task_text, candidate_set)
@@ -403,7 +422,7 @@ class AutomaticSkillRecommender:
         if result["selected"] is not None:
             result["status"] = "selected"
         self._store(key, result)
-        self.last_receipt = build_routing_receipt(result)
+        self._record_receipt(result)
         return result
 
 
@@ -443,42 +462,45 @@ def _terminal_state(result: dict) -> str:
     """
     if result.get("cache_hit") is True:
         return "cache_hit"
+    selected = result.get("selected")
+    if (
+        result.get("hosted_attempted") is True
+        and result.get("source") == "local"
+        and isinstance(selected, str)
+        and selected
+        and result.get("hosted_error")
+    ):
+        return "hosted_failure_local_fallback"
+    if result.get("source") == "local" and isinstance(selected, str) and selected:
+        return "local_selection"
     if result.get("hosted_skipped") is not None:
         return "hosted_skipped"
     attempted = result.get("hosted_attempted") is True
     if not attempted:
-        return "local_selection"
-    if result.get("hosted_error"):
-        return "hosted_failure_local_fallback"
-    selected = result.get("selected")
+        return "hosted_skipped"
     if isinstance(selected, str) and selected:
         if result.get("source") == "jev":
             return "hosted_selection"
-        return "hosted_failure_local_fallback"
+        return "hosted_abstention"
     return "hosted_abstention"
 
 
-def _plugin_identity() -> dict:
-    """Return the plugin name and version when the manifest is readable."""
-    identity: dict[str, Any] = {"plugin": "jev-decision"}
-    try:
-        manifest = Path(__file__).resolve().parent.parent.joinpath("plugin.yaml")
-        text = manifest.read_text(encoding="utf-8")
-    except OSError:
-        identity["version"] = None
-        return identity
-    match = re.search(r"(?m)^\s*version:\s*([^\s#]+)", text)
-    identity["version"] = match.group(1).strip().strip("'\"") if match else None
-    return identity
+def _safe_identifier(value: Any) -> str | None:
+    if not isinstance(value, str) or any(marker in value for marker in _RECEIPT_FORBIDDEN_MARKERS):
+        return None
+    return receipt_state.safe_identifier(value)
 
 
-def _strip_forbidden(value: Any) -> Any:
-    """Absorb any intermediate value that must never reach a receipt."""
-    if isinstance(value, str):
-        for marker in _RECEIPT_FORBIDDEN_MARKERS:
-            if marker in value:
-                return ""
-    return value
+def _safe_reason(value: Any) -> str | None:
+    if not isinstance(value, str) or any(marker in value for marker in _RECEIPT_FORBIDDEN_MARKERS):
+        return None
+    return receipt_state.safe_reason(value)
+
+
+def _result_value(result: Mapping[str, Any], name: str) -> Any:
+    """Read hosted metadata without requiring callers to know its prefix."""
+    prefixed = result.get(f"jev_{name}")
+    return prefixed if prefixed is not None else result.get(name)
 
 
 def build_routing_receipt(result: dict) -> dict:
@@ -490,44 +512,80 @@ def build_routing_receipt(result: dict) -> dict:
     exception text. It never implies a skill was loaded or a GUI action ran; the
     receipt is advisory and `verified` is always false.
     """
-    hosted_attempted = result.get("hosted_attempted") is True
+    if not isinstance(result, Mapping):
+        result = {}
+    raw_selected = result.get("selected")
+    selected = _safe_identifier(raw_selected)
+    if raw_selected is not None and selected is None:
+        result = {
+            **result,
+            "selected": None,
+            "source": "none",
+            "hosted_attempted": False,
+            "hosted_error": None,
+            "hosted_skipped": "diagnostic_value_unavailable",
+        }
+    hosted_attempted = result.get("hosted_attempted") is True and result.get("cache_hit") is not True
     hosted_error = result.get("hosted_error")
     if hosted_error is not None and hosted_error not in HOSTED_ERROR_CODES:
         hosted_error = "transport_or_execution_failure"
     terminal_state = _terminal_state(result)
+    source = result.get("source") if result.get("source") in {"local", "jev", "none"} else "none"
+    if result.get("cache_hit") is True:
+        hosted_attempted = False
+        hosted_error = None
+        selected = _safe_identifier(result.get("selected"))
+        hosted_skip_reason = "cache_hit"
+        jev_model = None
+        request_id = None
+        request_count = 0
+        latency_ms = 0.0
+        total_latency_ms = 0.0
+        total_usage: dict[str, float] = {}
+    else:
+        hosted_skip_reason = result.get("hosted_skipped")
+        if hosted_skip_reason not in receipt_state.HOSTED_SKIP_REASONS:
+            hosted_skip_reason = "diagnostic_value_unavailable" if terminal_state == "hosted_skipped" else None
+        jev_model = _safe_identifier(_result_value(result, "model"))
+        request_id = _safe_identifier(_result_value(result, "request_id"))
+        request_count = receipt_state.nonnegative_int(_result_value(result, "request_count"))
+        latency_ms = receipt_state.finite_nonnegative(_result_value(result, "latency_ms"))
+        total_latency_ms = receipt_state.finite_nonnegative(
+            _result_value(result, "total_latency_ms"), default=latency_ms
+        )
+        total_usage = receipt_state.safe_usage(
+            _result_value(result, "total_usage") or _result_value(result, "usage") or {}
+        )
     hosted_succeeded = bool(
         hosted_attempted
         and hosted_error is None
-        and (result.get("selected") is not None or terminal_state == "hosted_abstention")
+        and terminal_state in {"hosted_selection", "hosted_abstention"}
     )
-
-    usage = result.get("jev_total_usage") or result.get("jev_usage") or {}
-    final_latency = result.get("jev_latency_ms") or 0.0
-    total_latency = result.get("jev_total_latency_ms") or final_latency
+    identity = receipt_state.plugin_identity()
 
     return {
         "terminal_state": terminal_state,
-        "source": _strip_forbidden(result.get("source")),
-        "selected": None if not isinstance(result.get("selected"), str) else _strip_forbidden(result["selected"]),
+        "source": source,
+        "selected": selected,
         "hosted_attempted": hosted_attempted,
         "hosted_succeeded": hosted_succeeded,
         "hosted_error": hosted_error,
-        "hosted_skip_reason": _strip_forbidden(result.get("hosted_skipped")),
-        "abstention_reason": _strip_forbidden(result.get("abstention_reason")),
-        "jev_model": _strip_forbidden(result.get("jev_model")),
-        "request_count": int(result.get("jev_request_count") or 0),
-        "latency_ms": float(final_latency) if isinstance(final_latency, (int, float)) else 0.0,
-        "total_latency_ms": float(total_latency) if isinstance(total_latency, (int, float)) else 0.0,
-        "total_usage": {
-            key: float(value) for key, value in (usage or {}).items() if isinstance(value, (int, float))
-        },
-        "candidate_count": int(result.get("candidate_count") or 0),
-        "offered_count": result.get("offered_count"),
-        "excluded_count": result.get("excluded_count"),
-        "shortlist_policy": _strip_forbidden(result.get("shortlist_policy")),
+        "hosted_skip_reason": hosted_skip_reason,
+        "abstention_reason": _safe_reason(result.get("abstention_reason")),
+        "jev_model": jev_model,
+        "request_id": request_id,
+        "request_count": request_count,
+        "latency_ms": latency_ms,
+        "total_latency_ms": total_latency_ms,
+        "total_usage": total_usage,
+        "candidate_count": receipt_state.nonnegative_int(result.get("candidate_count")),
+        "offered_count": receipt_state.nonnegative_int(_result_value(result, "offered_count")),
+        "excluded_count": receipt_state.nonnegative_int(_result_value(result, "excluded_count")),
+        "shortlist_policy": _safe_identifier(_result_value(result, "shortlist_policy")),
         "verified": False,
         "advisory_only": True,
-        "plugin_identity": _plugin_identity(),
+        "plugin_identity": identity,
+        "source_sha": identity["source_sha"],
     }
 
 

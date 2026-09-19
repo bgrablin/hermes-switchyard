@@ -1,4 +1,4 @@
-"""Privacy-safe typed routing-receipt tests for issue #9.
+"""Privacy-safe typed routing-receipt tests.
 
 Hosted calls in this file use a synthetic DecisionClient transport. No test
 sends task text, candidate descriptions, conversation history, or credentials to
@@ -7,8 +7,15 @@ a model, and the receipt surface never carries provider exception text.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
+import jev_decision
+from jev_decision import receipt_state
 from jev_decision.automatic import (
     AutomaticSkillRecommender,
     build_routing_receipt,
@@ -70,6 +77,43 @@ class ReceiptSchemaTests(unittest.TestCase):
         self.assertEqual(receipt["total_latency_ms"], 0.0)
         self.assertEqual(receipt["total_usage"], {})
         self.assertIsInstance(receipt["plugin_identity"], dict)
+        self.assertEqual(receipt["source_sha"], "unavailable")
+        self.assertEqual(receipt["plugin_identity"]["source_sha"], "unavailable")
+        self.assertTrue(receipt_state.validate_receipt(receipt))
+
+    def test_local_selection_is_distinct_from_hosted_skip(self):
+        receipt = build_routing_receipt(
+            {
+                "selected": "docker-management",
+                "source": "local",
+                "hosted_attempted": False,
+                "hosted_skipped": "disabled",
+                "cache_hit": False,
+                "candidate_count": 1,
+            }
+        )
+        self.assertEqual(receipt["terminal_state"], "local_selection")
+        self.assertEqual(receipt["source"], "local")
+        self.assertEqual(receipt["hosted_skip_reason"], "disabled")
+        self.assertTrue(receipt_state.validate_receipt(receipt))
+
+    def test_source_sha_comes_only_from_a_validated_release_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "plugin.yaml").write_text("name: jev-decision\nversion: 0.4.0\n", encoding="utf-8")
+            manifest = {
+                "files": [{"path": "plugin.yaml", "sha256": "0" * 64, "size": 1}],
+                "format": 1,
+                "manifest_version": 1,
+                "plugin": "jev-decision",
+                "source_sha": "a" * 40,
+                "version": "0.4.0",
+            }
+            (root / "SOURCE-MANIFEST.json").write_text(json.dumps(manifest), encoding="utf-8")
+            self.assertEqual(receipt_state.resolve_source_sha(root), "a" * 40)
+            manifest["source_sha"] = "A" * 40
+            (root / "SOURCE-MANIFEST.json").write_text(json.dumps(manifest), encoding="utf-8")
+            self.assertEqual(receipt_state.resolve_source_sha(root), "unavailable")
 
     def test_hosted_selection_receipt_carries_aggregate_fields(self):
         result = {
@@ -101,6 +145,7 @@ class ReceiptSchemaTests(unittest.TestCase):
         self.assertEqual(receipt["latency_ms"], 120.0)
         self.assertEqual(receipt["total_latency_ms"], 120.0)
         self.assertEqual(receipt["total_usage"], {"cost": 0.01})
+        self.assertTrue(receipt_state.validate_receipt(receipt))
 
     def test_valid_hosted_abstention_receipt_is_succeeded_not_error(self):
         result = {
@@ -176,7 +221,7 @@ class ReceiptEndToEndTests(unittest.TestCase):
                     },
                     "needs_skill": {"noul": 0.95},
                 },
-                "usage": {},
+                "usage": {"cost": 0.01},
                 "latency_ms": 40.0,
             }
 
@@ -214,13 +259,21 @@ class ReceiptEndToEndTests(unittest.TestCase):
                 api_key="fixture-key", transport=self._small_transport()
             ),
         )
-        for _ in range(3):
+        for attempt in range(3):
             recommender.recommend("Diagnose a Docker container")
             self.assertIsNotNone(recommender.last_receipt)
             self.assertIn(recommender.last_receipt["terminal_state"], _TERMINAL)
             # Exactly one receipt is retained per attempt; it never grows into
             # a list of multiple terminal receipts.
             self.assertNotIsInstance(recommender.last_receipt["terminal_state"], list)
+            if attempt == 0:
+                self.assertEqual(recommender.last_receipt["terminal_state"], "hosted_selection")
+            else:
+                self.assertEqual(recommender.last_receipt["terminal_state"], "cache_hit")
+                self.assertFalse(recommender.last_receipt["hosted_attempted"])
+                self.assertEqual(recommender.last_receipt["request_count"], 0)
+                self.assertEqual(recommender.last_receipt["total_usage"], {})
+                self.assertEqual(recommender.last_receipt["total_latency_ms"], 0.0)
 
     def test_receipt_is_advisory_and_never_loads_skill(self):
         recommender = AutomaticSkillRecommender(
@@ -258,6 +311,31 @@ class ReceiptEndToEndTests(unittest.TestCase):
         self.assertFalse(receipt["hosted_succeeded"])
         self.assertEqual(receipt["hosted_error"], "transport_or_execution_failure")
         self.assertFalse(receipt["verified"])
+
+    def test_empty_and_missing_catalog_attempts_replace_previous_receipt(self):
+        recommender = AutomaticSkillRecommender(
+            configured_candidates=[{"name": "docker-management", "description": "Docker"}],
+            hosted_enabled=False,
+        )
+        recommender.recommend("Diagnose a Docker container")
+        self.assertEqual(recommender.last_receipt["terminal_state"], "local_selection")
+        recommender.recommend("   ")
+        self.assertEqual(recommender.last_receipt["terminal_state"], "hosted_skipped")
+        self.assertEqual(recommender.last_receipt["hosted_skip_reason"], "empty_task")
+        self.assertTrue(receipt_state.validate_receipt(recommender.last_receipt))
+
+    def test_supported_receipt_command_reads_plugin_owned_state(self):
+        receipt = build_routing_receipt(_skipped_result())
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.dict(os.environ, {"HERMES_HOME": directory}, clear=False):
+                self.assertTrue(receipt_state.store_latest_receipt(receipt))
+                with mock.patch("builtins.print") as printer:
+                    code = jev_decision._cli_handler(
+                        SimpleNamespace(jev_command="receipt", json_output=True)
+                    )
+                self.assertEqual(code, 0)
+                printed = json.loads(printer.call_args.args[0])
+                self.assertEqual(printed, receipt)
 
     def test_large_catalog_receipt_reports_aggregate_request_usage_latency(self):
         recommender = AutomaticSkillRecommender(
