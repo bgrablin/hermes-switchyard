@@ -9,7 +9,7 @@ The Hermes guidance reviewed for this plugin is:
 - [Hermes plugin authoring guidance at the reviewed upstream commit](https://github.com/NousResearch/hermes-agent/blob/8503ee4459316ce092b5d69b7d396c27aa03d0be/plugins/AGENTS.md)
 - [Hermes example plugin using the host-owned `ctx.llm` API](https://github.com/NousResearch/hermes-example-plugins/tree/main/plugin-llm-example)
 
-Switchyard follows the native general-plugin contract: root `plugin.yaml`, root `__init__.py`, `register(ctx)`, explicit tool declarations, and host-owned context APIs. The text helper uses `ctx.llm`; it does not integrate with a private host or alter Hermes core. Catalog admission remains a separate human-reviewed exact-SHA process.
+Switchyard follows the native general-plugin contract: root `plugin.yaml`, root `__init__.py`, `register(ctx)`, explicit tool declarations, and documented host context APIs. Registered CUA dispatch uses the native `computer_use` tool directly and does not place `ctx.llm` between Jev decisions. Catalog admission remains a separate human-reviewed exact-SHA process.
 
 The client targets the documented OpenRouter Decisions endpoint and the Jev model aliases recorded in the plugin contract. OpenRouter and Jev are external services and names; no external service implementation is bundled here.
 

@@ -2,7 +2,7 @@
 
 This guide enables the implemented automatic skill recommendation hook for the `hermes-switchyard` plugin.
 
-The configuration default is `hosted_sanitized`, but the current Hermes core does not pass the per-turn envelope or consume hook metadata. Current-core sessions therefore remain local and fail closed before hosted client construction. This guide documents the standalone contract; it does not claim production hosted-routing integration until the corresponding Hermes core seam is available.
+The configuration default is `hosted_sanitized`. Hosted routing uses the plugin-owned standalone contract: persistent acknowledgement plus a strict local per-turn scan before client construction. A compatible Hermes host may optionally provide a narrower typed envelope. This guide does not claim that a recommendation certifies model quality or GUI completion.
 
 ## 1. Install the pinned plugin
 
@@ -78,20 +78,21 @@ The recommendation is context sent to the model, not a separate status banner. T
 
 Hosted Jev requires either a TypeSafe account/key or an OpenRouter account/key, plus available allowance. `jev_provider: auto` prefers direct TypeSafe. Codex or ChatGPT subscription billing does not pay for either route.
 
-Set the explicit hosted mode only when a compatible host can classify and sanitize each turn before the callback and consume the returned routing metadata. The current Hermes core does neither, so setting this mode alone does not enable production hosted routing:
+Set the explicit hosted mode and standing acknowledgement only when the task is public or already sanitized:
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode hosted_sanitized
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_jev_mode always
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack true
 ```
 
-The host must pass a versioned envelope such as:
+An optional host envelope may narrow the payload. It is not required. If supplied, it must be a versioned envelope such as:
 
 ```json
 {"version":1,"decision":"allow","data_class":"sanitized","reason_code":"host_policy_allowed","allowed_payload":"sanitized public task"}
 ```
 
-Only `allowed_payload` and candidate identifiers are sent to Jev. Candidate descriptions, history, and full skill bodies stay local. Missing, denied, unknown, malformed, or restricted turns fail closed before client construction. `always` calls Jev even for a confident local match. Use `uncertain_only` only as an explicit latency-saving override. A valid hosted abstention stays abstained; only an unavailable transport may preserve a local recommendation.
+The plugin scans the bounded task locally before construction. Only the accepted bounded task (or the narrower `allowed_payload`) and candidate identifiers are sent to Jev. Candidate descriptions, history, and full skill bodies stay local. False acknowledgement, restricted content, or an explicit denied/unknown/malformed envelope fails closed before client construction. `always` calls Jev even for a confident local match. Use `uncertain_only` only as an explicit latency-saving override. A valid hosted abstention stays abstained; only an unavailable transport may preserve a local recommendation.
 
 ## 6. Disable or roll back
 
@@ -145,7 +146,7 @@ Keep the previous 40-character SHA as the rollback target. Verify the installed 
 - If `hermes-switchyard` is absent, enable it or inspect the install result.
 - If the plugin is enabled but no recommendation appears, check that the current process is fresh and that the request matches an available skill or configured candidate.
 - If the local path abstains, inspect the threshold and margin settings. Lowering them increases selection frequency; these are uncalibrated local policies, not quality probabilities.
-- If hosted Jev is not attempted, inspect the redacted routing reason. `per_turn_policy_missing`, `per_turn_policy_unknown`, `per_turn_policy_invalid`, `per_turn_policy_denied`, and `restricted_data_class` mean that the host did not authorize this turn. `client_unavailable` means no configured route was available. A persistent acknowledgement does not override any of these states. To replace the profile-scoped credential without exposing it, use Switchyard's masked provider setup:
+- If hosted Jev is not attempted, inspect the redacted routing reason. `ack_required` means standing acknowledgement is false; `local_scan_*` means the plugin rejected the bounded task; `per_turn_policy_unknown`, `per_turn_policy_invalid`, `per_turn_policy_denied`, and `restricted_data_class` mean the optional host envelope failed closed. `client_unavailable` means no configured route was available. To replace the profile-scoped credential without exposing it, use Switchyard's masked provider setup:
 
 ```text
 hermes jev-decision setup --provider typesafe

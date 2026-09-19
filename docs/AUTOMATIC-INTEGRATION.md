@@ -1,6 +1,6 @@
 # Automatic skill recommendations
 
-Automatic skill recommendations are implemented in `jev_decision/automatic.py` and registered through Hermes' `pre_llm_call` plugin hook. The standalone per-turn contract is implemented in `jev_decision/egress.py`.
+Automatic skill recommendations are implemented in `hermes_switchyard/automatic.py` and registered through Hermes' `pre_llm_call` plugin hook. The standalone per-turn contract is implemented in `hermes_switchyard/egress.py`.
 
 The feature is advisory only:
 
@@ -8,10 +8,10 @@ The feature is advisory only:
 - it does not load a skill;
 - it does not change the system prompt, toolset, active model, provider, credentials, or fallback policy;
 - it uses local token matching for a local-only fallback;
-- the product default is `hosted_sanitized`, but hosted construction requires an allowed host-owned per-turn egress decision;
-- a persistent acknowledgement is compatibility metadata only and is never an automatic egress grant.
+- the product default is `hosted_sanitized`, and hosted construction requires persistent acknowledgement plus the plugin-owned strict local per-turn scan; an allowed host envelope may optionally provide a narrower sanitized payload;
+- persistent acknowledgement is required for standalone hosted mode, but local per-turn scanning remains mandatory and the acknowledgement never overrides restricted content or other controls.
 
-The current plugin manifest is version `0.4.1` and declares `pre_llm_call` in `provides_hooks`.
+The current plugin manifest is version `0.4.2` and declares `pre_llm_call` in `provides_hooks`.
 
 ## Runtime flow
 
@@ -51,11 +51,11 @@ The automatic path has three explicit routing modes:
 | --- | --- | --- |
 | `off` | disabled | never |
 | `local_only` | enabled | never |
-| `hosted_sanitized` | enabled as a safe fallback | only after an allowed per-turn envelope |
+| `hosted_sanitized` | enabled as a safe fallback | after standing acknowledgement and an allowed local scan; an envelope is optional |
 
-`hosted_sanitized` is the product default. It does not mean that every turn is eligible. The persistent `automatic_skill_public_or_sanitized_data_ack` value is retained only for compatibility and is never sufficient authorization.
+`hosted_sanitized` is the product default. It does not mean that every turn is eligible. The persistent `automatic_skill_public_or_sanitized_data_ack` value is standing user consent for the plugin-owned classification path, not Hermes-owned DLP or unrestricted authorization.
 
-The hosted request uses the selected fixed Jev endpoint with OpenRouter fallbacks disabled. Hosted failure or timeout is unavailable and may preserve a valid local recommendation; a valid hosted abstention remains abstention and does not fall back locally. Hosted metadata is retained only in the typed routing receipt and callback state; it is not a user-facing completion claim.
+The hosted request uses the selected fixed Jev endpoint with OpenRouter fallbacks disabled. A transport failure is reported as `hosted_failure` when there is no local winner, or `hosted_failure_local_fallback` when a local winner is preserved; a valid hosted abstention remains abstention and does not fall back locally. Hosted metadata is retained only in the typed routing receipt and callback state; it is not a user-facing completion claim.
 
 The standalone envelope contract is:
 
@@ -69,31 +69,29 @@ The standalone envelope contract is:
 }
 ```
 
-`decision` must be `allow`, `data_class` must be `public` or `sanitized`, and `allowed_payload` must be non-empty, control-safe, and at most 4,000 characters. `deny`, `unknown`, malformed, missing, or restricted data classes fail closed before `client_factory()` is called. The host remains responsible for classification, sanitization, authorization, and provider-retention decisions. The plugin validates the envelope and does not pretend to be a DLP engine.
+`decision` must be `allow`, `data_class` must be `public` or `sanitized`, and `allowed_payload` must be non-empty, control-safe, and at most 4,000 characters. Explicit `deny`, `unknown`, malformed, or restricted envelopes fail closed before `client_factory()` is called. With no envelope, the plugin scans the bounded task locally. The envelope is optional strengthening, not a required Hermes seam; the plugin owns its local classification and does not pretend to be a DLP engine.
 
 When the envelope is allowed and `automatic_skill_jev_mode` is `always`, Jev is called even when local matching is confident. `uncertain_only` is an explicit latency-saving override. The automatic hosted state contains only the allowed payload and candidate identifiers. It contains no candidate descriptions, conversation history, or skill bodies. Large catalogs still use partition fan-out and recursive reduction; the provider's 255-option Choice limit is not a catalog limit.
 
 A valid hosted abstention is terminal for that turn and does not fall back to the local winner. A transport or client failure is unavailable and may preserve a local recommendation. Automatic results expose redacted `routing_status` and `routing_reason` metadata; they never expose task text, policy payload, descriptions, history, skill bodies, provider exception text, or credentials.
 
-### Hermes core seam
+### Optional Hermes core strengthening
 
-The current Hermes core callback neither carries this envelope into `pre_llm_call` nor consumes the callback's returned `metadata`; it currently injects only returned `context`. This plugin therefore implements and tests the standalone contract, but it cannot claim production hosted-routing or operator-status closure. The dependent host-integration issues remain open until Hermes core supplies both propagation and status-channel changes.
-
-A compatible future core integration requires the host-owned per-turn decision on the existing invocation:
+A future Hermes core integration may provide a narrower sanitized payload on the existing invocation:
 
 ```python
 _invoke_hook(
     "pre_llm_call",
     # existing fields remain unchanged
-    turn_egress_policy=typed_host_owned_envelope,
+    turn_egress_policy=optional_typed_envelope,
 )
 ```
 
-Core must populate the envelope from its own per-turn classification/sanitization decision, forward it to the callback, and surface only the callback's redacted metadata through its status channel. The plugin must receive `None` or a malformed envelope when that decision is unavailable and remain closed. Until that seam exists, current-core sessions use local matching and never construct the hosted client.
+When present, the host must forward only a typed envelope and the plugin still enforces standing acknowledgement, local policy, and redacted receipts. When absent, the standalone local scan remains authoritative. No host-owned DLP or status seam is required for the plugin to construct a client after its own gates pass.
 
 ## Routing receipts and diagnostics
 
-Every automatic recommendation ends by creating one typed receipt. The terminal state is one of `local_selection`, `hosted_selection`, `hosted_abstention`, `hosted_failure_local_fallback`, `hosted_skipped`, or `cache_hit`. A cache-hit receipt reports no hosted attempt, request, latency, usage, or request ID for that attempt; the selected source remains the origin of the cached result.
+Every automatic recommendation ends by creating one typed receipt. The terminal state is one of `local_selection`, `hosted_selection`, `hosted_abstention`, `hosted_failure`, `hosted_failure_local_fallback`, `hosted_skipped`, or `cache_hit`. A cache-hit receipt reports no hosted attempt, request, latency, usage, or request ID for that attempt; the selected source remains the origin of the cached result.
 
 The supported operator diagnostic command is:
 
@@ -161,7 +159,7 @@ A successful local smoke can be run without a TypeSafe or OpenRouter account:
 hermes chat -q "Diagnose an exiting Docker Compose container"
 ```
 
-If the current profile's `skills_list()` registry contains a matching skill, the model-bound current user message contains an advisory recommendation for `docker-management`. The phrase says that the plugin did not load the skill. There is no separate recommendation banner or automatic skill-use event. Hosted automatic routing remains gated by the host-owned per-turn envelope; the persistent acknowledgement alone does not authorize a provider call.
+If the current profile's `skills_list()` registry contains a matching skill, the model-bound current user message contains an advisory recommendation for `docker-management`. The phrase says that the plugin did not load the skill. There is no separate recommendation banner or automatic skill-use event. Hosted automatic routing requires `hosted_sanitized` and persistent acknowledgement; the plugin performs its strict local per-turn scan before constructing a client. A host envelope may narrow the payload, but is not required.
 
 The local hook can abstain when the registry is empty, no candidate overlap exists, or the top match is ambiguous. Abstention is normal behavior, not a failed skill load.
 
@@ -173,21 +171,21 @@ hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_can
 
 The config command parses list and mapping literals as YAML/JSON values. The list is still validated by the plugin and is not a permission grant.
 
-For an allowed public/synthetic smoke, configure the account first, then use the explicit routing mode. The host must supply the per-turn envelope; a persistent acknowledgement alone is intentionally insufficient:
+For an allowed public/synthetic smoke, configure the account first, then use the explicit routing mode and standing acknowledgement:
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode hosted_sanitized
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_jev_mode always
 ```
 
-Use only a task and configured metadata that are public or already sanitized. Start a fresh process, then run the public request through a host integration that supplies `turn_egress_policy`. If the envelope is absent, the automatic hosted path remains closed. A hosted failure may preserve a local selection; a valid hosted abstention remains abstention. No fallback provider or model is selected.
+Use only a task and configured metadata that are public or already sanitized. Start a fresh process, then run the public request. The plugin performs its strict bounded local scan before constructing the client, so no host envelope is required. If supplied, an allowed `turn_egress_policy` may narrow the payload; denied, unknown, malformed, or restricted envelopes still fail closed. A hosted failure may preserve a local selection or report `hosted_failure` when none exists; a valid hosted abstention remains abstention. No fallback provider or model is selected.
 
 ## Source anchors
 
-- `jev_decision/automatic.py` — profile-scoped registry discovery, local ranking, routing modes, policy gating, redacted metadata, cache, receipts, and hook callback
-- `jev_decision/egress.py` — standalone versioned per-turn envelope contract and fail-closed evaluator
-- `jev_decision/receipt_state.py` — source identity, receipt contract validation, and plugin-owned diagnostic state
-- `jev_decision/__init__.py` — plugin settings and `ctx.register_hook("pre_llm_call", ...)`
+- `hermes_switchyard/automatic.py` — profile-scoped registry discovery, local ranking, routing modes, policy gating, redacted metadata, cache, receipts, and hook callback
+- `hermes_switchyard/egress.py` — standalone versioned per-turn envelope contract and fail-closed evaluator
+- `hermes_switchyard/receipt_state.py` — source identity, receipt contract validation, and plugin-owned diagnostic state
+- `hermes_switchyard/__init__.py` — plugin settings and `ctx.register_hook("pre_llm_call", ...)`
 - `plugin.yaml` — manifest hook declaration and configuration defaults
 - Hermes `tools/skills_tool.py` — public profile-scoped `skills_list()` response used for catalog discovery
 - Hermes `agent/turn_context.py` — `pre_llm_call` timing and user-message context injection

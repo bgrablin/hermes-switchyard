@@ -86,7 +86,7 @@ def collector_source_hashes() -> dict[str, str]:
 def source_hashes(plugin_path: Path) -> dict[str, Any]:
     benchmark_files = {name: file_digest(ROOT / name) for name in ("benchmark.py", "fixtures.json", "baseline_prompt.md")}
     plugin_files = {}
-    package = plugin_path / "jev_decision"
+    package = plugin_path / "hermes_switchyard"
     for path in sorted(package.rglob("*")):
         if path.is_file() and path.suffix in {".py", ".yaml", ".yml", ".md"}:
             plugin_files[path.relative_to(plugin_path).as_posix()] = file_digest(path)
@@ -241,15 +241,15 @@ def render_luna_prompt(case: dict[str, Any], meta: dict[str, Any]) -> str:
 
 def import_plugin(plugin_path: Path) -> tuple[Any, Any, dict[str, str]]:
     plugin_path = plugin_path.expanduser().resolve()
-    package = plugin_path / "jev_decision"
-    require(package.is_dir() and (package / "__init__.py").is_file(), "plugin_path_must_contain_jev_decision")
+    package = plugin_path / "hermes_switchyard"
+    require(package.is_dir() and (package / "__init__.py").is_file(), "plugin_path_must_contain_hermes_switchyard")
     for name in list(sys.modules):
-        if name == "jev_decision" or name.startswith("jev_decision."):
+        if name == "hermes_switchyard" or name.startswith("hermes_switchyard."):
             del sys.modules[name]
     sys.path.insert(0, str(plugin_path))
-    package_module = importlib.import_module("jev_decision")
-    routing = importlib.import_module("jev_decision.routing")
-    client_module = importlib.import_module("jev_decision.client")
+    package_module = importlib.import_module("hermes_switchyard")
+    routing = importlib.import_module("hermes_switchyard.routing")
+    client_module = importlib.import_module("hermes_switchyard.client")
     module_file = Path(getattr(package_module, "__file__", "")).resolve()
     require(module_file.is_relative_to(package), "plugin_import_outside_exact_path")
     return routing, client_module, source_hashes(plugin_path)
@@ -752,7 +752,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Offline-first Hermes Switchyard skill-selection benchmark")
     parser.add_argument("--mode", choices=("offline", "live"), default="offline")
     parser.add_argument("--dataset", choices=("heldout",), default="heldout")
-    parser.add_argument("--plugin-path", required=True, help="reviewed source path containing jev_decision/; no machine-specific default")
+    parser.add_argument("--plugin-path", required=True, help="reviewed source path containing hermes_switchyard/; no machine-specific default")
     parser.add_argument("--lexical-input", help="normalized lexical arm JSON; normally computed locally")
     parser.add_argument("--luna-input", help="normalized direct-Luna arm JSON")
     parser.add_argument("--switchyard-input", help="normalized current-Switchyard arm JSON")

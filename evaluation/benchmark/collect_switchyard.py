@@ -195,7 +195,7 @@ def main() -> int:
     parser.add_argument("--live", action="store_true", required=True, help="required execution gate")
     parser.add_argument("--public-synthetic-ack", action="store_true", required=True)
     parser.add_argument("--max-requests", type=int, required=True, help="must be exactly 24")
-    parser.add_argument("--plugin-path", required=True, help="reviewed source path containing jev_decision/")
+    parser.add_argument("--plugin-path", required=True, help="reviewed source path containing hermes_switchyard/")
     parser.add_argument("--output", type=Path, default=Path("switchyard.records.json"))
     parser.add_argument("--resume", action="store_true", help="resume only a matching partial receipt")
     args = parser.parse_args()

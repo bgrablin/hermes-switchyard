@@ -1,5 +1,5 @@
 name: hermes-switchyard
-version: 0.4.1
+version: 0.4.2
 author: bgrablin
 manifest_version: 1
 description: Bounded Jev decisions for advisory routing and fixture-tested computer-use loops; no calibrated-quality or independent-completion claim.
@@ -20,6 +20,7 @@ provides_tools:
   - jev_assess
   - jev_computer_use
   - jev_skill_select
+  - jev_skill_select_many
   - jev_model_route
 provides_hooks:
   - pre_llm_call
@@ -33,7 +34,7 @@ config_schema:
   automatic_skill_local_threshold: {type: float, default: 0.2, description: "Local token-overlap threshold; it is an uncalibrated abstention policy"}
   automatic_skill_local_margin: {type: float, default: 0.05, description: "Required local winner margin; it is an uncalibrated abstention policy"}
   automatic_skill_cache_seconds: {type: float, default: 30.0, description: "Bounded per-process recommendation cache lifetime"}
-  automatic_skill_routing_mode: {type: str, default: "hosted_sanitized", description: "Automatic routing mode: off, local_only, or hosted_sanitized; hosted mode requires a host-owned allowed per-turn egress envelope"}
+  automatic_skill_routing_mode: {type: str, default: "hosted_sanitized", description: "Automatic routing mode: off, local_only, or hosted_sanitized; hosted mode requires standing public-or-sanitized consent and the plugin local per-turn scan; a host envelope is optional strengthening"}
   automatic_skill_jev: {type: bool, default: true, description: "Deprecated compatibility switch; false maps to local_only only when automatic_skill_routing_mode is unset and true never authorizes hosted egress"}
   automatic_skill_jev_mode: {type: str, default: "always", description: "always evaluates the full catalog on every allowed turn; uncertain_only is an explicit latency-saving override"}
-  automatic_skill_public_or_sanitized_data_ack: {type: bool, default: false, description: "Deprecated persistent attestation retained for compatibility; it is never automatic egress authorization and does not replace the per-turn policy"}
+  automatic_skill_public_or_sanitized_data_ack: {type: bool, default: false, description: "Standing user consent for plugin-owned hosted classification and local per-turn scanning; not Hermes-owned DLP or automatic authorization; a host envelope is optional"}

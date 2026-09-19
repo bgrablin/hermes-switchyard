@@ -10,10 +10,10 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from jev_decision import client as client_module
-from jev_decision.client import DecisionClient
-from jev_decision.computer_use import StaleTargetError, _hotkeys_for_platform, run_computer_goal
-from jev_decision.routing import route_model, select_skill
+from hermes_switchyard import client as client_module
+from hermes_switchyard.client import DecisionClient
+from hermes_switchyard.computer_use import StaleTargetError, _hotkeys_for_platform, run_computer_goal
+from hermes_switchyard.routing import route_model, select_skill
 
 
 class FakeDecisionClient:
@@ -211,7 +211,7 @@ class RoutingTests(unittest.TestCase):
             {"name": f"skill-{index}", "description": "public description"}
             for index in range(300)
         ]
-        with mock.patch("jev_decision.routing._PARTITION_CRITERIA_BYTES", 100):
+        with mock.patch("hermes_switchyard.routing._PARTITION_CRITERIA_BYTES", 100):
             with self.assertRaises(ValueError):
                 select_skill(
                     task="public task", candidates=candidates, client=client,
@@ -484,7 +484,7 @@ class ClientTests(unittest.TestCase):
         self.assertAlmostEqual(result["total_usage"]["cost"], 0.002)
 
     def test_total_question_budget_rejects_before_transport(self):
-        from jev_decision import schemas
+        from hermes_switchyard import schemas
         calls = []
         client = DecisionClient(api_key="test-key", transport=lambda payload: (calls.append(payload) or {}))
         maximum = schemas.ASSESS["parameters"]["properties"]["questions"]["maxProperties"]
@@ -904,6 +904,99 @@ class ComputerUseTests(unittest.TestCase):
         )
         self.assertEqual(dispatch.action_calls, [{"action": "click", "element": 1}])
 
+    def test_registered_cua_loop_dispatches_native_without_conversational_llm_per_action(self):
+        import hermes_switchyard
+
+        class ForbiddenLLM:
+            def __getattr__(self, name):
+                raise AssertionError(f"conversational ctx.llm call: {name}")
+
+        class Context:
+            def __init__(self, dispatch):
+                self.settings = {"automatic_skill_recommendation": False}
+                self.tools = {}
+                self.dispatch_tool = dispatch
+                self.llm = ForbiddenLLM()
+
+            def get_config(self, key, default=None):
+                return self.settings.get(key, default)
+
+            def register_tool(self, *, name, handler, **_kwargs):
+                self.tools[name] = handler
+
+            def register_auxiliary_task(self, *_args, **_kwargs):
+                pass
+
+            def register_skill(self, *_args, **_kwargs):
+                pass
+
+            def register_hook(self, *_args, **_kwargs):
+                pass
+
+        dispatch = SyntheticDispatch([_capture(), _capture(), _capture()])
+        class NativeClient(ComputerClient):
+            def close(self):
+                pass
+
+        with mock.patch.object(hermes_switchyard, "DecisionClient", lambda **_kwargs: NativeClient(["CLICK"])), \
+             mock.patch.object(hermes_switchyard, "_secret", return_value="fixture-key"):
+            context = Context(dispatch)
+            hermes_switchyard.register(context)
+            result = json.loads(context.tools["jev_computer_use"]({
+                "goal": "click Go",
+                "app": "Chrome",
+                "max_steps": 1,
+                "public_or_sanitized_data_ack": True,
+            }))
+        self.assertEqual(result["status"], "step_limit")
+        self.assertEqual(dispatch.action_calls, [{"action": "click", "element": 1}])
+
+    def test_caller_text_input_dispatches_exact_value_without_llm_or_provider_value(self):
+        dispatch = SyntheticDispatch([
+            _capture(label="Search field", role="Edit"),
+            _capture(label="Search field", role="Edit"),
+            _capture(label="Search field", role="Edit"),
+            _capture(label="Search field", role="Edit"),
+        ])
+        client = ComputerClient(["TYPE_TEXT"])
+        result = run_computer_goal(
+            goal="enter public text", app="Chrome", max_steps=1,
+            dispatch=dispatch, client=client,
+            text_inputs=[{"field_label": " search  field ", "value": "bounded caller text"}],
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["status"], "step_limit")
+        self.assertEqual(dispatch.action_calls, [{"action": "set_value", "element": 1, "value": "bounded caller text"}])
+        wire = json.dumps(client.calls, sort_keys=True)
+        receipt = json.dumps(result, sort_keys=True)
+        self.assertNotIn("bounded caller text", wire)
+        self.assertNotIn("bounded caller text", receipt)
+
+    def test_caller_text_input_absent_or_ambiguous_abstains_before_side_effect(self):
+        for inputs in (
+            [{"field_label": "Other field", "value": "bounded caller text"}],
+            [
+                {"field_label": "Search field", "value": "first"},
+                {"field_label": " search  field ", "value": "second"},
+            ],
+        ):
+            dispatch = SyntheticDispatch([_capture(label="Search field", role="Edit")])
+
+            class NoTextClient(ComputerClient):
+                def decide(self, state, questions, *, public_or_sanitized_data_ack=False):
+                    if "TYPE_TEXT" in questions["operation"]["criteria"]:
+                        raise AssertionError("TYPE_TEXT must not be offered without one unique caller value")
+                    self.operations[:] = ["BLOCKED"]
+                    return super().decide(state, questions, public_or_sanitized_data_ack=public_or_sanitized_data_ack)
+
+            result = run_computer_goal(
+                goal="enter public text", app="Chrome", max_steps=1,
+                dispatch=dispatch, client=NoTextClient(["BLOCKED"]), text_inputs=inputs,
+                public_or_sanitized_data_ack=True,
+            )
+            self.assertEqual(result["status"], "blocked")
+            self.assertEqual(dispatch.action_calls, [])
+
     def test_text_helper_rechecks_changed_target_before_dispatch(self):
         raw_before = "A" * 101 + "first"
         raw_after = "A" * 101 + "second"
@@ -953,15 +1046,20 @@ class ComputerUseTests(unittest.TestCase):
 
 class PluginEntryPointTests(unittest.TestCase):
     def test_cli_setup_uses_masked_prompt_and_profile_secret_writer(self):
-        import jev_decision
+        import hermes_switchyard
+        try:
+            import hermes_cli.config  # noqa: F401
+            import hermes_cli.secret_prompt  # noqa: F401
+        except ImportError as exc:
+            self.skipTest(f"Hermes CLI secret prompt unavailable: {exc}")
         with mock.patch("hermes_cli.secret_prompt.masked_secret_prompt", return_value="synthetic-key"), \
              mock.patch("hermes_cli.config.save_env_value") as save:
-            code = jev_decision._cli_handler(SimpleNamespace(jev_command="setup", provider="typesafe"))
+            code = hermes_switchyard._cli_handler(SimpleNamespace(jev_command="setup", provider="typesafe"))
         self.assertEqual(code, 0)
         save.assert_called_once_with("TYPESAFE_API_KEY", "synthetic-key")
 
     def test_tool_availability_uses_the_configured_provider_secret(self):
-        import jev_decision
+        import hermes_switchyard
 
         class Context:
             def __init__(self, settings=None):
@@ -975,17 +1073,17 @@ class PluginEntryPointTests(unittest.TestCase):
             def register_hook(self, *_args, **_kwargs): pass
 
         context = Context()
-        with mock.patch.object(jev_decision, "_secret", side_effect=lambda provider="auto": "typesafe" if provider == "typesafe" else ""):
-            jev_decision.register(context)
+        with mock.patch.object(hermes_switchyard, "_secret", side_effect=lambda provider="auto": "typesafe" if provider == "typesafe" else ""):
+            hermes_switchyard.register(context)
             self.assertFalse(context.checks["jev_assess"]())
-        with mock.patch.object(jev_decision, "_secret", side_effect=lambda provider="auto": "openrouter" if provider == "openrouter" else ""):
+        with mock.patch.object(hermes_switchyard, "_secret", side_effect=lambda provider="auto": "openrouter" if provider == "openrouter" else ""):
             self.assertTrue(context.checks["jev_assess"]())
             incompatible = Context({"jev_provider": "openrouter", "jev_model": "jev-latest"})
-            jev_decision.register(incompatible)
+            hermes_switchyard.register(incompatible)
             self.assertFalse(incompatible.checks["jev_assess"]())
 
     def test_registered_handlers_deny_missing_ack_before_client_network_or_capture(self):
-        import jev_decision
+        import hermes_switchyard
 
         class Context:
             def __init__(self):
@@ -1009,10 +1107,16 @@ class PluginEntryPointTests(unittest.TestCase):
                 raise AssertionError("desktop capture must not run")
 
         context = Context()
-        with mock.patch.object(jev_decision, "_secret", side_effect=AssertionError("client must not initialize")) as secret:
-            with mock.patch.object(jev_decision, "DecisionClient", side_effect=AssertionError("network must not initialize")) as client:
-                jev_decision.register(context)
-                for name in ("jev_assess", "jev_computer_use", "jev_skill_select", "jev_model_route"):
+        with mock.patch.object(hermes_switchyard, "_secret", side_effect=AssertionError("client must not initialize")) as secret:
+            with mock.patch.object(hermes_switchyard, "DecisionClient", side_effect=AssertionError("network must not initialize")) as client:
+                hermes_switchyard.register(context)
+                for name in (
+                    "jev_assess",
+                    "jev_computer_use",
+                    "jev_skill_select",
+                    "jev_skill_select_many",
+                    "jev_model_route",
+                ):
                     with self.subTest(name=name):
                         result = json.loads(context.tools[name]({}))
                         self.assertEqual(
@@ -1030,7 +1134,7 @@ class PluginEntryPointTests(unittest.TestCase):
         self.assertEqual(context.dispatch_calls, [])
 
     def test_windows_prompt_keeps_computer_use_pilot_configurable(self):
-        import jev_decision
+        import hermes_switchyard
 
         class Context:
             def __init__(self):
@@ -1053,8 +1157,8 @@ class PluginEntryPointTests(unittest.TestCase):
                 self.prompts[name] = (text, kwargs)
 
         context = Context()
-        with mock.patch.object(jev_decision.sys, "platform", "win32"):
-            jev_decision.register(context)
+        with mock.patch.object(hermes_switchyard.sys, "platform", "win32"):
+            hermes_switchyard.register(context)
         prompt, options = context.prompts["jev-decision.computer-use"]
         self.assertIn("configurable capability", prompt)
         self.assertIn("Windows, macOS, and Linux", prompt)

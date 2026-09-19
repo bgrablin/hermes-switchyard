@@ -3,16 +3,18 @@ from __future__ import annotations
 
 import json
 import math
+import ast
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from jev_decision import schemas
-from jev_decision.automatic import AutomaticSkillRecommender
-from jev_decision.client import DecisionClient
-from jev_decision.routing import route_model, select_skill
+from hermes_switchyard import schemas
+from hermes_switchyard.automatic import AutomaticSkillRecommender
+from hermes_switchyard.client import DecisionClient
+from hermes_switchyard.routing import route_model, select_skill
+from scripts.build_release import RELEASE_FILES
 
 
 class _Response:
@@ -80,7 +82,7 @@ class ResponseBoundaryTests(unittest.TestCase):
         body = b'{"model":"typesafe/jev-1.13","model":"typesafe/jev-1.13","answers":{}}'
         response = _Response(body)
         client = self._client(response)
-        with mock.patch("jev_decision.client.http.client.HTTPSConnection", return_value=client._connection):
+        with mock.patch("hermes_switchyard.client.http.client.HTTPSConnection", return_value=client._connection):
             client._connection = None
             with self.assertRaises(RuntimeError):
                 client.decide(
@@ -107,7 +109,7 @@ class ResponseBoundaryTests(unittest.TestCase):
             )
 
     def test_http_body_is_read_with_a_hard_cap(self):
-        from jev_decision import client as module
+        from hermes_switchyard import client as module
 
         response = _Response(b"x" * (module.MAX_RESPONSE_BYTES + 1))
         connection = _Connection(response)
@@ -123,7 +125,7 @@ class ResponseBoundaryTests(unittest.TestCase):
         self.assertTrue(connection.closed)
 
     def test_http_error_json_is_strict_and_bounded(self):
-        from jev_decision import client as module
+        from hermes_switchyard import client as module
 
         response = _Response(
             b'{"error":"bad","error":"worse"}',
@@ -224,7 +226,7 @@ class RoutingBoundaryTests(unittest.TestCase):
         self.assertEqual(offered, {candidate["name"] for candidate in candidates})
 
     def test_multi_skill_contract_returns_typed_list_without_using_single_selector(self):
-        from jev_decision.routing import select_skills
+        from hermes_switchyard.routing import select_skills
 
         class Client:
             def decide(self, _state, questions, *, public_or_sanitized_data_ack=False):
@@ -261,25 +263,63 @@ class RoutingBoundaryTests(unittest.TestCase):
 
 
 class NamespaceAndAckTests(unittest.TestCase):
+    def test_multi_skill_contract_is_registered_and_shipped(self):
+        import hermes_switchyard
+
+        manifest = Path("plugin.yaml").read_text(encoding="utf-8")
+        self.assertIn("  - jev_skill_select_many", manifest)
+
+        class Context:
+            def __init__(self):
+                self.tools = {}
+
+            def get_config(self, _key, default=None):
+                return default
+
+            def register_tool(self, *, name, handler, **_kwargs):
+                self.tools[name] = handler
+
+            def register_auxiliary_task(self, *_args, **_kwargs):
+                pass
+
+            def register_skill(self, *_args, **_kwargs):
+                pass
+
+            def register_hook(self, *_args, **_kwargs):
+                pass
+
+        context = Context()
+        hermes_switchyard.register(context)
+        self.assertIn("jev_skill_select_many", context.tools)
+
     def test_model_facing_acknowledgement_is_explicitly_required(self):
         for schema in (schemas.ASSESS, schemas.COMPUTER_USE, schemas.SKILL_SELECT, schemas.MODEL_ROUTE, schemas.MULTI_SKILL_SELECT):
             self.assertIn("public_or_sanitized_data_ack", schema["parameters"]["required"])
             self.assertIs(schema["parameters"]["properties"]["public_or_sanitized_data_ack"]["default"], False)
+        text_inputs = schemas.COMPUTER_USE["parameters"]["properties"]["text_inputs"]
+        self.assertEqual(text_inputs["maxItems"], 16)
+        self.assertEqual(text_inputs["items"]["properties"]["value"]["maxLength"], 2000)
+
+    def test_standalone_scan_reasons_are_preserved_in_hosted_skip_receipts(self):
+        from hermes_switchyard.receipt_state import HOSTED_SKIP_REASONS
+
+        self.assertIn("ack_required", HOSTED_SKIP_REASONS)
+        self.assertTrue(any(reason.startswith("local_scan_") for reason in HOSTED_SKIP_REASONS))
 
     def test_status_and_guide_are_local_and_live_test_requires_explicit_flag(self):
-        import jev_decision
+        import hermes_switchyard
 
         status = SimpleNamespace(switchyard_command="status", json_output=True)
-        with mock.patch.object(jev_decision, "_secret", side_effect=AssertionError("status must stay local")):
-            self.assertEqual(jev_decision._cli_handler(status), 0)
+        with mock.patch.object(hermes_switchyard, "_secret", side_effect=AssertionError("status must stay local")):
+            self.assertEqual(hermes_switchyard._cli_handler(status), 0)
         guide = SimpleNamespace(switchyard_command="guide")
-        with mock.patch.object(jev_decision, "_secret", side_effect=AssertionError("guide must stay local")):
-            self.assertEqual(jev_decision._cli_handler(guide), 0)
+        with mock.patch.object(hermes_switchyard, "_secret", side_effect=AssertionError("guide must stay local")):
+            self.assertEqual(hermes_switchyard._cli_handler(guide), 0)
         live = SimpleNamespace(switchyard_command="test", live=False, public_or_sanitized_data_ack=False)
-        self.assertNotEqual(jev_decision._cli_handler(live), 0)
+        self.assertNotEqual(hermes_switchyard._cli_handler(live), 0)
 
     def test_registered_route_resolves_config_and_secret_each_call(self):
-        import jev_decision
+        import hermes_switchyard
 
         class FakeClient:
             instances: list["FakeClient"] = []
@@ -331,9 +371,9 @@ class NamespaceAndAckTests(unittest.TestCase):
 
         active = {"profile": "A", "secret": "secret-a"}
         context = Context()
-        with mock.patch.object(jev_decision, "DecisionClient", FakeClient), \
-             mock.patch.object(jev_decision, "_secret", side_effect=lambda _provider: active["secret"]):
-            jev_decision.register(context)
+        with mock.patch.object(hermes_switchyard, "DecisionClient", FakeClient), \
+             mock.patch.object(hermes_switchyard, "_secret", side_effect=lambda _provider: active["secret"]):
+            hermes_switchyard.register(context)
             first = json.loads(context.tools["jev_assess"]({
                 "state": "public",
                 "questions": {"answer": {"type": "noul", "instructions": "Is it true?"}},
@@ -352,8 +392,46 @@ class NamespaceAndAckTests(unittest.TestCase):
         self.assertEqual([item.kwargs["api_key"] for item in FakeClient.instances], ["secret-a", "secret-b"])
         self.assertTrue(all(item.closed for item in FakeClient.instances))
 
+    def test_provider_endpoint_conflicts_reject_before_secret_or_client(self):
+        import hermes_switchyard
+
+        class Context:
+            def __init__(self, settings):
+                self.settings = settings
+                self.tools = {}
+
+            def get_config(self, key, default=None):
+                return self.settings.get(key, default)
+
+            def register_auxiliary_task(self, *_args, **_kwargs): pass
+            def register_tool(self, *, name, handler, **_kwargs): self.tools[name] = handler
+            def register_skill(self, *_args, **_kwargs): pass
+            def register_hook(self, *_args, **_kwargs): pass
+
+        cases = (
+            {
+                "jev_provider": "openrouter",
+                "api_endpoint": "https://api.typesafe.ai/v1/systemone",
+            },
+            {
+                "jev_provider": "typesafe",
+                "api_endpoint": "https://openrouter.ai/api/alpha/decisions",
+            },
+        )
+        for settings in cases:
+            context = Context(settings)
+            with mock.patch.object(hermes_switchyard, "_secret", side_effect=AssertionError("secret accessed")), \
+                 mock.patch.object(hermes_switchyard, "DecisionClient", side_effect=AssertionError("client constructed")):
+                hermes_switchyard.register(context)
+                result = json.loads(context.tools["jev_assess"]({
+                    "state": "public",
+                    "questions": {"answer": {"type": "noul", "instructions": "Is it true?"}},
+                    "public_or_sanitized_data_ack": True,
+                }))
+            self.assertEqual(result["error"]["code"], "invalid_request")
+
     def test_automatic_recommender_reuses_and_explicitly_closes_pooled_client(self):
-        from jev_decision.automatic import AutomaticSkillRecommender
+        from hermes_switchyard.automatic import AutomaticSkillRecommender
 
         class PooledClient:
             def __init__(self):
@@ -405,6 +483,25 @@ class NamespaceAndAckTests(unittest.TestCase):
         self.assertIn("version: 0.4.2", manifest)
         self.assertNotIn("plugins doctor /path/to/jev-decision", readme)
         self.assertIn("hermes jev-decision", readme)
+
+    def test_legacy_shim_is_non_registering_and_release_is_canonical_only(self):
+        root = Path(__file__).resolve().parent.parent
+        shim = ast.parse((root / "jev_decision/__init__.py").read_text(encoding="utf-8"))
+        module_calls = [
+            node
+            for node in ast.walk(shim)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "register"
+        ]
+        self.assertEqual(module_calls, [])
+        import jev_decision
+
+        self.assertFalse(hasattr(jev_decision, "register"))
+        self.assertIn("hermes_switchyard/__init__.py", RELEASE_FILES)
+        self.assertIn("hermes_switchyard/skills/jev-decision-operations/SKILL.md", RELEASE_FILES)
+        self.assertFalse(any(path.startswith("jev_decision/") for path in RELEASE_FILES))
+        self.assertTrue((root / "jev_decision/skills/jev-decision-operations/SKILL.md").is_file())
 
 
 if __name__ == "__main__":

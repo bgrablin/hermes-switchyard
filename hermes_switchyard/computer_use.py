@@ -547,6 +547,36 @@ def _operation_receipt(
     }
 
 
+def _normalize_field_label(value: str) -> str:
+    return " ".join(value.casefold().split())
+
+
+def _prepare_text_inputs(raw: Any) -> dict[str, tuple[str, ...]]:
+    """Index bounded caller values without exposing them to Jev or receipts."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, list) or len(raw) > 16:
+        raise ValueError("text_inputs must be a list with at most 16 entries")
+    indexed: dict[str, list[str]] = {}
+    for entry in raw:
+        if not isinstance(entry, dict) or set(entry) != {"field_label", "value"}:
+            raise ValueError("text_inputs entries require only field_label and value")
+        label = entry["field_label"]
+        value = entry["value"]
+        if type(label) is not str or not label.strip() or len(label) > 128:
+            raise ValueError("text input field_label must be a bounded non-empty string")
+        if type(value) is not str or not value or len(value) > 2_000:
+            raise ValueError("text input value must be a bounded non-empty string")
+        if any(ord(char) < 32 and char not in "\t\n\r" for char in value):
+            raise ValueError("text input value contains a control character")
+        indexed.setdefault(_normalize_field_label(label), []).append(value)
+    return {label: tuple(values) for label, values in indexed.items()}
+
+
+def _caller_value_for_target(target: dict[str, Any], text_inputs: dict[str, tuple[str, ...]]) -> str | None:
+    values = text_inputs.get(_normalize_field_label(str(target.get("label", ""))), ())
+    return values[0] if len(values) == 1 else None
+
 
 def _run_computer_goal_impl(
     *,
@@ -557,6 +587,7 @@ def _run_computer_goal_impl(
     client: Any,
     min_actions_before_done: int = 0,
     text_helper: Callable[[str, dict, list[str], list[dict]], str] | None = None,
+    text_inputs: list[dict[str, str]] | None = None,
     allowed_hotkeys: list[str] | None = None,
     public_or_sanitized_data_ack: bool = False,
     deadline_seconds: float = DEFAULT_OPERATION_DEADLINE_SECONDS,
@@ -585,6 +616,7 @@ def _run_computer_goal_impl(
             raise ValueError("allowed_hotkeys must not contain duplicates")
         hotkey_names = list(allowed_hotkeys)
     hotkeys = {name: hotkey_map[name] for name in hotkey_names}
+    caller_text_inputs = _prepare_text_inputs(text_inputs)
     started = time.perf_counter()
     operation_id = uuid.uuid4().hex
     actions: list[dict[str, Any]] = []
@@ -605,8 +637,17 @@ def _run_computer_goal_impl(
         click_roles = _ALLOWED_ROLES - {"Document"}
         text_roles = {"Edit", "TextBox", "ComboBox", "Document"}
         value_roles = {"ComboBox", "Slider", "Spinner", "List", "ListItem", "Calendar", "DateTime"}
-        has_text_target = any(item["role"] in text_roles for item in controls)
-        has_value_target = any(item["role"] in value_roles for item in controls)
+        has_text_target = any(
+            item["role"] in text_roles and _caller_value_for_target(item, caller_text_inputs) is not None
+            for item in controls
+        )
+        has_value_target = any(
+            item["role"] in value_roles and _caller_value_for_target(item, caller_text_inputs) is not None
+            for item in controls
+        )
+        if text_helper is not None:
+            has_text_target = has_text_target or any(item["role"] in text_roles for item in controls)
+            has_value_target = has_value_target or any(item["role"] in value_roles for item in controls)
         operation_criteria = {
             "CLICK": "Activate one offered visible control",
             "DOUBLE_CLICK": "Activate one offered visible control twice",
@@ -620,9 +661,9 @@ def _run_computer_goal_impl(
             "WAIT": "Wait briefly because the interface is still changing",
             "BLOCKED": "No safe offered action can progress the goal",
         }
-        if text_helper is not None and has_text_target:
+        if (text_helper is not None or caller_text_inputs) and has_text_target:
             operation_criteria["TYPE_TEXT"] = "Compose and enter arbitrary text in an offered editable field"
-        if text_helper is not None and has_value_target:
+        if (text_helper is not None or caller_text_inputs) and has_value_target:
             operation_criteria["SET_VALUE"] = "Choose and set a semantic dropdown, list, slider, or date value"
         if step_hotkeys:
             operation_criteria["HOTKEY"] = "Issue one explicitly permitted semantic hotkey"
@@ -847,6 +888,16 @@ def _run_computer_goal_impl(
         if visible_before is not None and visible is None:
             raise StaleTargetError("hotkey control changed between decision and action")
 
+        caller_value = None
+        if operation in {"TYPE_TEXT", "SET_VALUE"} and text_helper is None:
+            caller_value = _caller_value_for_target(chosen, caller_text_inputs) if chosen is not None else None
+            if caller_value is None:
+                return _operation_receipt(
+                    operation_id=operation_id, goal=goal, app=app, actions=actions,
+                    decisions=decisions, text_calls=text_calls, started=started,
+                    status="abstained", capture=capture, failure_phase="text_input_resolution",
+                )
+
         if operation in {"CLICK", "DOUBLE_CLICK", "RIGHT_CLICK", "MIDDLE_CLICK"}:
             action_by_operation = {
                 "CLICK": "click",
@@ -870,7 +921,11 @@ def _run_computer_goal_impl(
         elif operation in {"TYPE_TEXT", "SET_VALUE"}:
             assert chosen is not None
             operation_remaining_deadline()
-            value = text_helper(goal, chosen, context, actions)
+            value = (
+                text_helper(goal, chosen, context, actions)
+                if text_helper is not None
+                else caller_value
+            )
             operation_remaining_deadline()
             if not isinstance(value, str) or not value.strip() or len(value) > 2_000:
                 raise ValueError("text helper returned no safe field value")
@@ -1000,6 +1055,7 @@ def run_computer_goal(
     *, goal: str, app: str, max_steps: int, dispatch: Callable[[str, dict], Any],
     client: Any, min_actions_before_done: int = 0,
     text_helper: Callable[[str, dict, list[str], list[dict]], str] | None = None,
+    text_inputs: list[dict[str, str]] | None = None,
     allowed_hotkeys: list[str] | None = None,
     public_or_sanitized_data_ack: bool = False,
     deadline_seconds: float = DEFAULT_OPERATION_DEADLINE_SECONDS,
@@ -1010,6 +1066,7 @@ def run_computer_goal(
         return _run_computer_goal_impl(
             goal=goal, app=app, max_steps=max_steps, dispatch=dispatch, client=client,
             min_actions_before_done=min_actions_before_done, text_helper=text_helper,
+            text_inputs=text_inputs,
             allowed_hotkeys=allowed_hotkeys,
             public_or_sanitized_data_ack=public_or_sanitized_data_ack,
             deadline_seconds=deadline_seconds,

@@ -14,13 +14,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-import jev_decision
-from jev_decision import receipt_state
-from jev_decision.automatic import (
+import hermes_switchyard
+from hermes_switchyard import receipt_state
+from hermes_switchyard.automatic import (
     AutomaticSkillRecommender,
     build_routing_receipt,
 )
-from jev_decision.client import DecisionClient
+from hermes_switchyard.client import DecisionClient
 
 
 # The stable terminal-state enum the receipt surface exposes.
@@ -28,6 +28,7 @@ _TERMINAL = {
     "local_selection",
     "hosted_selection",
     "hosted_abstention",
+    "hosted_failure",
     "hosted_failure_local_fallback",
     "hosted_skipped",
     "cache_hit",
@@ -194,6 +195,23 @@ class ReceiptSchemaTests(unittest.TestCase):
         self.assertFalse(receipt["hosted_succeeded"])
         self.assertEqual(receipt["hosted_error"], "transport_or_execution_failure")
 
+    def test_hosted_failure_without_local_winner_is_distinct_terminal_state(self):
+        result = {
+            "status": "abstained",
+            "selected": None,
+            "source": "none",
+            "abstention_reason": None,
+            "hosted_attempted": True,
+            "hosted_error": "transport_or_execution_failure",
+            "cache_hit": False,
+            "candidate_count": 1,
+        }
+        receipt = build_routing_receipt(result)
+        self.assertEqual(receipt["terminal_state"], "hosted_failure")
+        self.assertTrue(receipt["hosted_attempted"])
+        self.assertFalse(receipt["hosted_succeeded"])
+        self.assertEqual(receipt["hosted_error"], "transport_or_execution_failure")
+
 
 class ReceiptPrivacyTests(unittest.TestCase):
     def test_receipt_never_carries_forbidden_markers(self):
@@ -351,7 +369,7 @@ class ReceiptEndToEndTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {"HERMES_HOME": directory}, clear=False):
                 self.assertTrue(receipt_state.store_latest_receipt(receipt))
                 with mock.patch("builtins.print") as printer:
-                    code = jev_decision._cli_handler(
+                    code = hermes_switchyard._cli_handler(
                         SimpleNamespace(jev_command="receipt", json_output=True)
                     )
                 self.assertEqual(code, 0)
