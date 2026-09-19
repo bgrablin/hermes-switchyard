@@ -25,6 +25,13 @@ USAGE = {
 
 
 class LunaFailureEvidenceTests(unittest.TestCase):
+    def test_api_call_count_cannot_drop_below_main_receipt_count(self):
+        usage = {
+            "api_calls": 1,
+            "total_including_auxiliary": {"api_calls": 0},
+        }
+        self.assertEqual(collect_luna._api_call_count(usage), 1)
+
     def test_collect_creates_nested_output_parent_before_subprocess(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "new" / "nested" / "luna.json"

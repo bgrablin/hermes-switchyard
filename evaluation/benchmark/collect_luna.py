@@ -23,10 +23,15 @@ CASE_COUNT = 24
 
 
 def _api_call_count(usage: dict[str, Any]) -> int:
+    counts = []
+    main_calls = usage.get("api_calls")
+    if type(main_calls) is int and main_calls >= 0:
+        counts.append(main_calls)
     total = usage.get("total_including_auxiliary")
-    if isinstance(total, dict) and type(total.get("api_calls")) is int:
-        return total["api_calls"]
-    return usage["api_calls"] if type(usage.get("api_calls")) is int else 0
+    total_calls = total.get("api_calls") if isinstance(total, dict) else None
+    if type(total_calls) is int and total_calls >= 0:
+        counts.append(total_calls)
+    return max(counts, default=0)
 
 
 def _startup_probe(command: str) -> float:
