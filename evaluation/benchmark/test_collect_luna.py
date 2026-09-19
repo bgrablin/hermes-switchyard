@@ -25,6 +25,34 @@ USAGE = {
 
 
 class LunaFailureEvidenceTests(unittest.TestCase):
+    def test_startup_probe_is_bounded_and_returns_runtime_identity(self):
+        completed = subprocess.CompletedProcess(
+            ["fake-hermes", "--version"],
+            0,
+            stdout="Hermes Agent 1.2.3\n",
+            stderr="",
+        )
+        with mock.patch.object(collect_luna.subprocess, "run", return_value=completed) as run:
+            elapsed_ms, identity = collect_luna._startup_probe("fake-hermes", 2.5)
+        self.assertGreaterEqual(elapsed_ms, 0.0)
+        self.assertEqual(identity, "Hermes Agent 1.2.3")
+        run.assert_called_once_with(
+            ["fake-hermes", "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=2.5,
+        )
+
+    def test_startup_probe_timeout_uses_bounded_refusal(self):
+        with mock.patch.object(
+            collect_luna.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired(["fake-hermes", "--version"], 1.0),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "hermes_version_probe_timeout"):
+                collect_luna._startup_probe("fake-hermes", 1.0)
+
     def test_api_call_count_cannot_drop_below_main_receipt_count(self):
         usage = {
             "api_calls": 1,
@@ -52,12 +80,38 @@ class LunaFailureEvidenceTests(unittest.TestCase):
                 parent_states.append(usage_path.parent.is_dir())
                 raise RuntimeError("stop after parent check")
 
-            with mock.patch.object(collect_luna, "_startup_probe", return_value=0.0):
+            with mock.patch.object(collect_luna, "_startup_probe", return_value=(0.0, "Hermes Agent test")):
                 with mock.patch.object(collect_luna.subprocess, "run", side_effect=failed_run):
                     self.assertEqual(collect_luna.collect(args), 0)
             self.assertTrue(parent_states)
             self.assertTrue(all(parent_states))
             self.assertTrue(output.is_file())
+            payload = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(payload["hermes_runtime_identity"], "Hermes Agent test")
+
+    def test_resume_rejects_different_hermes_runtime_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "luna.json"
+            _book, meta = collect_luna.benchmark.load_book()
+            payload = collect_luna.load_payload(output, "luna", meta, resume=False)
+            payload["hermes_runtime_identity"] = "Hermes Agent old"
+            output.write_text(json.dumps(payload), encoding="utf-8")
+            args = argparse.Namespace(
+                live=True,
+                public_synthetic_ack=True,
+                max_requests=24,
+                output=output,
+                hermes_command="fake-hermes",
+                timeout_seconds=1.0,
+                resume=True,
+            )
+            with mock.patch.object(
+                collect_luna,
+                "_startup_probe",
+                return_value=(0.0, "Hermes Agent current"),
+            ):
+                with self.assertRaisesRegex(ValueError, "existing_output_runtime_identity_mismatch"):
+                    collect_luna.collect(args)
 
     def test_usage_includes_official_auxiliary_token_and_cost_totals(self):
         usage = luna_usage({
@@ -183,7 +237,7 @@ class LunaFailureEvidenceTests(unittest.TestCase):
                 timeout_seconds=1.0,
                 resume=False,
             )
-            with mock.patch.object(collect_luna, "_startup_probe", return_value=0.0):
+            with mock.patch.object(collect_luna, "_startup_probe", return_value=(0.0, "Hermes Agent test")):
                 with mock.patch.object(collect_luna.subprocess, "run", side_effect=completed_run):
                     self.assertEqual(collect_luna.collect(args), 0)
 
@@ -214,7 +268,7 @@ class LunaFailureEvidenceTests(unittest.TestCase):
                 timeout_seconds=1.0,
                 resume=False,
             )
-            with mock.patch.object(collect_luna, "_startup_probe", return_value=0.0):
+            with mock.patch.object(collect_luna, "_startup_probe", return_value=(0.0, "Hermes Agent test")):
                 with mock.patch.object(collect_luna.subprocess, "run", side_effect=timeout_run):
                     self.assertEqual(collect_luna.collect(args), 0)
 
@@ -253,7 +307,7 @@ class LunaFailureEvidenceTests(unittest.TestCase):
                 timeout_seconds=1.0,
                 resume=False,
             )
-            with mock.patch.object(collect_luna, "_startup_probe", return_value=0.0):
+            with mock.patch.object(collect_luna, "_startup_probe", return_value=(0.0, "Hermes Agent test")):
                 with mock.patch.object(collect_luna.subprocess, "run", side_effect=timeout_run):
                     with self.assertRaisesRegex(RuntimeError, "request_cap_reached_before_all_cases"):
                         collect_luna.collect(args)

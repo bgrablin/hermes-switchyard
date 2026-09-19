@@ -389,6 +389,8 @@ class BenchmarkContractTests(unittest.TestCase):
                     "public_synthetic_ack": True,
                     "records": rows,
                 }
+                if arm == "luna":
+                    payload["hermes_runtime_identity"] = "Hermes Agent test"
                 payloads[arm] = payload
                 path = Path(temp_dir) / f"{arm}.json"
                 path.write_text(json.dumps(payload), encoding="utf-8")
@@ -398,6 +400,20 @@ class BenchmarkContractTests(unittest.TestCase):
                 luna_input=paths["luna"], switchyard_input=paths["switchyard"],
                 public_synthetic_ack=True, max_requests=48, output=None,
             )
+            luna_path = Path(paths["luna"])
+            luna_payload = copy.deepcopy(payloads["luna"])
+            del luna_payload["hermes_runtime_identity"]
+            luna_path.write_text(json.dumps(luna_payload), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "hermes_runtime_identity_type"):
+                benchmark.ingest(
+                    luna_path,
+                    "luna",
+                    self.book["heldout_fixtures"],
+                    self.meta,
+                    live=True,
+                    max_requests=24,
+                )
+            luna_path.write_text(json.dumps(payloads["luna"]), encoding="utf-8")
             report = benchmark.run(args)
         self.assertEqual(report["status"], "ok")
         self.assertEqual(set(report["arms"]), benchmark.COMPARATIVE_ARMS)

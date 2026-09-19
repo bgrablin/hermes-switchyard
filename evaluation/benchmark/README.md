@@ -43,7 +43,7 @@ Direct Luna baseline
       -m openai-codex/gpt-5.6-luna-900k --provider openai-codex --reasoning max \
       --usage-file CASE_USAGE.json -z "$(cat CASE_PROMPT.txt)"
 
-Use the route’s official JSON response and usage report. Do not scrape hidden token counts, infer dollar cost, or put credentials in a prompt or command. `collect_luna.py` uses this route with the empty `context_engine` toolset, one sequential subprocess per case, and a 900-second per-case bound. Its `wall_ms` is end-to-end Hermes process time; `provider_call_ms` stays null because the supported CLI usage file does not expose provider-request timing. A measured `hermes --version` process probe is recorded separately and is not relabelled as provider latency.
+Use the route’s official JSON response and usage report. Do not scrape hidden token counts, infer dollar cost, or put credentials in a prompt or command. `collect_luna.py` uses this route with the empty `context_engine` toolset, one sequential subprocess per case, and a 900-second per-case bound. Its `wall_ms` is end-to-end Hermes process time; `provider_call_ms` stays null because the supported CLI usage file does not expose provider-request timing. A bounded `hermes --version` probe records the runtime identity required for live ingestion and resume; its duration is recorded separately and is not relabelled as provider latency.
 
 A batch decision can reduce startup overhead, but its wall time is batch latency, not per-case latency. Do not divide it by 24 or compare it with individual-request p50/p95. The first live run should use one request per case. Live ingestion requires both an explicit `--max-requests` from 1 through 60 and `--public-synthetic-ack`:
 
@@ -77,6 +77,7 @@ The following JSON is an abbreviated, non-loadable field map. Actual receipts mu
       "measurement_schema_version": 1,
       "arm": "luna",
       "collection_mode": "live",
+      "hermes_runtime_identity": "Hermes Agent <bounded version identifier>",
       "dataset_hash": "from offline report",
       "candidate_catalog_hash": "from offline report",
       "public_synthetic_ack": true,

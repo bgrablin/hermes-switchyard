@@ -33,6 +33,7 @@ COLLECTOR_SOURCE_FILES = {
     "switchyard": ("benchmark.py", "collector_common.py", "collect_switchyard.py"),
 }
 MAX_ABSTENTION_REASON_CHARS = 512
+MAX_HERMES_RUNTIME_IDENTITY_CHARS = 256
 STOP = frozenset("a an and are as at be before by can do for from has have in is it of on or that the then this to with without".split())
 LEXICAL_MIN = 0.20
 LEXICAL_MARGIN = 0.05
@@ -57,6 +58,13 @@ def file_digest(path: Path) -> str:
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise ValueError(message)
+
+
+def validate_hermes_runtime_identity(value: Any) -> None:
+    require(isinstance(value, str), "hermes_runtime_identity_type")
+    require(value == value.strip() and 0 < len(value) <= MAX_HERMES_RUNTIME_IDENTITY_CHARS,
+            "hermes_runtime_identity_bounds")
+    require(all(character.isprintable() for character in value), "hermes_runtime_identity_characters")
 
 
 def public_case(case: dict[str, Any]) -> dict[str, Any]:
@@ -521,6 +529,8 @@ def ingest(path: Path, arm: str, cases: list[dict[str, Any]], meta: dict[str, An
         require(payload.get("measurement_schema_version") == MEASUREMENT_SCHEMA_VERSION, "live_measurement_schema_version")
         require(payload.get("collection_mode") == "live", "live_input_mode")
         require(payload.get("public_synthetic_ack") is True, "live_input_ack")
+        if arm == "luna":
+            validate_hermes_runtime_identity(payload.get("hermes_runtime_identity"))
         total = sum(row["provider_call_count"] for row in result.values())
         require(max_requests is not None and total <= max_requests, "live_request_cap_exceeded")
     return result

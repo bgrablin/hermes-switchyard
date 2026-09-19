@@ -34,13 +34,29 @@ def _api_call_count(usage: dict[str, Any]) -> int:
     return max(counts, default=0)
 
 
-def _startup_probe(command: str) -> float:
+def _startup_probe(command: str, timeout_seconds: float) -> tuple[float, str]:
+    if timeout_seconds <= 0:
+        raise ValueError("hermes_version_probe_timeout_invalid")
     started = time.perf_counter()
-    completed = subprocess.run([command, "--version"], capture_output=True, text=True, check=False)
+    try:
+        completed = subprocess.run(
+            [command, "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("hermes_version_probe_timeout") from exc
     elapsed = round((time.perf_counter() - started) * 1000, 3)
     if completed.returncode != 0:
         raise RuntimeError("hermes_version_probe_failed")
-    return elapsed
+    identity = next(
+        (line.strip() for line in (completed.stdout + "\n" + completed.stderr).splitlines() if line.strip()),
+        "",
+    )
+    benchmark.validate_hermes_runtime_identity(identity)
+    return elapsed, identity
 
 
 def _parse_success(
@@ -183,8 +199,14 @@ def collect(args: argparse.Namespace) -> int:
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     payload = load_payload(output_path, "luna", meta, resume=args.resume)
+    startup_probe_ms, runtime_identity = _startup_probe(
+        args.hermes_command,
+        min(args.timeout_seconds, 30.0),
+    )
+    if args.resume and payload.get("hermes_runtime_identity") != runtime_identity:
+        raise ValueError("existing_output_runtime_identity_mismatch")
+    payload["hermes_runtime_identity"] = runtime_identity
     records = validated_records(payload, "luna", cases, meta, expected_source_hash=benchmark.file_digest(benchmark.PROMPT))
-    startup_probe_ms = _startup_probe(args.hermes_command)
     payload["startup_overhead_probe_ms"] = startup_probe_ms
     payload["startup_overhead_note"] = "hermes --version process probe; not provider latency and not added to per-case wall time"
     request_count = sum(int(row.get("provider_call_count", 0) or 0) for row in records.values())
