@@ -444,7 +444,14 @@ def validate_record(row: dict[str, Any], arm: str, case: dict[str, Any], meta: d
         require(isinstance(row.get("error"), dict) and isinstance(row["error"].get("type"), str) and row["error"]["type"], "failed_measurement_error")
     else:
         require(status in {"selected", "abstained"}, "arm_input_status")
-        require((status == "selected") == bool(skills) and selected == (skills[0] if skills else None), "arm_input_selection_consistency")
+        require((status == "selected") == bool(skills), "arm_input_selection_consistency")
+        if status == "selected":
+            if arm == "luna" and len(skills) > 1:
+                require(selected is None or selected == skills[0], "arm_input_selection_consistency")
+            else:
+                require(selected == skills[0], "arm_input_selection_consistency")
+        else:
+            require(selected is None, "arm_input_selection_consistency")
         require(row.get("error") is None, "successful_measurement_error")
     if arm in {"lexical", "switchyard"}:
         require(len(skills) <= 1, "single_selection_arm_multiple_skills")

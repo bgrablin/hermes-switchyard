@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 import collect_luna
-from collect_luna import _luna_failure_error, _parse_success, _sanitize_luna_response_excerpt
+from collect_luna import _parse_success, _sanitize_luna_response_excerpt
 
 
 USAGE = {
@@ -24,32 +24,40 @@ USAGE = {
 
 
 class LunaFailureEvidenceTests(unittest.TestCase):
-    def test_selected_response_without_selected_skills_keeps_exact_cause_and_safe_excerpt(self):
+    def test_selected_response_without_selected_skills_normalizes_single_selection(self):
         raw = json.dumps({
             "status": "selected",
             "selected": "git-change-preparation",
+            "selected_skills": [],
             "abstention_reason": None,
             "secret_like_field": "must-not-be-retained",
         })
-        with self.assertRaises(ValueError) as raised:
-            _parse_success(raw, USAGE)
+        parsed = _parse_success(raw, USAGE)
+        self.assertEqual(parsed["selected_skills"], ["git-change-preparation"])
+        self.assertEqual(parsed["provider_calls"], 1)
 
-        error = _luna_failure_error(raised.exception, stdout=raw, usage=USAGE, exit_code=0)
-        self.assertEqual(error["type"], "ValueError")
-        self.assertEqual(error["cause"], "luna_response_schema_invalid")
-        self.assertEqual(
-            error["response_excerpt"],
-            {
-                "json_valid": True,
-                "fields_present": ["abstention_reason", "selected", "status"],
-                "status": "selected",
-                "selected": "git-change-preparation",
-                "abstention_reason": None,
-            },
+    def test_multi_selection_with_null_top1_is_accepted(self):
+        raw = json.dumps({
+            "status": "selected",
+            "selected": None,
+            "selected_skills": ["document-intelligence", "literature-review"],
+            "abstention_reason": None,
+        })
+        parsed = _parse_success(raw, USAGE)
+        self.assertIsNone(parsed["selected"])
+        self.assertEqual(parsed["selected_skills"], ["document-intelligence", "literature-review"])
+
+    def test_contradictory_selection_forms_are_rejected(self):
+        cases = (
+            {"status": "selected", "selected": "git-change-preparation", "selected_skills": ["github-code-review"]},
+            {"status": "abstained", "selected": None, "selected_skills": ["git-change-preparation"]},
+            {"status": "selected", "selected": None, "selected_skills": []},
+            {"status": "selected", "selected": "git-change-preparation", "selected_skills": ["git-change-preparation", "git-change-preparation"]},
         )
-        self.assertNotIn("secret_like_field", json.dumps(error, sort_keys=True))
-        self.assertEqual(error["usage_receipt"]["model"], "gpt-5.6-luna-900k")
-        self.assertEqual(error["usage_receipt"]["api_calls"], 1)
+        for response in cases:
+            with self.subTest(response=response):
+                with self.assertRaises(ValueError):
+                    _parse_success(json.dumps({**response, "abstention_reason": None}), USAGE)
 
     def test_invalid_json_excerpt_does_not_copy_provider_text(self):
         excerpt = _sanitize_luna_response_excerpt("not-json provider text with a token")

@@ -48,9 +48,14 @@ def _parse_success(stdout: str, usage: dict[str, Any]) -> dict[str, Any]:
     skills = parsed.get("selected_skills")
     if status not in {"selected", "abstained"} or not isinstance(skills, list):
         raise ValueError("luna_response_schema_invalid")
-    if len(set(skills)) != len(skills) or selected != (skills[0] if skills else None):
+    skills = list(skills)
+    if any(type(skill) is not str for skill in skills) or len(set(skills)) != len(skills):
         raise ValueError("luna_response_selection_invalid")
-    if (status == "selected") != bool(skills):
+    if status == "selected" and selected is not None and not skills:
+        skills = [selected]
+    elif status == "selected" and (selected is None and not skills or selected is not None and selected != skills[0]):
+        raise ValueError("luna_response_selection_invalid")
+    if status == "abstained" and (selected is not None or skills):
         raise ValueError("luna_response_status_invalid")
     return {
         "status": status,
