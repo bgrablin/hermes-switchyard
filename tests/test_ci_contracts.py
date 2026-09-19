@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import re
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -23,7 +24,16 @@ class CiContractTests(unittest.TestCase):
             / "switchyard-compatibility.yml"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("  push:\n    branches:\n      - main\n", workflow)
+        push_stanza = re.search(
+            r"(?m)^  push:\n(?: {4,}.*\n)*",
+            workflow,
+        )
+        if push_stanza is None:
+            self.fail("compatibility workflow is missing the push trigger")
+        self.assertEqual(
+            push_stanza.group(0),
+            "  push:\n    branches:\n      - main\n",
+        )
         self.assertIn("  pull_request:\n", workflow)
         self.assertIn("  workflow_dispatch:\n", workflow)
         self.assertIn("    os: [ubuntu-latest, windows-latest]\n", workflow)
