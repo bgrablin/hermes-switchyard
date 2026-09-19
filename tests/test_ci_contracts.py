@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import io
+import re
 import unittest
 from contextlib import redirect_stdout
+from pathlib import Path
 
 from scripts.ci.live_jev_contract import LiveContractError, _usage_receipt
 from scripts.ci.validate_live_source import (
@@ -14,6 +16,30 @@ from scripts.ci.validate_live_source import (
 
 
 class CiContractTests(unittest.TestCase):
+    def test_compatibility_workflow_avoids_duplicate_feature_push_runs(self):
+        workflow = (
+            Path(__file__).resolve().parent.parent
+            / ".github"
+            / "workflows"
+            / "switchyard-compatibility.yml"
+        ).read_text(encoding="utf-8")
+
+        push_stanza = re.search(
+            r"(?m)^  push:\n(?: {4,}.*\n)*",
+            workflow,
+        )
+        if push_stanza is None:
+            self.fail("compatibility workflow is missing the push trigger")
+        self.assertEqual(
+            push_stanza.group(0),
+            "  push:\n    branches:\n      - main\n",
+        )
+        self.assertIn("  pull_request:\n", workflow)
+        self.assertIn("  workflow_dispatch:\n", workflow)
+        self.assertIn("    os: [ubuntu-latest, windows-latest]\n", workflow)
+        self.assertIn("    python-version: ['3.11', '3.12', '3.13']\n", workflow)
+        self.assertIn("  cancel-in-progress: true\n", workflow)
+
     def test_live_source_requires_canonical_repo_allowlisted_ref_and_exact_head(self):
         source_sha = "a" * 40
         result = validate_trusted_source(
