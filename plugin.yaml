@@ -2,7 +2,7 @@ name: hermes-switchyard
 version: 0.4.2
 author: bgrablin
 manifest_version: 1
-description: Bounded Jev decisions for advisory routing and fixture-tested computer-use loops; no calibrated-quality or independent-completion claim.
+description: Jev-powered skill and model routing with fast, safety-gated native computer use, full-catalog selection, typed decisions, and auditable receipts.
 license: MIT
 homepage: https://github.com/bgrablin/hermes-switchyard
 tags: [jev, computer-use, routing, skills]
