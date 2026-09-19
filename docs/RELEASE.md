@@ -48,7 +48,7 @@ The repository owner decides whether a candidate is ready for publication. That 
 
 ## Installation choices
 
-The normal install command downloads the plugin from this GitHub repository. It works with existing GitHub read access while the repository is private and requires no GitHub login or token after publication:
+The normal install command downloads the plugin from this public GitHub repository. No GitHub login or token is required:
 
 ```text
 hermes plugins install bgrablin/hermes-switchyard --enable
