@@ -18,8 +18,12 @@ distribution concentration. Noul/fit values are intended yes/no probabilities;
 calibration for correctness is not independently established. Do not make a
 calibrated-quality claim or treat a 0.8 threshold as 80% correctness.
 
-This plugin never loads a skill, edits a prompt, changes the Hermes runtime
-model, or performs an automatic fallback. The coordinator owns those decisions.
+The automatic hook is advisory by default. Its opt-in typed consumer may pass
+one accepted exact identifier to Hermes' normal `skill_view` loader once per
+identified turn. Explicit skill instructions, abstention, invalid output, and
+loader rejection suppress that load. The plugin does not edit the cached system
+prompt, change the Hermes runtime model, or perform an automatic provider
+fallback. The coordinator owns those decisions.
 
 ## Data boundary
 

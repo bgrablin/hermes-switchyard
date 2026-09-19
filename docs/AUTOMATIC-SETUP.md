@@ -74,6 +74,14 @@ Expected behavior when `docker-management` is available to the session:
 
 The recommendation is context sent to the model, not a separate status banner. The assistant may ignore it. If the profile registry is empty, the candidate list is ambiguous, or the request has no overlap, abstention is expected.
 
+To opt into the typed loader consumer instead of advisory context:
+
+```text
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_consumer_mode load
+```
+
+Start a fresh Hermes process after changing the mode. In `load` mode, Switchyard passes one accepted exact identifier to Hermes' normal `skill_view` loader once per identified turn. Explicit skill instructions, abstention, invalid output, and loader rejection do not trigger an automatic load. Keep `advisory` unless the active profile intentionally delegates this bounded load decision.
+
 ## 5. Configure hosted Jev only after a per-turn allow decision
 
 Hosted Jev requires either a TypeSafe account/key or an OpenRouter account/key, plus available allowance. `jev_provider: auto` prefers direct TypeSafe. Codex or ChatGPT subscription billing does not pay for either route.
@@ -115,6 +123,7 @@ hermes config unset plugins.entries.hermes-switchyard.settings.automatic_skill_c
 hermes config unset plugins.entries.hermes-switchyard.settings.automatic_skill_local_threshold
 hermes config unset plugins.entries.hermes-switchyard.settings.automatic_skill_local_margin
 hermes config unset plugins.entries.hermes-switchyard.settings.automatic_skill_cache_seconds
+hermes config unset plugins.entries.hermes-switchyard.settings.automatic_skill_consumer_mode
 hermes config unset plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode
 hermes config unset plugins.entries.hermes-switchyard.settings.automatic_skill_jev
 hermes config unset plugins.entries.hermes-switchyard.settings.automatic_skill_jev_mode
@@ -155,4 +164,4 @@ hermes switchyard setup --provider typesafe
 
 - If hosted Jev is unavailable, local matching remains the only safe result. The plugin does not silently switch models, providers, accounts, or fallback routes.
 
-Do not treat a recommendation as proof that a skill was loaded or followed. If the skill is needed, invoke it through Hermes' normal skill workflow and verify the resulting work independently.
+Do not treat a recommendation as proof that a skill was followed. In advisory mode it was not loaded. In load mode, verify the typed `skill_recommendation` metadata or local receipt (`consumer_status`, `loaded_skill`, and `skill_load_verified`) before claiming that Hermes' normal loader accepted it; independently verify the resulting work in either mode.

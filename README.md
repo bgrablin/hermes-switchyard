@@ -10,7 +10,7 @@ Jev supplies decision scores. Switchyard applies its eligibility and confidence 
 
 ![Hermes Switchyard flow from Jev decisions through Switchyard validation to Hermes execution and verification](docs/assets/hermes-switchyard-overview.png)
 
-Switchyard gives Hermes another way to choose among a defined set of options. It does not modify Hermes core, silently change the active model, load skills automatically, or claim that a recommendation or GUI action is correct.
+Switchyard gives Hermes another way to choose among a defined set of options. It does not modify Hermes core, silently change the active model, or claim that a recommendation or GUI action is correct. Automatic skill loading is opt-in; the default remains advisory.
 
 ## Install
 
@@ -69,6 +69,8 @@ The local scan rejects restricted data before the hosted client is constructed. 
 
 Automatic hosted Jev receives only the accepted bounded task and exact candidate identifiers. Candidate descriptions, conversation history, and full skill bodies remain local. A valid Jev abstention is preserved; a transport failure may preserve a local winner. The hook exposes only redacted routing status/reason metadata.
 
+The default `automatic_skill_consumer_mode: advisory` adds model-visible context without loading anything. Set it to `load` to pass one accepted exact identifier to Hermes' normal `skill_view` loader once per turn. Explicit skill instructions, abstention, invalid results, and loader errors do not trigger an automatic load. Typed callback metadata and the local receipt report the selected identifier, source, consumer status, and whether the load occurred.
+
 ## Privacy and data handling
 
 Jev tools require `public_or_sanitized_data_ack: true` in their input. This means the caller gives standing consent for the plugin-owned bounded classification path. The flag does not replace local scanning, grant unrestricted permission to share data, or bypass other controls. Automatic skill recommendations require the persistent setting plus a strict local per-turn scan; a future Hermes envelope is optional strengthening.
@@ -81,7 +83,7 @@ The tools are advisory and bounded:
 
 - A high confidence score is not proof that a choice is correct.
 - Switchyard can return no selection when eligibility or confidence checks fail. This valid result is called abstention.
-- The plugin does not load skills, change the cached system prompt, change runtime models, or certify GUI completion. Automatic recommendations add context to the current turn only.
+- The default advisory consumer does not load skills. The opt-in `load` consumer invokes Hermes' normal loader once for an accepted turn; neither mode changes runtime models or certifies GUI completion.
 - Provider fallback is disabled. A failed Jev request does not silently move to another provider.
 - Each assessment, skill-selection, or model-routing operation has one aggregate 64-request budget. A CUA run has one aggregate 256-request budget across its 100-action ceiling; serialized request size is also bounded.
 - Skill selection and model routing work wherever Hermes can expose the plugin toolset. `jev_computer_use` is available on Windows, macOS, and Linux when Hermes' Cua Driver-backed `computer_use` tool is available.

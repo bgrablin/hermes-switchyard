@@ -2,16 +2,18 @@
 
 ## 0.4.2
 
+- Adds an opt-in typed automatic skill consumer that invokes Hermes' normal `skill_view` loader once per accepted turn while retaining advisory mode as the default.
+
 - Uses standalone `hosted_sanitized` automatic routing with persistent acknowledgement and strict local per-turn scanning.
 - Resolves provider, model, endpoint, and profile-scoped secret settings at each invocation.
 - Adds local `status` and `guide` commands plus an explicit `test --live` billed-request gate.
 - Adds the separate typed `jev_skill_select_many` catalog-selection contract without loading or mutating skills.
+- Renames the package, command, bundled skill, auxiliary task, and prompt-section surfaces from `jev-decision` to `hermes-switchyard`; Jev tool names remain stable.
+- Adds migration guidance: remove the legacy `jev-decision` installation before installing `hermes-switchyard` so duplicate registrations cannot load together.
 
 ## 0.4.1
 
-- Renamed the machine plugin ID, package, command, skill, auxiliary task, and prompt-section surfaces from `jev-decision` to `hermes-switchyard`; Jev tool names remain stable.
 - Corrected two security-scanner false positives in operator documentation so the repository passes Hermes' plugin security gate without `--force`.
-- Added migration guidance: remove the legacy `jev-decision` installation before installing `hermes-switchyard` so duplicate registrations cannot load together.
 
 ## 0.4.0
 

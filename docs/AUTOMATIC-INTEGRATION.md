@@ -2,10 +2,11 @@
 
 Automatic skill recommendations are implemented in `hermes_switchyard/automatic.py` and registered through Hermes' `pre_llm_call` plugin hook. The standalone per-turn contract is implemented in `hermes_switchyard/egress.py`.
 
-The feature is advisory only:
+The feature is advisory by default, with an opt-in typed loader consumer:
 
 - it recommends an exact skill identifier;
-- it does not load a skill;
+- `advisory` mode does not load a skill;
+- `load` mode invokes Hermes' normal `skill_view` loader once for an accepted exact identifier in a turn;
 - it does not change the system prompt, toolset, active model, provider, credentials, or fallback policy;
 - it uses local token matching for a local-only fallback;
 - the product default is `hosted_sanitized`, and hosted construction requires persistent acknowledgement plus the plugin-owned strict local per-turn scan; an allowed host envelope may optionally provide a narrower sanitized payload;
@@ -22,13 +23,13 @@ For each Hermes user turn, the plugin receives the normal `pre_llm_call` callbac
 - explicit configured candidates when `automatic_skill_candidates` is non-empty;
 - the additive `turn_egress_policy` envelope when the host provides it.
 
-The plugin never uses prior user or assistant messages, or the cached system prompt, as a hosted candidate catalog. The original task is bounded to 4,000 characters for local matching. A hosted call uses only the envelope's bounded `allowed_payload` and exact candidate identifiers. Candidate descriptions, conversation history, and full skill bodies stay local. A recommendation is returned to Hermes as ephemeral user-message context:
+The plugin never uses prior user or assistant messages, or the cached system prompt, as a hosted candidate catalog. The original task is bounded to 4,000 characters for local matching. A hosted call uses only the envelope's bounded `allowed_payload` and exact candidate identifiers. Candidate descriptions, conversation history, and full skill bodies stay local. In default advisory mode, a recommendation is returned to Hermes as ephemeral user-message context:
 
 ```text
 Advisory skill recommendation: consider the exact skill identifier "..." if it fits this request. The plugin did not load it. Mandatory skills, explicit instructions, safety controls, and the user's preferences take precedence.
 ```
 
-The sentence is model-visible context, not a separate status message. Hermes keeps the system prompt unchanged. The normal skill invocation path remains responsible for loading a skill and recording skill usage.
+The sentence is model-visible context, not a separate status message. Hermes keeps the system prompt unchanged. In opt-in `load` mode, the hook calls the normal `skill_view` path directly and returns the loaded skill body as turn context. It never substitutes its own file reader.
 
 ## Local recommendation path
 
@@ -99,7 +100,7 @@ The supported operator diagnostic command is:
 hermes switchyard receipt --json
 ```
 
-It prints the latest receipt retained by the plugin. The receipt contains stable source, selection, attempt, error/skip, model, request, latency, usage, candidate-count, and shortlist-policy fields. `verified` is always `false` and `advisory_only` is always `true`; a receipt never proves that a skill was loaded, a model changed, or a GUI action completed. If no attempt has produced a receipt, the command prints a structured `no_receipt` diagnostic and exits non-zero.
+It prints the latest receipt retained by the plugin. The receipt contains stable source, selection, attempt, error/skip, model, request, latency, usage, candidate-count, and shortlist-policy fields. In load mode it also records `consumer_status`, `loaded_skill`, `loaded_source`, and `skill_load_verified`. `verified` remains `false`: the receipt does not prove recommendation correctness, a model change, or GUI completion. If no attempt has produced a receipt, the command prints a structured `no_receipt` diagnostic and exits non-zero.
 
 Receipts include the plugin version and an exact source SHA when a validated `SOURCE-MANIFEST.json` is present, such as in a release archive. Source checkouts without that release manifest use the explicit `unavailable` value rather than guessing from Git state. Task text, candidate descriptions, conversation history, credentials, local paths, and provider exception text are not serialized.
 
@@ -110,14 +111,15 @@ All settings are profile-scoped under `plugins.entries.hermes-switchyard.setting
 | Key | Default | Effect |
 | --- | ---: | --- |
 | `automatic_skill_recommendation` | `true` | Register the automatic `pre_llm_call` hook. Set `false` to disable the feature. |
+| `automatic_skill_consumer_mode` | `advisory` | `advisory` injects recommendation context. `load` invokes Hermes' normal skill loader once per accepted turn and exposes typed load readback. |
 | `automatic_skill_candidates` | `[]` | Explicit list of strings or `{name, description}` objects. Empty means use the full Hermes active profile `skills_list()` registry. |
 | `automatic_skill_local_threshold` | `0.20` | Minimum local token-overlap score. Clamped to `[0, 1]`. |
 | `automatic_skill_local_margin` | `0.05` | Minimum gap between the top two local candidates. Clamped to `[0, 1]`. |
 | `automatic_skill_cache_seconds` | `30.0` | Per-process recommendation cache lifetime. Clamped to `[0, 300]`. |
-| `automatic_skill_routing_mode` | `hosted_sanitized` | `off`, `local_only`, or `hosted_sanitized`. Hosted mode still requires an allowed per-turn envelope. |
+| `automatic_skill_routing_mode` | `hosted_sanitized` | `off`, `local_only`, or `hosted_sanitized`. Hosted mode requires standing acknowledgement plus the plugin's strict local per-turn scan; an allowed host envelope is optional strengthening. |
 | `automatic_skill_jev` | `true` | Deprecated compatibility switch. When the new mode is unset, `false` maps to `local_only`; `true` is not authorization. |
 | `automatic_skill_jev_mode` | `always` | Evaluate the full catalog on every allowed turn. `uncertain_only` is an explicit latency-saving override. |
-| `automatic_skill_public_or_sanitized_data_ack` | `false` | Deprecated persistent acknowledgement. It never authorizes automatic egress or replaces the per-turn policy. |
+| `automatic_skill_public_or_sanitized_data_ack` | `false` | Explicit standing acknowledgement for automatic hosted routing. It permits only the accepted bounded task and exact candidate identifiers after the local scan; it never bypasses that scan or other controls. |
 
 Configuration is read when the plugin registers. Start a fresh Hermes process after changing these settings; an existing process may retain the previous hook and values.
 
@@ -125,7 +127,7 @@ Configuration is read when the plugin registers. Start a fresh Hermes process af
 
 The fallback local path sends no automatic recommendation request to Jev. The current task still enters the user's selected Hermes model through the normal turn, so local matching is not a DLP control.
 
-The automatic hosted path sends only the host-approved `allowed_payload` and exact candidate identifiers to the selected Jev endpoint. Candidate descriptions, conversation history, and full skill bodies remain local. A successful policy decision does not establish provider retention, residency, or zero-data-retention properties. Classification and sanitization must happen in the host before the envelope reaches the plugin.
+The automatic hosted path sends only the accepted bounded task (or a narrower host-approved `allowed_payload`, when supplied) and exact candidate identifiers to the selected Jev endpoint. Candidate descriptions, conversation history, and full skill bodies remain local. A successful plugin-owned classification does not establish provider retention, residency, or zero-data-retention properties.
 
 The selected credential is separate from a Codex or ChatGPT subscription. Save either provider key through Switchyard's masked setup command; never put a key in a URL, shell history, config value, repository file, or issue report.
 
@@ -136,9 +138,9 @@ hermes switchyard setup --provider typesafe
 
 `hermes plugins list --enabled` is a metadata/readiness check; it must not print credentials. Profiles do not share secrets automatically.
 
-## No automatic skill load or model switch
+## Typed skill consumer and no model switch
 
-A recommendation does not call Hermes' skill loader. It does not create an `on_skill_lifecycle` event. The user or the assistant must use the normal skill command path if the skill is needed.
+Advisory mode does not call Hermes' skill loader. Opt-in load mode passes the accepted exact identifier to Hermes' supported `skill_view` loader. Any explicit skill instruction suppresses automatic loading, abstention and invalid output do nothing, and loader rejection fails closed to advisory context. Repeated delivery of the same identified turn reuses the first callback result rather than loading again.
 
 `jev_model_route` remains a separate advisory tool. Automatic recommendations do not select a new Hermes model, provider, account, credential, toolset, or fallback. A Jev fit signal is not a calibrated quality or safety claim, and the active model may encode cost, quota, capability, residency, or authorization policy.
 
@@ -159,7 +161,7 @@ A successful local smoke can be run without a TypeSafe or OpenRouter account:
 hermes chat -q "Diagnose an exiting Docker Compose container"
 ```
 
-If the current profile's `skills_list()` registry contains a matching skill, the model-bound current user message contains an advisory recommendation for `docker-management`. The phrase says that the plugin did not load the skill. There is no separate recommendation banner or automatic skill-use event. Hosted automatic routing requires `hosted_sanitized` and persistent acknowledgement; the plugin performs its strict local per-turn scan before constructing a client. A host envelope may narrow the payload, but is not required.
+If the current profile's `skills_list()` registry contains a matching skill, advisory mode adds a recommendation for `docker-management`. Load mode instead returns the body read through Hermes' normal loader and reports an exact typed load result. Hosted automatic routing requires `hosted_sanitized` and persistent acknowledgement; the plugin performs its strict local per-turn scan before constructing a client. A host envelope may narrow the payload, but is not required.
 
 The local hook can abstain when the registry is empty, no candidate overlap exists, or the top match is ambiguous. Abstention is normal behavior, not a failed skill load.
 

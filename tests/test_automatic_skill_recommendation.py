@@ -1,7 +1,8 @@
 """Mocked lifecycle tests for automatic skill recommendations.
 
 Hosted calls in this file use a synthetic DecisionClient transport. No test sends
-private conversation history, calls a real endpoint, or loads a skill.
+private conversation history or calls a real endpoint. Typed-consumer tests use a
+fixture loader rather than loading a profile skill.
 """
 from __future__ import annotations
 
@@ -121,6 +122,120 @@ class AutomaticRecommendationTests(unittest.TestCase):
         )
         self.assertIsNotNone(no_fit)
         self.assertEqual(no_fit["metadata"]["routing_reason"], "ack_required")
+
+    def test_typed_consumer_loads_an_accepted_skill_exactly_once(self):
+        loaded = []
+
+        def load_skill(name, task_id=None):
+            loaded.append((name, task_id))
+            return f"LOADED SKILL: {name}"
+
+        hook = build_pre_llm_call_hook(
+            configured_candidates=[
+                {"name": "docker-management", "description": "Manage Docker containers and Compose services."},
+                {"name": "network-printer-operations", "description": "Operate network printers and scanners."},
+            ],
+            routing_mode="local_only",
+            consumer_mode="load",
+            skill_loader=load_skill,
+        )
+        assert hook is not None
+        first = hook(
+            user_message="Diagnose an exiting Docker Compose container",
+            session_id="session-1",
+            turn_id="turn-1",
+        )
+        second = hook(
+            user_message="Diagnose an exiting Docker Compose container",
+            session_id="session-1",
+            turn_id="turn-1",
+        )
+
+        self.assertEqual(loaded, [("docker-management", "session-1")])
+        self.assertEqual(first["context"], "LOADED SKILL: docker-management")
+        self.assertEqual(second["context"], first["context"])
+        recommendation = first["metadata"]["skill_recommendation"]
+        self.assertEqual(recommendation["status"], "loaded")
+        self.assertEqual(recommendation["selected"], "docker-management")
+        self.assertEqual(recommendation["source"], "local")
+        self.assertTrue(recommendation["loaded_once"])
+        self.assertEqual(
+            {
+                key: getattr(hook, "last_receipt")[key]
+                for key in (
+                    "consumer_status",
+                    "loaded_skill",
+                    "loaded_source",
+                    "skill_load_verified",
+                    "advisory_only",
+                )
+            },
+            {
+                "consumer_status": "loaded",
+                "loaded_skill": "docker-management",
+                "loaded_source": "local",
+                "skill_load_verified": True,
+                "advisory_only": False,
+            },
+        )
+
+    def test_typed_consumer_respects_explicit_skill_override(self):
+        loaded = []
+        hook = build_pre_llm_call_hook(
+            configured_candidates=[
+                {"name": "docker-management", "description": "Manage Docker containers and Compose services."},
+                {"name": "network-printer-operations", "description": "Operate network printers and scanners."},
+            ],
+            routing_mode="local_only",
+            consumer_mode="load",
+            skill_loader=lambda name, task_id=None: loaded.append(name) or name,
+        )
+        assert hook is not None
+        result = hook(
+            user_message="Use network-printer-operations. Diagnose a Docker Compose container.",
+            session_id="session-1",
+            turn_id="turn-2",
+        )
+
+        self.assertEqual(loaded, [])
+        recommendation = result["metadata"]["skill_recommendation"]
+        self.assertEqual(recommendation["status"], "explicit_override")
+        self.assertFalse(recommendation["loaded_once"])
+
+    def test_register_wires_typed_consumer_to_normal_skill_loader(self):
+        import hermes_switchyard
+
+        context = _Context({
+            "automatic_skill_candidates": [
+                {"name": "docker-management", "description": "Manage Docker containers."},
+            ],
+            "automatic_skill_routing_mode": "local_only",
+            "automatic_skill_consumer_mode": "load",
+        })
+        payload = json.dumps({
+            "success": True,
+            "name": "docker-management",
+            "content": "NORMAL SKILL LOADER CONTENT",
+        })
+        with mock.patch.object(self._skills_api(), "skill_view", return_value=payload) as loader:
+            hermes_switchyard.register(context)
+            result = context.hooks["pre_llm_call"](
+                user_message="Diagnose a Docker container",
+                session_id="session-2",
+                turn_id="turn-3",
+            )
+
+        loader.assert_called_once_with(name="docker-management", task_id="session-2")
+        self.assertEqual(result["context"], "NORMAL SKILL LOADER CONTENT")
+        self.assertEqual(
+            result["metadata"]["skill_recommendation"],
+            {
+                "status": "loaded",
+                "selected": "docker-management",
+                "source": "local",
+                "loaded_once": True,
+            },
+        )
 
     def test_skill_registry_discovery_uses_public_response_schema(self):
         payload = {

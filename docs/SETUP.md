@@ -131,4 +131,4 @@ A Codex login, a different `jev_model` value, or a missing direct key does not f
 
 ## Limits and future work
 
-The release still does not load skills automatically, change the active Hermes model, use provider fallback, claim calibrated correctness, or certify GUI completion independently. Cua Driver remains the host-owned desktop executor; Switchyard adds the Jev decision layer and does not bypass its approval or platform boundaries.
+Automatic skill routing remains advisory by default. The opt-in `automatic_skill_consumer_mode: load` path invokes Hermes' normal `skill_view` loader once for an accepted identified turn; explicit skill instructions, abstention, invalid output, and loader rejection suppress the automatic load. The release does not change the active Hermes model, use provider fallback, claim calibrated correctness, or certify GUI completion independently. Cua Driver remains the host-owned desktop executor; Switchyard adds the Jev decision layer and does not bypass its approval or platform boundaries.
