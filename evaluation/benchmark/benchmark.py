@@ -29,8 +29,8 @@ LIVE_COLLECTORS = {
 PROVIDER_ARMS = frozenset({"luna", "switchyard"})
 COMPARATIVE_ARMS = frozenset({"lexical", "luna", "switchyard"})
 COLLECTOR_SOURCE_FILES = {
-    "luna": ("collector_common.py", "collect_luna.py"),
-    "switchyard": ("collector_common.py", "collect_switchyard.py"),
+    "luna": ("benchmark.py", "collector_common.py", "collect_luna.py"),
+    "switchyard": ("benchmark.py", "collector_common.py", "collect_switchyard.py"),
 }
 MAX_ABSTENTION_REASON_CHARS = 512
 STOP = frozenset("a an and are as at be before by can do for from has have in is it of on or that the then this to with without".split())
@@ -395,7 +395,6 @@ def _validate_measurement_provenance(row: dict[str, Any], arm: str, case: dict[s
     require(type(provenance.get("provider_time_observed")) is bool, "live_measurement_provider_time_flag")
     require(type(provenance.get("usage_observed")) is bool, "live_measurement_usage_flag")
     successful = row["measurement_status"] == "ok"
-    require(provenance["provider_response_observed"] is successful, "live_measurement_response_status")
     require(provenance["wall_time_observed"] == (row["wall_ms"] is not None), "live_measurement_wall_observation")
     require(provenance["provider_time_observed"] == (row["provider_call_ms"] is not None), "live_measurement_provider_time_observation")
     if not provenance["usage_observed"]:
@@ -482,6 +481,12 @@ def validate_record(row: dict[str, Any], arm: str, case: dict[str, Any], meta: d
         require(row.get("collector_source_hash") is None, "local_arm_collector_source_hash")
     if live:
         require(row["simulated"] is False, "live_requires_non_simulated_record")
+        expected_timing_status = (
+            "provider_error"
+            if row["measurement_status"] == "failed"
+            else {"luna": "actual_end_to_end_process", "switchyard": "actual_provider_observation"}[arm]
+        )
+        require(row.get("timing_status") == expected_timing_status, "live_timing_status_mismatch")
         if row["measurement_status"] == "ok":
             require(row["actual_call"] is True, "live_requires_actual_provider_call")
             require(row["provider_call_count"] > 0, "live_provider_call_required")

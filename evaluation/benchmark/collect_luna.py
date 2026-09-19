@@ -31,7 +31,12 @@ def _startup_probe(command: str) -> float:
     return elapsed
 
 
-def _parse_success(stdout: str, usage: dict[str, Any]) -> dict[str, Any]:
+def _parse_success(
+    stdout: str,
+    usage: dict[str, Any],
+    *,
+    max_provider_calls: int | None = None,
+) -> dict[str, Any]:
     if usage.get("completed") is not True or usage.get("partial") is True or usage.get("failed") is True:
         raise ValueError("official_usage_did_not_confirm_completed_turn")
     reported_model = usage.get("model")
@@ -40,6 +45,8 @@ def _parse_success(stdout: str, usage: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("official_usage_route_mismatch")
     if type(usage.get("api_calls")) is not int or usage["api_calls"] <= 0:
         raise ValueError("official_usage_api_call_count_missing")
+    if max_provider_calls is not None and usage["api_calls"] > max_provider_calls:
+        raise ValueError("official_usage_request_cap_exceeded")
     parsed = json.loads(stdout)
     if not isinstance(parsed, dict):
         raise ValueError("luna_response_not_object")
@@ -169,6 +176,8 @@ def collect(args: argparse.Namespace) -> int:
             raise RuntimeError("request_cap_reached_before_all_cases")
         prompt = benchmark.render_luna_prompt(case, meta)
         usage_path = output_path.parent / f".{output_path.stem}.{case['id']}.usage.json"
+        usage_path.unlink(missing_ok=True)
+        remaining_requests = args.max_requests - request_count
         started = time.perf_counter()
         successful = False
         usage: dict[str, Any] = {}
@@ -188,7 +197,11 @@ def collect(args: argparse.Namespace) -> int:
             exit_code = completed.returncode
             if usage_path.exists():
                 usage = _read_usage_receipt(usage_path)
-            result = _parse_success(completed.stdout, usage) if completed.returncode == 0 else (_ for _ in ()).throw(RuntimeError("hermes_oneshot_failed"))
+            result = _parse_success(
+                completed.stdout,
+                usage,
+                max_provider_calls=remaining_requests,
+            ) if completed.returncode == 0 else (_ for _ in ()).throw(RuntimeError("hermes_oneshot_failed"))
             provider_calls = result.pop("provider_calls")
             successful = True
         except Exception as exc:  # noqa: BLE001 - retain a bounded failed measurement
@@ -214,6 +227,7 @@ def collect(args: argparse.Namespace) -> int:
                 arm="luna", collector=benchmark.LIVE_COLLECTORS["luna"], case=case, meta=meta,
                 provider_calls=provider_calls, successful=successful, wall_observed=True,
                 provider_time_observed=False, usage_observed=successful,
+                provider_response_observed=bool(stdout.strip()),
             ), error=error,
         )
         try:
@@ -243,6 +257,7 @@ def collect(args: argparse.Namespace) -> int:
                     arm="luna", collector=benchmark.LIVE_COLLECTORS["luna"], case=case, meta=meta,
                     provider_calls=provider_calls, successful=False, wall_observed=True,
                     provider_time_observed=False, usage_observed=False,
+                    provider_response_observed=True,
                 ),
                 error=error,
             )
@@ -250,6 +265,8 @@ def collect(args: argparse.Namespace) -> int:
         append_record(payload, row, output_path)
         records[case["id"]] = row
         request_count += provider_calls
+        if request_count > args.max_requests:
+            raise RuntimeError("request_cap_exceeded_by_provider_receipt")
     if benchmark.file_digest(benchmark.PROMPT) != meta["template_hash"]:
         raise RuntimeError("prompt_source_changed_during_collection")
     return 0

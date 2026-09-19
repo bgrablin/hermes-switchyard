@@ -136,6 +136,69 @@ class BenchmarkContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             benchmark.validate_record(rows["switchyard"], "switchyard", case, self.meta, live=False)
 
+    def test_live_collector_fingerprints_include_shared_benchmark_contract(self):
+        for files in benchmark.COLLECTOR_SOURCE_FILES.values():
+            self.assertIn("benchmark.py", files)
+
+    def test_live_validation_enforces_collector_specific_timing_status(self):
+        case = self.book["heldout_fixtures"][0]
+        row = copy.deepcopy(benchmark.run_offline_case(case, self.meta, self.routing, self.source)["switchyard"])
+        row.update({
+            "simulated": False,
+            "actual_call": True,
+            "measurement_status": "ok",
+            "provider": "openrouter",
+            "wall_ms": 10.0,
+            "provider_call_ms": 4.0,
+            "timing_status": "actual_end_to_end_process",
+            "error": None,
+        })
+        row["measurement_provenance"] = provenance(
+            arm="switchyard",
+            collector=benchmark.LIVE_COLLECTORS["switchyard"],
+            case=case,
+            meta=self.meta,
+            provider_calls=1,
+            successful=True,
+            wall_observed=True,
+            provider_time_observed=True,
+            usage_observed=False,
+        )
+        with self.assertRaises(ValueError):
+            benchmark.validate_record(row, "switchyard", case, self.meta, live=True)
+
+    def test_failed_contract_can_record_an_observed_provider_response(self):
+        case = self.book["heldout_fixtures"][0]
+        row = copy.deepcopy(benchmark.run_offline_case(case, self.meta, self.routing, self.source)["luna"])
+        row.update({
+            "status": "failed",
+            "selected": None,
+            "selected_skills": [],
+            "simulated": False,
+            "actual_call": True,
+            "measurement_status": "failed",
+            "wall_ms": 10.0,
+            "provider_call_ms": None,
+            "timing_status": "provider_error",
+            "usage": {key: None for key in row["usage"]},
+            "error": {"type": "ValueError"},
+        })
+        row["measurement_provenance"] = {
+            **provenance(
+                arm="luna",
+                collector=benchmark.LIVE_COLLECTORS["luna"],
+                case=case,
+                meta=self.meta,
+                provider_calls=1,
+                successful=False,
+                wall_observed=True,
+                provider_time_observed=False,
+                usage_observed=False,
+            ),
+            "provider_response_observed": True,
+        }
+        benchmark.validate_record(row, "luna", case, self.meta, live=True)
+
     def test_switchyard_ingest_rejects_multiple_selected_skills(self):
         rows = {case["id"]: benchmark.run_offline_case(case, self.meta, self.routing, self.source)["switchyard"]
                 for case in self.book["heldout_fixtures"]}
@@ -201,8 +264,10 @@ class BenchmarkContractTests(unittest.TestCase):
                     if arm == "switchyard":
                         row["provider"] = "openrouter"
                         row["provider_call_ms"] = 4.0
+                        row["timing_status"] = "actual_provider_observation"
                     else:
                         row["provider"] = "openai-codex"
+                        row["timing_status"] = "actual_end_to_end_process"
                     row["measurement_provenance"] = provenance(
                         arm=arm,
                         collector=benchmark.LIVE_COLLECTORS[arm],

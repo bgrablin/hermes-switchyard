@@ -81,11 +81,14 @@ def _collect(args: argparse.Namespace) -> int:
     class CountingDecisionClient(client_module.DecisionClient):
         def __init__(self, **kwargs: Any):
             self.provider_calls = 0
+            self.provider_responses = 0
             super().__init__(**kwargs)
 
         def _post(self, payload: dict) -> dict:
             self.provider_calls += 1
-            return super()._post(payload)
+            response = super()._post(payload)
+            self.provider_responses += 1
+            return response
 
     client = CountingDecisionClient(api_key=_runtime_key(), model=client_module.EXPECTED_MODEL)
     output_path = Path(args.output)
@@ -99,6 +102,7 @@ def _collect(args: argparse.Namespace) -> int:
             raise RuntimeError("request_cap_reached_before_all_cases")
         started = time.perf_counter()
         calls_before = client.provider_calls
+        responses_before = client.provider_responses
         successful = False
         provider_ms: float | None = None
         error: dict[str, Any] | None = None
@@ -124,6 +128,7 @@ def _collect(args: argparse.Namespace) -> int:
             error = safe_error(exc)
             result["model"] = client_module.EXPECTED_MODEL
         provider_calls = client.provider_calls - calls_before
+        provider_response_observed = client.provider_responses > responses_before
         wall_ms = round((time.perf_counter() - started) * 1000, 3)
         usage = result.get("usage") if successful and isinstance(result.get("usage"), dict) else null_usage()
         row = benchmark.record(
@@ -135,6 +140,7 @@ def _collect(args: argparse.Namespace) -> int:
                 arm="switchyard", collector=benchmark.LIVE_COLLECTORS["switchyard"], case=case, meta=meta,
                 provider_calls=provider_calls, successful=successful, wall_observed=True,
                 provider_time_observed=successful and provider_ms is not None, usage_observed=successful,
+                provider_response_observed=provider_response_observed,
             ), error=error,
         )
         try:
@@ -164,6 +170,7 @@ def _collect(args: argparse.Namespace) -> int:
                     arm="switchyard", collector=benchmark.LIVE_COLLECTORS["switchyard"], case=case, meta=meta,
                     provider_calls=provider_calls, successful=False, wall_observed=True,
                     provider_time_observed=False, usage_observed=False,
+                    provider_response_observed=True,
                 ),
                 error=error,
             )

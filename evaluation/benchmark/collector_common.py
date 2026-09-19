@@ -98,12 +98,15 @@ def safe_error(exc: BaseException, *, exit_code: int | None = None) -> dict[str,
 def provenance(*, arm: str, collector: str, case: dict[str, Any], meta: dict[str, Any],
                provider_calls: int, successful: bool, wall_observed: bool,
                provider_time_observed: bool, usage_observed: bool,
+               provider_response_observed: bool | None = None,
                timing_scope: str = "case", batch_id: str | None = None,
                observed_case_ids: list[str] | None = None,
                actual_call: bool | None = None) -> dict[str, Any]:
     observed_case_ids = observed_case_ids or [case["id"]]
     if actual_call is None:
         actual_call = provider_calls > 0
+    if provider_response_observed is None:
+        provider_response_observed = successful
     result: dict[str, Any] = {
         "schema_version": benchmark.MEASUREMENT_SCHEMA_VERSION,
         "kind": "actual_provider_observation",
@@ -120,7 +123,7 @@ def provenance(*, arm: str, collector: str, case: dict[str, Any], meta: dict[str
         "measurement_scope": timing_scope,
         "provider_call_count": provider_calls,
         "actual_call": actual_call,
-        "provider_response_observed": successful,
+        "provider_response_observed": provider_response_observed,
         "wall_time_observed": wall_observed,
         "provider_time_observed": provider_time_observed,
         "usage_observed": usage_observed,

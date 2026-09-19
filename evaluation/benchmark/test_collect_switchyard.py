@@ -109,6 +109,55 @@ class SwitchyardCollectorTests(unittest.TestCase):
         self.assertTrue(all(row["collector_source_hash"] == meta["collector_hashes"]["switchyard"] for row in payload["records"]))
         self.assertEqual(payload["collector_source_hash"], meta["collector_hashes"]["switchyard"])
 
+    def test_provider_response_is_recorded_when_routing_validation_fails(self):
+        book, _meta = benchmark.load_book()
+        source = benchmark.source_hashes(ROOT)
+
+        class FakeDecisionClient:
+            def __init__(self, **_kwargs):
+                pass
+
+            def _post(self, _payload):
+                return {"malformed": True}
+
+            def decide(self, *_args, **_kwargs):
+                return self._post({})
+
+        fake_client_module = types.SimpleNamespace(
+            DecisionClient=FakeDecisionClient,
+            EXPECTED_MODEL="typesafe/jev-1.13",
+        )
+
+        class FakeRouting:
+            @staticmethod
+            def select_skill(*, client, **_kwargs):
+                client.decide({})
+                raise ValueError("provider_response_failed_validation")
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "switchyard.json"
+            args = argparse.Namespace(
+                live=True,
+                public_synthetic_ack=True,
+                max_requests=24,
+                plugin_path=str(ROOT),
+                output=output,
+                resume=False,
+            )
+            with mock.patch.object(
+                collect_switchyard.benchmark,
+                "import_plugin",
+                return_value=(FakeRouting, fake_client_module, source),
+            ), mock.patch.object(collect_switchyard, "_runtime_key", return_value="fixture"):
+                self.assertEqual(collect_switchyard.collect(args), 0)
+            payload = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual(len(payload["records"]), len(book["heldout_fixtures"]))
+        self.assertTrue(all(row["measurement_status"] == "failed" for row in payload["records"]))
+        self.assertTrue(
+            all(row["measurement_provenance"]["provider_response_observed"] for row in payload["records"])
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

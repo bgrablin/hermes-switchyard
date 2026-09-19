@@ -63,6 +63,54 @@ class LunaFailureEvidenceTests(unittest.TestCase):
         excerpt = _sanitize_luna_response_excerpt("not-json provider text with a token")
         self.assertEqual(excerpt, {"json_valid": False})
 
+    def test_success_parser_rejects_calls_above_remaining_budget(self):
+        usage = {**USAGE, "api_calls": 2}
+        raw = json.dumps({
+            "status": "selected",
+            "selected": "git-change-preparation",
+            "selected_skills": ["git-change-preparation"],
+            "abstention_reason": None,
+        })
+        with self.assertRaises(ValueError):
+            _parse_success(raw, usage, max_provider_calls=1)
+
+    def test_stale_usage_receipt_is_removed_before_subprocess(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "luna.json"
+            book, _meta = collect_luna.benchmark.load_book()
+            first_case_id = book["heldout_fixtures"][0]["id"]
+            first_usage = output.parent / f".luna.{first_case_id}.usage.json"
+            first_usage.write_text(json.dumps(USAGE), encoding="utf-8")
+
+            def completed_run(command, **_kwargs):
+                usage_path = Path(command[command.index("--usage-file") + 1])
+                self.assertFalse(usage_path.exists())
+                usage_path.write_text(json.dumps(USAGE), encoding="utf-8")
+                return subprocess.CompletedProcess(
+                    command,
+                    0,
+                    stdout=json.dumps({
+                        "status": "selected",
+                        "selected": "git-change-preparation",
+                        "selected_skills": ["git-change-preparation"],
+                        "abstention_reason": None,
+                    }),
+                    stderr="",
+                )
+
+            args = argparse.Namespace(
+                live=True,
+                public_synthetic_ack=True,
+                max_requests=24,
+                output=output,
+                hermes_command="fake-hermes",
+                timeout_seconds=1.0,
+                resume=False,
+            )
+            with mock.patch.object(collect_luna, "_startup_probe", return_value=0.0):
+                with mock.patch.object(collect_luna.subprocess, "run", side_effect=completed_run):
+                    self.assertEqual(collect_luna.collect(args), 0)
+
     def test_timeout_retains_usage_response_and_request_cap_count(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "luna.json"
