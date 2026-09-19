@@ -51,6 +51,18 @@ HOSTED_SKIP_REASONS = frozenset(
         "diagnostic_value_unavailable",
     }
 )
+USAGE_NUMERIC_KEYS = frozenset(
+    {
+        "cost",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "input_tokens",
+        "output_tokens",
+        "cached_tokens",
+        "reasoning_tokens",
+    }
+)
 RECEIPT_FIELDS = frozenset(
     {
         "terminal_state",
@@ -176,12 +188,11 @@ def safe_usage(value: Any) -> dict[str, float]:
         return {}
     result: dict[str, float] = {}
     for key, item in value.items():
-        safe_key = safe_identifier(key)
-        if safe_key is None or type(item) not in (int, float):
+        if key not in USAGE_NUMERIC_KEYS or type(item) not in (int, float):
             continue
         numeric = finite_nonnegative(item, default=-1.0)
         if numeric >= 0:
-            result[safe_key] = numeric
+            result[key] = numeric
     return result
 
 
@@ -296,7 +307,7 @@ def validate_receipt(receipt: Any) -> bool:
             return False
     usage = receipt["total_usage"]
     if not isinstance(usage, dict) or any(
-        safe_identifier(key) is None or not _finite(value) for key, value in usage.items()
+        key not in USAGE_NUMERIC_KEYS or not _finite(value) for key, value in usage.items()
     ):
         return False
     source_sha = receipt["source_sha"]

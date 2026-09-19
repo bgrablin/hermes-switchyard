@@ -2,7 +2,7 @@
 
 This guide enables the implemented automatic skill recommendation hook for the `hermes-switchyard` plugin.
 
-The product default is `hosted_sanitized`, which prefers Jev when the host provides an allowed per-turn egress envelope. The plugin still has explicit `off` and `local_only` modes. Neither local or hosted path loads a skill or changes the active Hermes model. The persistent acknowledgement setting is deprecated compatibility state, not authorization.
+The configuration default is `hosted_sanitized`, but the current Hermes core does not pass the per-turn envelope or consume hook metadata. Current-core sessions therefore remain local and fail closed before hosted client construction. This guide documents the standalone contract; it does not claim production hosted-routing integration until the corresponding Hermes core seam is available.
 
 ## 1. Install the pinned plugin
 
@@ -78,7 +78,7 @@ The recommendation is context sent to the model, not a separate status banner. T
 
 Hosted Jev requires either a TypeSafe account/key or an OpenRouter account/key, plus available allowance. `jev_provider: auto` prefers direct TypeSafe. Codex or ChatGPT subscription billing does not pay for either route.
 
-Set the explicit hosted mode only when the host can classify and sanitize each turn before the callback:
+Set the explicit hosted mode only when a compatible host can classify and sanitize each turn before the callback and consume the returned routing metadata. The current Hermes core does neither, so setting this mode alone does not enable production hosted routing:
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode hosted_sanitized

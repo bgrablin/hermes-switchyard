@@ -272,12 +272,7 @@ class AutomaticSkillRecommender:
                 self._cache.pop(key, None)
                 return None
             self._cache.move_to_end(key)
-            return {
-                **result,
-                "cache_hit": True,
-                "routing_status": "cache_hit",
-                "routing_reason": "cache_hit",
-            }
+            return {**result, "cache_hit": True}
 
     def _store(self, key: tuple[Any, ...], result: dict[str, Any]) -> None:
         if self.cache_seconds <= 0:
@@ -323,11 +318,13 @@ class AutomaticSkillRecommender:
     ) -> dict[str, Any]:
         del candidates_from_prompt  # retained for callback compatibility
         if self.routing_mode == "off":
-            return self._empty_result(
+            result = self._empty_result(
                 routing_mode=self.routing_mode,
                 reason="routing_mode_off",
                 routing_status="disabled",
             )
+            self._record_receipt(result)
+            return result
 
         task_text = _coerce_text(task)
         if not task_text:
@@ -366,21 +363,6 @@ class AutomaticSkillRecommender:
         cached = self._cached(key)
         if cached is not None:
             cached["hosted_attempted"] = False
-            cached["hosted_error"] = None
-            cached["hosted_skipped"] = "cache_hit"
-            for field, empty in (
-                ("jev_model", None),
-                ("jev_request_id", None),
-                ("jev_latency_ms", 0.0),
-                ("jev_usage", {}),
-                ("jev_total_latency_ms", 0.0),
-                ("jev_total_usage", {}),
-                ("jev_request_count", 0),
-                ("jev_offered_count", 0),
-                ("jev_excluded_count", 0),
-                ("jev_shortlist_policy", None),
-            ):
-                cached[field] = empty
             self._record_receipt(cached)
             return cached
 
@@ -500,11 +482,7 @@ def _copy_redacted_jev_metadata(result: dict[str, Any], hosted: Mapping[str, Any
             result[f"jev_{field}"] = value
     usage = hosted.get("usage")
     if isinstance(usage, Mapping):
-        numeric_usage = {
-            str(key): value
-            for key, value in usage.items()
-            if isinstance(key, str) and len(key) <= 64 and type(value) in (int, float) and value >= 0
-        }
+        numeric_usage = receipt_state.safe_usage(usage)
         if numeric_usage:
             result["jev_usage"] = numeric_usage
 

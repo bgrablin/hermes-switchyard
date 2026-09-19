@@ -77,7 +77,9 @@ A valid hosted abstention is terminal for that turn and does not fall back to th
 
 ### Hermes core seam
 
-The current Hermes core callback payload does not carry this envelope. This plugin therefore implements and tests the complete standalone contract, but it cannot claim core integration closure. The additive core change required for host-owned enforcement is one keyword on the existing invocation:
+The current Hermes core callback neither carries this envelope into `pre_llm_call` nor consumes the callback's returned `metadata`; it currently injects only returned `context`. This plugin therefore implements and tests the standalone contract, but it cannot claim production hosted-routing or operator-status closure. The dependent host-integration issues remain open until Hermes core supplies both propagation and status-channel changes.
+
+A compatible future core integration requires the host-owned per-turn decision on the existing invocation:
 
 ```python
 _invoke_hook(
@@ -87,7 +89,7 @@ _invoke_hook(
 )
 ```
 
-`plugins_dispatch` already forwards additive keyword fields to callbacks that accept `**kwargs`; older narrow callbacks remain compatible. Core must populate the envelope from its own per-turn classification/sanitization decision. The plugin must receive `None` or a malformed envelope when that decision is unavailable and remain closed.
+Core must populate the envelope from its own per-turn classification/sanitization decision, forward it to the callback, and surface only the callback's redacted metadata through its status channel. The plugin must receive `None` or a malformed envelope when that decision is unavailable and remain closed. Until that seam exists, current-core sessions use local matching and never construct the hosted client.
 
 ## Routing receipts and diagnostics
 

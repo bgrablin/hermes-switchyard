@@ -153,9 +153,9 @@ def register(ctx):
 
     configured_routing_mode = ctx.get_config("automatic_skill_routing_mode", default=None)
     if configured_routing_mode is None:
-        # Compatibility for profiles that predate the explicit mode. The old
-        # boolean can disable hosted routing, but the old acknowledgement can
-        # never enable or authorize it.
+        # Current Hermes core does not provide turn_egress_policy or consume
+        # callback metadata. Hosted mode therefore remains fail-closed until a
+        # compatible host supplies the seam; legacy false still means local-only.
         configured_routing_mode = (
             "hosted_sanitized"
             if setting_bool("automatic_skill_jev", True)

@@ -7,6 +7,7 @@ restricted envelope never authorizes hosted construction.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -29,6 +30,7 @@ RESTRICTED_DATA_CLASSES = frozenset(
         "unknown",
     }
 )
+DATA_CLASSES = ALLOWED_DATA_CLASSES | RESTRICTED_DATA_CLASSES
 
 _REASON_CODE_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 _ALLOWED_PAYLOAD_CONTROL_CHARS = frozenset({"\n", "\r", "\t"})
@@ -63,16 +65,23 @@ class TurnEgressEvaluation:
 
     @property
     def cache_key(self) -> tuple[Any, ...]:
-        """Return the minimum policy identity needed to isolate cache entries."""
+        """Return policy identity without retaining allowed payload text."""
         return (
             self.allowed,
             self.decision,
             self.data_class,
             self.status,
             self.reason_code,
-            self.allowed_payload,
+            _payload_digest(self.allowed_payload),
             self.version,
         )
+
+
+def _payload_digest(value: str | None) -> str | None:
+    """Return a collision-resistant cache identity without retaining payload text."""
+    if value is None:
+        return None
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _invalid(*, version: int | None = None, data_class: str | None = None) -> TurnEgressEvaluation:
@@ -93,7 +102,13 @@ def _valid_reason_code(value: Any) -> bool:
 def _valid_payload(value: Any) -> bool:
     if type(value) is not str or not value or not value.strip() or len(value) > MAX_ALLOWED_PAYLOAD_CHARS:
         return False
-    return all(ord(char) >= 32 or char in _ALLOWED_PAYLOAD_CONTROL_CHARS for char in value)
+    for char in value:
+        codepoint = ord(char)
+        if char in _ALLOWED_PAYLOAD_CONTROL_CHARS:
+            continue
+        if codepoint < 32 or 0x7F <= codepoint <= 0x9F:
+            return False
+    return True
 
 
 def evaluate_turn_egress_policy(policy: Any) -> TurnEgressEvaluation:
@@ -128,9 +143,10 @@ def evaluate_turn_egress_policy(policy: Any) -> TurnEgressEvaluation:
         or type(data_class) is not str
         or not data_class
         or len(data_class) > 64
+        or data_class not in DATA_CLASSES
         or not _valid_reason_code(reason_code)
     ):
-        return _invalid(version=version, data_class=data_class if type(data_class) is str else None)
+        return _invalid(version=version)
 
     if decision == "unknown":
         return TurnEgressEvaluation(

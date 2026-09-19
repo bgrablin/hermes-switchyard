@@ -497,6 +497,101 @@ class AutomaticRecommendationTests(unittest.TestCase):
                 self.assertEqual(result["hosted_attempted"], False)
         self.assertEqual(constructed, [])
 
+    def test_cache_hit_preserves_original_routing_outcome_and_reason(self):
+        recommender = AutomaticSkillRecommender(
+            configured_candidates=[{"name": "docker-management", "description": "Docker"}],
+            routing_mode="hosted_sanitized",
+            cache_seconds=30,
+            client_factory=lambda: (_ for _ in ()).throw(AssertionError("denied turn must not construct client")),
+        )
+        policy = {
+            "version": 1,
+            "decision": "unknown",
+            "data_class": "unknown",
+            "reason_code": "synthetic_unknown",
+        }
+        first = recommender.recommend("Docker maintenance", turn_egress_policy=policy)
+        second = recommender.recommend("Docker maintenance", turn_egress_policy=policy)
+        self.assertFalse(first["cache_hit"])
+        self.assertTrue(second["cache_hit"])
+        for field in ("status", "source", "selected", "abstention_reason", "routing_status", "routing_reason"):
+            self.assertEqual(second[field], first[field], field)
+        self.assertEqual(second["routing_reason"], "per_turn_policy_unknown")
+        self.assertFalse(second["hosted_attempted"])
+
+    def test_usage_metadata_accepts_only_whitelisted_numeric_keys(self):
+        def transport(_payload):
+            return {
+                "model": "typesafe/jev-1.13",
+                "answers": {
+                    "skill": {
+                        "choice": "docker-management",
+                        "confidence": 0.99,
+                        "probabilities": {"docker-management": 1.0},
+                    },
+                    "needs_skill": {"noul": 0.99},
+                },
+                "usage": {
+                    "cost": 0.01,
+                    "prompt_tokens": 3,
+                    "completion_tokens": 2,
+                    "total_tokens": 5,
+                    "credential=fixture-secret": 1,
+                    "arbitrary_numeric_provider_field": 7,
+                    "error": "SYNTHETIC_PROVIDER_ERROR",
+                },
+            }
+
+        recommender = AutomaticSkillRecommender(
+            configured_candidates=[{"name": "docker-management", "description": "Docker"}],
+            routing_mode="hosted_sanitized",
+            client_factory=lambda: DecisionClient(api_key="fixture-key", transport=transport),
+        )
+        result = recommender.recommend(
+            "Docker maintenance",
+            turn_egress_policy=self._allowed_policy("SANITIZED_DOCKER_TASK"),
+        )
+        self.assertEqual(
+            result["jev_usage"],
+            {"cost": 0.01, "prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+        )
+
+    def test_allowed_payload_is_not_retained_in_cache_key(self):
+        payload = "SYNTHETIC_ALLOWED_PAYLOAD_SHOULD_NOT_BE_CACHED"
+        evaluation = evaluate_turn_egress_policy(self._allowed_policy(payload))
+        self.assertTrue(evaluation.allowed)
+        self.assertNotIn(payload, repr(evaluation.cache_key))
+        recommender = AutomaticSkillRecommender(
+            configured_candidates=[{"name": "docker-management", "description": "Docker"}],
+            routing_mode="hosted_sanitized",
+            client_factory=lambda: None,
+        )
+        recommender.recommend("Docker maintenance", turn_egress_policy=self._allowed_policy(payload))
+        self.assertNotIn(payload, repr(recommender._cache))
+
+    def test_allowed_payload_rejects_del_and_c1_controls(self):
+        for control in (chr(0x7F), chr(0x80), chr(0x9F)):
+            with self.subTest(codepoint=ord(control)):
+                policy = self._allowed_policy(f"safe{control}payload")
+                evaluation = evaluate_turn_egress_policy(policy)
+                self.assertFalse(evaluation.allowed)
+                self.assertEqual(evaluation.reason_code, "per_turn_policy_invalid")
+
+    def test_unrecognized_data_class_is_not_copied_to_metadata(self):
+        for decision in ("allow", "deny", "unknown"):
+            with self.subTest(decision=decision):
+                policy = {
+                    "version": 1,
+                    "decision": decision,
+                    "data_class": "credential@example.com",
+                    "reason_code": "synthetic_policy",
+                    "allowed_payload": "safe payload",
+                }
+                evaluation = evaluate_turn_egress_policy(policy)
+                self.assertFalse(evaluation.allowed)
+                self.assertEqual(evaluation.reason_code, "per_turn_policy_invalid")
+                self.assertIsNone(evaluation.metadata["policy_data_class"])
+
     def test_redacted_metadata_excludes_local_and_provider_text(self):
         payloads = []
 
