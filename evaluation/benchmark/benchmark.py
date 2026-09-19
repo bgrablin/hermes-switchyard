@@ -677,9 +677,12 @@ def summarize(book: dict[str, Any], meta: dict[str, Any], arms: dict[str, dict[s
         row["measurement_status"] == "ok" and row["actual_call"] is True and row["simulated"] is False
         for arm in PROVIDER_ARMS for row in arms[arm].values()
     )
+    timing_claims_allowed = actual_measurements and all(
+        arm_summaries[arm]["timing"]["claimable"] for arm in PROVIDER_ARMS
+    )
     return {"status": "ok", "mode": mode, "dataset_hash": meta["dataset_hash"], "candidate_catalog_hash": meta["catalog_hash"],
             "heldout_case_count": len(cases), "label_frozen": True, "source_hashes": source,
-            "timing_claims_allowed": actual_measurements,
+            "timing_claims_allowed": timing_claims_allowed,
             "comparative_summary": "complete; no advantage claim is made by this harness",
             "aggregate_score": None,
             "aggregate_score_policy": "disabled: Luna may return multiple skills while Switchyard is strict top-1",

@@ -318,6 +318,7 @@ class BenchmarkContractTests(unittest.TestCase):
 
     def test_live_run_computes_local_lexical_arm_and_claims_only_provider_timing(self):
         paths = {}
+        payloads = {}
         with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as temp_dir:
             for arm in ("luna", "switchyard"):
                 rows = []
@@ -353,6 +354,7 @@ class BenchmarkContractTests(unittest.TestCase):
                     "public_synthetic_ack": True,
                     "records": rows,
                 }
+                payloads[arm] = payload
                 path = Path(temp_dir) / f"{arm}.json"
                 path.write_text(json.dumps(payload), encoding="utf-8")
                 paths[arm] = str(path)
@@ -367,6 +369,24 @@ class BenchmarkContractTests(unittest.TestCase):
         self.assertTrue(report["timing_claims_allowed"])
         self.assertFalse(report["arms"]["lexical"]["timing"]["claimable"])
         self.assertEqual(report["provider_call_count_total"], 48)
+
+        luna_rows = copy.deepcopy(payloads["luna"]["records"])
+        luna_rows[0]["wall_ms"] = None
+        luna_rows[0]["measurement_provenance"]["wall_time_observed"] = False
+        arms = {
+            "lexical": {
+                case["id"]: benchmark.run_offline_case(case, self.meta, self.routing, self.source)["lexical"]
+                for case in self.book["heldout_fixtures"]
+            },
+            "luna": {row["case_id"]: row for row in luna_rows},
+            "switchyard": {
+                row["case_id"]: row
+                for row in payloads["switchyard"]["records"]
+            },
+        }
+        report = benchmark.summarize(self.book, self.meta, arms, mode="live", source=self.source)
+        self.assertFalse(report["arms"]["luna"]["timing"]["claimable"])
+        self.assertFalse(report["timing_claims_allowed"])
 
 
 if __name__ == "__main__":
