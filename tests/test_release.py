@@ -176,6 +176,8 @@ class ReleaseArchiveTests(unittest.TestCase):
             self.assertIn("plugin.yaml", names)
             self.assertIn("__init__.py", names)
             self.assertIn("docs/SETUP.md", names)
+            self.assertIn("docs/AUTOMATIC-SETUP.md", names)
+            self.assertIn("docs/AUTOMATIC-INTEGRATION.md", names)
             self.assertIn("docs/assets/hermes-switchyard-branding.png", names)
 
     def test_readme_references_are_present_after_archive_extraction(self):
@@ -187,6 +189,8 @@ class ReleaseArchiveTests(unittest.TestCase):
             with zipfile.ZipFile(archive) as opened:
                 opened.extractall(extracted)
             self.assertTrue((extracted / "docs/SETUP.md").is_file())
+            self.assertTrue((extracted / "docs/AUTOMATIC-SETUP.md").is_file())
+            self.assertTrue((extracted / "docs/AUTOMATIC-INTEGRATION.md").is_file())
             self.assertTrue((extracted / "docs/assets/hermes-switchyard-branding.png").is_file())
 
     def test_source_sha_must_be_exact_lowercase_existing_commit(self):

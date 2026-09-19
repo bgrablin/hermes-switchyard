@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from . import schemas
+from .automatic import _config_float, build_pre_llm_call_hook
 from .client import DEFAULT_ENDPOINT, DecisionClient
 from .computer_use import StaleTargetError, run_computer_goal
 from .routing import route_model, select_skill
@@ -70,6 +71,40 @@ def register(ctx):
         # DecisionClient rejects any non-fixed endpoint and any model outside
         # the two evidence-backed Jev aliases.
         return DecisionClient(api_key=_secret(), endpoint=endpoint, model=model)
+
+    def setting_bool(key, default):
+        value = ctx.get_config(key, default=default)
+        return value if type(value) is bool else default
+
+    automatic_hook = build_pre_llm_call_hook(
+        enabled=setting_bool("automatic_skill_recommendation", True),
+        configured_candidates=ctx.get_config("automatic_skill_candidates", default=[]),
+        hosted_enabled=setting_bool("automatic_skill_jev", False),
+        public_or_sanitized_data_ack=setting_bool(
+            "automatic_skill_public_or_sanitized_data_ack", False
+        ),
+        client_factory=client,
+        local_threshold=_config_float(
+            ctx.get_config("automatic_skill_local_threshold", default=0.20),
+            0.20,
+            minimum=0.0,
+            maximum=1.0,
+        ),
+        local_margin=_config_float(
+            ctx.get_config("automatic_skill_local_margin", default=0.05),
+            0.05,
+            minimum=0.0,
+            maximum=1.0,
+        ),
+        cache_seconds=_config_float(
+            ctx.get_config("automatic_skill_cache_seconds", default=30.0),
+            30.0,
+            minimum=0.0,
+            maximum=300.0,
+        ),
+    )
+    if automatic_hook is not None and hasattr(ctx, "register_hook"):
+        ctx.register_hook("pre_llm_call", automatic_hook)
 
     def compose_text(goal, field, context, history):
         result = ctx.llm.complete_structured(

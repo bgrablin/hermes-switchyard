@@ -15,7 +15,16 @@ provides_tools:
   - jev_computer_use
   - jev_skill_select
   - jev_model_route
+provides_hooks:
+  - pre_llm_call
 config_schema:
   api_endpoint: {type: str, default: "https://openrouter.ai/api/alpha/decisions", description: Must remain the fixed OpenRouter Decisions endpoint; other values fail closed}
   jev_model: {type: str, default: "typesafe/jev-1.13", description: Exact Jev model slug from the two evidence-backed aliases}
   computer_max_steps: {type: int, default: 12, description: Default computer-use action budget}
+  automatic_skill_recommendation: {type: bool, default: true, description: Enable bounded local skill recommendations in the pre_llm_call lifecycle hook}
+  automatic_skill_candidates: {type: list, default: [], description: Explicit skill candidate objects; an empty list uses Hermes' active profile skills registry and descriptions are local-ranking metadata never sent to hosted Jev}
+  automatic_skill_local_threshold: {type: float, default: 0.2, description: Local token-overlap threshold; it is an uncalibrated abstention policy}
+  automatic_skill_local_margin: {type: float, default: 0.05, description: Required local winner margin; it is an uncalibrated abstention policy}
+  automatic_skill_cache_seconds: {type: float, default: 30.0, description: Bounded per-process recommendation cache lifetime}
+  automatic_skill_jev: {type: bool, default: false, description: Permit hosted Jev decisions for automatic recommendations; disabled by default}
+  automatic_skill_public_or_sanitized_data_ack: {type: bool, default: false, description: Required persistent operator attestation before the bounded current task and exact candidate identifiers are sent to hosted Jev; descriptions and conversation history are excluded and this is not DLP}
