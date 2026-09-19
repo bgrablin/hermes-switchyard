@@ -68,7 +68,9 @@ Both collectors append a complete normalized receipt after every case. A provide
 
 The Switchyard command must run with the Python environment that provides Hermes' `agent.secret_scope`; otherwise it refuses before any provider call. Do not replace that scope with a command-line key or a hand-read credential.
 
-Normalized arm input
+Normalized arm input field map
+
+The following JSON is an abbreviated, non-loadable field map. Actual receipts must contain the complete provenance and request identities emitted by the collector; do not use this excerpt as input to the harness.
 
     {
       "schema_version": 1,

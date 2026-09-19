@@ -176,6 +176,7 @@ def collect(args: argparse.Namespace) -> int:
     if benchmark.file_digest(benchmark.PROMPT) != meta["template_hash"]:
         raise RuntimeError("prompt_source_changed_before_collection")
     output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     payload = load_payload(output_path, "luna", meta, resume=args.resume)
     records = validated_records(payload, "luna", cases, meta, expected_source_hash=benchmark.file_digest(benchmark.PROMPT))
     startup_probe_ms = _startup_probe(args.hermes_command)

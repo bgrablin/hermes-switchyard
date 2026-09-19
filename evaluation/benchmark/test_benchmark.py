@@ -304,6 +304,24 @@ class BenchmarkContractTests(unittest.TestCase):
         self.assertGreater(ambiguous_count, 0)
         self.assertEqual(report["arms"]["switchyard"]["multi_skill_capability"]["cases"], required_count)
 
+    def test_ambiguous_case_rejects_multiple_selected_skills(self):
+        case = {
+            "expected": {
+                "label_type": "ambiguous",
+                "acceptable_skills": ["docker-management", "kubernetes-patterns"],
+            },
+        }
+        row = {
+            "status": "selected",
+            "selected": None,
+            "selected_skills": ["docker-management", "kubernetes-patterns"],
+            "fixture_hash": "fixture",
+            "request_hash": "request",
+        }
+        result = benchmark.outcome(case, row)
+        self.assertFalse(result["ambiguous_hit"])
+        self.assertTrue(result["positive_miss"])
+
     def test_refusal_output_creates_parent_directory(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as temp_dir:
             output = Path(temp_dir) / "nested" / "refusal.json"

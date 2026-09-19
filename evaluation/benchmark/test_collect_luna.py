@@ -25,6 +25,33 @@ USAGE = {
 
 
 class LunaFailureEvidenceTests(unittest.TestCase):
+    def test_collect_creates_nested_output_parent_before_subprocess(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "new" / "nested" / "luna.json"
+            args = argparse.Namespace(
+                live=True,
+                public_synthetic_ack=True,
+                max_requests=24,
+                output=output,
+                hermes_command="fake-hermes",
+                timeout_seconds=1.0,
+                resume=False,
+            )
+
+            parent_states = []
+
+            def failed_run(command, **_kwargs):
+                usage_path = Path(command[command.index("--usage-file") + 1])
+                parent_states.append(usage_path.parent.is_dir())
+                raise RuntimeError("stop after parent check")
+
+            with mock.patch.object(collect_luna, "_startup_probe", return_value=0.0):
+                with mock.patch.object(collect_luna.subprocess, "run", side_effect=failed_run):
+                    self.assertEqual(collect_luna.collect(args), 0)
+            self.assertTrue(parent_states)
+            self.assertTrue(all(parent_states))
+            self.assertTrue(output.is_file())
+
     def test_usage_includes_official_auxiliary_token_and_cost_totals(self):
         usage = luna_usage({
             "input_tokens": 100,

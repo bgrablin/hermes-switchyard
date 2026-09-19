@@ -540,8 +540,8 @@ def outcome(case: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
         positive_miss = coverage < 1.0
         ambiguous_hit = None
     elif label == "ambiguous":
-        positive_miss = row["status"] != "selected" or not bool(actual & target)
-        ambiguous_hit = bool(actual & target) if row["status"] == "selected" else False
+        ambiguous_hit = row["status"] == "selected" and len(actual) == 1 and actual <= target
+        positive_miss = not ambiguous_hit
     elif label == "single":
         positive_miss = not top1_correct
         ambiguous_hit = None
