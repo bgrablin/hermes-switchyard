@@ -149,8 +149,8 @@ Keep the previous 40-character SHA as the rollback target. Verify the installed 
 - If hosted Jev is not attempted, inspect the redacted routing reason. `ack_required` means standing acknowledgement is false; `local_scan_*` means the plugin rejected the bounded task; `per_turn_policy_unknown`, `per_turn_policy_invalid`, `per_turn_policy_denied`, and `restricted_data_class` mean the optional host envelope failed closed. `client_unavailable` means no configured route was available. To replace the profile-scoped credential without exposing it, use Switchyard's masked provider setup:
 
 ```text
-hermes jev-decision setup --provider typesafe
-# or: hermes jev-decision setup --provider openrouter
+hermes switchyard setup --provider typesafe
+# or: hermes switchyard setup --provider openrouter
 ```
 
 - If hosted Jev is unavailable, local matching remains the only safe result. The plugin does not silently switch models, providers, accounts, or fallback routes.

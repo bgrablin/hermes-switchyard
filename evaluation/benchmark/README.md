@@ -10,7 +10,7 @@ A. `lexical`: deterministic token-overlap ranking with fixed constants in `bench
 
 B. `luna`: direct `openai-codex/gpt-5.6-luna-900k` selection at `max`, using the same task and complete candidate catalog. Offline mode uses labelled simulation records only. `collect_luna.py` prepares one supported Hermes one-shot request per case and records the official `--usage-file` receipt. It does not access auth directly or fall back to a paid provider.
 
-C. `switchyard`: the actual `jev_decision.routing.select_skill` imported from the exact reviewed plugin path. Offline mode supplies a synthetic typed client response, so it exercises the current selector contract without a model request. `collect_switchyard.py` uses the real `DecisionClient`; it never injects a response.
+C. `switchyard`: the actual `hermes_switchyard.routing.select_skill` imported from the exact reviewed plugin path. Offline mode supplies a synthetic typed client response, so it exercises the current selector contract without a model request. `collect_switchyard.py` uses the real `DecisionClient`; it never injects a response.
 
 C is not an integrated per-turn hook. Current Switchyard requires an explicit tool invocation. The harness records one selector invocation plus the Jev provider call for C and reports that coordination overhead separately. This is a selector microbenchmark only. It is not evidence of whole-agent improvement. A separate Hermes end-to-end without-advisor/with-advisor comparison is required before making that claim.
 

@@ -53,7 +53,7 @@ RELEASE_FILES = (
     "hermes_switchyard/computer_use.py",
     "hermes_switchyard/routing.py",
     "hermes_switchyard/schemas.py",
-    "hermes_switchyard/skills/jev-decision-operations/SKILL.md",
+    "hermes_switchyard/skills/hermes-switchyard-operations/SKILL.md",
     "plugin.yaml",
 )
 MANIFEST_KEYS = frozenset(

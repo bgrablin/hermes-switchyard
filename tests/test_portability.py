@@ -118,7 +118,7 @@ class PortabilityTests(unittest.TestCase):
             )
             self.assertEqual(completed.returncode, 0, completed.stderr)
             resource = Path(completed.stdout.strip())
-            expected = relocated / "hermes_switchyard" / "skills" / "jev-decision-operations" / "SKILL.md"
+            expected = relocated / "hermes_switchyard" / "skills" / "hermes-switchyard-operations" / "SKILL.md"
             self.assertEqual(resource, expected)
 
     def test_evaluation_default_parent_and_report_are_portable(self):

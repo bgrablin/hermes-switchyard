@@ -95,7 +95,7 @@ The plugin can use either `TYPESAFE_API_KEY` or `OPENROUTER_API_KEY`. Both are o
 
 ```text
 hermes plugins install bgrablin/hermes-switchyard --enable
-hermes jev-decision setup --provider typesafe
+hermes switchyard setup --provider typesafe
 hermes config set plugins.entries.hermes-switchyard.settings.jev_provider auto
 ```
 
@@ -135,7 +135,7 @@ When neither `TYPESAFE_API_KEY` nor `OPENROUTER_API_KEY` is available, Hermes ca
 
 The supported recovery is:
 
-1. Run `hermes jev-decision setup --provider typesafe` or use `--provider openrouter` and enter the key only in the masked prompt.
+1. Run `hermes switchyard setup --provider typesafe` or use `--provider openrouter` and enter the key only in the masked prompt.
 2. Start a fresh Hermes session.
 3. Run `hermes plugins list --enabled`.
 4. From the plugin root, run the native check:

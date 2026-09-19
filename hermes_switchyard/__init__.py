@@ -36,7 +36,7 @@ def _cli_handler(args):
         print(json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=indent))
         return 0
     if command != "setup":
-        print("Usage: hermes jev-decision <status|guide|setup|receipt|test> [--provider ...|--json]")
+        print("Usage: hermes switchyard <status|guide|setup|receipt|test> [--provider ...|--json]")
         return 2
     provider = args.provider
     key_name = "TYPESAFE_API_KEY" if provider == "typesafe" else "OPENROUTER_API_KEY"
@@ -113,14 +113,14 @@ def register(ctx):
     default_steps = int(ctx.get_config("computer_max_steps", default=100))
     if hasattr(ctx, "register_cli_command"):
         ctx.register_cli_command(
-            name="jev-decision",
+            name="switchyard",
             help="Configure Hermes Switchyard Jev access",
             setup_fn=_setup_cli,
             handler_fn=_cli_handler,
         )
     if hasattr(ctx, "register_auxiliary_task"):
         ctx.register_auxiliary_task(
-            "jev_decision_writer",
+            "hermes_switchyard_writer",
             display_name="Jev Text Writer",
             description="Compose field text for Jev computer use from public or sanitized state only.",
             defaults={"timeout": 30},
@@ -349,12 +349,12 @@ def register(ctx):
     )
     if hasattr(ctx, "register_skill"):
         ctx.register_skill(
-            "jev-decision-operations",
-            Path(__file__).parent / "skills" / "jev-decision-operations" / "SKILL.md",
+            "hermes-switchyard-operations",
+            Path(__file__).parent / "skills" / "hermes-switchyard-operations" / "SKILL.md",
         )
     if sys.platform in {"win32", "darwin", "linux"} and hasattr(ctx, "register_system_prompt_section"):
         ctx.register_system_prompt_section(
-            "jev-decision.computer-use",
+            "hermes-switchyard.computer-use",
             "Jev computer use is a configurable capability for multi-step browser or native GUI goals on "
             "Windows, macOS, and Linux. Use it only when the caller explicitly approves the run and attests "
             "that all state is public or sanitized; that acknowledgement is not blanket egress authorization "

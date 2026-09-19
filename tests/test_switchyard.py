@@ -1159,7 +1159,7 @@ class PluginEntryPointTests(unittest.TestCase):
         context = Context()
         with mock.patch.object(hermes_switchyard.sys, "platform", "win32"):
             hermes_switchyard.register(context)
-        prompt, options = context.prompts["jev-decision.computer-use"]
+        prompt, options = context.prompts["hermes-switchyard.computer-use"]
         self.assertIn("configurable capability", prompt)
         self.assertIn("Windows, macOS, and Linux", prompt)
         self.assertIn("only when the caller explicitly approves the run", prompt)

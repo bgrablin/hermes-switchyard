@@ -1,5 +1,5 @@
 ---
-name: jev-decision-operations
+name: hermes-switchyard-operations
 description: Use when evaluating bounded Jev decisions or integrating this plugin safely.
 version: 0.4.2
 author: bgrablin
@@ -10,7 +10,7 @@ metadata:
     tags: [Jev, Computer-Use, Cua-Driver, Routing, TypeSafe, OpenRouter]
 ---
 
-# Jev Decision Operations
+# Hermes Switchyard Operations
 
 Use Jev only as a bounded, advisory decision coprocessor. Jev returns typed
 outputs, but a valid type does not establish truth. Choice confidence is
