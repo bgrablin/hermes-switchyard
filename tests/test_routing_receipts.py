@@ -57,6 +57,16 @@ def _skipped_result():
     }
 
 
+def _allowed_policy(payload="SANITIZED_TASK_MARKER"):
+    return {
+        "version": 1,
+        "decision": "allow",
+        "data_class": "sanitized",
+        "reason_code": "synthetic_fixture_allowed",
+        "allowed_payload": payload,
+    }
+
+
 class ReceiptSchemaTests(unittest.TestCase):
     def test_receipt_has_stable_typed_fields_and_advisory_semantics(self):
         receipt = build_routing_receipt(_skipped_result())
@@ -262,7 +272,10 @@ class ReceiptEndToEndTests(unittest.TestCase):
             ),
         )
         for attempt in range(3):
-            recommender.recommend("Diagnose a Docker container")
+            recommender.recommend(
+                "Diagnose a Docker container",
+                turn_egress_policy=_allowed_policy(),
+            )
             self.assertIsNotNone(recommender.last_receipt)
             self.assertIn(recommender.last_receipt["terminal_state"], _TERMINAL)
             # Exactly one receipt is retained per attempt; it never grows into
@@ -286,7 +299,10 @@ class ReceiptEndToEndTests(unittest.TestCase):
                 api_key="fixture-key", transport=self._small_transport()
             ),
         )
-        recommender.recommend("Diagnose a Docker container")
+        recommender.recommend(
+            "Diagnose a Docker container",
+            turn_egress_policy=_allowed_policy(),
+        )
         receipt = recommender.last_receipt
         self.assertFalse(receipt["verified"])
         self.assertTrue(receipt["advisory_only"])
@@ -304,7 +320,10 @@ class ReceiptEndToEndTests(unittest.TestCase):
                 api_key="fixture-key", transport=transport
             ),
         )
-        result = recommender.recommend("Diagnose a Docker container")
+        result = recommender.recommend(
+            "Diagnose a Docker container",
+            turn_egress_policy=_allowed_policy(),
+        )
         self.assertEqual(result["status"], "selected")
         self.assertEqual(result["source"], "local")
         receipt = recommender.last_receipt
@@ -351,7 +370,11 @@ class ReceiptEndToEndTests(unittest.TestCase):
             {"name": f"skill-{index}", "description": "public skill description"}
             for index in range(300)
         ]
-        recommender.recommend("find the last public skill", candidates=candidates)
+        recommender.recommend(
+            "find the last public skill",
+            candidates=candidates,
+            turn_egress_policy=_allowed_policy("SANITIZED_LARGE_CATALOG_TASK"),
+        )
         receipt = recommender.last_receipt
         self.assertEqual(receipt["candidate_count"], 300)
         self.assertGreater(receipt["request_count"], 1)

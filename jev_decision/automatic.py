@@ -2,25 +2,30 @@
 
 The hook is advisory only: it never loads a skill, changes a toolset, or rewrites
 Hermes' system prompt. Local matching supplies a deterministic fallback. Hosted
-Jev evaluates every eligible turn by default when its configuration switch and
-the public/sanitized-data attestation are true. It receives only the bounded
-current task, exact candidate identifiers, and bounded descriptions; conversation
-history and full skill bodies stay local.
+Jev is preferred when the host supplies an allowed per-turn egress envelope. The
+automatic hosted payload then contains only the envelope's bounded payload and
+exact candidate identifiers. Conversation history, candidate descriptions, and
+full skill bodies stay local.
 """
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import logging
 import re
 import threading
 import time
-from contextlib import contextmanager
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
 from typing import Any
 
 from . import receipt_state
+from .egress import (
+    ROUTING_MODES,
+    TurnEgressEvaluation,
+    evaluate_turn_egress_policy,
+    is_routing_mode,
+)
 from .routing import select_skill
 
 logger = logging.getLogger(__name__)
@@ -142,17 +147,6 @@ def _validate_candidates(raw: Any, *, limit: int | None) -> tuple[dict[str, str]
     return tuple(result)
 
 
-@contextmanager
-def _owned_client(factory: Callable[[], Any]):
-    client = factory()
-    try:
-        yield client
-    finally:
-        close = getattr(client, "close", None)
-        if callable(close):
-            close()
-
-
 def discover_available_skill_candidates() -> tuple[dict[str, str], ...]:
     """Discover the active profile's skills through Hermes' public skills API.
 
@@ -222,13 +216,14 @@ def _local_decision(
 
 
 class AutomaticSkillRecommender:
-    """Bounded recommender with a small per-plugin cache and fail-open egress."""
+    """Bounded recommender with explicit local/hosted routing and safe caching."""
 
     def __init__(
         self,
         *,
         configured_candidates: Any = None,
-        hosted_enabled: bool = False,
+        routing_mode: str | None = None,
+        hosted_enabled: bool | None = None,
         hosted_mode: str = "always",
         public_or_sanitized_data_ack: bool = False,
         client_factory: Callable[[], Any] | None = None,
@@ -242,10 +237,20 @@ class AutomaticSkillRecommender:
             _validate_candidates(configured_candidates, limit=None)
             if configured_candidates else ()
         )
-        self.hosted_enabled = hosted_enabled is True
+        # ``hosted_enabled`` is retained only as a compatibility input. An
+        # explicit routing mode always wins. With no explicit mode, the product
+        # default is hosted_sanitized; an old explicit false maps to local_only.
+        if routing_mode is None:
+            routing_mode = "local_only" if hosted_enabled is False else "hosted_sanitized"
+        if not is_routing_mode(routing_mode):
+            raise ValueError(f"routing_mode must be one of {sorted(ROUTING_MODES)!r}")
+        self.routing_mode = routing_mode
+        self.hosted_enabled = routing_mode == "hosted_sanitized"
         if hosted_mode not in {"uncertain_only", "always"}:
             raise ValueError("hosted_mode must be 'uncertain_only' or 'always'")
         self.hosted_mode = hosted_mode
+        # This legacy acknowledgement is deliberately never consulted when
+        # deciding whether the automatic path may construct a hosted client.
         self.public_or_sanitized_data_ack = public_or_sanitized_data_ack is True
         self.client_factory = client_factory
         self.cache_identity = cache_identity
@@ -260,6 +265,7 @@ class AutomaticSkillRecommender:
         self.last_receipt: dict[str, Any] | None = None
 
     def _route_identity_digest(self) -> str:
+        """Hash the live route/profile identity without retaining raw values."""
         identity: Any = None
         if self.cache_identity is not None:
             try:
@@ -279,6 +285,7 @@ class AutomaticSkillRecommender:
         return hashlib.sha256(encoded).hexdigest()
 
     def _pooled_client(self) -> Any:
+        """Return the client owned by this recommender for the live route."""
         if self.client_factory is None:
             raise RuntimeError("hosted client is unavailable")
         identity = self._route_identity_digest()
@@ -294,7 +301,7 @@ class AutomaticSkillRecommender:
             return self._client
 
     def close(self) -> None:
-        """Close the explicitly owned hosted client pool."""
+        """Close the explicitly owned pooled client."""
         with self._lock:
             client = self._client
             self._client = None
@@ -309,6 +316,32 @@ class AutomaticSkillRecommender:
 
     def __exit__(self, _exc_type, _exc_value, _traceback) -> None:
         self.close()
+
+    def _cache_key(
+        self,
+        task_text: str,
+        candidate_set: tuple[dict[str, str], ...],
+        policy_key: Any = None,
+    ) -> str:
+        material = {
+            "task": task_text,
+            "candidates": [(item["name"], item["description"]) for item in candidate_set],
+            "routing_mode": self.routing_mode,
+            "hosted_mode": self.hosted_mode,
+            "policy": policy_key,
+            "route_identity": self._route_identity_digest(),
+        }
+        try:
+            encoded = json.dumps(
+                material,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError):
+            encoded = repr(material).encode("utf-8", "backslashreplace")
+        return hashlib.sha256(encoded).hexdigest()
 
     def _cached(self, key: str) -> dict[str, Any] | None:
         if self.cache_seconds <= 0:
@@ -339,33 +372,24 @@ class AutomaticSkillRecommender:
         self.last_receipt = receipt
         receipt_state.store_latest_receipt(receipt)
 
-    def _cache_key(
-        self, task_text: str, candidate_set: tuple[dict[str, str], ...]
-    ) -> str:
-        identity: Any = {}
-        if self.cache_identity is not None:
-            try:
-                identity = self.cache_identity()
-            except Exception:  # noqa: BLE001 - cache identity must never block local routing
-                identity = {"unavailable": True}
-        material = {
-            "task": task_text,
-            "candidates": [(item["name"], item["description"]) for item in candidate_set],
-            "hosted_enabled": self.hosted_enabled,
-            "hosted_mode": self.hosted_mode,
-            "public_or_sanitized_data_ack": self.public_or_sanitized_data_ack,
-            "local_threshold": self.local_threshold,
-            "local_margin": self.local_margin,
-            "identity": identity,
+    @staticmethod
+    def _empty_result(
+        *, routing_mode: str, reason: str, status: str = "abstained", routing_status: str = "hosted_skipped"
+    ) -> dict[str, Any]:
+        return {
+            "status": status,
+            "selected": None,
+            "source": "none",
+            "abstention_reason": reason,
+            "routing_mode": routing_mode,
+            "routing_status": routing_status,
+            "routing_reason": reason,
+            "hosted_attempted": False,
+            "hosted_skipped": reason,
+            "candidate_count": 0,
+            "candidates_considered": [],
+            "cache_hit": False,
         }
-        try:
-            encoded = json.dumps(
-                material, ensure_ascii=False, sort_keys=True,
-                separators=(",", ":"), allow_nan=False,
-            ).encode("utf-8")
-        except (TypeError, ValueError):
-            encoded = repr(material).encode("utf-8", "backslashreplace")
-        return hashlib.sha256(encoded).hexdigest()
 
     def recommend(
         self,
@@ -373,18 +397,26 @@ class AutomaticSkillRecommender:
         *,
         candidates: Any = None,
         candidates_from_prompt: bool = False,
+        turn_egress_policy: Any = None,
+        egress_policy: Any = None,
     ) -> dict[str, Any]:
+        del candidates_from_prompt  # retained for callback compatibility
+        if self.routing_mode == "off":
+            result = self._empty_result(
+                routing_mode=self.routing_mode,
+                reason="routing_mode_off",
+                routing_status="disabled",
+            )
+            self._record_receipt(result)
+            return result
+
         task_text = _coerce_text(task)
         if not task_text:
-            result = {
-                "status": "abstained",
-                "selected": None,
-                "source": "none",
-                "abstention_reason": "empty_task",
-                "hosted_attempted": False,
-                "hosted_skipped": "empty_task",
-                "cache_hit": False,
-            }
+            result = self._empty_result(
+                routing_mode=self.routing_mode,
+                reason="empty_task",
+                routing_status="local_abstention",
+            )
             self._record_receipt(result)
             return result
 
@@ -396,37 +428,25 @@ class AutomaticSkillRecommender:
             except ValueError:
                 candidate_set = ()
         if not candidate_set:
-            result = {
-                "status": "abstained",
-                "selected": None,
-                "source": "none",
-                "abstention_reason": "no_candidates",
-                "hosted_attempted": False,
-                "hosted_skipped": "no_candidates",
-                "cache_hit": False,
-            }
+            result = self._empty_result(
+                routing_mode=self.routing_mode,
+                reason="no_candidates",
+                routing_status="local_abstention",
+            )
             self._record_receipt(result)
             return result
 
-        key = self._cache_key(task_text, candidate_set)
+        evaluation: TurnEgressEvaluation | None = None
+        if self.routing_mode == "hosted_sanitized":
+            policy = turn_egress_policy if turn_egress_policy is not None else egress_policy
+            evaluation = evaluate_turn_egress_policy(policy)
+
+        fingerprint = tuple((item["name"], item["description"]) for item in candidate_set)
+        policy_key = evaluation.cache_key if evaluation is not None else None
+        key = self._cache_key(task_text, candidate_set, policy_key)
         cached = self._cached(key)
         if cached is not None:
             cached["hosted_attempted"] = False
-            cached["hosted_error"] = None
-            cached["hosted_skipped"] = "cache_hit"
-            for field, empty in (
-                ("jev_model", None),
-                ("jev_request_id", None),
-                ("jev_latency_ms", 0.0),
-                ("jev_usage", {}),
-                ("jev_total_latency_ms", 0.0),
-                ("jev_total_usage", {}),
-                ("jev_request_count", 0),
-                ("jev_offered_count", 0),
-                ("jev_excluded_count", 0),
-                ("jev_shortlist_policy", None),
-            ):
-                cached[field] = empty
             self._record_receipt(cached)
             return cached
 
@@ -438,87 +458,134 @@ class AutomaticSkillRecommender:
         )
         top_candidates = [item[2] for item in ranked[:LOCAL_DIAGNOSTIC_TOP_K]]
         result: dict[str, Any] = {
-            "status": "abstained",
+            "status": "selected" if local_selected else "abstained",
             "selected": local_selected,
             "source": "local" if local_selected else "none",
             "abstention_reason": None if local_selected else local_reason,
             "local_score": local_score,
             "candidate_count": len(candidate_set),
             "candidates_considered": [item["name"] for item in top_candidates],
+            "routing_mode": self.routing_mode,
+            "routing_status": "local_selection" if local_selected else "local_abstention",
+            "routing_reason": local_reason if not local_selected else "local_match",
             "hosted_attempted": False,
             "cache_hit": False,
         }
+        if evaluation is not None:
+            result.update(evaluation.metadata)
 
         should_host = self.hosted_mode == "always" or local_selected is None
-        if self.hosted_enabled and self.public_or_sanitized_data_ack and self.client_factory and should_host:
+        if self.routing_mode == "local_only":
+            result["hosted_skipped"] = "routing_mode_local_only"
+            result["routing_status"] = "local_selection" if local_selected else "local_abstention"
+            result["routing_reason"] = local_reason if not local_selected else "local_match"
+        elif evaluation is not None and not evaluation.allowed:
+            # This branch occurs before client_factory() by design. Local
+            # matching is still allowed because it does not cross the boundary.
+            result["hosted_skipped"] = evaluation.reason_code
+            result["routing_status"] = "hosted_skipped"
+            result["routing_reason"] = evaluation.reason_code
+        elif not should_host:
+            result["hosted_skipped"] = "local_confident"
+            result["routing_status"] = "hosted_skipped"
+            result["routing_reason"] = "local_confident"
+        elif self.client_factory is None:
+            result["hosted_skipped"] = "client_unavailable"
+            result["routing_status"] = "hosted_skipped"
+            result["routing_reason"] = "client_unavailable"
+        else:
+            # Only the host-provided bounded payload crosses this boundary. The
+            # original task, history, descriptions, and skill bodies do not.
             result["hosted_attempted"] = True
-            # With the explicit public/sanitized attestation, descriptions are
-            # useful semantic evidence. The current task and bounded descriptions
-            # are sent; conversation history and full skill bodies stay local.
-            hosted_candidates = [
-                {"name": item["name"], "description": item["description"]}
-                for item in candidate_set
-            ]
+            hosted_candidates = [{"name": item["name"]} for item in candidate_set]
             try:
                 hosted = select_skill(
-                    task=task_text,
+                    task=evaluation.allowed_payload if evaluation is not None else "",
                     candidates=hosted_candidates,
                     client=self._pooled_client(),
                     public_or_sanitized_data_ack=True,
+                    include_descriptions=False,
                 )
             except Exception as exc:  # noqa: BLE001 -- automatic hook must fail open
                 logger.debug("automatic Jev skill recommendation unavailable: %s", type(exc).__name__)
                 result["hosted_error"] = _hosted_error_code(exc)
                 hosted = None
             if isinstance(hosted, dict):
-                for field in (
-                    "model", "latency_ms", "usage", "request_id",
-                    "total_latency_ms", "total_usage", "request_count",
-                    "offered_count", "excluded_count", "shortlist_policy",
-                ):
-                    if field in hosted and hosted[field] is not None:
-                        result[f"jev_{field}"] = hosted[field]
-            if isinstance(hosted, dict) and hosted.get("selected") in {
-                item["name"] for item in hosted_candidates
-            }:
+                _copy_redacted_jev_metadata(result, hosted)
+            offered_names = {item["name"] for item in hosted_candidates}
+            if isinstance(hosted, dict) and hosted.get("selected") in offered_names:
                 result.update(
                     {
                         "status": "selected",
                         "selected": hosted["selected"],
                         "source": "jev",
                         "abstention_reason": None,
+                        "routing_status": "hosted_selection",
+                        "routing_reason": "hosted_selection",
                     }
                 )
-            elif hosted is None and local_selected:
-                # A transport/client failure is unavailable; preserve the
-                # deterministic local result. A valid Jev abstention below is
-                # a deliberate safety decision and must not be overridden.
-                result["status"] = "selected"
-                result["source"] = "local"
-                result["abstention_reason"] = None
-            elif isinstance(hosted, dict):
+            elif hosted is None:
+                # A transport/client failure is unavailable; preserve a local
+                # result if one exists. A valid Jev abstention below is never
+                # overridden by this fallback.
+                result["hosted_error"] = "transport_or_execution_failure"
+                result["hosted_error_code"] = "transport_or_execution_failure"
+                result["routing_status"] = "hosted_failure_local_fallback" if local_selected else "hosted_failure"
+                result["routing_reason"] = "hosted_request_failed"
+                if local_selected:
+                    result["status"] = "selected"
+                    result["source"] = "local"
+                    result["abstention_reason"] = None
+            else:
+                # Any structurally valid hosted response without an offered
+                # selection is a deliberate hosted abstention.
                 result.update(
                     {
                         "status": "abstained",
                         "selected": None,
                         "source": "none",
-                        "abstention_reason": hosted.get("abstention_reason") or "hosted_abstention",
+                        "abstention_reason": "hosted_abstention",
+                        "routing_status": "hosted_abstention",
+                        "routing_reason": "hosted_abstention",
                     }
                 )
-        elif not self.hosted_enabled:
-            result["hosted_skipped"] = "disabled"
-        elif not self.public_or_sanitized_data_ack:
-            result["hosted_skipped"] = "public_or_sanitized_data_ack_required"
-        elif self.client_factory is None:
-            result["hosted_skipped"] = "client_unavailable"
-        else:
-            result["hosted_skipped"] = "local_confident"
 
         if result["selected"] is not None:
             result["status"] = "selected"
         self._store(key, result)
         self._record_receipt(result)
         return result
+
+
+def _copy_redacted_jev_metadata(result: dict[str, Any], hosted: Mapping[str, Any]) -> None:
+    """Copy only bounded numeric Jev metadata into an internal result."""
+    for field in (
+        "latency_ms", "total_latency_ms", "request_count", "offered_count", "excluded_count",
+    ):
+        value = hosted.get(field)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+            result[f"jev_{field}"] = value
+    usage = hosted.get("usage")
+    if isinstance(usage, Mapping):
+        numeric_usage = receipt_state.safe_usage(usage)
+        if numeric_usage:
+            result["jev_usage"] = numeric_usage
+
+
+def redacted_routing_metadata(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Return status/reason metadata without task, payload, or provider text."""
+    fields = (
+        "routing_mode", "routing_status", "routing_reason", "status", "source",
+        "selected", "hosted_attempted", "hosted_skipped", "hosted_error_code",
+        "candidate_count", "cache_hit", "policy_status", "policy_reason",
+        "policy_data_class", "policy_version",
+    )
+    metadata: dict[str, Any] = {}
+    for field in fields:
+        value = result.get(field)
+        if value is not None:
+            metadata[field] = value
+    return metadata
 
 
 def _config_float(value: Any, default: float, *, minimum: float, maximum: float) -> float:
@@ -696,20 +763,22 @@ def build_pre_llm_call_hook(
     *,
     enabled: bool = True,
     configured_candidates: Any = None,
-    hosted_enabled: bool = True,
+    routing_mode: str | None = None,
+    hosted_enabled: bool | None = None,
     hosted_mode: str = "always",
     public_or_sanitized_data_ack: bool = False,
     client_factory: Callable[[], Any] | None = None,
     local_threshold: float = DEFAULT_LOCAL_THRESHOLD,
     local_margin: float = DEFAULT_LOCAL_MARGIN,
     cache_seconds: float = DEFAULT_CACHE_SECONDS,
-) -> Callable[..., dict[str, str] | None] | None:
+) -> Callable[..., dict[str, Any] | None] | None:
     """Build a genuine Hermes ``pre_llm_call`` callback, or disable it."""
     if enabled is not True:
         return None
     try:
         recommender = AutomaticSkillRecommender(
             configured_candidates=configured_candidates,
+            routing_mode=routing_mode,
             hosted_enabled=hosted_enabled,
             hosted_mode=hosted_mode,
             public_or_sanitized_data_ack=public_or_sanitized_data_ack,
@@ -724,20 +793,37 @@ def build_pre_llm_call_hook(
 
     configured = bool(recommender.configured_candidates)
 
-    def on_pre_llm_call(*, user_message: Any = None, conversation_history: Any = None, **_: Any) -> dict[str, str] | None:
+    def on_pre_llm_call(
+        *,
+        user_message: Any = None,
+        conversation_history: Any = None,
+        turn_egress_policy: Any = None,
+        egress_policy: Any = None,
+        **_: Any,
+    ) -> dict[str, Any] | None:
         # Hermes' conversation_history does not include the cached system prompt
         # that advertises skills. Discover the active profile registry directly.
-        catalog_candidates = () if configured else discover_available_skill_candidates()
+        del conversation_history  # local-only input; never part of an egress payload
+        catalog_candidates = (
+            ()
+            if configured or recommender.routing_mode == "off"
+            else discover_available_skill_candidates()
+        )
         result = recommender.recommend(
             user_message,
             candidates=catalog_candidates,
             candidates_from_prompt=False,
+            turn_egress_policy=turn_egress_policy,
+            egress_policy=egress_policy,
         )
         setattr(on_pre_llm_call, "last_result", dict(result))
         setattr(on_pre_llm_call, "last_receipt", dict(recommender.last_receipt or {}))
+        metadata = redacted_routing_metadata(result)
+        setattr(on_pre_llm_call, "last_metadata", dict(metadata))
+        setattr(on_pre_llm_call, "last_routing_metadata", dict(metadata))
         selected = result.get("selected")
         if not isinstance(selected, str) or not selected:
-            return None
-        return {"context": _format_recommendation(selected)}
+            return {"metadata": metadata}
+        return {"context": _format_recommendation(selected), "metadata": metadata}
 
     return on_pre_llm_call
