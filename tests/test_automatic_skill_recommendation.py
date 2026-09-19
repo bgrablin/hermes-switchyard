@@ -15,6 +15,7 @@ from unittest import mock
 
 from jev_decision.automatic import (
     AutomaticSkillRecommender,
+    _coerce_bounded_text,
     _config_float,
     build_pre_llm_call_hook,
     discover_available_skill_candidates,
@@ -45,6 +46,16 @@ class _Context:
 
 
 class AutomaticRecommendationTests(unittest.TestCase):
+    def test_multimodal_text_is_bounded_while_blocks_are_read(self):
+        value = [
+            {"type": "text", "text": "a" * 3_000},
+            {"type": "text", "text": "b" * 3_000},
+            {"type": "text", "text": "must-not-be-read"},
+        ]
+        result = _coerce_bounded_text(value, 4_000)
+        self.assertEqual(len(result), 4_000)
+        self.assertNotIn("must-not-be-read", result)
+
     @staticmethod
     def _skills_api():
         try:

@@ -90,7 +90,7 @@ def _prepare_home(repo: Path, root: Path, automatic: bool) -> tuple[Path, Path]:
         encoding="utf-8",
     )
     (observer / "__init__.py").write_text(
-        '''"""Temporary read-only observer used only by the evaluation harness."""\n\nimport hashlib\nimport json\n\nrecords = []\n\ndef _text(value):\n    try:\n        return json.dumps(value, sort_keys=True, default=str)\n    except Exception:\n        return repr(value)\n\ndef on_pre_api_request(request_messages=None, model="", provider="", api_mode="", api_call_count=0, **kwargs):\n    text = _text(request_messages)\n    records.append({\n        "model": model,\n        "provider": provider,\n        "api_mode": api_mode,\n        "api_call_count": api_call_count,\n        "message_count": len(request_messages) if isinstance(request_messages, list) else 0,\n        "recommendation_present": "Advisory skill recommendation:" in text,\n        "docker_recommendation_present": "docker-management" in text,\n        "printer_recommendation_present": "network-printer-operations" in text,\n        "request_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),\n    })\n\ndef register(ctx):\n    ctx.register_hook("pre_api_request", on_pre_api_request)\n''',
+        '''"""Temporary read-only observer used only by the evaluation harness."""\n\nimport hashlib\nimport json\n\nrecords = []\n\ndef _text(value):\n    try:\n        return json.dumps(value, sort_keys=True, default=str)\n    except Exception:\n        return repr(value)\n\ndef _advisory_text(messages):\n    if not isinstance(messages, list):\n        return ""\n    for message in reversed(messages):\n        if isinstance(message, dict) and message.get("role") == "user":\n            text = _text(message.get("content"))\n            return text if "Advisory skill recommendation:" in text else ""\n    return ""\n\ndef on_pre_api_request(request_messages=None, model="", provider="", api_mode="", api_call_count=0, **kwargs):\n    text = _text(request_messages)\n    advisory = _advisory_text(request_messages)\n    records.append({\n        "model": model,\n        "provider": provider,\n        "api_mode": api_mode,\n        "api_call_count": api_call_count,\n        "message_count": len(request_messages) if isinstance(request_messages, list) else 0,\n        "recommendation_present": bool(advisory),\n        "docker_recommendation_present": "docker-management" in advisory,\n        "printer_recommendation_present": "network-printer-operations" in advisory,\n        "request_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),\n    })\n\ndef register(ctx):\n    ctx.register_hook("pre_api_request", on_pre_api_request)\n''',
         encoding="utf-8",
     )
     empty_bundled = root / "empty-bundled"
@@ -137,6 +137,15 @@ def _skill_name(call: dict[str, Any]) -> str:
 def _skill_load_metrics(loaded_names: list[str], expected: str) -> tuple[bool, list[str]]:
     """Classify skill loads using exact identifier equality."""
     return expected in loaded_names, [name for name in loaded_names if name != expected]
+
+
+def _forbidden_tool_calls(calls: list[dict[str, Any]]) -> list[str]:
+    exact = {"terminal", "process_manage", "write_file", "patch", "computer_use", "web_search", "web_extract"}
+    return [
+        name
+        for call in calls
+        if (name := call["name"]) in exact or name.startswith("browser_")
+    ]
 
 
 def _run_arm(
@@ -224,11 +233,7 @@ def _run_arm(
             loaded_names = [_skill_name(call) for call in skill_calls]
             expected = task["expected_skill"]
             correct_skill_load, irrelevant_skill_loads = _skill_load_metrics(loaded_names, expected)
-            forbidden = [
-                call["name"]
-                for call in calls
-                if call["name"] in {"terminal", "process_manage", "write_file", "patch", "computer_use"}
-            ]
+            forbidden = _forbidden_tool_calls(calls)
             automatic_result = dict(getattr(automatic_callback, "last_result", {})) if automatic_callback else {}
             records = list(observer_callback.__globals__.get("records", []))[records_before:]
             output.append(

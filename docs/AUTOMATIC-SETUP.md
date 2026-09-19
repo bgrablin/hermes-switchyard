@@ -82,7 +82,7 @@ Hosted Jev requires a separate OpenRouter account, an available OpenRouter credi
 The plugin manifest declares `OPENROUTER_API_KEY` as a required environment secret. Hermes collects it through the masked plugin-install flow and stores it in the active profile's `.env`:
 
 ```text
-hermes plugins install bgrablin/hermes-switchyard --force --enable
+hermes plugins install bgrablin/hermes-switchyard --ref FULL_40_SHA --force --enable
 ```
 
 Use `--force` when the plugin is already installed so Hermes reruns the manifest prompt. Never use `hermes auth add openrouter`, `--api-key`, or a config value for this plugin's credential: the hook reads only the profile-scoped `OPENROUTER_API_KEY`. Profiles do not share this secret automatically. After adding or changing it, start a fresh Hermes session. `hermes plugins list --enabled` is a metadata/readiness check and must not expose the key.
@@ -148,10 +148,10 @@ Keep the previous 40-character SHA as the rollback target. Verify the installed 
 - If `jev-decision` is absent, enable it or inspect the install result.
 - If the plugin is enabled but no recommendation appears, check that the current process is fresh and that the request matches an available skill or configured candidate.
 - If the local path abstains, inspect the threshold and margin settings. Lowering them increases selection frequency; these are uncalibrated local policies, not quality probabilities.
-- If hosted Jev is not attempted, confirm `automatic_skill_jev: true` and `automatic_skill_public_or_sanitized_data_ack: true`, then check the account without exposing the key:
+- If hosted Jev is not attempted, confirm `automatic_skill_jev: true` and `automatic_skill_public_or_sanitized_data_ack: true`. To refresh or validate the profile-scoped credential without exposing it, rerun the masked manifest prompt for the same reviewed revision:
 
 ```text
-hermes auth status openrouter
+hermes plugins install bgrablin/hermes-switchyard --ref FULL_40_SHA --force --enable
 ```
 
 - If hosted Jev is unavailable, local matching remains the only safe result. The plugin does not silently switch models, providers, accounts, or fallback routes.

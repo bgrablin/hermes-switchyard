@@ -51,12 +51,24 @@ def _coerce_bounded_text(value: Any, max_chars: int) -> str:
         return value.strip()[:max_chars]
     if isinstance(value, list):
         parts: list[str] = []
+        remaining = max_chars
         for block in value:
+            if remaining <= 0:
+                break
             if isinstance(block, str):
-                parts.append(block)
+                text = block
             elif isinstance(block, Mapping) and isinstance(block.get("text"), str):
-                parts.append(block["text"])
-        return "\n".join(parts).strip()[:max_chars]
+                text = block["text"]
+            else:
+                continue
+            if parts:
+                remaining -= 1
+                if remaining <= 0:
+                    break
+            bounded = text[:remaining]
+            parts.append(bounded)
+            remaining -= len(bounded)
+        return "\n".join(parts).strip()
     return ""
 
 
