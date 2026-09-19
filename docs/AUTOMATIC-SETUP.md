@@ -79,14 +79,13 @@ The recommendation is context sent to the model, not a separate status banner. T
 
 Hosted Jev requires a separate OpenRouter account, an available OpenRouter credit/account allowance, and access to the configured Jev model alias. Codex or ChatGPT subscription billing does not pay for OpenRouter requests. Direct TypeSafe account access is not a supported setup path.
 
-Add the OpenRouter credential through the masked Hermes flow:
+The plugin manifest declares `OPENROUTER_API_KEY` as a required environment secret. Hermes collects it through the masked plugin-install flow and stores it in the active profile's `.env`:
 
 ```text
-hermes auth add openrouter --type api-key
-hermes auth status openrouter
+hermes plugins install bgrablin/hermes-switchyard --force --enable
 ```
 
-Do not use `--api-key` in shell history. Do not paste a key into a config value, tool argument, document, or issue. `hermes auth status openrouter` is a readiness check and must not expose the secret.
+Use `--force` when the plugin is already installed so Hermes reruns the manifest prompt. Never use `hermes auth add openrouter`, `--api-key`, or a config value for this plugin's credential: the hook reads only the profile-scoped `OPENROUTER_API_KEY`. Profiles do not share this secret automatically. After adding or changing it, start a fresh Hermes session. `hermes plugins list --enabled` is a metadata/readiness check and must not expose the key.
 
 Enable hosted recommendations only after deciding that every task sent by this feature is public or already sanitized. Candidate descriptions remain local-ranking metadata and are not sent to hosted Jev; exact candidate identifiers are sent with the bounded current task:
 

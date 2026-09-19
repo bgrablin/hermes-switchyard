@@ -40,6 +40,8 @@ RELEASE_FILES = (
     "__init__.py",
     "docs/RELEASE.md",
     "docs/SETUP.md",
+    "docs/AUTOMATIC-SETUP.md",
+    "docs/AUTOMATIC-INTEGRATION.md",
     "docs/TEST-MATRIX.md",
     "docs/assets/hermes-switchyard-branding.png",
     "jev_decision/__init__.py",

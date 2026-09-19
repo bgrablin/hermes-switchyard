@@ -134,6 +134,11 @@ def _skill_name(call: dict[str, Any]) -> str:
     return ""
 
 
+def _skill_load_metrics(loaded_names: list[str], expected: str) -> tuple[bool, list[str]]:
+    """Classify skill loads using exact identifier equality."""
+    return expected in loaded_names, [name for name in loaded_names if name != expected]
+
+
 def _run_arm(
     *,
     repo: Path,
@@ -218,6 +223,7 @@ def _run_arm(
             skill_calls = [call for call in calls if call["name"] == "skill_view"]
             loaded_names = [_skill_name(call) for call in skill_calls]
             expected = task["expected_skill"]
+            correct_skill_load, irrelevant_skill_loads = _skill_load_metrics(loaded_names, expected)
             forbidden = [
                 call["name"]
                 for call in calls
@@ -235,8 +241,8 @@ def _run_arm(
                     "agent_api_message_count": len(result.get("messages", [])) if isinstance(result, dict) else 0,
                     "tool_names": [call["name"] for call in calls],
                     "skill_view_names": loaded_names,
-                    "correct_skill_load": expected in loaded_names,
-                    "irrelevant_skill_loads": [name for name in loaded_names if name and expected not in name],
+                    "correct_skill_load": correct_skill_load,
+                    "irrelevant_skill_loads": irrelevant_skill_loads,
                     "forbidden_tool_calls": forbidden,
                     "recommendation_result": {
                         key: automatic_result.get(key)

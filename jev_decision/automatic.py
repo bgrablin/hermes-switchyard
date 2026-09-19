@@ -338,7 +338,11 @@ class AutomaticSkillRecommender:
 def _config_float(value: Any, default: float, *, minimum: float, maximum: float) -> float:
     if type(value) not in (int, float) or value != value or value in (float("inf"), float("-inf")):
         return default
-    return max(minimum, min(float(value), maximum))
+    if value < minimum:
+        return minimum
+    if value > maximum:
+        return maximum
+    return float(value)
 
 
 def _config_bool(value: Any, default: bool) -> bool:

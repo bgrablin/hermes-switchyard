@@ -77,14 +77,15 @@ The local path sends no automatic recommendation request to Jev. The current tas
 
 The hosted path sends the bounded current user task and exact candidate identifiers to the fixed OpenRouter Decisions route. Candidate descriptions and conversation history remain local. This narrower payload does not make the request safe for restricted data.
 
-The OpenRouter credential is separate from a Codex or ChatGPT subscription. Codex/ChatGPT subscription billing does not pay for OpenRouter requests. Use Hermes' masked account flow, not a command-line key:
+The OpenRouter credential is separate from a Codex or ChatGPT subscription. Codex/ChatGPT subscription billing does not pay for OpenRouter requests. The plugin manifest declares `OPENROUTER_API_KEY` as a required environment secret. Use the manifest's masked profile-install flow, not the provider-pool command and not a command-line key:
 
 ```text
-hermes auth add openrouter --type api-key
-hermes auth status openrouter
+hermes plugins install bgrablin/hermes-switchyard --force --enable
 ```
 
-`hermes auth status openrouter` is a metadata/readiness check; it must not print the key. Direct TypeSafe account access is not a supported setup path for this plugin.
+Hermes prompts for the key through its masked secret UI and saves it in the active profile's `.env`. The `--force` flag reruns the prompt when the plugin is already installed. Profiles do not share this secret automatically; start a fresh Hermes process after adding or changing it. Never put the key in a URL, shell history, config value, repository file, or issue report.
+
+`hermes plugins list --enabled` is a metadata/readiness check; it must not print the key. Direct TypeSafe account access is not a supported setup path for this plugin.
 
 ## No automatic skill load or model switch
 

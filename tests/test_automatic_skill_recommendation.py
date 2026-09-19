@@ -15,6 +15,7 @@ from unittest import mock
 
 from jev_decision.automatic import (
     AutomaticSkillRecommender,
+    _config_float,
     build_pre_llm_call_hook,
     discover_available_skill_candidates,
 )
@@ -159,6 +160,16 @@ class AutomaticRecommendationTests(unittest.TestCase):
         self.assertEqual(first["selected"], "docker-management")
         self.assertFalse(first["cache_hit"])
         self.assertTrue(second["cache_hit"])
+
+    def test_config_float_clamps_unbounded_integer_before_float_conversion(self):
+        self.assertEqual(
+            _config_float(10**400, 0.2, minimum=0.0, maximum=1.0),
+            1.0,
+        )
+        self.assertEqual(
+            _config_float(-(10**400), 0.2, minimum=0.0, maximum=1.0),
+            0.0,
+        )
 
     def test_prompt_catalog_descriptions_stay_local_to_hosted_boundary(self):
         payloads = []
