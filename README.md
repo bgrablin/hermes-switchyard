@@ -1,95 +1,192 @@
 # Hermes Switchyard
 
-Jev-powered selection for Hermes Agent.
-
-A native standalone Hermes plugin for bounded, advisory Jev decisions. It adds closed-set skill selection, explicit-metadata model routing, and a Windows computer-use loop without modifying Hermes core.
+Jev-powered skill selection, model recommendations, and Windows computer use for Hermes Agent.
 
 Version: 0.3.2
 
-## Tools
+[Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) is a model built for structured decisions. Switchyard brings it to Hermes: recommend a skill, choose a model from an approved list, or select the next action in a Windows application.
 
-- `jev_skill_select` chooses from the caller's explicit skill candidates, or abstains when the local confidence, need, or winning-probability gates do not pass. It never loads a skill or edits the prompt.
-- `jev_model_route` filters candidates locally by explicit approval, data classes, capabilities, context limit, and cost. Jev supplies fit signals; code selects the cheapest qualified candidate. It never changes the runtime model and never tries an automatic fallback.
-- `jev_computer_use` is a Windows-only multi-step pilot over Hermes' existing `computer_use` tool. It requires a complete goal, target application, explicit hotkey allowlists, and the public/sanitized-data attestation. `DONE` returns a completion candidate with `verified: false`; independent verification remains the coordinator's job.
+Jev supplies decision scores. Switchyard applies its eligibility and confidence rules; for model routing, it selects the cheapest qualified model. Hermes checks the result. This plugin uses Jev; it does not provide every feature that Jev supports.
 
-All three tools preserve the existing Hermes approval and dispatch surface. The model endpoint, model aliases, and provider fallback policy are closed sets in code. The plugin does not provide a quality-calibration claim, guardrail management, arbitrary endpoint selection, or credential-bearing destinations.
+![Hermes Switchyard H logo and HERMES SWITCHYARD wordmark](docs/assets/hermes-switchyard-branding.png)
 
-## Data boundary
+Switchyard gives Hermes another way to choose among a defined set of options. It does not modify Hermes core, silently change the active model, load skills automatically, or claim that a recommendation or GUI action is correct.
 
-Every model-facing operation requires `public_or_sanitized_data_ack: true`. This is a caller attestation, not DLP or authorization. Do not send private, employer, regulated, credential, payment, or verification UI/data. Regex filtering is not permission to send data.
+## Install
 
-## Install from the private repository
+### Quick install
 
-Use a Hermes version with native `plugin.yaml` plugins and the current plugin CLI. Authenticate to GitHub before a private clone with `gh auth login` or an already-configured Git credential helper. Do not put a token in a clone URL or shell history.
-
-The repository is a root-layout native plugin. Install from the repository root; there is no subdirectory install flag:
+The repository is private at present. Git must already have read access to the repository. If it does not, authenticate GitHub with `gh auth login` or configure a Git credential helper, then run this one-liner:
 
 ```text
-hermes plugins install bgrablin/hermes-switchyard --ref FULL_40_SHA --no-enable
+hermes plugins install bgrablin/hermes-switchyard --enable
+```
+
+The command installs and enables the plugin. To inspect the installed files before enabling it:
+
+```text
+hermes plugins install bgrablin/hermes-switchyard --no-enable
 hermes plugins list
 hermes plugins enable jev-decision
 ```
 
-Open a fresh Hermes session after installing or updating. An existing gateway needs a controlled restart only when you want it to load the new plugin; do not restart unrelated services.
+Do not put a GitHub token in a clone URL, command, issue report, or repository file. Catalog installation is not available until a human admits the plugin to the Hermes catalog; use the repository command above.
 
-`FULL_40_SHA` must be the exact 40-character commit you choose to install. Hermes records the pinned source and revision. `--no-enable` leaves the plugin installed but inactive until the explicit enable step.
+After installing or updating, start a fresh Hermes session so it loads the new plugin. Restart only the Hermes process that needs to load the change.
 
-The installer may request `OPENROUTER_API_KEY` through a masked Hermes prompt because the manifest declares it as a secret. Configure it through Hermes' native secret flow for the active profile. Never paste a key into this README, a command line, a Git URL, a tool argument, or a test fixture.
+## Setup requirements
 
-## Per-profile configuration
+GitHub access lets you download the plugin. To use Jev, you also need:
 
-Plugin settings are profile-scoped under `plugins.entries.jev-decision.settings`. Use Hermes configuration commands for the active profile, for example:
+- An [OpenRouter](https://openrouter.ai/) account.
+- An [OpenRouter API key](https://openrouter.ai/keys) stored in the active Hermes profile as `OPENROUTER_API_KEY`.
+- Enough OpenRouter credit or current account allowance for the request.
+- Access through OpenRouter to the approved Jev model, `typesafe/jev-1.13`.
+
+ChatGPT and Codex subscriptions are separate from Jev. A Codex subscription pays for Codex usage. It does not pay Jev fees or OpenRouter requests. Jev uses your OpenRouter account and its credit or allowance.
+
+Direct TypeSafe account or API access is not currently supported, and there is no direct TypeSafe adapter. The plugin uses only the fixed OpenRouter Decisions endpoint: `https://openrouter.ai/api/alpha/decisions`.
+
+Use the secure setup steps in [docs/SETUP.md](docs/SETUP.md). Never pass an API key with a command-line argument or store it in a URL, repository file, fixture, or issue report.
+
+## Supported features
+
+- **Skill selection:** `jev_skill_select` recommends one skill from the candidate list supplied by Hermes. It never loads the skill; Hermes decides whether to load it.
+- **Model routing:** `jev_model_route` filters candidates using the metadata and requirements supplied by Hermes, then recommends the lowest-cost qualified candidate. It never changes the active Hermes model and does not try another provider when Jev fails.
+- **Decision primitives:** the current integration uses closed-set `Choice` and yes/no `Noul` gates. TypeSafe `Score` is not exposed because no current caller defines safe score semantics, thresholds, calibration, or downstream action.
+- **Windows computer use:** `jev_computer_use` runs bounded actions in a specified Windows application through Hermes' normal computer-use approval and action controls. It captures the target again before acting, refuses a changed target, and returns `verified: false`. Hermes must check the result separately; the tool does not certify success.
+
+The default Jev model is `typesafe/jev-1.13`. The implementation also accepts one dated alias for compatibility, but users should keep the default unless a reviewed release gives a different value. The endpoint, model aliases, and provider fallback policy are fixed in code.
+
+## Automatic skill recommendations
+
+When the plugin is enabled, the `pre_llm_call` lifecycle hook is on by default.
+It discovers the active profile's skills through Hermes' supported `skills_list`
+registry, performs bounded local matching, and may add one advisory recommendation
+to the current user API message. This is turn-scoped context: it does not mutate
+the cached system prompt, load a skill, or change the toolset. Disable it with:
+
+```text
+hermes config set plugins.entries.jev-decision.settings.automatic_skill_recommendation false
+```
+
+Hosted Jev selection is off by default. Enable it only when the active profile is
+permitted to send public or already-sanitized task text and exact candidate names:
+
+```text
+hermes config set plugins.entries.jev-decision.settings.automatic_skill_jev true
+hermes config set plugins.entries.jev-decision.settings.automatic_skill_public_or_sanitized_data_ack true
+```
+
+The persistent acknowledgement covers the bounded current task and exact skill
+identifiers only. Candidate descriptions and conversation history remain local;
+the acknowledgement is an operator attestation, not DLP or authorization. A
+valid hosted abstention is preserved; local fallback is used only when the
+hosted decision is unavailable.
+
+## Privacy and data handling
+
+Jev tools require `public_or_sanitized_data_ack: true` in their input. This means the input has been checked for permitted use. The flag does not scan or redact data, grant permission to share it, or bypass other controls.
+
+For Windows computer use, Jev may receive the goal, target application, window title, safe visible control labels, visible context, and recent actions through OpenRouter. When the loop enters text, the configured Hermes text model may also receive the goal, field details, visible context, and recent actions. Do not send private, employer, regulated, credential, password, API-key, token, payment, or verification-code data.
+
+## Tools and limits
+
+The tools are advisory and bounded:
+
+- A high confidence score is not proof that a choice is correct.
+- Switchyard can return no selection when eligibility or confidence checks fail. This valid result is called abstention.
+- The plugin does not load skills, change the cached system prompt, change runtime models, or certify GUI completion. Automatic recommendations add context to the current turn only.
+- Provider fallback is disabled. A failed Jev request does not silently move to another provider.
+- Skill selection and model routing work on Linux and Windows. `jev_computer_use` is available only when Hermes runs on Windows.
+- The repository's offline tests use synthetic transports and do not call OpenRouter or drive a real GUI.
+
+Future work includes a reviewed catalog admission, independent real-GUI coverage, and comparative evaluation. Those are not provided by this release.
+
+## Safe credential setup
+
+The installation step requests `OPENROUTER_API_KEY` through a masked prompt when the key is missing. Hermes stores it in the active profile. If you already supplied the key, there is no need to reinstall.
+
+Do not use `hermes auth add openrouter` for this plugin. That command manages a provider credential pool; Switchyard reads the profile-scoped `OPENROUTER_API_KEY` secret instead. Check the enabled plugin without displaying the key:
+
+```text
+hermes plugins list --enabled
+```
+
+If Hermes reports that `OPENROUTER_API_KEY` is missing, rerun `hermes plugins install bgrablin/hermes-switchyard --force --enable` and follow the manifest's masked prompt, then start a fresh Hermes session and check the plugin list again. Logging in to Codex or changing `jev_model` does not fix a missing OpenRouter key.
+
+## Windows prerequisites
+
+Skill selection and model routing do not require Windows. `jev_computer_use` requires Hermes to run on a Windows host with the target application installed and available to Hermes' normal computer-use path. The operation needs approval and confirmation that its input is public or sanitized. The loop does not prove that the application task completed; verify the visible result independently.
+
+Some text-entry actions use the host-owned Hermes text model. Select a configured Hermes model with the normal interactive command when needed:
+
+```text
+hermes model
+```
+
+This host model is separate from the OpenRouter Jev model and does not replace the OpenRouter account or key.
+
+## Configuration
+
+Settings are profile-scoped under `plugins.entries.jev-decision.settings`:
 
 ```text
 hermes config set plugins.entries.jev-decision.settings.jev_model typesafe/jev-1.13
 hermes config set plugins.entries.jev-decision.settings.computer_max_steps 12
 ```
 
-The endpoint remains fixed by the implementation even if a setting attempts to change it. Each profile needs its own secret/configuration; profiles do not inherit credentials from one another. Use `hermes config get` for masked readback and the profile's native secret/configuration management, not shell credential values.
+`api_endpoint` is fixed by the implementation. Changing it to a TypeSafe URL or another provider is rejected. Each Hermes profile has its own settings and secret scope.
+
+## Missing-key symptoms
+
+When `OPENROUTER_API_KEY` is absent, Hermes can disable the plugin during loading and the Jev tools will not be available. If a handler is reached without a key, the plugin fails closed with a generic request-validation error; it does not print the key or provider credential details.
+
+The supported recovery is:
+
+1. Add the key through the masked plugin installation prompt described above.
+2. Start a fresh Hermes session.
+3. Run `hermes plugins list --enabled`.
+4. From the plugin root, run the native check:
+
+```text
+hermes plugins doctor . --ci
+```
+
+Plugin Doctor checks whether Hermes can import and register the plugin. It does not test a live Jev request or prove that a GUI task succeeded. It runs plugin code in-process, not in a sandbox, so use it only with trusted code.
 
 ## Updating and rollback
 
-For an unpinned install, the normal update command is:
+For an unpinned repository install:
 
 ```text
 hermes plugins update jev-decision
 ```
 
-A pinned install does not move implicitly. To update or roll back, reinstall the same private repository with `--force` and the desired full commit SHA, then enable the plugin if required:
+An exact-SHA install does not move implicitly. Reinstall with `--force --ref` and the reviewed commit described in [docs/RELEASE.md](docs/RELEASE.md), then enable the plugin if required. Check the result with `hermes plugins list` and `hermes plugins doctor . --ci` before enabling it.
 
-```text
-hermes plugins install bgrablin/hermes-switchyard --force --ref FULL_40_SHA --no-enable
-hermes plugins enable jev-decision
-```
-
-These operations replace only the plugin under the profile's plugin directory. They do not patch Hermes core. Keep the previous full SHA as the rollback target and verify with `hermes plugins list` and `hermes plugins doctor` before enabling it.
+These operations replace only the plugin under the active profile's plugin directory. They do not patch Hermes core. Keep the previous reviewed SHA as the rollback target.
 
 ## Offline verification
 
-The repository has no runtime Python dependency beyond Hermes for native loading and no dependency beyond Python 3.11+ for its offline tests:
+The repository has no runtime Python dependency beyond Hermes for native loading and requires Python 3.11 or newer for offline checks:
 
 ```text
 python -m unittest discover -s tests -v
 python evaluation/evaluate.py --validate
+python scripts/check_portability.py
 ```
 
-The evaluator uses only public synthetic fixtures by default. It writes `evaluation/results.json`, which is ignored by Git, and records repository-relative source information rather than host-specific absolute paths. `--live` is explicit, bounded, and requires the caller to provide the API key through the native environment/secret scope; CI never uses it.
+Release archives use an exact Git source commit, include `SOURCE-MANIFEST.json` and embedded `SHA256SUMS`, and are extracted and verified before the builder returns. Release and candidate review instructions are in [docs/RELEASE.md](docs/RELEASE.md).
 
-To validate native discovery without changing a live profile, point `HERMES_HOME` at a fresh temporary directory and run Plugin Doctor from the repository root:
+## Documentation
 
-```text
-HERMES_HOME=<fresh-temporary-directory> hermes plugins doctor . --ci
-```
+- [Setup](docs/SETUP.md)
+- [Release instructions](docs/RELEASE.md)
+- [Feature and test matrix](docs/TEST-MATRIX.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security reporting](SECURITY.md)
+- [Third-party references](THIRD_PARTY.md)
+- [Changelog](CHANGELOG.md)
 
-Doctor uses isolated registration and a temporary Hermes home. It is a validation command, not an install or enable operation. A plugin still runs in-process when enabled, so only validate code you trust.
-
-## Supported scope and limitations
-
-- Native general-plugin discovery is supported on Hermes hosts that implement `plugin.yaml` plus root `__init__.py` with `register(ctx)`.
-- Linux and Windows Python 3.11+ are covered by offline CI. The computer-use pilot remains Windows-only; routing and skill selection are host-independent.
-- Synthetic tests do not call the network or drive a real GUI. A live smoke is not a substitute for coordinator-owned verification.
-- Jev outputs are advisory and uncalibrated. Abstention is a valid result. The plugin never loads skills, changes prompts, changes runtime models, or certifies GUI completion.
-
-## License and references
-
-Own work is MIT-licensed. See `THIRD_PARTY.md` for conceptual upstream references and `SECURITY.md` for reporting boundaries.
+Own work is MIT-licensed. See `THIRD_PARTY.md` for conceptual upstream references.
