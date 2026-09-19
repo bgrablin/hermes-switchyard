@@ -1,10 +1,11 @@
 """Automatic, bounded skill recommendations through Hermes ``pre_llm_call``.
 
 The hook is advisory only: it never loads a skill, changes a toolset, or rewrites
-Hermes' system prompt. Local token matching is the default. A hosted Jev call is
-reachable only when both its configuration switch and the public/sanitized-data
-attestation are true. Hosted Jev receives only the bounded current task and exact
-candidate identifiers; candidate descriptions and conversation history stay local.
+Hermes' system prompt. Local matching supplies a deterministic fallback. Hosted
+Jev evaluates every eligible turn by default when its configuration switch and
+the public/sanitized-data attestation are true. It receives only the bounded
+current task, exact candidate identifiers, and bounded descriptions; conversation
+history and full skill bodies stay local.
 """
 from __future__ import annotations
 
@@ -21,8 +22,7 @@ from .routing import select_skill
 
 logger = logging.getLogger(__name__)
 
-MAX_RETRIEVED_CANDIDATES = 32
-MAX_CATALOG_CANDIDATES = 255
+LOCAL_DIAGNOSTIC_TOP_K = 32
 MAX_TASK_CHARS = 4_000
 MAX_CANDIDATE_NAME_CHARS = 128
 MAX_DESCRIPTION_CHARS = 1_000
@@ -96,9 +96,10 @@ def _validate_name(name: Any) -> str:
     return name
 
 
-def _validate_candidates(raw: Any, *, limit: int) -> tuple[dict[str, str], ...]:
-    if not isinstance(raw, (list, tuple)) or not raw or len(raw) > limit:
-        raise ValueError(f"automatic skill candidates must contain 1 to {limit} entries")
+def _validate_candidates(raw: Any, *, limit: int | None) -> tuple[dict[str, str], ...]:
+    if not isinstance(raw, (list, tuple)) or not raw or (limit is not None and len(raw) > limit):
+        bound = f"1 to {limit}" if limit is not None else "at least 1"
+        raise ValueError(f"automatic skill candidates must contain {bound} entries")
     result: list[dict[str, str]] = []
     names: set[str] = set()
     for item in raw:
@@ -138,7 +139,7 @@ def discover_available_skill_candidates() -> tuple[dict[str, str], ...]:
         if not isinstance(rows, list):
             return ()
         candidates: list[dict[str, str]] = []
-        for item in rows[:MAX_CATALOG_CANDIDATES]:
+        for item in rows:
             if not isinstance(item, Mapping):
                 continue
             try:
@@ -196,6 +197,7 @@ class AutomaticSkillRecommender:
         *,
         configured_candidates: Any = None,
         hosted_enabled: bool = False,
+        hosted_mode: str = "always",
         public_or_sanitized_data_ack: bool = False,
         client_factory: Callable[[], Any] | None = None,
         local_threshold: float = DEFAULT_LOCAL_THRESHOLD,
@@ -204,10 +206,13 @@ class AutomaticSkillRecommender:
         cache_size: int = DEFAULT_CACHE_SIZE,
     ) -> None:
         self.configured_candidates = (
-            _validate_candidates(configured_candidates, limit=MAX_RETRIEVED_CANDIDATES)
+            _validate_candidates(configured_candidates, limit=None)
             if configured_candidates else ()
         )
         self.hosted_enabled = hosted_enabled is True
+        if hosted_mode not in {"uncertain_only", "always"}:
+            raise ValueError("hosted_mode must be 'uncertain_only' or 'always'")
+        self.hosted_mode = hosted_mode
         self.public_or_sanitized_data_ack = public_or_sanitized_data_ack is True
         self.client_factory = client_factory
         self.local_threshold = local_threshold
@@ -256,7 +261,7 @@ class AutomaticSkillRecommender:
             candidate_set = self.configured_candidates
         else:
             try:
-                candidate_set = _validate_candidates(candidates, limit=MAX_CATALOG_CANDIDATES)
+                candidate_set = _validate_candidates(candidates, limit=None)
             except ValueError:
                 candidate_set = ()
         if not candidate_set:
@@ -267,37 +272,39 @@ class AutomaticSkillRecommender:
             }
 
         fingerprint = tuple((item["name"], item["description"]) for item in candidate_set)
-        key = (task_text, fingerprint, self.hosted_enabled, self.public_or_sanitized_data_ack)
+        key = (task_text, fingerprint, self.hosted_enabled, self.hosted_mode, self.public_or_sanitized_data_ack)
         cached = self._cached(key)
         if cached is not None:
             return cached
 
         ranked = _rank_candidates(task_text, candidate_set)
         local_selected, local_reason, local_score = _local_decision(
-            ranked[:MAX_RETRIEVED_CANDIDATES],
+            ranked,
             threshold=self.local_threshold,
             margin=self.local_margin,
         )
-        top_candidates = [item[2] for item in ranked[:MAX_RETRIEVED_CANDIDATES]]
+        top_candidates = [item[2] for item in ranked[:LOCAL_DIAGNOSTIC_TOP_K]]
         result: dict[str, Any] = {
             "status": "abstained",
             "selected": local_selected,
             "source": "local" if local_selected else "none",
             "abstention_reason": None if local_selected else local_reason,
             "local_score": local_score,
+            "candidate_count": len(candidate_set),
             "candidates_considered": [item["name"] for item in top_candidates],
             "hosted_attempted": False,
             "cache_hit": False,
         }
 
-        if self.hosted_enabled and self.public_or_sanitized_data_ack and self.client_factory:
+        should_host = self.hosted_mode == "always" or local_selected is None
+        if self.hosted_enabled and self.public_or_sanitized_data_ack and self.client_factory and should_host:
             result["hosted_attempted"] = True
-            # Descriptions are useful for local ranking but are operator-provided
-            # data. Keep them on the host; the hosted boundary carries only exact
-            # candidate identifiers, regardless of candidate source.
+            # With the explicit public/sanitized attestation, descriptions are
+            # useful semantic evidence. The current task and bounded descriptions
+            # are sent; conversation history and full skill bodies stay local.
             hosted_candidates = [
-                {"name": item["name"], "description": item["name"]}
-                for item in top_candidates
+                {"name": item["name"], "description": item["description"]}
+                for item in candidate_set
             ]
             try:
                 hosted = select_skill(
@@ -310,7 +317,11 @@ class AutomaticSkillRecommender:
                 logger.debug("automatic Jev skill recommendation unavailable: %s", type(exc).__name__)
                 hosted = None
             if isinstance(hosted, dict):
-                for field in ("model", "latency_ms", "usage", "request_id"):
+                for field in (
+                    "model", "latency_ms", "usage", "request_id",
+                    "total_latency_ms", "total_usage", "request_count",
+                    "offered_count", "excluded_count", "shortlist_policy",
+                ):
                     if field in hosted and hosted[field] is not None:
                         result[f"jev_{field}"] = hosted[field]
             if isinstance(hosted, dict) and hosted.get("selected") in {
@@ -340,6 +351,14 @@ class AutomaticSkillRecommender:
                         "abstention_reason": hosted.get("abstention_reason") or "hosted_abstention",
                     }
                 )
+        elif not self.hosted_enabled:
+            result["hosted_skipped"] = "disabled"
+        elif not self.public_or_sanitized_data_ack:
+            result["hosted_skipped"] = "public_or_sanitized_data_ack_required"
+        elif self.client_factory is None:
+            result["hosted_skipped"] = "client_unavailable"
+        else:
+            result["hosted_skipped"] = "local_confident"
 
         if result["selected"] is not None:
             result["status"] = "selected"
@@ -373,7 +392,8 @@ def build_pre_llm_call_hook(
     *,
     enabled: bool = True,
     configured_candidates: Any = None,
-    hosted_enabled: bool = False,
+    hosted_enabled: bool = True,
+    hosted_mode: str = "always",
     public_or_sanitized_data_ack: bool = False,
     client_factory: Callable[[], Any] | None = None,
     local_threshold: float = DEFAULT_LOCAL_THRESHOLD,
@@ -387,6 +407,7 @@ def build_pre_llm_call_hook(
         recommender = AutomaticSkillRecommender(
             configured_candidates=configured_candidates,
             hosted_enabled=hosted_enabled,
+            hosted_mode=hosted_mode,
             public_or_sanitized_data_ack=public_or_sanitized_data_ack,
             client_factory=client_factory,
             local_threshold=local_threshold,

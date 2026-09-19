@@ -8,26 +8,51 @@ from pathlib import Path
 
 from . import schemas
 from .automatic import _config_float, build_pre_llm_call_hook
-from .client import DEFAULT_ENDPOINT, DecisionClient
+from .client import DEFAULT_ENDPOINT, TYPESAFE_ENDPOINT, DecisionClient
 from .computer_use import StaleTargetError, run_computer_goal
 from .routing import route_model, select_skill
 
 
-def _secret():
+def _cli_handler(args):
+    if getattr(args, "jev_command", None) != "setup":
+        print("Usage: hermes jev-decision setup --provider <typesafe|openrouter>")
+        return 2
+    provider = args.provider
+    key_name = "TYPESAFE_API_KEY" if provider == "typesafe" else "OPENROUTER_API_KEY"
+    from hermes_cli.config import save_env_value
+    from hermes_cli.secret_prompt import masked_secret_prompt
+
+    value = masked_secret_prompt(f"{key_name}: ").strip()
+    if not value:
+        print("No credential saved.")
+        return 1
+    save_env_value(key_name, value)
+    print(f"Saved {key_name} to the active Hermes profile secret store. Start a fresh session.")
+    return 0
+
+
+def _setup_cli(parser):
+    commands = parser.add_subparsers(dest="jev_command")
+    setup = commands.add_parser("setup", help="Save one Jev provider key through a masked prompt")
+    setup.add_argument("--provider", required=True, choices=("typesafe", "openrouter"))
+    parser.set_defaults(func=_cli_handler)
+
+
+def _secret(provider: str = "auto"):
     from agent.secret_scope import get_secret
 
-    return str(get_secret("OPENROUTER_API_KEY") or "").strip()
-
-
-def _available():
-    try:
-        return bool(_secret())
-    except Exception:  # noqa: BLE001 -- an unbound profile secret scope means unavailable
-        return False
-
-
-def _computer_available():
-    return sys.platform == "win32" and _available()
+    names = {
+        "typesafe": ("TYPESAFE_API_KEY",),
+        "openrouter": ("OPENROUTER_API_KEY",),
+        "auto": ("TYPESAFE_API_KEY", "OPENROUTER_API_KEY"),
+    }
+    if provider not in names:
+        raise ValueError("jev_provider must be auto, typesafe, or openrouter")
+    for name in names[provider]:
+        value = str(get_secret(name) or "").strip()
+        if value:
+            return value
+    return ""
 
 
 def _error(exc):
@@ -56,9 +81,17 @@ def _require_public_data_ack(args):
 
 
 def register(ctx):
-    endpoint = ctx.get_config("api_endpoint", default=DEFAULT_ENDPOINT)
-    model = ctx.get_config("jev_model", default="typesafe/jev-1.13")
-    default_steps = int(ctx.get_config("computer_max_steps", default=12))
+    configured_endpoint = ctx.get_config("api_endpoint", default=DEFAULT_ENDPOINT)
+    configured_provider = ctx.get_config("jev_provider", default="auto")
+    configured_model = ctx.get_config("jev_model", default=None)
+    default_steps = int(ctx.get_config("computer_max_steps", default=100))
+    if hasattr(ctx, "register_cli_command"):
+        ctx.register_cli_command(
+            name="jev-decision",
+            help="Configure Hermes Switchyard Jev access",
+            setup_fn=_setup_cli,
+            handler_fn=_cli_handler,
+        )
     if hasattr(ctx, "register_auxiliary_task"):
         ctx.register_auxiliary_task(
             "jev_decision_writer",
@@ -67,10 +100,41 @@ def register(ctx):
             defaults={"timeout": 30},
         )
 
+    def _route() -> tuple[str, str, str]:
+        provider = configured_provider
+        if provider not in {"auto", "typesafe", "openrouter"}:
+            raise ValueError("jev_provider must be auto, typesafe, or openrouter")
+        if configured_endpoint not in {DEFAULT_ENDPOINT, TYPESAFE_ENDPOINT}:
+            raise ValueError("api_endpoint must be one of the fixed Jev endpoints")
+        if configured_endpoint != DEFAULT_ENDPOINT:
+            provider = "typesafe"
+        elif provider == "auto":
+            try:
+                provider = "typesafe" if _secret("typesafe") else "openrouter"
+            except Exception:
+                provider = "openrouter"
+        endpoint = TYPESAFE_ENDPOINT if provider == "typesafe" else DEFAULT_ENDPOINT
+        model = configured_model or ("jev-latest" if provider == "typesafe" else "typesafe/jev-1.13")
+        return endpoint, model, provider
+
     def client():
-        # DecisionClient rejects any non-fixed endpoint and any model outside
-        # the two evidence-backed Jev aliases.
-        return DecisionClient(api_key=_secret(), endpoint=endpoint, model=model)
+        endpoint, model, provider = _route()
+        return DecisionClient(api_key=_secret(provider), endpoint=endpoint, model=model)
+
+    def route_available():
+        try:
+            endpoint, model, provider = _route()
+            key = _secret(provider)
+            if not key:
+                return False
+            probe = DecisionClient(api_key=key, endpoint=endpoint, model=model)
+            probe.close()
+            return True
+        except Exception:  # noqa: BLE001 -- unavailable routes stay hidden
+            return False
+
+    def computer_route_available():
+        return sys.platform in {"win32", "darwin", "linux"} and route_available()
 
     def setting_bool(key, default):
         value = ctx.get_config(key, default=default)
@@ -79,7 +143,8 @@ def register(ctx):
     automatic_hook = build_pre_llm_call_hook(
         enabled=setting_bool("automatic_skill_recommendation", True),
         configured_candidates=ctx.get_config("automatic_skill_candidates", default=[]),
-        hosted_enabled=setting_bool("automatic_skill_jev", False),
+        hosted_enabled=setting_bool("automatic_skill_jev", True),
+        hosted_mode=ctx.get_config("automatic_skill_jev_mode", default="always"),
         public_or_sanitized_data_ack=setting_bool(
             "automatic_skill_public_or_sanitized_data_ack", False
         ),
@@ -139,6 +204,23 @@ def register(ctx):
             raise TypeError("text helper returned no structured value")
         return str(result.parsed.get("text") or "")
 
+    def assess_handler(args, **kwargs):
+        try:
+            _require_public_data_ack(args)
+            state = args.get("state")
+            questions = args.get("questions")
+            if not isinstance(questions, dict) or not questions:
+                raise ValueError("questions must be a non-empty object")
+            return json.dumps(
+                client().decide(
+                    state,
+                    questions,
+                    public_or_sanitized_data_ack=args.get("public_or_sanitized_data_ack", False),
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 -- tool handlers return structured errors
+            return _error(exc)
+
     def computer_handler(args, **kwargs):
         try:
             _require_public_data_ack(args)
@@ -191,11 +273,19 @@ def register(ctx):
             return _error(exc)
 
     ctx.register_tool(
+        name="jev_assess",
+        toolset="jev_decision",
+        schema=schemas.ASSESS,
+        handler=assess_handler,
+        check_fn=route_available,
+        emoji="⚡",
+    )
+    ctx.register_tool(
         name="jev_computer_use",
         toolset="jev_decision",
         schema=schemas.COMPUTER_USE,
         handler=computer_handler,
-        check_fn=_computer_available,
+        check_fn=computer_route_available,
         emoji="⚡",
     )
     ctx.register_tool(
@@ -203,7 +293,7 @@ def register(ctx):
         toolset="jev_decision",
         schema=schemas.SKILL_SELECT,
         handler=skill_handler,
-        check_fn=_available,
+        check_fn=route_available,
         emoji="⚡",
     )
     ctx.register_tool(
@@ -211,7 +301,7 @@ def register(ctx):
         toolset="jev_decision",
         schema=schemas.MODEL_ROUTE,
         handler=route_handler,
-        check_fn=_available,
+        check_fn=route_available,
         emoji="⚡",
     )
     if hasattr(ctx, "register_skill"):
@@ -219,17 +309,17 @@ def register(ctx):
             "jev-decision-operations",
             Path(__file__).parent / "skills" / "jev-decision-operations" / "SKILL.md",
         )
-    if sys.platform == "win32" and hasattr(ctx, "register_system_prompt_section"):
+    if sys.platform in {"win32", "darwin", "linux"} and hasattr(ctx, "register_system_prompt_section"):
         ctx.register_system_prompt_section(
-            "jev-decision.windows-computer-use",
-            "Jev computer use is a configurable capability for multi-step Windows browser or native GUI goals. Use it "
-            "only when the caller explicitly approves the pilot and attests that all state is public or sanitized; "
-            "that acknowledgement is not blanket egress authorization and does not override mandatory skills, "
-            "the user's native/computer-use preference, or other required controls. If used, call jev_computer_use "
-            "with the complete goal and target app; its loop re-captures before actions and returns "
-            "completion_candidate/verified=false, while the coordinator owns independent completion verification. "
-            "Otherwise preserve the user's native/computer workflow. Use low-level computer_use for a single "
-            "explicit atomic action, final verification, or recovery after Jev returns blocked/error.",
+            "jev-decision.computer-use",
+            "Jev computer use is a configurable capability for multi-step browser or native GUI goals on "
+            "Windows, macOS, and Linux. Use it only when the caller explicitly approves the run and attests "
+            "that all state is public or sanitized; that acknowledgement is not blanket egress authorization "
+            "and does not override mandatory skills, the user's native/computer-use preference, or other required "
+            "controls. The loop delegates to Hermes' Cua Driver-backed computer_use tool, keeps application-owned "
+            "candidate IDs, re-captures before actions, and returns completion_candidate/verified=false. An "
+            "independent coordinator-owned verifier remains required. Otherwise preserve the native computer-use "
+            "workflow, and use low-level computer_use for a single explicit atomic action or recovery.",
             position="after_memory",
             max_chars=900,
         )

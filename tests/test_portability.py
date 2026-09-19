@@ -67,7 +67,7 @@ class PortabilityTests(unittest.TestCase):
         self.assertIsNotNone(parsed)
         _check_manifest_version(raw_manifest, parsed.name)
         self.assertEqual(parsed.name, "jev-decision")
-        self.assertEqual(parsed.version, "0.3.2")
+        self.assertEqual(parsed.version, "0.4.0")
         self.assertEqual(parsed.manifest_version, 1)
         self.assertIsNone(parsed.api_version)
 

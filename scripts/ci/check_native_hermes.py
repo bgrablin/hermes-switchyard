@@ -15,11 +15,13 @@ EXPECTED_HERMES_PYTHON = ">=3.11,<3.14"
 EXPECTED_PLUGIN = "jev-decision"
 EXPECTED_MANIFEST_VERSION = 1
 EXPECTED_TOOLS = frozenset({
+    "jev_assess",
     "jev_computer_use",
     "jev_model_route",
     "jev_skill_select",
 })
 EXPECTED_REQUIRED_FIELDS = {
+    "jev_assess": {"state", "questions"},
     "jev_computer_use": {"goal", "app"},
     "jev_model_route": {"task", "candidates"},
     "jev_skill_select": {"task", "candidates"},

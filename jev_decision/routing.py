@@ -6,8 +6,11 @@ never loads a skill, edits a prompt, or changes the runtime model.
 """
 from __future__ import annotations
 
+import json
 import math
 from typing import Any
+
+from .client import MAX_DECISION_REQUESTS, request_budget_scope
 
 
 # These are conservative local policy thresholds. Choice confidence is output
@@ -24,6 +27,11 @@ _MODEL_REQUIREMENT_KEYS = frozenset({
     "context_limit",
     "budget",
 })
+
+_CHOICE_MAX_OPTIONS = 255  # Jev's per-Choice contract; large catalogs are reduced hierarchically.
+_SKILL_PARTITION_SIZE = 200  # Leave room for an explicit no-match option.
+_PARTITION_CRITERIA_BYTES = 72_000
+_SKILL_NONE = "__jev_none_of_these__"
 
 
 def _require_public_data_ack(acknowledged: bool) -> None:
@@ -60,10 +68,11 @@ def _string_list(value: Any, name: str) -> list[str]:
     return list(value)
 
 
-def _criteria(candidates: list[dict], key: str) -> dict[str, str]:
+def _criteria(candidates: list[dict], key: str, *, max_entries: int | None = _CHOICE_MAX_OPTIONS) -> dict[str, str]:
     """Build Jev criteria without normalizing candidate identifiers."""
-    if not isinstance(candidates, list) or not candidates or len(candidates) > 255:
-        raise ValueError("candidates must contain 1 to 255 entries")
+    if not isinstance(candidates, list) or not candidates or (max_entries is not None and len(candidates) > max_entries):
+        bound = f"1 to {max_entries}" if max_entries is not None else "at least 1"
+        raise ValueError(f"candidates must contain {bound} entries")
     out: dict[str, str] = {}
     for item in candidates:
         if not isinstance(item, dict):
@@ -112,10 +121,48 @@ def _decision_metadata(result: Any) -> dict[str, Any]:
         "model": result.get("model"),
         "latency_ms": result.get("latency_ms"),
         "usage": usage,
+        "request_count": int(result.get("request_count") or 1),
+        "total_latency_ms": result.get("total_latency_ms", result.get("latency_ms")),
+        "total_usage": result.get("total_usage", usage),
     }
 
 
-def select_skill(
+def _aggregate_metadata(calls: list[dict[str, Any]]) -> dict[str, Any]:
+    usage: dict[str, Any] = {}
+    latency = 0.0
+    request_count = 0
+    for call in calls:
+        value = call.get("latency_ms")
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0:
+            latency += float(value)
+        request_count += int(call.get("request_count") or 1)
+        for key, item in (call.get("usage") or {}).items():
+            if isinstance(item, (int, float)) and not isinstance(item, bool) and math.isfinite(item):
+                usage[key] = float(usage.get(key, 0.0)) + float(item)
+            elif key not in usage:
+                usage[key] = item
+    return {"total_latency_ms": latency, "total_usage": usage, "request_count": request_count}
+
+
+def _skill_chunks(candidates: list[dict]) -> list[list[dict]]:
+    chunks: list[list[dict]] = []
+    current: list[dict] = []
+    for candidate in candidates:
+        trial = current + [candidate]
+        criteria = _criteria(trial, "name", max_entries=None)
+        criteria[_SKILL_NONE] = "No candidate in this partition materially fits the task"
+        size = len(json.dumps(criteria, ensure_ascii=False).encode("utf-8"))
+        if current and (len(trial) > _SKILL_PARTITION_SIZE or size > _PARTITION_CRITERIA_BYTES):
+            chunks.append(current)
+            current = [candidate]
+        else:
+            current = trial
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _select_skill_small(
     *,
     task: str,
     candidates: list[dict],
@@ -191,8 +238,181 @@ def select_skill(
         "winning_probability": winning_probability,
         "probabilities": probabilities,
         "thresholds": thresholds,
+        "candidate_count": len(candidates),
+        "offered_count": len(candidates),
+        "excluded_count": 0,
+        "shortlist_policy": "complete_candidate_set",
         **metadata,
     }
+
+
+def _skill_partition_winners(
+    *,
+    task: str,
+    candidates: list[dict],
+    client: Any,
+    include_needs_skill: bool,
+) -> tuple[list[dict], list[dict[str, Any]], float | None]:
+    """Evaluate every bounded partition and retain one finalist from each."""
+    if not candidates:
+        return [], [], None
+    winners: list[dict] = []
+    metadata: list[dict[str, Any]] = []
+    needs_score: float | None = None
+    for partition, chunk in enumerate(_skill_chunks(candidates)):
+        criteria = _criteria(chunk, "name")
+        if _SKILL_NONE in criteria:
+            raise ValueError(f"candidate name {_SKILL_NONE!r} is reserved")
+        criteria[_SKILL_NONE] = "No candidate in this partition materially fits the task"
+        name = f"skill_chunk_{partition}"
+        questions: dict[str, dict[str, Any]] = {
+            name: {
+                "type": "choice",
+                "instructions": (
+                    "Which offered skill best matches this task? Choose the none option when no skill "
+                    "in this partition adds material value. The result is advisory."
+                ),
+                "criteria": criteria,
+            }
+        }
+        if include_needs_skill and partition == 0:
+            questions["needs_skill"] = {
+                "type": "noul",
+                "instructions": "Does this task need one of the offered skills?",
+                "criteria": {
+                    "true": "A candidate provides specialized procedure or constraints needed for the task",
+                    "false": "The task is simple or none of the candidates adds material value",
+                },
+            }
+        result = client.decide(
+            {"task": task, "candidate_count": len(candidates), "partition": partition},
+            questions,
+            public_or_sanitized_data_ack=True,
+        )
+        answers = result.get("answers") if isinstance(result, dict) else None
+        if not isinstance(answers, dict):
+            raise TypeError("Jev large-skill response has no answers object")
+        choice, _confidence, _probabilities = _choice_metrics(answers.get(name), criteria, name)
+        if choice != _SKILL_NONE:
+            winners.append(next(item for item in chunk if item["name"] == choice))
+        metadata.append(_decision_metadata(result))
+        if "needs_skill" in questions:
+            needs = answers.get("needs_skill")
+            if not isinstance(needs, dict):
+                raise TypeError("Jev large-skill response is missing needs_skill")
+            needs_score = _bounded_number(needs.get("noul"), "needs_skill.noul")
+    return winners, metadata, needs_score
+
+
+def _select_skill_impl(
+    *,
+    task: str,
+    candidates: list[dict],
+    client: Any,
+    choice_confidence_threshold: float = DEFAULT_SKILL_CHOICE_CONFIDENCE_THRESHOLD,
+    needs_skill_threshold: float = DEFAULT_SKILL_NEEDS_THRESHOLD,
+    winning_probability_threshold: float = DEFAULT_SKILL_WINNING_PROBABILITY_THRESHOLD,
+    public_or_sanitized_data_ack: bool = False,
+) -> dict:
+    """Select a skill, reducing arbitrarily large catalogs through Jev fan-out.
+
+    A normal Choice remains one request for small catalogs. Larger catalogs are
+    searched in full through partition questions and recursive reduction, then a
+    final bounded Choice applies the same policy thresholds.
+    """
+    if not isinstance(candidates, list) or not candidates:
+        return _select_skill_small(
+            task=task, candidates=candidates, client=client,
+            choice_confidence_threshold=choice_confidence_threshold,
+            needs_skill_threshold=needs_skill_threshold,
+            winning_probability_threshold=winning_probability_threshold,
+            public_or_sanitized_data_ack=public_or_sanitized_data_ack,
+        )
+    if len(candidates) <= _CHOICE_MAX_OPTIONS:
+        return _select_skill_small(
+            task=task, candidates=candidates, client=client,
+            choice_confidence_threshold=choice_confidence_threshold,
+            needs_skill_threshold=needs_skill_threshold,
+            winning_probability_threshold=winning_probability_threshold,
+            public_or_sanitized_data_ack=public_or_sanitized_data_ack,
+        )
+
+    _require_public_data_ack(public_or_sanitized_data_ack)
+    # Validate the complete catalog before any network call. This prevents a
+    # malformed tail from being hidden by partitioning.
+    _criteria(candidates, "name", max_entries=None)
+    pool = list(candidates)
+    rounds = 0
+    reduction_metadata: list[dict[str, Any]] = []
+    first_needs_score: float | None = None
+    while len(pool) > _CHOICE_MAX_OPTIONS:
+        pool, metadata, needs_score = _skill_partition_winners(
+            task=task,
+            candidates=pool,
+            client=client,
+            include_needs_skill=rounds == 0,
+        )
+        rounds += 1
+        reduction_metadata.extend(metadata)
+        if first_needs_score is None:
+            first_needs_score = needs_score
+        if not pool:
+            thresholds = {
+                "choice_confidence": _bounded_number(choice_confidence_threshold, "choice_confidence_threshold"),
+                "needs_skill": _bounded_number(needs_skill_threshold, "needs_skill_threshold"),
+                "winning_probability": _bounded_number(winning_probability_threshold, "winning_probability_threshold"),
+            }
+            needs = first_needs_score
+            return {
+                "status": "abstained", "selected": None,
+                "abstention_reason": "no_partition_candidate",
+                "needs_skill_noul": needs, "needs_skill_probability": needs,
+                "confidence": 0.0, "winning_probability": 0.0,
+                "probabilities": {}, "thresholds": thresholds,
+                "candidate_count": len(candidates), "reduction_rounds": rounds,
+                "offered_count": len(candidates), "excluded_count": 0,
+                "shortlist_policy": "full_partition_fan_out",
+                "reduction_metadata": reduction_metadata,
+                **_aggregate_metadata(reduction_metadata),
+            }
+    result = _select_skill_small(
+        task=task, candidates=pool, client=client,
+        choice_confidence_threshold=choice_confidence_threshold,
+        needs_skill_threshold=needs_skill_threshold,
+        winning_probability_threshold=winning_probability_threshold,
+        public_or_sanitized_data_ack=True,
+    )
+    result["candidate_count"] = len(candidates)
+    result["offered_count"] = len(candidates)
+    result["excluded_count"] = 0
+    result["shortlist_policy"] = "full_partition_fan_out"
+    result["reduction_rounds"] = rounds
+    result["reduction_metadata"] = reduction_metadata
+    final_metadata = {
+        "model": result.get("model"),
+        "latency_ms": result.get("latency_ms"),
+        "usage": result.get("usage") or {},
+        "request_count": int(result.get("request_count") or 1),
+    }
+    result.update(_aggregate_metadata(reduction_metadata + [final_metadata]))
+    return result
+
+
+def select_skill(
+    *, task: str, candidates: list[dict], client: Any,
+    choice_confidence_threshold: float = DEFAULT_SKILL_CHOICE_CONFIDENCE_THRESHOLD,
+    needs_skill_threshold: float = DEFAULT_SKILL_NEEDS_THRESHOLD,
+    winning_probability_threshold: float = DEFAULT_SKILL_WINNING_PROBABILITY_THRESHOLD,
+    public_or_sanitized_data_ack: bool = False,
+) -> dict:
+    with request_budget_scope(client, MAX_DECISION_REQUESTS):
+        return _select_skill_impl(
+            task=task, candidates=candidates, client=client,
+            choice_confidence_threshold=choice_confidence_threshold,
+            needs_skill_threshold=needs_skill_threshold,
+            winning_probability_threshold=winning_probability_threshold,
+            public_or_sanitized_data_ack=public_or_sanitized_data_ack,
+        )
 
 
 def _model_requirements(requirements: dict) -> dict[str, Any]:
@@ -216,10 +436,10 @@ def _model_requirements(requirements: dict) -> dict[str, Any]:
 
 
 def _model_candidates(candidates: list[dict]) -> list[dict[str, Any]]:
-    if not isinstance(candidates, list) or not candidates or len(candidates) > 255:
-        raise ValueError("candidates must contain 1 to 255 entries")
+    if not isinstance(candidates, list) or not candidates:
+        raise ValueError("candidates must contain at least 1 entry")
     # Validate exact identifiers and common descriptions first.
-    _criteria(candidates, "id")
+    _criteria(candidates, "id", max_entries=None)
     records: list[dict[str, Any]] = []
     for position, item in enumerate(candidates):
         identifier = item["id"]
@@ -312,7 +532,23 @@ def _route_metadata(result: Any) -> dict[str, Any]:
     return metadata
 
 
-def route_model(
+def _model_batches(candidates: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    batches: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    for candidate in candidates:
+        trial = current + [candidate]
+        size = len(json.dumps(trial, ensure_ascii=False).encode("utf-8"))
+        if current and (len(trial) > 200 or size > _PARTITION_CRITERIA_BYTES):
+            batches.append(current)
+            current = [candidate]
+        else:
+            current = trial
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _route_model_impl(
     *,
     task: str,
     candidates: list[dict],
@@ -348,42 +584,49 @@ def route_model(
         base["abstention_reason"] = "no_eligible_candidates"
         return base
 
-    questions: dict[str, dict[str, Any]] = {}
-    eligible_state: list[dict[str, Any]] = []
-    for index, candidate in enumerate(eligible):
-        question_name = f"fit_{index}"
-        questions[question_name] = {
-            "type": "noul",
-            "instructions": (
-                f"Does eligible_candidates[{index}] with id {candidate['id']!r} have the capability fit "
-                "for the task? Answer the literal yes/no question using the Noul probability primitive."
-            ),
-            "criteria": {"true": "The candidate capabilities fit the task", "false": "They do not"},
-        }
-        eligible_state.append({
-            "question": question_name,
-            "id": candidate["id"],
-            "description": candidate["description"],
-            "data_classes_allowed": candidate["data_classes_allowed"],
-            "tool_capabilities": candidate["tool_capabilities"],
-            "context_limit": candidate["context_limit"],
-            "cost": candidate["cost"],
-        })
-    result = client.decide(
-        {"task": task, "requirements": parsed_requirements, "eligible_candidates": eligible_state},
-        questions,
-        public_or_sanitized_data_ack=True,
-    )
-    metadata = _route_metadata(result)
-    answers = result["answers"]
     scores: dict[str, float] = {}
     qualified: list[dict[str, Any]] = []
-    for index, candidate in enumerate(eligible):
-        score = _noul_score(answers.get(f"fit_{index}"), f"fit_{index}")
-        scores[candidate["id"]] = score
-        if score >= fit_threshold:
-            qualified.append(candidate)
-    base.update(metadata)
+    call_metadata: list[dict[str, Any]] = []
+    global_offset = 0
+    for batch_index, batch in enumerate(_model_batches(eligible)):
+        questions: dict[str, dict[str, Any]] = {}
+        eligible_state: list[dict[str, Any]] = []
+        for index, candidate in enumerate(batch):
+            question_name = f"fit_{global_offset + index}"
+            questions[question_name] = {
+                "type": "noul",
+                "instructions": (
+                    f"Does eligible_candidates[{index}] with id {candidate['id']!r} have the capability fit "
+                    "for the task? Answer the literal yes/no question using the Noul probability primitive."
+                ),
+                "criteria": {"true": "The candidate capabilities fit the task", "false": "They do not"},
+            }
+            eligible_state.append({
+                "question": question_name,
+                "id": candidate["id"],
+                "description": candidate["description"],
+                "data_classes_allowed": candidate["data_classes_allowed"],
+                "tool_capabilities": candidate["tool_capabilities"],
+                "context_limit": candidate["context_limit"],
+                "cost": candidate["cost"],
+            })
+        result = client.decide(
+            {"task": task, "requirements": parsed_requirements, "eligible_candidates": eligible_state},
+            questions,
+            public_or_sanitized_data_ack=True,
+        )
+        call_metadata.append(_route_metadata(result))
+        answers = result["answers"]
+        for index, candidate in enumerate(batch):
+            name = f"fit_{global_offset + index}"
+            score = _noul_score(answers.get(name), name)
+            scores[candidate["id"]] = score
+            if score >= fit_threshold:
+                qualified.append(candidate)
+        global_offset += len(batch)
+    if call_metadata:
+        base.update(call_metadata[-1])
+        base.update(_aggregate_metadata(call_metadata))
     base["capability_fit_scores"] = scores
     base["qualified_candidates"] = [candidate["id"] for candidate in qualified]
     if not qualified:
@@ -392,3 +635,16 @@ def route_model(
     selected = min(qualified, key=lambda candidate: (candidate["cost"], candidate["position"]))
     base.update({"status": "selected", "selected": selected["id"], "abstention_reason": None})
     return base
+
+
+def route_model(
+    *, task: str, candidates: list[dict], requirements: dict, client: Any,
+    capability_fit_threshold: float = DEFAULT_MODEL_CAPABILITY_FIT_THRESHOLD,
+    public_or_sanitized_data_ack: bool = False,
+) -> dict:
+    with request_budget_scope(client, MAX_DECISION_REQUESTS):
+        return _route_model_impl(
+            task=task, candidates=candidates, requirements=requirements, client=client,
+            capability_fit_threshold=capability_fit_threshold,
+            public_or_sanitized_data_ack=public_or_sanitized_data_ack,
+        )

@@ -10,6 +10,8 @@ from .routing import (
 _HOTKEYS = [
     "SUBMIT", "CANCEL", "SAVE", "UNDO", "REDO", "SELECT_ALL", "COPY", "FIND",
     "NEXT_TAB", "PREVIOUS_TAB", "NEW_TAB", "BOLD", "ITALIC", "UNDERLINE",
+    "TAB", "SHIFT_TAB", "ARROW_UP", "ARROW_DOWN", "ARROW_LEFT", "ARROW_RIGHT",
+    "PAGE_UP", "PAGE_DOWN", "HOME", "END", "SPACE",
 ]
 
 _ACKNOWLEDGEMENT = {
@@ -24,8 +26,9 @@ _ACKNOWLEDGEMENT = {
 COMPUTER_USE = {
     "name": "jev_computer_use",
     "description": (
-        "Bounded multi-step Windows browser or native desktop loop over Hermes computer_use. The loop performs "
-        "a fresh capture before each action, refuses changed targets, and preserves Hermes dispatch/approval. "
+        "Universal bounded multi-step browser or native desktop loop over Hermes computer_use on Windows, macOS, and Linux. "
+        "The loop performs fresh capture and target-identity checks before each action, uses Jev to choose among "
+        "click, double-click, context-click, drag, scroll, text/value entry, navigation hotkeys, wait, and stop, "
         "DONE produces completion_candidate with verified=false; an independent coordinator-owned verifier is "
         "required. Hotkeys are denied unless explicitly listed. Only public or sanitized UI may be sent."
     ),
@@ -38,9 +41,9 @@ COMPUTER_USE = {
                 "minLength": 1,
                 "description": "Required non-empty target application, for example Google Chrome.",
             },
-            "max_steps": {"type": "integer", "minimum": 1, "maximum": 30, "description": "Hard action budget."},
+            "max_steps": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Hard action budget."},
             "min_actions_before_done": {
-                "type": "integer", "minimum": 0, "maximum": 29,
+                "type": "integer", "minimum": 0, "maximum": 99,
                 "description": "Minimum actions before completion_candidate is offered.",
             },
             "allowed_hotkeys": {
@@ -70,7 +73,7 @@ SKILL_SELECT = {
         "properties": {
             "task": {"type": "string"},
             "candidates": {
-                "type": "array", "minItems": 1, "maxItems": 255,
+                "type": "array", "minItems": 1,
                 "items": {
                     "type": "object",
                     "properties": {
@@ -119,6 +122,71 @@ _MODEL_CANDIDATE_PROPERTIES = {
     "cost": {"type": "number", "minimum": 0, "description": "Candidate unit cost used for code-owned cheapest selection."},
 }
 
+
+
+ASSESS = {
+    "name": "jev_assess",
+    "description": (
+        "General TypeSafe Jev assessment boundary. Send public or sanitized structured state and any number of "
+        "atomic Choice, Score, and Noul questions. Oversized independent question sets are split into bounded "
+        "provider requests and recombined. Jev returns typed answers; code and the caller own policy and side effects."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "state": {"type": ["string", "object", "array"], "description": "Public or already-sanitized text, object, or array to evaluate."},
+            "questions": {
+                "type": "object",
+                "minProperties": 1,
+                "maxProperties": 16320,
+                "additionalProperties": {
+                    "oneOf": [
+                        {
+                            "type": "object",
+                            "properties": {
+                                "type": {"const": "choice"},
+                                "instructions": {"type": "string", "minLength": 1},
+                                "criteria": {
+                                    "type": "object", "minProperties": 1, "maxProperties": 255,
+                                    "additionalProperties": {"type": "string"},
+                                },
+                            },
+                            "required": ["type", "instructions", "criteria"],
+                            "additionalProperties": False,
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "type": {"const": "score"},
+                                "instructions": {"type": "string", "minLength": 1},
+                                "criteria": {
+                                    "type": "array", "minItems": 2, "maxItems": 10,
+                                    "items": {"type": "string"},
+                                },
+                            },
+                            "required": ["type", "instructions", "criteria"],
+                            "additionalProperties": False,
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "type": {"const": "noul"},
+                                "instructions": {"type": "string", "minLength": 1},
+                                "criteria": {"type": "object", "additionalProperties": {"type": "string"}},
+                            },
+                            "required": ["type", "instructions"],
+                            "additionalProperties": False,
+                        },
+                    ],
+                },
+            },
+            "public_or_sanitized_data_ack": _ACKNOWLEDGEMENT,
+        },
+        "required": ["state", "questions"],
+        "additionalProperties": False,
+    },
+}
+
 MODEL_ROUTE = {
     "name": "jev_model_route",
     "description": (
@@ -144,7 +212,7 @@ MODEL_ROUTE = {
                 "default": {},
             },
             "candidates": {
-                "type": "array", "minItems": 1, "maxItems": 255,
+                "type": "array", "minItems": 1,
                 "items": {
                     "type": "object",
                     "properties": _MODEL_CANDIDATE_PROPERTIES,

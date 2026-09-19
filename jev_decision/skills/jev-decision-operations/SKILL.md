@@ -1,13 +1,13 @@
 ---
 name: jev-decision-operations
 description: Use when evaluating bounded Jev decisions or integrating this plugin safely.
-version: 0.3.2
+version: 0.4.0
 author: bgrablin
 license: MIT
-platforms: [linux, windows]
+platforms: [linux, macos, windows]
 metadata:
   hermes:
-    tags: [Jev, Computer-Use, Routing, OpenRouter]
+    tags: [Jev, Computer-Use, Cua-Driver, Routing, TypeSafe, OpenRouter]
 ---
 
 # Jev Decision Operations
@@ -31,25 +31,21 @@ entrypoint must reject before network access or desktop capture.
 
 ## Fixed client contract
 
-- Decisions endpoint: `https://openrouter.ai/api/alpha/decisions` only.
-- Requested model aliases are exactly `typesafe/jev-1.13` and
-  `typesafe/jev-1.13-20260917`; no regex family authorization is used.
-- A response outside those two aliases is rejected. The base alias may resolve
-  to the one evidence-backed concrete alias; a concrete request must resolve
-  exactly to itself.
-- Provider fallback is explicitly disabled and HTTP redirects are rejected so
-  the bearer token cannot be forwarded to another host.
+- Supported endpoints are the direct TypeSafe System One endpoint and OpenRouter's Decisions endpoint.
+- `jev_provider: auto` prefers direct TypeSafe when its profile secret exists; explicit `typesafe` and `openrouter` routes are also supported.
+- Model aliases are endpoint-specific and validated exactly. A direct `jev-latest` alias may resolve to a supported concrete release; pinned aliases must resolve exactly.
+- OpenRouter provider fallback is explicitly disabled and HTTP redirects are rejected. Direct TypeSafe requests omit OpenRouter-only fields.
+- The client keeps a pooled HTTPS connection for repeated decisions in one process.
 - API keys never appear in model-facing or tool error text.
-- No guardrail-management or arbitrary credential-bearing endpoint is part of
-  this plugin's contract.
+- `jev_assess` exposes Choice, Score, and Noul. Score answers are validated for ordered levels, legend, probability distribution, and confidence before returning.
 
 ## Skill selection
 
 `jev_skill_select` is advisory only. Candidate identifiers are exact: leading or
 trailing whitespace is rejected and no identifier normalization is performed.
-The candidate set is an explicit closed set of at most 255 entries. That limit
-is an API constraint, not a claim that Jev can safely select from a whole
-catalog.
+The provider's per-Choice limit is handled internally: catalogs larger than 255
+entries are evaluated through partition fan-out and recursive reduction. Every
+candidate is considered; the tail is not silently discarded.
 
 Selection abstains unless all three bounded local policy gates pass:
 
@@ -86,29 +82,29 @@ The result is advisory and does not change the runtime model.
 ## Computer-use loop
 
 `jev_computer_use` requires a non-empty `app` and an explicit public/sanitized
-acknowledgement. It preserves `ctx.dispatch_tool("computer_use", args)` and the
-existing Hermes approval/action surface.
+acknowledgement. It delegates to Hermes' existing Cua Driver-backed
+`computer_use` tool on Windows, macOS, and Linux. Switchyard does not vendor a
+second desktop driver.
 
+- Jev chooses from application-owned `CLICK`, `DOUBLE_CLICK`, `RIGHT_CLICK`,
+  `MIDDLE_CLICK`, `DRAG`, four scroll directions, `TYPE_TEXT`, `SET_VALUE`,
+  explicit navigation hotkeys, `WAIT`, `DONE`, and `BLOCKED` operations.
+- Native roles include buttons, checkboxes, radio/toggle controls, links, tabs,
+  menus, trees, lists, comboboxes, edits, sliders, spinners, calendars, and
+  date controls. Sensitive, destructive, payment, credential, logout, and
+  close-like labels remain excluded.
+- Dense target sets are partitioned into bounded Choices with an explicit
+  no-target option. The plugin can search beyond 255 controls without dropping
+  the tail; the state summary is compacted separately so duplicated labels do
+  not overflow Jev's context budget.
+- Before every action or wait, the plugin takes a fresh AX capture and compares
+  exact exposed app/window/control identity. Drag operations verify both source
+  and destination. TYPE_TEXT/SET_VALUE takes another fresh capture after text
+  generation and before mutation.
 - Hotkeys default to an empty allowlist. A caller must explicitly list semantic
-  names such as `SAVE` or `SELECT_ALL`; raw model-generated key strings are not
-  accepted.
-- Before every action or wait, the plugin takes a fresh AX capture. It compares
-  exact exposed app/window identity and selected-control identity. The local
-  comparison retains the full exposed label, role, index, app, and bounds; that
-  raw identity is never sent to Jev. A changed exposed target is refused before
-  action dispatch. Hermes core capture JSON does not expose pid/window_id, so
-  this pilot does not claim unique native-window identity or prevent every race.
-- For TYPE_TEXT/SET_VALUE, a second fresh capture occurs after text generation
-  and immediately before the side effect.
-- A failed key dispatch is not retried in foreground and is not replaced by an
-  automatic menu fallback.
+  names; raw model-generated key strings are not accepted.
 - Jev `DONE` returns `status: completion_candidate` and `verified: false`.
-  Independent completion verification remains coordinator-owned. No result from
-  this plugin is independent proof of task completion.
-
-The safe-control filter still excludes credential, payment, verification,
-destructive, permission, logout, close, and secret-like controls. It is a
-candidate filter, not a DLP boundary.
+  Independent completion verification remains coordinator-owned.
 
 ## Offline verification
 

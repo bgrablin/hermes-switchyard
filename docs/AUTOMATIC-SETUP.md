@@ -27,7 +27,7 @@ hermes plugins doctor . --ci
 
 Plugin Doctor checks discovery, import, registration, declared hooks, and tools. It does not prove model quality, privacy, skill correctness, or GUI completion.
 
-## 2. Start with local recommendations
+## 2. Start with privacy-closed local recommendations
 
 Local recommendations are enabled by default. To make the setting explicit:
 
@@ -37,7 +37,7 @@ hermes config set plugins.entries.jev-decision.settings.automatic_skill_jev fals
 hermes config set plugins.entries.jev-decision.settings.automatic_skill_public_or_sanitized_data_ack false
 ```
 
-The local path uses Hermes' active profile `skills_list()` registry. It ranks up to 32 candidates and abstains when the score is too low or the winner is too close to the runner-up.
+The false attestation keeps hosted requests closed even though Jev is preferred by default once that gate is enabled. The local fallback uses Hermes' active profile `skills_list()` registry. It searches the full registry locally and abstains when the score is too low or the winner is too close to the runner-up. Hosted Jev can search the full catalog through partition fan-out.
 
 For a controlled candidate list, set YAML/JSON as one shell argument:
 
@@ -59,7 +59,7 @@ hermes plugins list --enabled --plain
 
 ## 4. Run a public local smoke
 
-No OpenRouter key is required for this local smoke:
+No hosted Jev key is required for this local smoke:
 
 ```text
 hermes chat -q "Diagnose an exiting Docker Compose container"
@@ -70,33 +70,24 @@ Expected behavior when `docker-management` is available to the session:
 - the current user-message context contains an advisory recommendation for the exact identifier `docker-management`;
 - the recommendation says that the plugin did not load the skill;
 - the system prompt and active Hermes model are unchanged;
-- no OpenRouter/Jev request is made in the default local mode;
+- no TypeSafe/OpenRouter Jev request is made while the attestation remains false;
 - no skill-use event is created just because the recommendation was produced.
 
 The recommendation is context sent to the model, not a separate status banner. The assistant may ignore it. If the profile registry is empty, the candidate list is ambiguous, or the request has no overlap, abstention is expected.
 
 ## 5. Configure hosted Jev only for public or sanitized tasks
 
-Hosted Jev requires a separate OpenRouter account, an available OpenRouter credit/account allowance, and access to the configured Jev model alias. Codex or ChatGPT subscription billing does not pay for OpenRouter requests. Direct TypeSafe account access is not a supported setup path.
+Hosted Jev requires either a TypeSafe account/key or an OpenRouter account/key, plus available allowance. `jev_provider: auto` prefers direct TypeSafe. Codex or ChatGPT subscription billing does not pay for either route.
 
-The plugin manifest declares `OPENROUTER_API_KEY` as a required environment secret. Hermes collects it through the masked plugin-install flow and stores it in the active profile's `.env`:
-
-```text
-hermes plugins install bgrablin/hermes-switchyard --ref FULL_40_SHA --force --enable
-```
-
-Use `--force` when the plugin is already installed so Hermes reruns the manifest prompt. Never use `hermes auth add openrouter`, `--api-key`, or a config value for this plugin's credential: the hook reads only the profile-scoped `OPENROUTER_API_KEY`. Profiles do not share this secret automatically. After adding or changing it, start a fresh Hermes session. `hermes plugins list --enabled` is a metadata/readiness check and must not expose the key.
-
-Enable hosted recommendations only after deciding that every task sent by this feature is public or already sanitized. Candidate descriptions remain local-ranking metadata and are not sent to hosted Jev; exact candidate identifiers are sent with the bounded current task:
+Enable hosted recommendations only after deciding that every task and bounded skill metadata sent by this feature is public or already sanitized. Descriptions are included as semantic evidence; conversation history and full skill bodies remain local:
 
 ```text
 hermes config set plugins.entries.jev-decision.settings.automatic_skill_jev true
+hermes config set plugins.entries.jev-decision.settings.automatic_skill_jev_mode always
 hermes config set plugins.entries.jev-decision.settings.automatic_skill_public_or_sanitized_data_ack true
 ```
 
-The confirmation is a caller attestation, not DLP or authorization. It does not provide a blanket privacy or retention guarantee. Do not enable this path for private, employer, regulated, credential, payment, verification, or otherwise restricted content.
-
-The current user task is bounded before the request; conversation history and candidate descriptions remain local. Start a fresh Hermes process after changing either hosted setting, then repeat the public smoke. Hosted failure or timeout may preserve a valid local recommendation; a valid hosted abstention remains abstention and does not select a fallback model or provider.
+`always` is the default because Jev requests are inexpensive and provide stronger semantic coverage than token overlap. Use `uncertain_only` only as an explicit latency-saving override. The confirmation is not DLP or authorization. Do not enable hosted Jev for private, employer, regulated, credential, payment, verification, or otherwise restricted content. Start a fresh process after changing hosted settings. Transport failure may preserve a local recommendation; a valid hosted abstention remains abstention.
 
 ## 6. Disable or roll back
 
@@ -121,6 +112,7 @@ hermes config unset plugins.entries.jev-decision.settings.automatic_skill_local_
 hermes config unset plugins.entries.jev-decision.settings.automatic_skill_local_margin
 hermes config unset plugins.entries.jev-decision.settings.automatic_skill_cache_seconds
 hermes config unset plugins.entries.jev-decision.settings.automatic_skill_jev
+hermes config unset plugins.entries.jev-decision.settings.automatic_skill_jev_mode
 hermes config unset plugins.entries.jev-decision.settings.automatic_skill_public_or_sanitized_data_ack
 hermes config unset plugins.entries.jev-decision.settings.automatic_skill_recommendation
 ```
@@ -148,10 +140,11 @@ Keep the previous 40-character SHA as the rollback target. Verify the installed 
 - If `jev-decision` is absent, enable it or inspect the install result.
 - If the plugin is enabled but no recommendation appears, check that the current process is fresh and that the request matches an available skill or configured candidate.
 - If the local path abstains, inspect the threshold and margin settings. Lowering them increases selection frequency; these are uncalibrated local policies, not quality probabilities.
-- If hosted Jev is not attempted, confirm `automatic_skill_jev: true` and `automatic_skill_public_or_sanitized_data_ack: true`. To refresh or validate the profile-scoped credential without exposing it, rerun the masked manifest prompt for the same reviewed revision:
+- If hosted Jev is not attempted, confirm `automatic_skill_jev: true` and `automatic_skill_public_or_sanitized_data_ack: true`. To replace the profile-scoped credential without exposing it, use Switchyard's masked provider setup:
 
 ```text
-hermes plugins install bgrablin/hermes-switchyard --ref FULL_40_SHA --force --enable
+hermes jev-decision setup --provider typesafe
+# or: hermes jev-decision setup --provider openrouter
 ```
 
 - If hosted Jev is unavailable, local matching remains the only safe result. The plugin does not silently switch models, providers, accounts, or fallback routes.

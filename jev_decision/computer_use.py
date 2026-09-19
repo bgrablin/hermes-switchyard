@@ -10,13 +10,18 @@ from __future__ import annotations
 import json
 import math
 import re
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .client import MAX_OPERATION_REQUESTS, request_budget_scope
+
 _ALLOWED_ROLES = {
-    "Button", "Hyperlink", "TabItem", "MenuItem", "TreeItem", "ComboBox", "Edit", "Slider", "Document"
+    "Button", "CheckBox", "RadioButton", "ToggleButton", "Hyperlink", "Link", "TabItem", "PageTab",
+    "Menu", "MenuBar", "MenuItem", "TreeItem", "List", "ListItem", "DataItem", "ComboBox", "Edit",
+    "TextBox", "Slider", "Spinner", "ScrollBar", "SplitButton", "Calendar", "DateTime", "Document",
 }
 _DENIED_EXACT_LABELS = {
     "back", "reload", "minimize", "maximize", "close", "new tab", "tab search",
@@ -32,7 +37,7 @@ _DENIED_LABEL_PARTS = (
 _HOTKEY_VISIBLE_HINTS = {
     "BOLD": "bold", "ITALIC": "italic", "UNDERLINE": "underline",
 }
-_HOTKEYS = {
+_BASE_HOTKEYS = {
     "SUBMIT": "return",
     "CANCEL": "escape",
     "SAVE": "ctrl+s",
@@ -47,7 +52,32 @@ _HOTKEYS = {
     "BOLD": "ctrl+b",
     "ITALIC": "ctrl+i",
     "UNDERLINE": "ctrl+u",
+    "TAB": "tab",
+    "SHIFT_TAB": "shift+tab",
+    "ARROW_UP": "up",
+    "ARROW_DOWN": "down",
+    "ARROW_LEFT": "left",
+    "ARROW_RIGHT": "right",
+    "PAGE_UP": "pageup",
+    "PAGE_DOWN": "pagedown",
+    "HOME": "home",
+    "END": "end",
+    "SPACE": "space",
 }
+_TARGET_PARTITION_SIZE = 200
+_TARGET_NONE = "__jev_no_target__"
+
+
+def _hotkeys_for_platform(platform: str) -> dict[str, str]:
+    hotkeys = dict(_BASE_HOTKEYS)
+    if platform == "darwin":
+        hotkeys.update({
+            "SAVE": "cmd+s", "UNDO": "cmd+z", "REDO": "cmd+shift+z",
+            "SELECT_ALL": "cmd+a", "COPY": "cmd+c", "FIND": "cmd+f",
+            "NEW_TAB": "cmd+t", "BOLD": "cmd+b", "ITALIC": "cmd+i",
+            "UNDERLINE": "cmd+u",
+        })
+    return hotkeys
 
 
 class StaleTargetError(RuntimeError):
@@ -110,8 +140,8 @@ def _safe_controls(capture: dict[str, Any], excluded_labels: set[str] | None = N
         except (TypeError, ValueError):
             continue
         controls.append({"index": index, "role": role, "label": label[:100]})
-    controls.sort(key=lambda item: (item["role"] != "TabItem", item["index"]))
-    return controls[:100]
+    controls.sort(key=lambda item: (item["role"] not in {"TabItem", "PageTab"}, item["index"]))
+    return controls
 
 
 
@@ -165,7 +195,7 @@ def _capture_identity(capture: dict[str, Any]) -> tuple[str, str]:
 def _verify_fresh_capture(
     previous: dict[str, Any],
     fresh: dict[str, Any],
-    expected_control_identity: tuple[Any, ...] | None = None,
+    expected_control_identity: tuple[Any, ...] | list[tuple[Any, ...]] | None = None,
 ) -> None:
     """Refuse action when exposed app/window/control identity changed."""
     old_identity = _capture_identity(previous)
@@ -177,9 +207,11 @@ def _verify_fresh_capture(
         if old_title != new_title:
             raise StaleTargetError("application window changed between decision and action")
     if expected_control_identity is not None:
-        index = expected_control_identity[0]
-        if _raw_control_identity(fresh, index) != expected_control_identity:
-            raise StaleTargetError("selected control identity changed between decision and action")
+        identities = expected_control_identity if isinstance(expected_control_identity, list) else [expected_control_identity]
+        for identity in identities:
+            index = identity[0]
+            if _raw_control_identity(fresh, index) != identity:
+                raise StaleTargetError("selected control identity changed between decision and action")
 
 
 
@@ -220,6 +252,96 @@ def _text_criteria(controls: list[dict[str, Any]]) -> dict[str, str]:
 
 
 
+def _target_questions(
+    controls: list[dict[str, Any]],
+    roles: set[str],
+    prefix: str,
+    instructions: str,
+) -> dict[str, dict[str, Any]]:
+    """Build a direct or partitioned Choice without dropping dense UI targets."""
+    selected = [item for item in controls if item["role"] in roles]
+    if not selected:
+        return {
+            prefix: {
+                "type": "choice",
+                "instructions": instructions,
+                "criteria": {"none": "No compatible visible control"},
+            }
+        }
+    result: dict[str, dict[str, Any]] = {}
+    if len(selected) <= 255:
+        criteria = {str(item["index"]): f"{item['role']} {item['label']}" for item in selected}
+        result[prefix] = {"type": "choice", "instructions": instructions, "criteria": criteria}
+        return result
+    for offset in range(0, len(selected), _TARGET_PARTITION_SIZE):
+        chunk = selected[offset:offset + _TARGET_PARTITION_SIZE]
+        criteria = {str(item["index"]): f"{item['role']} {item['label']}" for item in chunk}
+        if _TARGET_NONE in criteria:
+            raise ValueError(f"control index {_TARGET_NONE!r} is reserved")
+        criteria[_TARGET_NONE] = "No compatible target in this partition"
+        result[f"{prefix}_chunk_{offset // _TARGET_PARTITION_SIZE}"] = {
+            "type": "choice",
+            "instructions": instructions + " Choose the no-target option when this partition does not contain the target.",
+            "criteria": criteria,
+        }
+    return result
+
+
+def _select_target(
+    *,
+    state: dict[str, Any],
+    controls: list[dict[str, Any]],
+    roles: set[str],
+    prefix: str,
+    instructions: str,
+    client: Any,
+) -> tuple[str | None, dict[str, Any], dict[str, str], list[dict[str, Any]]]:
+    """Select across bounded target partitions, then compare finalists globally."""
+    questions = _target_questions(controls, roles, prefix, instructions)
+    finalists: list[str] = []
+    receipts: list[dict[str, Any]] = []
+    criteria_by_target: dict[str, str] = {}
+    answer_by_target: dict[str, Any] = {}
+    for name, question in questions.items():
+        result = client.decide(state, {name: question}, public_or_sanitized_data_ack=True)
+        receipts.append(result)
+        answer = result["answers"][name]
+        criteria = question["criteria"]
+        choice = answer.get("choice")
+        if choice not in criteria:
+            raise ValueError("Jev returned a target outside the offered action space")
+        if choice in {"none", _TARGET_NONE}:
+            continue
+        finalists.append(str(choice))
+        criteria_by_target[str(choice)] = criteria[str(choice)]
+        answer_by_target[str(choice)] = answer
+    if not finalists:
+        return None, {}, {}, receipts
+    while len(finalists) > 1:
+        next_round: list[str] = []
+        for offset in range(0, len(finalists), 255):
+            chunk = finalists[offset:offset + 255]
+            criteria = {target: criteria_by_target[target] for target in chunk}
+            name = f"{prefix}_final_{offset // 255}"
+            question = {
+                "type": "choice",
+                "instructions": "Choose the best target for the already selected operation from these partition finalists.",
+                "criteria": criteria,
+            }
+            result = client.decide(state, {name: question}, public_or_sanitized_data_ack=True)
+            receipts.append(result)
+            answer = result["answers"][name]
+            choice = answer.get("choice")
+            if choice not in criteria:
+                raise ValueError("Jev returned a finalist outside the offered action space")
+            target = str(choice)
+            answer_by_target[target] = answer
+            next_round.append(target)
+        finalists = next_round
+    target = finalists[0]
+    return target, answer_by_target[target], {target: criteria_by_target[target]}, receipts
+
+
 def _total_cost(decisions: list[dict[str, Any]]) -> float:
     total = 0.0
     for decision in decisions:
@@ -234,7 +356,7 @@ def _total_cost(decisions: list[dict[str, Any]]) -> float:
 
 
 
-def run_computer_goal(
+def _run_computer_goal_impl(
     *,
     goal: str,
     app: str,
@@ -255,20 +377,21 @@ def run_computer_goal(
     goal = goal.strip()
     if not goal:
         raise ValueError("goal is required")
-    if type(min_actions_before_done) is not int or not 0 <= min_actions_before_done <= 29:
-        raise ValueError("min_actions_before_done must be an integer in [0, 29]")
-    max_steps = max(1, min(int(max_steps), 30))
+    if type(min_actions_before_done) is not int or not 0 <= min_actions_before_done <= 99:
+        raise ValueError("min_actions_before_done must be an integer in [0, 99]")
+    max_steps = max(1, min(int(max_steps), 100))
+    hotkey_map = _hotkeys_for_platform(sys.platform)
     if allowed_hotkeys is None:
         hotkey_names: list[str] = []
     elif not isinstance(allowed_hotkeys, list):
         raise ValueError("allowed_hotkeys must be an explicit list")
     else:
-        if any(type(name) is not str or name not in _HOTKEYS for name in allowed_hotkeys):
+        if any(type(name) is not str or name not in hotkey_map for name in allowed_hotkeys):
             raise ValueError("allowed_hotkeys contains an unknown semantic hotkey")
         if len(set(allowed_hotkeys)) != len(allowed_hotkeys):
             raise ValueError("allowed_hotkeys must not contain duplicates")
         hotkey_names = list(allowed_hotkeys)
-    hotkeys = {name: _HOTKEYS[name] for name in hotkey_names}
+    hotkeys = {name: hotkey_map[name] for name in hotkey_names}
     started = time.perf_counter()
     actions: list[dict[str, Any]] = []
     decisions: list[dict[str, Any]] = []
@@ -283,20 +406,28 @@ def run_computer_goal(
             if not actions or actions[-1].get("semantic_hotkey") != name
         }
         controls = _safe_controls(capture, excluded)
-        click_criteria = _criteria(controls, _ALLOWED_ROLES - {"Document"})
-        text_criteria = _text_criteria(controls)
-        value_criteria = _criteria(controls, {"ComboBox", "Slider"})
+        click_roles = _ALLOWED_ROLES - {"Document"}
+        text_roles = {"Edit", "TextBox", "ComboBox", "Document"}
+        value_roles = {"ComboBox", "Slider", "Spinner", "List", "ListItem", "Calendar", "DateTime"}
+        has_text_target = any(item["role"] in text_roles for item in controls)
+        has_value_target = any(item["role"] in value_roles for item in controls)
         operation_criteria = {
             "CLICK": "Activate one offered visible control",
+            "DOUBLE_CLICK": "Activate one offered visible control twice",
+            "RIGHT_CLICK": "Open the context menu for one offered visible control",
+            "MIDDLE_CLICK": "Activate one offered visible control with the middle button",
+            "DRAG": "Drag one offered control to another offered control",
             "SCROLL_DOWN": "Scroll down to reveal more content",
             "SCROLL_UP": "Scroll up to reveal earlier content",
+            "SCROLL_LEFT": "Scroll left to reveal more content",
+            "SCROLL_RIGHT": "Scroll right to reveal more content",
             "WAIT": "Wait briefly because the interface is still changing",
             "BLOCKED": "No safe offered action can progress the goal",
         }
-        if text_helper is not None and text_criteria.get("none") is None:
+        if text_helper is not None and has_text_target:
             operation_criteria["TYPE_TEXT"] = "Compose and enter arbitrary text in an offered editable field"
-        if text_helper is not None and value_criteria.get("none") is None:
-            operation_criteria["SET_VALUE"] = "Choose and set a semantic dropdown or slider value"
+        if text_helper is not None and has_value_target:
+            operation_criteria["SET_VALUE"] = "Choose and set a semantic dropdown, list, slider, or date value"
         if step_hotkeys:
             operation_criteria["HOTKEY"] = "Issue one explicitly permitted semantic hotkey"
         if len(actions) >= min_actions_before_done:
@@ -310,21 +441,6 @@ def run_computer_goal(
                 ),
                 "criteria": operation_criteria,
             },
-            "click_target": {
-                "type": "choice",
-                "instructions": "If CLICK is selected, choose only an offered element index.",
-                "criteria": click_criteria,
-            },
-            "text_target": {
-                "type": "choice",
-                "instructions": "If TYPE_TEXT is selected, choose the offered editable field.",
-                "criteria": text_criteria,
-            },
-            "value_target": {
-                "type": "choice",
-                "instructions": "If SET_VALUE is selected, choose the offered dropdown or slider.",
-                "criteria": value_criteria,
-            },
             "hotkey": {
                 "type": "choice",
                 "instructions": "If HOTKEY is selected, choose one explicitly permitted semantic action.",
@@ -334,11 +450,19 @@ def run_computer_goal(
             },
         }
         context = _visible_context(capture)
+        state_controls = controls if len(controls) <= 128 else controls[:64] + controls[-64:]
         state = {
             "goal": goal,
             "app": capture.get("app"),
             "window_title": capture.get("window_title"),
-            "safe_visible_controls": controls,
+            "safe_visible_controls": state_controls,
+            "control_count": len(controls),
+            "target_space_partitioned": len(controls) > 255,
+            "available_target_counts": {
+                "click": sum(item["role"] in click_roles for item in controls),
+                "text": sum(item["role"] in text_roles for item in controls),
+                "value": sum(item["role"] in value_roles for item in controls),
+            },
             "visible_context": context,
             "recent_actions": actions[-8:],
             "action_count": len(actions),
@@ -355,22 +479,45 @@ def run_computer_goal(
             raise ValueError("Jev returned an operation outside the offered action space")
         target = None
         semantic = None
-        if operation == "CLICK":
-            answer = answers.get("click_target") or {}
-            target = str(answer.get("choice"))
-            criteria = click_criteria
+        target_answer: dict[str, Any] = {}
+        target_criteria: dict[str, str] = {}
+        drag_source = None
+        drag_source_answer: dict[str, Any] = {}
+        drag_source_criteria: dict[str, str] = {}
+        target_receipts: list[dict[str, Any]] = []
+        if operation in {"CLICK", "DOUBLE_CLICK", "RIGHT_CLICK", "MIDDLE_CLICK"}:
+            target, target_answer, target_criteria, target_receipts = _select_target(
+                state=state, controls=controls, roles=click_roles, prefix="click_target",
+                instructions="Choose only an offered element index for the selected click operation.", client=client,
+            )
         elif operation == "TYPE_TEXT":
-            answer = answers.get("text_target") or {}
-            target = str(answer.get("choice"))
-            criteria = text_criteria
+            target, target_answer, target_criteria, target_receipts = _select_target(
+                state=state, controls=controls, roles=text_roles, prefix="text_target",
+                instructions="Choose the offered editable field for text entry.", client=client,
+            )
         elif operation == "SET_VALUE":
-            answer = answers.get("value_target") or {}
-            target = str(answer.get("choice"))
-            criteria = value_criteria
-        else:
-            criteria = {}
-        if target is not None and (target not in criteria or target == "none"):
+            target, target_answer, target_criteria, target_receipts = _select_target(
+                state=state, controls=controls, roles=value_roles, prefix="value_target",
+                instructions="Choose the offered control for setting a semantic value.", client=client,
+            )
+        elif operation == "DRAG":
+            drag_source, drag_source_answer, drag_source_criteria, source_receipts = _select_target(
+                state=state, controls=controls, roles=click_roles, prefix="drag_source",
+                instructions="Choose the offered drag source control.", client=client,
+            )
+            target, target_answer, target_criteria, destination_receipts = _select_target(
+                state=state, controls=controls, roles=click_roles, prefix="drag_target",
+                instructions="Choose the offered drag destination control.", client=client,
+            )
+            target_receipts = source_receipts + destination_receipts
+        if operation in {"CLICK", "DOUBLE_CLICK", "RIGHT_CLICK", "MIDDLE_CLICK", "TYPE_TEXT", "SET_VALUE"} and (
+            target is None or target not in target_criteria
+        ):
             raise ValueError("Jev returned a target outside the offered action space")
+        if operation == "DRAG" and (
+            drag_source is None or drag_source not in drag_source_criteria or target is None or target not in target_criteria
+        ):
+            raise ValueError("Jev returned a drag target outside the offered action space")
         if operation == "HOTKEY":
             semantic = str((answers.get("hotkey") or {}).get("choice"))
             if semantic not in step_hotkeys:
@@ -378,18 +525,23 @@ def run_computer_goal(
         decisions.append({
             "operation": operation,
             "target": target,
+            "drag_source": drag_source,
             "semantic_hotkey": semantic,
             "operation_confidence": operation_answer.get("confidence"),
-            "target_confidence": (answers.get(
-                {"CLICK": "click_target", "TYPE_TEXT": "text_target", "SET_VALUE": "value_target"}.get(
-                    operation, "click_target"
-                ),
-                {},
-            ) or {}).get("confidence"),
+            "target_confidence": target_answer.get("confidence"),
+            "drag_source_confidence": drag_source_answer.get("confidence"),
             "latency_ms": decision.get("latency_ms"),
             "model": decision.get("model"),
             "usage": decision.get("usage") or {},
         })
+        for receipt in target_receipts:
+            decisions.append({
+                "operation": operation,
+                "phase": "target_selection",
+                "latency_ms": receipt.get("latency_ms"),
+                "model": receipt.get("model"),
+                "usage": receipt.get("usage") or {},
+            })
         if operation == "DONE":
             status = "completion_candidate"
             break
@@ -398,22 +550,31 @@ def run_computer_goal(
             break
 
         chosen_before = None
+        drag_source_before = None
         if target is not None:
             chosen_before = next((item for item in controls if str(item["index"]) == target), None)
             if chosen_before is None:
                 raise StaleTargetError("selected control is no longer available")
+        if drag_source is not None:
+            drag_source_before = next((item for item in controls if str(item["index"]) == drag_source), None)
+            if drag_source_before is None:
+                raise StaleTargetError("drag source is no longer available")
         hint = _HOTKEY_VISIBLE_HINTS.get(semantic) if operation == "HOTKEY" else None
         visible_before = next(
             (item for item in controls if hint and item["label"].casefold().startswith(hint)),
             None,
         )
-        expected_control = chosen_before or visible_before
-        expected_control_identity = (
-            _raw_control_identity(capture, expected_control["index"])
-            if expected_control is not None else None
-        )
-        if expected_control is not None and expected_control_identity is None:
+        expected_controls = [item for item in (drag_source_before, chosen_before, visible_before) if item is not None]
+        expected_control_identity: tuple[Any, ...] | list[tuple[Any, ...]] | None
+        identities = [
+            _raw_control_identity(capture, item["index"])
+            for item in expected_controls
+        ]
+        if any(identity is None for identity in identities):
             raise StaleTargetError("selected control identity is unavailable")
+        expected_control_identity = (
+            identities[0] if len(identities) == 1 else [identity for identity in identities if identity is not None]
+        ) if identities else None
 
         # Re-capture immediately before every side-effecting or waiting action.
         fresh_capture = _capture(dispatch, app)
@@ -425,20 +586,43 @@ def run_computer_goal(
             (item for item in controls if chosen_before is not None and item["index"] == chosen_before["index"]),
             None,
         )
+        drag_source_chosen = next(
+            (item for item in controls if drag_source_before is not None and item["index"] == drag_source_before["index"]),
+            None,
+        )
         visible = next(
             (item for item in controls if visible_before is not None and item["index"] == visible_before["index"]),
             None,
         )
         if chosen_before is not None and chosen is None:
             raise StaleTargetError("selected control changed between decision and action")
+        if drag_source_before is not None and drag_source_chosen is None:
+            raise StaleTargetError("drag source changed between decision and action")
         if visible_before is not None and visible is None:
             raise StaleTargetError("hotkey control changed between decision and action")
 
-        if operation == "CLICK":
-            arguments = {"action": "click", "element": chosen["index"]}
+        if operation in {"CLICK", "DOUBLE_CLICK", "RIGHT_CLICK", "MIDDLE_CLICK"}:
+            action_by_operation = {
+                "CLICK": "click",
+                "DOUBLE_CLICK": "double_click",
+                "RIGHT_CLICK": "right_click",
+                "MIDDLE_CLICK": "middle_click",
+            }
+            assert chosen is not None
+            arguments = {"action": action_by_operation[operation], "element": chosen["index"]}
             label = chosen["label"]
             action_element = chosen["index"]
+        elif operation == "DRAG":
+            assert drag_source_chosen is not None and chosen is not None
+            arguments = {
+                "action": "drag",
+                "from_element": drag_source_chosen["index"],
+                "to_element": chosen["index"],
+            }
+            label = f"{drag_source_chosen['label']} -> {chosen['label']}"
+            action_element = chosen["index"]
         elif operation in {"TYPE_TEXT", "SET_VALUE"}:
+            assert chosen is not None
             value = text_helper(goal, chosen, context, actions)
             if not isinstance(value, str) or not value.strip() or len(value) > 2_000:
                 raise ValueError("text helper returned no safe field value")
@@ -467,8 +651,13 @@ def run_computer_goal(
                 arguments = {"action": "key", "keys": step_hotkeys[semantic]}
                 label = semantic
                 action_element = None
-        elif operation in {"SCROLL_DOWN", "SCROLL_UP"}:
-            direction = "down" if operation == "SCROLL_DOWN" else "up"
+        elif operation in {"SCROLL_DOWN", "SCROLL_UP", "SCROLL_LEFT", "SCROLL_RIGHT"}:
+            direction = {
+                "SCROLL_DOWN": "down",
+                "SCROLL_UP": "up",
+                "SCROLL_LEFT": "left",
+                "SCROLL_RIGHT": "right",
+            }[operation]
             arguments = {"action": "scroll", "direction": direction, "amount": 4}
             label = f"scroll {direction}"
             action_element = None
@@ -504,3 +693,19 @@ def run_computer_goal(
         "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
         "total_cost": _total_cost(decisions),
     }
+
+
+def run_computer_goal(
+    *, goal: str, app: str, max_steps: int, dispatch: Callable[[str, dict], Any],
+    client: Any, min_actions_before_done: int = 0,
+    text_helper: Callable[[str, dict, list[str], list[dict]], str] | None = None,
+    allowed_hotkeys: list[str] | None = None,
+    public_or_sanitized_data_ack: bool = False,
+) -> dict[str, Any]:
+    with request_budget_scope(client, MAX_OPERATION_REQUESTS):
+        return _run_computer_goal_impl(
+            goal=goal, app=app, max_steps=max_steps, dispatch=dispatch, client=client,
+            min_actions_before_done=min_actions_before_done, text_helper=text_helper,
+            allowed_hotkeys=allowed_hotkeys,
+            public_or_sanitized_data_ack=public_or_sanitized_data_ack,
+        )

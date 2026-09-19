@@ -44,6 +44,7 @@ RELEASE_FILES = (
     "docs/AUTOMATIC-INTEGRATION.md",
     "docs/TEST-MATRIX.md",
     "docs/assets/hermes-switchyard-branding.png",
+    "docs/assets/hermes-switchyard-overview.png",
     "jev_decision/__init__.py",
     "jev_decision/automatic.py",
     "jev_decision/client.py",

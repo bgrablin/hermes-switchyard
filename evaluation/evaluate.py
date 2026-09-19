@@ -267,7 +267,11 @@ def validation_probes(module: Any, public_fixture: dict[str, Any]) -> list[dict[
 
     client = module.client.DecisionClient(api_key="test-key", transport=broken)
     try:
-        client.decide(public_fixture["task"], {"answer": {"type": "noul"}}, public_or_sanitized_data_ack=True)
+        client.decide(
+            public_fixture["task"],
+            {"answer": {"type": "noul", "instructions": "Is this synthetic statement true?"}},
+            public_or_sanitized_data_ack=True,
+        )
     except RuntimeError as exc:
         transport_pass = "fixture-transport-text" not in str(exc)
     except Exception:

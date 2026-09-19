@@ -3,25 +3,23 @@
 Hermes Switchyard has two separate setup boundaries:
 
 1. GitHub access to download the private repository.
-2. OpenRouter access for live Jev decisions.
+2. TypeSafe or OpenRouter access for live Jev decisions.
 
-A GitHub login does not provide the OpenRouter key, credit, or model access needed by Jev. A ChatGPT or Codex subscription is also separate and does not pay Jev or OpenRouter request charges.
+A ChatGPT or Codex subscription is separate and does not pay Jev or OpenRouter request charges.
 
 ## Requirements
 
-For skill selection and model routing:
+For skill selection, model routing, and `jev_assess`:
 
 - Hermes Agent with the native plugin contract: `plugin.yaml`, a root `__init__.py`, and `register(ctx)`.
 - Python 3.11 or newer for the repository's offline checks.
 - GitHub read access to `bgrablin/hermes-switchyard` while the repository is private.
-- An OpenRouter account.
-- An OpenRouter API key in the active Hermes profile under the exact name `OPENROUTER_API_KEY`.
-- Enough OpenRouter credit or current account allowance for the Jev request.
-- OpenRouter access to `typesafe/jev-1.13`.
+- Either a TypeSafe API key in the active profile as `TYPESAFE_API_KEY`, or an OpenRouter API key as `OPENROUTER_API_KEY`.
+- Enough account credit or current allowance for the selected route.
 
-For `jev_computer_use`, Hermes must run on Windows and the target application must be installed and available through Hermes' normal computer-use path. Skill selection and model routing are host-independent.
+For `jev_computer_use`, Hermes must have the Cua Driver-backed `computer_use` tool available on Windows, macOS, or Linux and the target application must be installed. The plugin delegates desktop I/O to Hermes; it does not ship a second driver.
 
-Direct TypeSafe account access, a TypeSafe API key, and a direct TypeSafe endpoint are not supported. The plugin uses only `https://openrouter.ai/api/alpha/decisions` and the model aliases enforced by its code.
+The supported endpoints are `https://api.typesafe.ai/v1/systemone` and `https://openrouter.ai/api/alpha/decisions`. `jev_provider: auto` prefers direct TypeSafe when its key exists.
 
 ## Install
 
@@ -33,7 +31,7 @@ Install and enable the plugin with the supported one-liner:
 hermes plugins install bgrablin/hermes-switchyard --enable
 ```
 
-Hermes can prompt for the manifest's required `OPENROUTER_API_KEY` during installation. Enter it only in Hermes' masked prompt. To install without enabling first:
+Both provider keys are optional alternatives, so installation does not prompt for either one. To install without enabling first:
 
 ```text
 hermes plugins install bgrablin/hermes-switchyard --no-enable
@@ -43,23 +41,23 @@ hermes plugins enable jev-decision
 
 Start a fresh Hermes session after installation or an update.
 
-## Add the OpenRouter key safely
+## Add a Jev key safely
 
-If the plugin is already installed, rerun the manifest's secure masked-secret flow:
+Run exactly one provider-specific setup command and enter the key only in its masked prompt:
 
 ```text
-hermes plugins install bgrablin/hermes-switchyard --force --enable
+hermes jev-decision setup --provider typesafe
+# or
+hermes jev-decision setup --provider openrouter
 ```
 
-Hermes reads the plugin manifest's `requires_env` entry and requests `OPENROUTER_API_KEY` through its masked secret prompt, then saves it in the active profile's `.env`. If the plugin is already installed, add `--force` to rerun the manifest prompt. Never put the key in `hermes auth add openrouter`, `hermes config set`, a shell variable saved to a file, a URL, a fixture, a repository file, or an issue report: the provider-pool command is not the profile environment secret consumed by `get_secret("OPENROUTER_API_KEY")`.
-
-Check plugin availability without displaying the key:
+Do not put a key in `hermes auth add`, a command argument, URL, fixture, repository file, or issue report. Check plugin availability without displaying keys:
 
 ```text
 hermes plugins list --enabled
 ```
 
-The plugin reads the active profile's `OPENROUTER_API_KEY` secret. Profiles do not share this secret automatically. After adding or changing it, start a fresh Hermes session.
+Profiles do not share secrets automatically. After adding or changing a key, start a fresh Hermes session.
 
 ## Confirm the plugin
 
@@ -84,11 +82,17 @@ A successful native check proves discovery and registration, not model quality, 
 The plugin settings are profile-scoped under `plugins.entries.jev-decision.settings`:
 
 ```text
-hermes config set plugins.entries.jev-decision.settings.jev_model typesafe/jev-1.13
-hermes config set plugins.entries.jev-decision.settings.computer_max_steps 12
+hermes config set plugins.entries.jev-decision.settings.jev_provider auto
+hermes config set plugins.entries.jev-decision.settings.computer_max_steps 100
 ```
 
-The default Jev model is `typesafe/jev-1.13`. The dated alias `typesafe/jev-1.13-20260917` is accepted by the implementation for compatibility. Do not invent a model slug or replace the fixed OpenRouter Decisions endpoint.
+Leave `jev_model` empty to use the provider default. Direct TypeSafe uses `jev-latest`; OpenRouter uses `typesafe/jev-1.13`.
+
+If an earlier setup pinned the TypeSafe-only alias while using `auto`, remove it so provider-specific defaults work:
+
+```text
+hermes config unset plugins.entries.jev-decision.settings.jev_model
+```
 
 Some Windows text-entry actions use the host-owned Hermes text model. If Hermes has no configured model, choose one through the normal interactive command:
 
@@ -96,34 +100,35 @@ Some Windows text-entry actions use the host-owned Hermes text model. If Hermes 
 hermes model
 ```
 
-That model is separate from Jev. A Codex login can supply Hermes' host model when configured, but it does not supply the OpenRouter account, key, credit, or Jev access.
+That model is separate from Jev. A Codex login can supply Hermes' host model when configured, but it does not supply a TypeSafe or OpenRouter account, key, credit, or Jev access.
 
 ## Privacy requirements
 
 Before a Jev tool runs, the invoking code must set `public_or_sanitized_data_ack: true`. This confirms that the data was reviewed before it is sent. It is not a scan, a redaction guarantee, data-loss-prevention control, authorization to share, or permission to bypass another control.
 
-For a Windows computer-use request, the decision state can include the goal, target application, window title, safe visible controls, visible context, and recent actions. Text entry can also send the goal, selected field, visible context, and recent actions to the configured Hermes text model. Do not send private, employer, regulated, credential, password, API-key, token, payment, or verification-code data.
+For a Cua Driver request, the decision state can include the goal, target application, window title, safe controls, visible context, and recent actions. Text entry can also send selected field context to the configured Hermes text model. Do not send private, employer, regulated, credential, password, API-key, token, payment, or verification-code data.
 
 ## What is supported
 
-- `jev_skill_select` recommends a skill from the candidate list supplied by Hermes. It does not load the skill.
-- `jev_model_route` filters and ranks the candidate metadata supplied by Hermes. It does not change the active model or use a fallback provider.
-- `jev_computer_use` runs bounded actions in a specified Windows application through Hermes' normal approval and action controls. It rechecks the target before acting and returns `verified: false` until Hermes independently checks the result.
+- `jev_assess` validates public/sanitized Choice, Score, and Noul answers and batches large independent question maps into bounded requests.
+- `jev_skill_select` searches the full supplied catalog through partitioned Choices. It does not load the skill.
+- `jev_model_route` filters and ranks explicit candidate metadata. It does not change the active model or use a fallback provider.
+- `jev_computer_use` runs bounded actions through Hermes' Cua Driver-backed tool on Windows, macOS, and Linux. It rechecks targets before acting and returns `verified: false` until Hermes independently checks the result.
 - Jev may abstain. A confidence value is not a correctness guarantee.
 
 ## Missing-key symptoms and recovery
 
-If `OPENROUTER_API_KEY` is missing, Hermes can disable the plugin during loading and the Jev tools will not appear as available. If a request reaches the plugin without a key, it fails closed with a generic request-validation error rather than exposing credential details.
+If neither `TYPESAFE_API_KEY` nor `OPENROUTER_API_KEY` is available, Hermes can disable the plugin during loading and the Jev tools will not appear as available. If a request reaches the plugin without a key, it fails closed with a generic request-validation error rather than exposing credential details.
 
 Recover without changing code:
 
-1. Add the key with the secure Hermes provider prompt.
+1. Run `hermes jev-decision setup --provider typesafe` or use `--provider openrouter` and enter the key only in the masked prompt.
 2. Start a fresh Hermes session.
 3. Run `hermes plugins list --enabled`.
 4. Run `hermes plugins doctor . --ci` from the plugin root if discovery remains unclear.
 
-A Codex login, a different `jev_model` value, or a direct TypeSafe key does not fix a missing OpenRouter key.
+A Codex login, a different `jev_model` value, or a missing direct key does not fix a missing secret. Choose the provider whose profile secret is present.
 
 ## Limits and future work
 
-This release does not provide direct TypeSafe access, automatic skill loading, automatic model changes, provider fallback, calibrated correctness claims, independent GUI completion proof, or a real-GUI benchmark. A reviewed catalog admission and broader real-GUI coverage require separate work and approval.
+The release still does not load skills automatically, change the active Hermes model, use provider fallback, claim calibrated correctness, or certify GUI completion independently. Cua Driver remains the host-owned desktop executor; Switchyard adds the Jev decision layer and does not bypass its approval or platform boundaries.

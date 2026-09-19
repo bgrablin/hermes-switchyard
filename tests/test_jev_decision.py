@@ -7,11 +7,12 @@ from __future__ import annotations
 import json
 import math
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 from jev_decision import client as client_module
 from jev_decision.client import DecisionClient
-from jev_decision.computer_use import StaleTargetError, run_computer_goal
+from jev_decision.computer_use import StaleTargetError, _hotkeys_for_platform, run_computer_goal
 from jev_decision.routing import route_model, select_skill
 
 
@@ -114,15 +115,14 @@ class ComputerClient:
         if public_or_sanitized_data_ack is not True:
             raise AssertionError("test client requires the acknowledgement")
         self.calls.append((state, questions))
-        operation = self.operations.pop(0)
-        operation_criteria = questions["operation"]["criteria"]
-        answers = {
-            "operation": _choice(operation_criteria, operation),
-            "click_target": _choice(questions["click_target"]["criteria"]),
-            "text_target": _choice(questions["text_target"]["criteria"]),
-            "value_target": _choice(questions["value_target"]["criteria"]),
-            "hotkey": _choice(questions["hotkey"]["criteria"]),
-        }
+        answers = {}
+        if "operation" in questions:
+            operation = self.operations.pop(0)
+            answers["operation"] = _choice(questions["operation"]["criteria"], operation)
+            answers["hotkey"] = _choice(questions["hotkey"]["criteria"])
+        else:
+            for name, question in questions.items():
+                answers[name] = _choice(question["criteria"])
         return {
             "model": "typesafe/jev-1.13",
             "answers": answers,
@@ -131,6 +131,88 @@ class ComputerClient:
 
 
 class RoutingTests(unittest.TestCase):
+    def test_skill_selection_searches_catalog_larger_than_one_choice(self):
+        candidates = [
+            {"name": f"skill-{index}", "description": f"public skill {index} " + ("x" * 1_000)}
+            for index in range(300)
+        ]
+
+        class LargeCatalogClient:
+            def __init__(self):
+                self.calls = []
+
+            def decide(self, state, questions, *, public_or_sanitized_data_ack=False):
+                self.assert_ack(public_or_sanitized_data_ack)
+                self.calls.append((state, questions))
+                answers = {}
+                if "needs_skill" in questions:
+                    answers["needs_skill"] = {"noul": 0.99}
+                if "skill" in questions:
+                    criteria = questions["skill"]["criteria"]
+                    answers["skill"] = _choice(criteria, "skill-299", confidence=0.99)
+                for name, question in questions.items():
+                    if not name.startswith("skill_chunk_"):
+                        continue
+                    criteria = question["criteria"]
+                    selected = "skill-299" if "skill-299" in criteria else next(iter(criteria))
+                    answers[name] = _choice(criteria, selected, confidence=0.99)
+                return {"model": "typesafe/jev-1.13", "answers": answers, "usage": {}}
+
+            @staticmethod
+            def assert_ack(value):
+                if value is not True:
+                    raise AssertionError("test client requires the acknowledgement")
+
+        client = LargeCatalogClient()
+        result = select_skill(
+            task="find the last public skill",
+            candidates=candidates,
+            client=client,
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["selected"], "skill-299")
+        self.assertGreater(len(client.calls), 1)
+        self.assertTrue(all(len(json.dumps({"state": state, "questions": questions})) < 96_000 for state, questions in client.calls))
+        self.assertEqual(result["request_count"], len(client.calls))
+        offered = {
+            name
+            for _state, questions in client.calls
+            for question_name, question in questions.items()
+            if question_name.startswith("skill_chunk_")
+            for name in question["criteria"]
+            if name != "__jev_none_of_these__"
+        }
+        self.assertEqual(offered, {candidate["name"] for candidate in candidates})
+        self.assertEqual(result["offered_count"], 300)
+        self.assertEqual(result["excluded_count"], 0)
+        self.assertEqual(result["shortlist_policy"], "full_partition_fan_out")
+
+    def test_skill_fan_out_has_one_aggregate_request_budget(self):
+        payloads = []
+
+        def transport(payload):
+            payloads.append(payload)
+            answers = {}
+            for name, question in payload["questions"].items():
+                if name == "needs_skill":
+                    answers[name] = {"noul": 0.99}
+                else:
+                    answers[name] = _choice(question["criteria"])
+            return {"model": "typesafe/jev-1.13", "answers": answers, "usage": {}}
+
+        client = DecisionClient(api_key="test-key", transport=transport)
+        candidates = [
+            {"name": f"skill-{index}", "description": "public description"}
+            for index in range(300)
+        ]
+        with mock.patch("jev_decision.routing._PARTITION_CRITERIA_BYTES", 100):
+            with self.assertRaises(ValueError):
+                select_skill(
+                    task="public task", candidates=candidates, client=client,
+                    public_or_sanitized_data_ack=True,
+                )
+        self.assertEqual(len(payloads), 64)
+
     def test_exact_identifiers_reject_whitespace_without_egress(self):
         client = FakeDecisionClient(_skill_response())
         with self.assertRaises(ValueError):
@@ -295,17 +377,158 @@ class RoutingTests(unittest.TestCase):
             )
         self.assertEqual(client.calls, [])
 
+    def test_model_routing_batches_more_than_255_eligible_candidates(self):
+        class BatchedClient:
+            def __init__(self):
+                self.calls = []
+
+            def decide(self, state, questions, *, public_or_sanitized_data_ack=False):
+                self.calls.append((state, questions))
+                return {
+                    "model": "typesafe/jev-1.13",
+                    "answers": {name: {"noul": 0.95} for name in questions},
+                    "usage": {"cost": 0.001},
+                    "latency_ms": 1,
+                }
+
+        candidates = [
+            {"id": f"model-{index}", "description": "qualified", "approved": True, "cost": index + 1}
+            for index in range(256)
+        ]
+        client = BatchedClient()
+        result = route_model(
+            task="public routing task", candidates=candidates, requirements={}, client=client,
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["selected"], "model-0")
+        self.assertEqual(len(client.calls), 2)
+        self.assertTrue(all(len(questions) <= 200 for _state, questions in client.calls))
+        self.assertEqual(len(result["capability_fit_scores"]), 256)
+        self.assertEqual(result["request_count"], 2)
+        self.assertAlmostEqual(result["total_usage"]["cost"], 0.002)
+
 
 class ClientTests(unittest.TestCase):
+    def test_score_answers_are_supported_and_validated(self):
+        question = {
+            "severity": {
+                "type": "score",
+                "instructions": "Rate severity from cosmetic to blocking.",
+                "criteria": ["cosmetic", "blocking"],
+            }
+        }
+        client = DecisionClient(
+            api_key="test-key",
+            transport=lambda _payload: {
+                "model": "typesafe/jev-1.13",
+                "answers": {
+                    "severity": {
+                        "score": 0.8,
+                        "legend": {"0": "cosmetic", "1": "blocking"},
+                        "probabilities": {"0": 0.2, "1": 0.8},
+                        "confidence": 0.8,
+                    }
+                },
+            },
+        )
+        result = client.decide("public", question, public_or_sanitized_data_ack=True)
+        self.assertEqual(result["answers"]["severity"]["score"], 0.8)
+
+    def test_score_rejects_relabeling_and_inconsistent_weighted_value(self):
+        question = {"severity": {
+            "type": "score", "instructions": "Rate severity.",
+            "criteria": ["cosmetic", "blocking"],
+        }}
+        for legend, score in (({"0": "minor", "1": "blocking"}, 0.8), ({"0": "cosmetic", "1": "blocking"}, 0.2)):
+            client = DecisionClient(api_key="test-key", transport=lambda _payload, legend=legend, score=score: {
+                "model": "typesafe/jev-1.13",
+                "answers": {"severity": {
+                    "score": score, "legend": legend,
+                    "probabilities": {"0": 0.2, "1": 0.8}, "confidence": 0.8,
+                }},
+            })
+            with self.assertRaises(ValueError):
+                client.decide("public", question, public_or_sanitized_data_ack=True)
+
+    def test_question_validation_precedes_transport_and_large_sets_are_batched(self):
+        calls = []
+
+        def transport(payload):
+            calls.append(payload)
+            return {
+                "model": "typesafe/jev-1.13",
+                "answers": {name: {"noul": 0.9} for name in payload["questions"]},
+                "usage": {"cost": 0.001},
+                "latency_ms": 1,
+            }
+
+        client = DecisionClient(api_key="test-key", transport=transport)
+        with self.assertRaises(ValueError):
+            client.decide("public", {"bad": {"type": "noul", "instructions": 7}}, public_or_sanitized_data_ack=True)
+        self.assertEqual(calls, [])
+        questions = {
+            f"q{index}": {"type": "noul", "instructions": "Is this true?"}
+            for index in range(256)
+        }
+        result = client.decide("public", questions, public_or_sanitized_data_ack=True)
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(len(call["questions"]) <= 255 for call in calls))
+        self.assertEqual(len(result["answers"]), 256)
+        self.assertEqual(result["request_count"], 2)
+        self.assertAlmostEqual(result["total_usage"]["cost"], 0.002)
+
+    def test_total_question_budget_rejects_before_transport(self):
+        from jev_decision import schemas
+        calls = []
+        client = DecisionClient(api_key="test-key", transport=lambda payload: (calls.append(payload) or {}))
+        maximum = schemas.ASSESS["parameters"]["properties"]["questions"]["maxProperties"]
+        questions = {
+            f"q{index}": {"type": "noul", "instructions": "Is this true?"}
+            for index in range(maximum + 1)
+        }
+        with self.assertRaises(ValueError):
+            client.decide("public", questions, public_or_sanitized_data_ack=True)
+        self.assertEqual(calls, [])
+
+    def test_serialized_splitting_cannot_exceed_request_budget(self):
+        calls = []
+        client = DecisionClient(api_key="test-key", transport=lambda payload: (calls.append(payload) or {}))
+        questions = {
+            f"q{index}": {"type": "noul", "instructions": "x" * 50_000}
+            for index in range(65)
+        }
+        with self.assertRaises(ValueError):
+            client.decide("public", questions, public_or_sanitized_data_ack=True)
+        self.assertEqual(calls, [])
+
+    def test_direct_typesafe_endpoint_is_supported_without_openrouter_provider_hint(self):
+        payloads = []
+
+        def transport(payload):
+            payloads.append(payload)
+            return {
+                "model": "jev-latest",
+                "answers": {"answer": {"noul": 0.9}},
+            }
+
+        client = DecisionClient(
+            api_key="test-key",
+            endpoint="https://api.typesafe.ai/v1/systemone",
+            model="jev-latest",
+            transport=transport,
+        )
+        client.decide("public", {"answer": {"type": "noul", "instructions": "Is the statement true?"}}, public_or_sanitized_data_ack=True)
+        self.assertNotIn("provider", payloads[0])
+
     def test_ack_denial_prevents_transport(self):
         calls = []
         client = DecisionClient(api_key="test-key", transport=lambda payload: calls.append(payload))
         with self.assertRaises(PermissionError):
-            client.decide("public", {"answer": {"type": "noul"}})
+            client.decide("public", {"answer": {"type": "noul", "instructions": "Is the statement true?"}})
         self.assertEqual(calls, [])
 
     def test_concrete_version_suffix_is_allowed_but_substitution_is_not(self):
-        question = {"answer": {"type": "noul", "criteria": {"fit": "fit"}}}
+        question = {"answer": {"type": "noul", "instructions": "Does it fit?", "criteria": {"fit": "fit"}}}
         concrete = DecisionClient(
             api_key="test-key",
             transport=lambda _payload: {
@@ -326,7 +549,7 @@ class ClientTests(unittest.TestCase):
             substituted.decide("public", question, public_or_sanitized_data_ack=True)
 
     def test_invalid_typed_response_and_usage_fail_closed(self):
-        question = {"answer": {"type": "choice", "criteria": {"a": "A", "b": "B"}}}
+        question = {"answer": {"type": "choice", "instructions": "Choose one.", "criteria": {"a": "A", "b": "B"}}}
         invalid = DecisionClient(
             api_key="fixture-key-value",
             transport=lambda _payload: {
@@ -342,7 +565,7 @@ class ClientTests(unittest.TestCase):
             transport=lambda _payload: (_ for _ in ()).throw(RuntimeError("fixture-key-value leaked")),
         )
         with self.assertRaisesRegex(RuntimeError, "Jev transport failed") as caught:
-            failing.decide("public", {"answer": {"type": "noul"}}, public_or_sanitized_data_ack=True)
+            failing.decide("public", {"answer": {"type": "noul", "instructions": "Is the statement true?"}}, public_or_sanitized_data_ack=True)
         self.assertNotIn("fixture-key-value", str(caught.exception))
 
     def test_arbitrary_endpoint_is_rejected(self):
@@ -360,7 +583,7 @@ class ClientTests(unittest.TestCase):
             }
 
         client = DecisionClient(api_key="test-key", transport=transport)
-        client.decide("public", {"answer": {"type": "noul"}}, public_or_sanitized_data_ack=True)
+        client.decide("public", {"answer": {"type": "noul", "instructions": "Is the statement true?"}}, public_or_sanitized_data_ack=True)
         self.assertEqual(payloads[0]["model"], "typesafe/jev-1.13")
         self.assertEqual(payloads[0]["provider"], {"allow_fallbacks": False})
 
@@ -368,7 +591,7 @@ class ClientTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             DecisionClient(api_key="test-key", model="typesafe/jev-1.13-20260918")
 
-        question = {"answer": {"type": "noul"}}
+        question = {"answer": {"type": "noul", "instructions": "Is the statement true?"}}
         mismatched = DecisionClient(
             api_key="test-key",
             model="typesafe/jev-1.13-20260917",
@@ -388,6 +611,74 @@ class ClientTests(unittest.TestCase):
 
 
 class ComputerUseTests(unittest.TestCase):
+    def test_platform_hotkeys_use_command_on_macos(self):
+        mac = _hotkeys_for_platform("darwin")
+        linux = _hotkeys_for_platform("linux")
+        self.assertEqual(mac["SAVE"], "cmd+s")
+        self.assertEqual(mac["COPY"], "cmd+c")
+        self.assertEqual(mac["REDO"], "cmd+shift+z")
+        self.assertEqual(linux["SAVE"], "ctrl+s")
+
+    def test_operation_and_target_selection_use_separate_bounded_requests(self):
+        dispatch = SyntheticDispatch([_capture(), _capture(), _capture()])
+        client = ComputerClient(["CLICK"])
+        result = run_computer_goal(
+            goal="click Go", app="Chrome", max_steps=1, dispatch=dispatch, client=client,
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["actions"][0]["element"], 1)
+        self.assertEqual(set(client.calls[0][1]), {"operation", "hotkey"})
+        self.assertEqual(set(client.calls[1][1]), {"click_target"})
+
+    def test_dense_accessibility_tree_is_partitioned_without_dropping_late_controls(self):
+        elements = [
+            {"index": index, "role": "Button", "label": f"Action {index}"}
+            for index in range(1, 301)
+        ]
+        captures = [{"app": "Chrome", "window_title": "Dense", "elements": elements} for _ in range(3)]
+        dispatch = SyntheticDispatch(captures)
+
+        class DenseClient:
+            def decide(self, _state, questions, *, public_or_sanitized_data_ack=False):
+                if public_or_sanitized_data_ack is not True:
+                    raise AssertionError("test client requires the acknowledgement")
+                answers = {}
+                for name, question in questions.items():
+                    criteria = question["criteria"]
+                    if name == "operation":
+                        answers[name] = _choice(criteria, "CLICK")
+                    elif name.startswith("click_target"):
+                        selected = "299" if "299" in criteria else (
+                            "__jev_no_target__" if "__jev_no_target__" in criteria else next(iter(criteria))
+                        )
+                        answers[name] = _choice(criteria, selected)
+                    else:
+                        answers[name] = _choice(criteria)
+                return {"model": "typesafe/jev-1.13", "answers": answers, "usage": {}}
+
+        result = run_computer_goal(
+            goal="click Action 299",
+            app="Chrome",
+            max_steps=1,
+            dispatch=dispatch,
+            client=DenseClient(),
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(dispatch.action_calls, [{"action": "click", "element": 299}])
+        self.assertEqual(result["actions"][0]["element"], 299)
+
+    def test_checkbox_control_is_offered_to_jev(self):
+        dispatch = SyntheticDispatch([_capture(label="Agree", role="CheckBox"), _capture(label="Agree", role="CheckBox"), _capture(label="Agree", role="CheckBox")])
+        result = run_computer_goal(
+            goal="click Agree",
+            app="Chrome",
+            max_steps=1,
+            dispatch=dispatch,
+            client=ComputerClient(["CLICK"]),
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["actions"][0]["element"], 1)
+
     def test_ack_and_empty_app_denial_happen_before_capture(self):
         dispatch = SyntheticDispatch([])
         client = ComputerClient(["BLOCKED"])
@@ -521,6 +812,38 @@ class ComputerUseTests(unittest.TestCase):
 
 
 class PluginEntryPointTests(unittest.TestCase):
+    def test_cli_setup_uses_masked_prompt_and_profile_secret_writer(self):
+        import jev_decision
+        with mock.patch("hermes_cli.secret_prompt.masked_secret_prompt", return_value="synthetic-key"), \
+             mock.patch("hermes_cli.config.save_env_value") as save:
+            code = jev_decision._cli_handler(SimpleNamespace(jev_command="setup", provider="typesafe"))
+        self.assertEqual(code, 0)
+        save.assert_called_once_with("TYPESAFE_API_KEY", "synthetic-key")
+
+    def test_tool_availability_uses_the_configured_provider_secret(self):
+        import jev_decision
+
+        class Context:
+            def __init__(self, settings=None):
+                self.checks = {}
+                self.settings = dict(settings or {"jev_provider": "openrouter"})
+            def get_config(self, key, default=None):
+                return self.settings.get(key, default)
+            def register_auxiliary_task(self, *_args, **_kwargs): pass
+            def register_tool(self, *, name, check_fn, **_kwargs): self.checks[name] = check_fn
+            def register_skill(self, *_args, **_kwargs): pass
+            def register_hook(self, *_args, **_kwargs): pass
+
+        context = Context()
+        with mock.patch.object(jev_decision, "_secret", side_effect=lambda provider="auto": "typesafe" if provider == "typesafe" else ""):
+            jev_decision.register(context)
+            self.assertFalse(context.checks["jev_assess"]())
+        with mock.patch.object(jev_decision, "_secret", side_effect=lambda provider="auto": "openrouter" if provider == "openrouter" else ""):
+            self.assertTrue(context.checks["jev_assess"]())
+            incompatible = Context({"jev_provider": "openrouter", "jev_model": "jev-latest"})
+            jev_decision.register(incompatible)
+            self.assertFalse(incompatible.checks["jev_assess"]())
+
     def test_registered_handlers_deny_missing_ack_before_client_network_or_capture(self):
         import jev_decision
 
@@ -549,7 +872,7 @@ class PluginEntryPointTests(unittest.TestCase):
         with mock.patch.object(jev_decision, "_secret", side_effect=AssertionError("client must not initialize")) as secret:
             with mock.patch.object(jev_decision, "DecisionClient", side_effect=AssertionError("network must not initialize")) as client:
                 jev_decision.register(context)
-                for name in ("jev_computer_use", "jev_skill_select", "jev_model_route"):
+                for name in ("jev_assess", "jev_computer_use", "jev_skill_select", "jev_model_route"):
                     with self.subTest(name=name):
                         result = json.loads(context.tools[name]({}))
                         self.assertEqual(
@@ -592,14 +915,15 @@ class PluginEntryPointTests(unittest.TestCase):
         context = Context()
         with mock.patch.object(jev_decision.sys, "platform", "win32"):
             jev_decision.register(context)
-        prompt, options = context.prompts["jev-decision.windows-computer-use"]
+        prompt, options = context.prompts["jev-decision.computer-use"]
         self.assertIn("configurable capability", prompt)
-        self.assertIn("only when the caller explicitly approves the pilot", prompt)
+        self.assertIn("Windows, macOS, and Linux", prompt)
+        self.assertIn("only when the caller explicitly approves the run", prompt)
         self.assertIn("public or sanitized", prompt)
         self.assertIn("not blanket egress authorization", prompt)
         self.assertIn("does not override mandatory skills", prompt)
         self.assertIn("user's native/computer-use preference", prompt)
-        self.assertIn("Otherwise preserve the user's native/computer workflow", prompt)
+        self.assertIn("Otherwise preserve the native computer-use workflow", prompt)
         self.assertEqual(options["position"], "after_memory")
 
 

@@ -70,9 +70,9 @@ The catalog name form is for a future catalog admission. Until admission, use th
 
 ## OpenRouter and Jev access
 
-Live Jev decisions require an OpenRouter account, an OpenRouter API key stored through Hermes' secret flow, enough OpenRouter credit or available provider quota for the request, and access to the exact approved model alias requested by the plugin. The approved aliases are `typesafe/jev-1.13` and `typesafe/jev-1.13-20260917`; access to another model does not satisfy this requirement.
+Live Jev decisions require either a TypeSafe API key (`TYPESAFE_API_KEY`) or an OpenRouter API key (`OPENROUTER_API_KEY`) stored through Hermes' secret flow, enough account allowance, and access to the exact provider-specific alias requested by the plugin. `jev_provider: auto` prefers direct TypeSafe when available.
 
-A Codex subscription pays for Codex usage. It does not pay Jev fees or OpenRouter requests. Direct TypeSafe account or API access is not currently supported; the plugin uses the fixed OpenRouter Decisions endpoint and must not be pointed at a TypeSafe endpoint or given a TypeSafe key. Do not put any API key in a command, URL, repository file, or issue report.
+A Codex subscription pays for Codex usage. It does not pay Jev fees. The plugin accepts only the fixed direct TypeSafe or OpenRouter endpoints; do not put any API key in a command, URL, repository file, or issue report.
 
 ## Hermes guidance comparison
 

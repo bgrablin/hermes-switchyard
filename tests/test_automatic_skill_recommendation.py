@@ -138,8 +138,8 @@ class AutomaticRecommendationTests(unittest.TestCase):
         }
         with mock.patch.object(self._skills_api(), "skills_list", return_value=json.dumps(payload)):
             candidates = discover_available_skill_candidates()
-        self.assertEqual(len(candidates), 255)
-        self.assertEqual(candidates[-1]["name"], "synthetic-254")
+        self.assertEqual(len(candidates), 300)
+        self.assertEqual(candidates[-1]["name"], "synthetic-299")
 
     def test_realistic_hermes_skill_registry_schema_is_used(self):
         payload = {
@@ -202,6 +202,7 @@ class AutomaticRecommendationTests(unittest.TestCase):
 
         hook = build_pre_llm_call_hook(
             hosted_enabled=True,
+            hosted_mode="always",
             public_or_sanitized_data_ack=True,
             client_factory=lambda: DecisionClient(api_key="fixture-key", transport=transport),
         )
@@ -220,7 +221,7 @@ class AutomaticRecommendationTests(unittest.TestCase):
             )
         self.assertIsNotNone(result)
         wire = json.dumps(payloads[0], sort_keys=True)
-        self.assertNotIn("SYNTHETIC_PROMPT_DESCRIPTION_MARKER", wire)
+        self.assertIn("SYNTHETIC_PROMPT_DESCRIPTION_MARKER", wire)
         self.assertNotIn("PRIVATE_HISTORY_MARKER", wire)
         self.assertIn("docker-management", wire)
 
@@ -251,6 +252,7 @@ class AutomaticRecommendationTests(unittest.TestCase):
                 {"name": "printer", "description": "Operate network printers"},
             ],
             hosted_enabled=True,
+            hosted_mode="always",
             public_or_sanitized_data_ack=True,
             client_factory=client_factory,
         )
@@ -267,7 +269,7 @@ class AutomaticRecommendationTests(unittest.TestCase):
         wire = json.dumps(payloads[0], sort_keys=True)
         self.assertNotIn("PRIVATE_HISTORY_MARKER", wire)
         self.assertNotIn("private prior turn", wire)
-        self.assertNotIn("SYNTHETIC_CONFIGURED_DESCRIPTION_MARKER", wire)
+        self.assertIn("SYNTHETIC_CONFIGURED_DESCRIPTION_MARKER", wire)
         self.assertIn("docker-management", wire)
         self.assertIn("public Docker maintenance request", wire)
         self.assertEqual(payloads[0]["provider"], {"allow_fallbacks": False})
@@ -296,6 +298,7 @@ class AutomaticRecommendationTests(unittest.TestCase):
                 {"name": "printer", "description": "Operate network printers"},
             ],
             hosted_enabled=True,
+            hosted_mode="always",
             public_or_sanitized_data_ack=True,
             client_factory=lambda: DecisionClient(api_key="fixture-key", transport=transport),
         )
@@ -305,6 +308,37 @@ class AutomaticRecommendationTests(unittest.TestCase):
         self.assertIsNone(result["selected"])
         self.assertEqual(result["source"], "none")
         self.assertIn("threshold", result["abstention_reason"])
+
+    def test_hosted_default_calls_jev_even_when_local_match_is_confident(self):
+        calls = []
+
+        def transport(payload):
+            calls.append(payload)
+            return {
+                "model": "typesafe/jev-1.13",
+                "answers": {
+                    "skill": {
+                        "choice": "docker-management",
+                        "confidence": 0.99,
+                        "probabilities": {"docker-management": 1.0},
+                    },
+                    "needs_skill": {"noul": 0.99},
+                },
+                "usage": {},
+            }
+
+        recommender = AutomaticSkillRecommender(
+            configured_candidates=[
+                {"name": "docker-management", "description": "Manage Docker containers"},
+            ],
+            hosted_enabled=True,
+            public_or_sanitized_data_ack=True,
+            client_factory=lambda: DecisionClient(api_key="fixture-key", transport=transport),
+        )
+        result = recommender.recommend("Diagnose a Docker container")
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(result["hosted_attempted"])
+        self.assertEqual(result["source"], "jev")
 
     def test_hosted_path_without_attestation_does_not_construct_client(self):
         constructed = []
@@ -322,6 +356,7 @@ class AutomaticRecommendationTests(unittest.TestCase):
         result = recommender.recommend("Docker maintenance")
         self.assertEqual(result["selected"], "docker-management")
         self.assertEqual(result["source"], "local")
+        self.assertEqual(result["hosted_skipped"], "public_or_sanitized_data_ack_required")
         self.assertEqual(constructed, [])
 
     def test_real_hermes_loader_registers_hook_when_available(self):
