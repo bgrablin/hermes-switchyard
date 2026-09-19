@@ -1,5 +1,5 @@
-name: jev-decision
-version: 0.4.0
+name: hermes-switchyard
+version: 0.4.1
 author: bgrablin
 manifest_version: 1
 description: Bounded Jev decisions for advisory routing and fixture-tested computer-use loops; no calibrated-quality or independent-completion claim.

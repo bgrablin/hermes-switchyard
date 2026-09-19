@@ -1,7 +1,7 @@
 ---
 name: jev-decision-operations
 description: Use when evaluating bounded Jev decisions or integrating this plugin safely.
-version: 0.4.0
+version: 0.4.1
 author: bgrablin
 license: MIT
 platforms: [linux, macos, windows]

@@ -4,7 +4,7 @@ Hermes Switchyard is a standalone native Hermes plugin. Keep changes inside this
 
 ## Scope and compatibility
 
-Keep the manifest name `jev-decision`, the root `__init__.py` entrypoint, and the `jev_decision` package path stable. A rename needs a migration note and a compatibility decision because installed profiles record the plugin ID.
+Keep the manifest name `hermes-switchyard`, the root `__init__.py` entrypoint, and the `jev_decision` package path stable. Version 0.4.0 used the legacy `jev-decision` plugin ID; users must remove that installation before installing `hermes-switchyard` so both copies cannot load together.
 
 Preserve `bgrablin` attribution and any genuine third-party attribution. Do not add personal paths, private hostnames, lab details, credentials, raw UI captures, or operational handoffs to source, tests, docs, or issue reports.
 

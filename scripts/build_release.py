@@ -22,7 +22,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
-PLUGIN_NAME = "jev-decision"
+PLUGIN_NAME = "hermes-switchyard"
 SOURCE_MANIFEST_NAME = "SOURCE-MANIFEST.json"
 CHECKSUMS_NAME = "SHA256SUMS"
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$")

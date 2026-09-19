@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 EXPECTED_HERMES_PYTHON = ">=3.11,<3.14"
-EXPECTED_PLUGIN = "jev-decision"
+EXPECTED_PLUGIN = "hermes-switchyard"
 EXPECTED_MANIFEST_VERSION = 1
 EXPECTED_TOOLS = frozenset({
     "jev_assess",

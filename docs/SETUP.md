@@ -36,7 +36,7 @@ Both provider keys are optional alternatives, so installation does not prompt fo
 ```text
 hermes plugins install bgrablin/hermes-switchyard --no-enable
 hermes plugins list
-hermes plugins enable jev-decision
+hermes plugins enable hermes-switchyard
 ```
 
 Start a fresh Hermes session after installation or an update.
@@ -79,11 +79,11 @@ A successful native check proves discovery and registration, not model quality, 
 
 ## Configure the plugin
 
-The plugin settings are profile-scoped under `plugins.entries.jev-decision.settings`:
+The plugin settings are profile-scoped under `plugins.entries.hermes-switchyard.settings`:
 
 ```text
-hermes config set plugins.entries.jev-decision.settings.jev_provider auto
-hermes config set plugins.entries.jev-decision.settings.computer_max_steps 100
+hermes config set plugins.entries.hermes-switchyard.settings.jev_provider auto
+hermes config set plugins.entries.hermes-switchyard.settings.computer_max_steps 100
 ```
 
 Leave `jev_model` empty to use the provider default. Direct TypeSafe uses `jev-latest`; OpenRouter uses `typesafe/jev-1.13`.
@@ -91,7 +91,7 @@ Leave `jev_model` empty to use the provider default. Direct TypeSafe uses `jev-l
 If an earlier setup pinned the TypeSafe-only alias while using `auto`, remove it so provider-specific defaults work:
 
 ```text
-hermes config unset plugins.entries.jev-decision.settings.jev_model
+hermes config unset plugins.entries.hermes-switchyard.settings.jev_model
 ```
 
 Some Windows text-entry actions use the host-owned Hermes text model. If Hermes has no configured model, choose one through the normal interactive command:
@@ -106,7 +106,7 @@ That model is separate from Jev. A Codex login can supply Hermes' host model whe
 
 Before a Jev tool runs, the invoking code must set `public_or_sanitized_data_ack: true`. This confirms that the data was reviewed before it is sent. It is not a scan, a redaction guarantee, data-loss-prevention control, authorization to share, or permission to bypass another control.
 
-For a Cua Driver request, the decision state can include the goal, target application, window title, safe controls, visible context, and recent actions. Text entry can also send selected field context to the configured Hermes text model. Do not send private, employer, regulated, credential, password, API-key, token, payment, or verification-code data.
+For a Cua Driver request, Switchyard builds a bounded decision state from the goal, target application, window title, safe controls, visible context, and recent actions. Text entry can also use selected field context with the configured Hermes text model. The caller must exclude private, employer, regulated, credential, password, API-key, token, payment, and verification-code data before invocation.
 
 ## What is supported
 
