@@ -53,9 +53,36 @@ Use the secure setup steps in [docs/SETUP.md](docs/SETUP.md). Never pass an API 
 
 - **Skill selection:** `jev_skill_select` recommends one skill from the candidate list supplied by Hermes. It never loads the skill; Hermes decides whether to load it.
 - **Model routing:** `jev_model_route` filters candidates using the metadata and requirements supplied by Hermes, then recommends the lowest-cost qualified candidate. It never changes the active Hermes model and does not try another provider when Jev fails.
+- **Decision primitives:** the current integration uses closed-set `Choice` and yes/no `Noul` gates. TypeSafe `Score` is not exposed because no current caller defines safe score semantics, thresholds, calibration, or downstream action.
 - **Windows computer use:** `jev_computer_use` runs bounded actions in a specified Windows application through Hermes' normal computer-use approval and action controls. It captures the target again before acting, refuses a changed target, and returns `verified: false`. Hermes must check the result separately; the tool does not certify success.
 
 The default Jev model is `typesafe/jev-1.13`. The implementation also accepts one dated alias for compatibility, but users should keep the default unless a reviewed release gives a different value. The endpoint, model aliases, and provider fallback policy are fixed in code.
+
+## Automatic skill recommendations
+
+When the plugin is enabled, the `pre_llm_call` lifecycle hook is on by default.
+It discovers the active profile's skills through Hermes' supported `skills_list`
+registry, performs bounded local matching, and may add one advisory recommendation
+to the current user API message. This is turn-scoped context: it does not mutate
+the cached system prompt, load a skill, or change the toolset. Disable it with:
+
+```text
+hermes config set plugins.entries.jev-decision.settings.automatic_skill_recommendation false
+```
+
+Hosted Jev selection is off by default. Enable it only when the active profile is
+permitted to send public or already-sanitized task text and exact candidate names:
+
+```text
+hermes config set plugins.entries.jev-decision.settings.automatic_skill_jev true
+hermes config set plugins.entries.jev-decision.settings.automatic_skill_public_or_sanitized_data_ack true
+```
+
+The persistent acknowledgement covers the bounded current task and exact skill
+identifiers only. Candidate descriptions and conversation history remain local;
+the acknowledgement is an operator attestation, not DLP or authorization. A
+valid hosted abstention is preserved; local fallback is used only when the
+hosted decision is unavailable.
 
 ## Privacy and data handling
 
@@ -68,8 +95,8 @@ For Windows computer use, Jev may receive the goal, target application, window t
 The tools are advisory and bounded:
 
 - A high confidence score is not proof that a choice is correct.
-- Switchyard can return no selection when eligibility or confidence checks fail. This is called abstention.
-- The plugin does not load skills, edit prompts, change runtime models, or certify GUI completion.
+- Switchyard can return no selection when eligibility or confidence checks fail. This valid result is called abstention.
+- The plugin does not load skills, change the cached system prompt, change runtime models, or certify GUI completion. Automatic recommendations add context to the current turn only.
 - Provider fallback is disabled. A failed Jev request does not silently move to another provider.
 - Skill selection and model routing work on Linux and Windows. `jev_computer_use` is available only when Hermes runs on Windows.
 - The repository's offline tests use synthetic transports and do not call OpenRouter or drive a real GUI.
