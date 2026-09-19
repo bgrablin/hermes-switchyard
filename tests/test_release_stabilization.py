@@ -15,6 +15,7 @@ from hermes_switchyard.automatic import AutomaticSkillRecommender
 from hermes_switchyard.client import DecisionClient
 from hermes_switchyard.routing import route_model, select_skill
 from scripts.build_release import RELEASE_FILES
+from scripts.ci import check_native_hermes
 
 
 class _Response:
@@ -291,6 +292,11 @@ class NamespaceAndAckTests(unittest.TestCase):
         context = Context()
         hermes_switchyard.register(context)
         self.assertIn("jev_skill_select_many", context.tools)
+        self.assertIn("jev_skill_select_many", check_native_hermes.EXPECTED_TOOLS)
+        self.assertEqual(
+            check_native_hermes.EXPECTED_REQUIRED_FIELDS["jev_skill_select_many"],
+            {"task", "candidates"},
+        )
 
     def test_model_facing_acknowledgement_is_explicitly_required(self):
         for schema in (schemas.ASSESS, schemas.COMPUTER_USE, schemas.SKILL_SELECT, schemas.MODEL_ROUTE, schemas.MULTI_SKILL_SELECT):
