@@ -16,6 +16,7 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any
 
 from .routing import select_skill
@@ -31,6 +32,42 @@ DEFAULT_LOCAL_MARGIN = 0.05
 DEFAULT_CACHE_SECONDS = 30.0
 MAX_CACHE_SECONDS = 300.0
 DEFAULT_CACHE_SIZE = 32
+
+# Stable, privacy-safe terminal states for the routing-receipt surface. These
+# names identify every automatic-routing outcome without carrying task text,
+# candidate descriptions, conversation history, or credentials.
+RECEIPT_TERMINAL_STATES = frozenset(
+    {
+        "local_selection",
+        "hosted_selection",
+        "hosted_abstention",
+        "hosted_failure_local_fallback",
+        "hosted_skipped",
+        "cache_hit",
+    }
+)
+# Stable local error codes for hosted failures. Provider exception text, local
+# paths, usernames, and hostnames are never placed in a receipt.
+HOSTED_ERROR_CODES = frozenset(
+    {
+        "transport_or_execution_failure",
+        "ack_required",
+        "validation_failure",
+        "typed_response_failure",
+        "request_budget_exhausted",
+        "plugin_error",
+    }
+)
+# Field values that must never survive into a receipt, even if they are present
+# on an intermediate recommendation result.
+_RECEIPT_FORBIDDEN_MARKERS = (
+    "SYNTHETIC_TASK_MARKER",
+    "SYNTHETIC_CANDIDATE_DESCRIPTION_MARKER",
+    "SYNTHETIC_CREDENTIAL_MARKER",
+    "PRIVATE_HISTORY_MARKER",
+    "Jev transport failed",
+    "Jev connection failed",
+)
 
 _TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_:+.-]*")
 
@@ -221,6 +258,7 @@ class AutomaticSkillRecommender:
         self.cache_size = max(1, min(int(cache_size), 128))
         self._cache: OrderedDict[tuple[Any, ...], tuple[float, dict[str, Any]]] = OrderedDict()
         self._lock = threading.RLock()
+        self.last_receipt: dict[str, Any] | None = None
 
     def _cached(self, key: tuple[Any, ...]) -> dict[str, Any] | None:
         if self.cache_seconds <= 0:
@@ -275,6 +313,7 @@ class AutomaticSkillRecommender:
         key = (task_text, fingerprint, self.hosted_enabled, self.hosted_mode, self.public_or_sanitized_data_ack)
         cached = self._cached(key)
         if cached is not None:
+            self.last_receipt = build_routing_receipt(cached)
             return cached
 
         ranked = _rank_candidates(task_text, candidate_set)
@@ -315,6 +354,7 @@ class AutomaticSkillRecommender:
                 )
             except Exception as exc:  # noqa: BLE001 -- automatic hook must fail open
                 logger.debug("automatic Jev skill recommendation unavailable: %s", type(exc).__name__)
+                result["hosted_error"] = _hosted_error_code(exc)
                 hosted = None
             if isinstance(hosted, dict):
                 for field in (
@@ -363,6 +403,7 @@ class AutomaticSkillRecommender:
         if result["selected"] is not None:
             result["status"] = "selected"
         self._store(key, result)
+        self.last_receipt = build_routing_receipt(result)
         return result
 
 
@@ -378,6 +419,116 @@ def _config_float(value: Any, default: float, *, minimum: float, maximum: float)
 
 def _config_bool(value: Any, default: bool) -> bool:
     return value if type(value) is bool else default
+
+
+def _hosted_error_code(exc: Exception) -> str:
+    # Map any hosted failure to a stable local code. Provider, transport, and
+    # executor details are never surfaced in a receipt.
+    if isinstance(exc, PermissionError):
+        return "ack_required"
+    if isinstance(exc, ValueError):
+        return "validation_failure"
+    if isinstance(exc, TypeError):
+        return "typed_response_failure"
+    if isinstance(exc, RuntimeError):
+        return "transport_or_execution_failure"
+    return "plugin_error"
+
+
+def _terminal_state(result: dict) -> str:
+    """Map a recommendation result onto exactly one stable receipt terminal state.
+
+    The mapping reads only local, stable result fields. It never inspects task
+    text, candidate descriptions, or conversation history.
+    """
+    if result.get("cache_hit") is True:
+        return "cache_hit"
+    if result.get("hosted_skipped") is not None:
+        return "hosted_skipped"
+    attempted = result.get("hosted_attempted") is True
+    if not attempted:
+        return "local_selection"
+    if result.get("hosted_error"):
+        return "hosted_failure_local_fallback"
+    selected = result.get("selected")
+    if isinstance(selected, str) and selected:
+        if result.get("source") == "jev":
+            return "hosted_selection"
+        return "hosted_failure_local_fallback"
+    return "hosted_abstention"
+
+
+def _plugin_identity() -> dict:
+    """Return the plugin name and version when the manifest is readable."""
+    identity: dict[str, Any] = {"plugin": "jev-decision"}
+    try:
+        manifest = Path(__file__).resolve().parent.parent.joinpath("plugin.yaml")
+        text = manifest.read_text(encoding="utf-8")
+    except OSError:
+        identity["version"] = None
+        return identity
+    match = re.search(r"(?m)^\s*version:\s*([^\s#]+)", text)
+    identity["version"] = match.group(1).strip().strip("'\"") if match else None
+    return identity
+
+
+def _strip_forbidden(value: Any) -> Any:
+    """Absorb any intermediate value that must never reach a receipt."""
+    if isinstance(value, str):
+        for marker in _RECEIPT_FORBIDDEN_MARKERS:
+            if marker in value:
+                return ""
+    return value
+
+
+def build_routing_receipt(result: dict) -> dict:
+    """Build a privacy-safe, typed routing receipt from a recommendation result.
+
+    The receipt is operator-visible local evidence only. It exposes stable typed
+    fields for every automatic-routing terminal state without carrying task text,
+    candidate descriptions, conversation history, credentials, or provider
+    exception text. It never implies a skill was loaded or a GUI action ran; the
+    receipt is advisory and `verified` is always false.
+    """
+    hosted_attempted = result.get("hosted_attempted") is True
+    hosted_error = result.get("hosted_error")
+    if hosted_error is not None and hosted_error not in HOSTED_ERROR_CODES:
+        hosted_error = "transport_or_execution_failure"
+    terminal_state = _terminal_state(result)
+    hosted_succeeded = bool(
+        hosted_attempted
+        and hosted_error is None
+        and (result.get("selected") is not None or terminal_state == "hosted_abstention")
+    )
+
+    usage = result.get("jev_total_usage") or result.get("jev_usage") or {}
+    final_latency = result.get("jev_latency_ms") or 0.0
+    total_latency = result.get("jev_total_latency_ms") or final_latency
+
+    return {
+        "terminal_state": terminal_state,
+        "source": _strip_forbidden(result.get("source")),
+        "selected": None if not isinstance(result.get("selected"), str) else _strip_forbidden(result["selected"]),
+        "hosted_attempted": hosted_attempted,
+        "hosted_succeeded": hosted_succeeded,
+        "hosted_error": hosted_error,
+        "hosted_skip_reason": _strip_forbidden(result.get("hosted_skipped")),
+        "abstention_reason": _strip_forbidden(result.get("abstention_reason")),
+        "jev_model": _strip_forbidden(result.get("jev_model")),
+        "request_count": int(result.get("jev_request_count") or 0),
+        "latency_ms": float(final_latency) if isinstance(final_latency, (int, float)) else 0.0,
+        "total_latency_ms": float(total_latency) if isinstance(total_latency, (int, float)) else 0.0,
+        "total_usage": {
+            key: float(value) for key, value in (usage or {}).items() if isinstance(value, (int, float))
+        },
+        "candidate_count": int(result.get("candidate_count") or 0),
+        "offered_count": result.get("offered_count"),
+        "excluded_count": result.get("excluded_count"),
+        "shortlist_policy": _strip_forbidden(result.get("shortlist_policy")),
+        "verified": False,
+        "advisory_only": True,
+        "plugin_identity": _plugin_identity(),
+    }
 
 
 def _format_recommendation(name: str) -> str:
@@ -430,6 +581,7 @@ def build_pre_llm_call_hook(
             candidates_from_prompt=False,
         )
         setattr(on_pre_llm_call, "last_result", dict(result))
+        setattr(on_pre_llm_call, "last_receipt", dict(recommender.last_receipt or {}))
         selected = result.get("selected")
         if not isinstance(selected, str) or not selected:
             return None
