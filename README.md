@@ -177,5 +177,6 @@ Release archives use an exact Git source commit, include `SOURCE-MANIFEST.json` 
 - [Security reporting](SECURITY.md)
 - [Third-party references](THIRD_PARTY.md)
 - [Changelog](CHANGELOG.md)
+- [Brand assets](docs/assets/hermes-switchyard-branding.png)
 
 Own work is MIT-licensed. See `THIRD_PARTY.md` for conceptual upstream references.
