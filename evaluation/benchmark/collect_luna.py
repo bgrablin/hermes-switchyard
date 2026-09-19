@@ -22,6 +22,13 @@ from collector_common import append_record, load_payload, luna_usage, null_usage
 CASE_COUNT = 24
 
 
+def _api_call_count(usage: dict[str, Any]) -> int:
+    total = usage.get("total_including_auxiliary")
+    if isinstance(total, dict) and type(total.get("api_calls")) is int:
+        return total["api_calls"]
+    return usage["api_calls"] if type(usage.get("api_calls")) is int else 0
+
+
 def _startup_probe(command: str) -> float:
     started = time.perf_counter()
     completed = subprocess.run([command, "--version"], capture_output=True, text=True, check=False)
@@ -43,9 +50,10 @@ def _parse_success(
     reported_models = {benchmark.LUNA_MODEL, benchmark.LUNA_MODEL.split("/", 1)[1]}
     if reported_model not in reported_models or usage.get("provider") != "openai-codex":
         raise ValueError("official_usage_route_mismatch")
-    if type(usage.get("api_calls")) is not int or usage["api_calls"] <= 0:
+    provider_calls = _api_call_count(usage)
+    if provider_calls <= 0:
         raise ValueError("official_usage_api_call_count_missing")
-    if max_provider_calls is not None and usage["api_calls"] > max_provider_calls:
+    if max_provider_calls is not None and provider_calls > max_provider_calls:
         raise ValueError("official_usage_request_cap_exceeded")
     parsed = json.loads(stdout)
     if not isinstance(parsed, dict):
@@ -73,13 +81,14 @@ def _parse_success(
         "provider": usage["provider"],
         "reasoning": "max",
         "usage": luna_usage(usage),
-        "provider_calls": usage["api_calls"],
+        "provider_calls": provider_calls,
     }
 
 
 _SAFE_RESPONSE_FIELDS = ("status", "selected", "selected_skills", "abstention_reason")
 _SAFE_USAGE_FIELDS = (
-    "model", "provider", "api_calls", "completed", "partial", "failed", "turn_exit_reason",
+    "model", "provider", "api_calls", "total_including_auxiliary", "completed", "partial", "failed",
+    "turn_exit_reason",
 )
 
 
@@ -116,7 +125,11 @@ def _usage_receipt_excerpt(usage: dict[str, Any]) -> dict[str, Any] | None:
         if field not in usage:
             continue
         value = usage[field]
-        if isinstance(value, str):
+        if field == "total_including_auxiliary" and isinstance(value, dict):
+            api_calls = value.get("api_calls")
+            if type(api_calls) is int:
+                excerpt[field] = {"api_calls": api_calls}
+        elif isinstance(value, str):
             excerpt[field] = value[:256]
         elif type(value) in (bool, int, float) or value is None:
             excerpt[field] = value
@@ -214,7 +227,7 @@ def collect(args: argparse.Namespace) -> int:
                 "model": benchmark.LUNA_MODEL, "provider": "openai-codex", "reasoning": "max", "usage": null_usage(),
             }
             error = _luna_failure_error(exc, stdout=stdout, usage=usage, exit_code=exit_code)
-            provider_calls = int(usage.get("api_calls", 0)) if type(usage.get("api_calls")) is int else 0
+            provider_calls = _api_call_count(usage)
         finally:
             usage_path.unlink(missing_ok=True)
         wall_ms = round((time.perf_counter() - started) * 1000, 3)

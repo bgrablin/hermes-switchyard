@@ -74,6 +74,24 @@ class LunaFailureEvidenceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _parse_success(raw, usage, max_provider_calls=1)
 
+    def test_success_parser_counts_auxiliary_calls_against_budget(self):
+        usage = {
+            **USAGE,
+            "api_calls": 1,
+            "total_including_auxiliary": {"api_calls": 2},
+        }
+        raw = json.dumps({
+            "status": "selected",
+            "selected": "git-change-preparation",
+            "selected_skills": ["git-change-preparation"],
+            "abstention_reason": None,
+        })
+        with self.assertRaisesRegex(ValueError, "official_usage_request_cap_exceeded"):
+            _parse_success(raw, usage, max_provider_calls=1)
+
+        parsed = _parse_success(raw, usage, max_provider_calls=2)
+        self.assertEqual(parsed["provider_calls"], 2)
+
     def test_stale_usage_receipt_is_removed_before_subprocess(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "luna.json"
@@ -150,6 +168,45 @@ class LunaFailureEvidenceTests(unittest.TestCase):
             self.assertEqual(error["type"], "TimeoutExpired")
             self.assertEqual(error["response_excerpt"]["selected"], "docker-management")
             self.assertEqual(error["usage_receipt"]["api_calls"], 1)
+
+    def test_timeout_counts_auxiliary_calls_from_usage_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "luna.json"
+
+            def timeout_run(command, **_kwargs):
+                usage_path = Path(command[command.index("--usage-file") + 1])
+                usage_path.write_text(json.dumps({
+                    "model": "gpt-5.6-luna-900k",
+                    "provider": "openai-codex",
+                    "api_calls": 1,
+                    "total_including_auxiliary": {"api_calls": 2},
+                    "completed": False,
+                    "partial": True,
+                    "failed": False,
+                }), encoding="utf-8")
+                raise subprocess.TimeoutExpired(command, 1)
+
+            args = argparse.Namespace(
+                live=True,
+                public_synthetic_ack=True,
+                max_requests=24,
+                output=output,
+                hermes_command="fake-hermes",
+                timeout_seconds=1.0,
+                resume=False,
+            )
+            with mock.patch.object(collect_luna, "_startup_probe", return_value=0.0):
+                with mock.patch.object(collect_luna.subprocess, "run", side_effect=timeout_run):
+                    with self.assertRaisesRegex(RuntimeError, "request_cap_reached_before_all_cases"):
+                        collect_luna.collect(args)
+
+            payload = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(len(payload["records"]), 12)
+            self.assertTrue(all(row["provider_call_count"] == 2 for row in payload["records"]))
+            self.assertEqual(
+                payload["records"][0]["error"]["usage_receipt"]["total_including_auxiliary"],
+                {"api_calls": 2},
+            )
 
 
 if __name__ == "__main__":
