@@ -201,6 +201,19 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
     http_error_308 = _reject
 
 
+class PartialAccountingError(RuntimeError):
+    """Raised when a later request fails after earlier responses were recorded.
+
+    Carries the bounded ledger of responses observed before the failure so the
+    caller can surface honest accounting (request IDs, usage, timing) at the
+    terminal boundary instead of discarding earlier successful attempts.
+    """
+
+    def __init__(self, message: str, *, partial: list[dict[str, Any]]) -> None:
+        super().__init__(message)
+        self.partial = list(partial)
+
+
 class DecisionClient:
     """Call one of the fixed Jev endpoints and require exact model resolution."""
 
@@ -547,7 +560,33 @@ class DecisionClient:
             raise ValueError("Jev provider-request budget exceeded")
         if remaining is not None:
             self._request_budget.set(remaining - len(batches))
-        calls = [self._decide_single(state, batch) for batch in batches]
+        # Record each validated response as it succeeds so a later failed
+        # request cannot discard earlier accounting. When a later batch fails,
+        # surface the earlier observed accounting through a typed exception at
+        # the terminal boundary; when the very first batch fails, preserve the
+        # original exception exactly as before.
+        partial: list[dict[str, Any]] = []
+        calls: list[dict[str, Any]] = []
+        for batch in batches:
+            try:
+                call = self._decide_single(state, batch)
+            except Exception as exc:
+                if partial:
+                    raise PartialAccountingError(
+                        "Jev provider request failed after "
+                        f"{len(calls)} successful batch(es)",
+                        partial=partial,
+                    ) from exc
+                raise
+            calls.append(call)
+            partial.append(
+                {
+                    "latency_ms": call.get("latency_ms"),
+                    "model": call.get("model"),
+                    "request_id": call.get("request_id"),
+                    "usage": call.get("usage") or {},
+                }
+            )
         if len(calls) == 1:
             calls[0]["request_count"] = 1
             calls[0]["total_latency_ms"] = calls[0]["latency_ms"]

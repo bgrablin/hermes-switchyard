@@ -88,7 +88,8 @@ _SECRET_VALUE_RE = re.compile(
 )
 _RESTRICTED_WORD_RE = re.compile(
     r"\b(?:private|confidential|credential|password|passphrase|employer|regulated|hipaa|phi|"
-    r"classified|export[- ]controlled)\b",
+    r"classified|export[- ]controlled|"
+    r"Controlled Unclassified Information|CUI(?:\b|//))\b",
     re.IGNORECASE,
 )
 
