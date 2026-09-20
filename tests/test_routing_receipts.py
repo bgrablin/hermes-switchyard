@@ -351,6 +351,63 @@ class ReceiptEndToEndTests(unittest.TestCase):
         self.assertEqual(receipt["hosted_error"], "transport_or_execution_failure")
         self.assertFalse(receipt["verified"])
 
+    def test_partial_hosted_accounting_survives_later_batch_failure(self):
+        calls = {"count": 0}
+
+        def transport(payload):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                answers = {}
+                for name, question in payload["questions"].items():
+                    if name == "needs_skill":
+                        answers[name] = {"noul": 0.99}
+                    else:
+                        choice = next(key for key in question["criteria"] if not key.startswith("__jev_"))
+                        answers[name] = {
+                            "choice": choice,
+                            "confidence": 0.99,
+                            "probabilities": {
+                                key: (1.0 if key == choice else 0.0)
+                                for key in question["criteria"]
+                            },
+                        }
+                return {
+                    "model": "typesafe/jev-1.13",
+                    "answers": answers,
+                    "usage": {"cost": 0.01},
+                    "latency_ms": 5.0,
+                    "request_id": "req-1",
+                }
+            raise TimeoutError("aggregate deadline expired")
+
+        recommender = AutomaticSkillRecommender(
+            hosted_enabled=True,
+            hosted_mode="always",
+            public_or_sanitized_data_ack=True,
+            local_threshold=2.0,
+            client_factory=lambda: DecisionClient(
+                api_key="fixture-key", transport=transport
+            ),
+        )
+        candidates = [
+            {"name": f"skill-{index}", "description": "public skill description"}
+            for index in range(300)
+        ]
+        result = recommender.recommend(
+            "find a public skill",
+            candidates=candidates,
+            turn_egress_policy=_allowed_policy("SANITIZED_LARGE_CATALOG_TASK"),
+        )
+        self.assertEqual(result["hosted_error"], "transport_or_execution_failure")
+        self.assertEqual(result["jev_request_count"], 1)
+        self.assertEqual(result["jev_total_usage"], {"cost": 0.01})
+        receipt = recommender.last_receipt
+        self.assertEqual(receipt["terminal_state"], "hosted_failure")
+        self.assertEqual(receipt["request_count"], 1)
+        self.assertEqual(receipt["total_usage"], {"cost": 0.01})
+        self.assertEqual(receipt["total_latency_ms"], 5.0)
+        self.assertEqual(receipt["request_id"], "req-1")
+
     def test_empty_and_missing_catalog_attempts_replace_previous_receipt(self):
         recommender = AutomaticSkillRecommender(
             configured_candidates=[{"name": "docker-management", "description": "Docker"}],

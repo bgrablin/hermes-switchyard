@@ -144,6 +144,31 @@ class ResponseBoundaryTests(unittest.TestCase):
         self.assertEqual(response.read_sizes, [module.MAX_ERROR_BYTES + 1])
         self.assertTrue(connection.closed)
 
+    def test_http_requests_send_the_real_bearer_token(self):
+        from hermes_switchyard import client as module
+
+        class RecordingConnection(_Connection):
+            def __init__(self, response: _Response):
+                super().__init__(response)
+                self.requests: list[tuple[str, str, bytes, dict[str, str]]] = []
+
+            def request(self, method, path, body=None, headers=None):
+                self.requests.append((method, path, body, dict(headers or {})))
+
+        response = _Response(
+            b'{"model":"typesafe/jev-1.13","answers":{"answer":{"noul":0.9}},"usage":{}}'
+        )
+        connection = RecordingConnection(response)
+        with mock.patch.object(module.http.client, "HTTPSConnection", return_value=connection):
+            client = DecisionClient(api_key="fixture-key")
+            client.decide(
+                "public",
+                {"answer": {"type": "noul", "instructions": "Is it true?"}},
+                public_or_sanitized_data_ack=True,
+            )
+        self.assertEqual(len(connection.requests), 1)
+        self.assertEqual(connection.requests[0][3]["Authorization"], "Bearer " + client.api_key)
+
 
 class RoutingBoundaryTests(unittest.TestCase):
     def test_catalog_batches_fit_the_complete_serialized_request(self):
