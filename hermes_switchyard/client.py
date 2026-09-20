@@ -19,9 +19,9 @@ from typing import Any, cast
 DEFAULT_ENDPOINT = "https://openrouter.ai/api/alpha/decisions"
 TYPESAFE_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 OPENROUTER_APP_HEADERS = {
-    "HTTP-Referer": "https://hermes-agent.nousresearch.com",
-    "X-Title": "Hermes Agent",
-    "X-OpenRouter-Title": "Hermes Agent",
+    "HTTP-Referer": "https://github.com/bgrablin/hermes-switchyard",
+    "X-Title": "Hermes-Switchyard",
+    "X-OpenRouter-Title": "Hermes-Switchyard",
     "X-OpenRouter-Categories": "personal-agent,cli-agent",
 }
 OPENROUTER_MODELS = frozenset({"typesafe/jev-1.13", "typesafe/jev-1.13-20260917"})

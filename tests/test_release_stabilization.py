@@ -170,9 +170,9 @@ class ResponseBoundaryTests(unittest.TestCase):
         self.assertEqual(len(connection.requests), 1)
         headers = connection.requests[0][3]
         self.assertEqual(headers["Authorization"], "Bearer " + client.api_key)
-        self.assertEqual(headers["HTTP-Referer"], "https://hermes-agent.nousresearch.com")
-        self.assertEqual(headers["X-Title"], "Hermes Agent")
-        self.assertEqual(headers["X-OpenRouter-Title"], "Hermes Agent")
+        self.assertEqual(headers["HTTP-Referer"], "https://github.com/bgrablin/hermes-switchyard")
+        self.assertEqual(headers["X-Title"], "Hermes-Switchyard")
+        self.assertEqual(headers["X-OpenRouter-Title"], "Hermes-Switchyard")
 
     def test_typesafe_requests_omit_openrouter_app_headers(self):
         from hermes_switchyard import client as module
