@@ -40,3 +40,4 @@ config_schema:
   automatic_skill_jev_mode: {type: str, default: "always", description: "always evaluates the full catalog on every allowed turn; uncertain_only is an explicit latency-saving override"}
   automatic_skill_public_or_sanitized_data_ack: {type: bool, default: false, description: "Standing user consent for plugin-owned hosted classification and local per-turn scanning; not Hermes-owned DLP or automatic authorization; a host envelope is optional"}
   automatic_skill_mandatory_skills: {type: list, default: [], description: "Exact skill identifiers treated as mandatory; load mode does not auto-load a different recommendation"}
+  public_or_sanitized_data_ack: {type: bool, default: true, description: "Standing consent for Jev tool calls. On after install. Callers may omit the field. Set false to refuse Jev calls."}

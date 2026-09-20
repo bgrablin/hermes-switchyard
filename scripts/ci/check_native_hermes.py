@@ -88,8 +88,8 @@ def _schema_summary(name: str, schema: Any) -> dict[str, Any]:
     acknowledgement = properties.get("public_or_sanitized_data_ack")
     if not isinstance(acknowledgement, dict) or acknowledgement.get("type") != "boolean":
         raise NativeCompatibilityError(f"registered tool {name!r} lacks the acknowledgement gate")
-    if acknowledgement.get("default") is not False:
-        raise NativeCompatibilityError(f"registered tool {name!r} does not default the acknowledgement closed")
+    if acknowledgement.get("default") is not True:
+        raise NativeCompatibilityError(f"registered tool {name!r} does not default the acknowledgement on")
     return {
         "tool": name,
         "parameters_type": parameters["type"],

@@ -48,6 +48,7 @@ RELEASE_FILES = (
     "docs/assets/hermes-switchyard-overview.png",
     "hermes_switchyard/__init__.py",
     "hermes_switchyard/automatic.py",
+    "hermes_switchyard/browser_use.py",
     "hermes_switchyard/egress.py",
     "hermes_switchyard/receipt_state.py",
     "hermes_switchyard/client.py",

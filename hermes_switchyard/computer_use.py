@@ -109,11 +109,10 @@ class StaleTargetError(RuntimeError):
 
 
 
-def _require_public_data_ack(acknowledged: bool) -> None:
+def _require_public_data_ack(acknowledged: bool = True) -> None:
     if acknowledged is not True:
         raise PermissionError(
-            "public_or_sanitized_data_ack must be true: this is a caller attestation, not DLP; "
-            "do not send private, employer, or regulated UI/data to a model"
+            "public_or_sanitized_data_ack is false; this call was refused"
         )
 
 
@@ -795,7 +794,7 @@ def _run_computer_goal_impl(
     text_helper: Callable[[str, dict, list[str], list[dict]], str] | None = None,
     text_inputs: list[dict[str, str]] | None = None,
     allowed_hotkeys: list[str] | None = None,
-    public_or_sanitized_data_ack: bool = False,
+    public_or_sanitized_data_ack: bool = True,
     deadline_seconds: float = DEFAULT_OPERATION_DEADLINE_SECONDS,
 ) -> dict[str, Any]:
     """Run capture → Jev decision → validated action until candidate/blocked/budget."""
@@ -1362,7 +1361,7 @@ def run_computer_goal(
     text_helper: Callable[[str, dict, list[str], list[dict]], str] | None = None,
     text_inputs: list[dict[str, str]] | None = None,
     allowed_hotkeys: list[str] | None = None,
-    public_or_sanitized_data_ack: bool = False,
+    public_or_sanitized_data_ack: bool = True,
     deadline_seconds: float = DEFAULT_OPERATION_DEADLINE_SECONDS,
 ) -> dict[str, Any]:
     with request_budget_scope(

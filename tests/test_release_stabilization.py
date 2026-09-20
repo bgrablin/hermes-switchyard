@@ -323,10 +323,10 @@ class NamespaceAndAckTests(unittest.TestCase):
             {"task", "candidates"},
         )
 
-    def test_model_facing_acknowledgement_is_explicitly_required(self):
+    def test_model_facing_acknowledgement_defaults_on_and_is_optional(self):
         for schema in (schemas.ASSESS, schemas.COMPUTER_USE, schemas.SKILL_SELECT, schemas.MODEL_ROUTE, schemas.MULTI_SKILL_SELECT):
-            self.assertIn("public_or_sanitized_data_ack", schema["parameters"]["required"])
-            self.assertIs(schema["parameters"]["properties"]["public_or_sanitized_data_ack"]["default"], False)
+            self.assertNotIn("public_or_sanitized_data_ack", schema["parameters"]["required"])
+            self.assertIs(schema["parameters"]["properties"]["public_or_sanitized_data_ack"]["default"], True)
         text_inputs = schemas.COMPUTER_USE["parameters"]["properties"]["text_inputs"]
         self.assertEqual(text_inputs["maxItems"], 16)
         self.assertEqual(text_inputs["items"]["properties"]["value"]["maxLength"], 2000)

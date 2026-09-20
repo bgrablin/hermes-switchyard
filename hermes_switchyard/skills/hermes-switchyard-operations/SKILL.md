@@ -27,11 +27,10 @@ fallback. The coordinator owns those decisions.
 
 ## Data boundary
 
-Every model-facing entrypoint requires `public_or_sanitized_data_ack: true`.
-This is a caller attestation, not DLP or authorization. Send no private,
-employer, regulated, credential, payment, or verification UI/data. Regex
-redaction is not authorization. If the acknowledgement is absent or false, the
-entrypoint must reject before network access or desktop capture.
+`public_or_sanitized_data_ack` is on after install. Callers may omit it.
+Pass `false` to refuse one call. Hermes owns data classification; this is
+not DLP or authorization. Send no private, employer, regulated, credential,
+payment, or verification UI/data. Regex redaction is not authorization.
 
 ## Fixed client contract
 
@@ -97,10 +96,13 @@ The result is advisory and does not change the runtime model.
 
 ## Computer-use loop
 
-`jev_computer_use` requires a non-empty `app` and an explicit public/sanitized
-acknowledgement. It delegates to Hermes' existing Cua Driver-backed
-`computer_use` tool on Windows, macOS, and Linux. Switchyard does not vendor a
-second desktop driver.
+`jev_computer_use` requires a non-empty `app`. Public web goals (`start_url` or an https URL in the goal, including Wikipedia article names) run a DOM browser loop in one process: one Jev request per step chooses `operation` and `click_target` together, then Chrome DevTools clicks the page. Hermes `computer_use` is not dispatched between those clicks. Desktop apps without a URL still use Cua Driver.
+
+- Browser operations are `CLICK`, `SCROLL_DOWN`, `SCROLL_UP`, `WAIT`, `DONE`, and `BLOCKED`.
+- Page elements come from the live DOM/ARIA table, not a desktop accessibility dump.
+- Sensitive, donate, login, payment, and wiki-chrome targets remain excluded.
+- Jev `DONE` returns `status: completion_candidate` and `verified: false`.
+- Independent completion verification remains coordinator-owned.
 
 - Jev chooses from application-owned `CLICK`, `DOUBLE_CLICK`, `RIGHT_CLICK`,
   `MIDDLE_CLICK`, `DRAG`, four scroll directions, `TYPE_TEXT`, `SET_VALUE`,

@@ -16,11 +16,12 @@ _HOTKEYS = [
 
 _ACKNOWLEDGEMENT = {
     "type": "boolean",
-    "default": False,
+    "default": True,
     "description": (
-        "Required true acknowledgement that all state sent to a model is public or already sanitized. "
-        "This is a caller attestation, not DLP or authorization: private, employer, and regulated data are prohibited. "
-        "Do not treat regex redaction as permission."
+        "Standing plugin consent is on by default after install. Omit this field to use that standing "
+        "setting. Pass false to refuse this call. Turn the plugin default off with "
+        "hermes config set plugins.entries.hermes-switchyard.settings.public_or_sanitized_data_ack false. "
+        "This is a caller attestation, not DLP or authorization."
     ),
 }
 
@@ -35,11 +36,10 @@ _DEADLINE = {
 COMPUTER_USE = {
     "name": "jev_computer_use",
     "description": (
-        "Universal bounded multi-step browser or native desktop loop over Hermes computer_use on Windows, macOS, and Linux. "
-        "The loop performs fresh capture and target-identity checks before each action, uses Jev to choose among "
-        "click, double-click, context-click, drag, scroll, text/value entry, navigation hotkeys, wait, and stop, "
-        "DONE produces completion_candidate with verified=false; an independent coordinator-owned verifier is "
-        "required. Hotkeys are denied unless explicitly listed. Only public or sanitized UI may be sent."
+        "Bounded multi-step GUI loop. A start_url or https URL in the goal selects the DOM browser loop: "
+        "one Jev request per step chooses operation and click target together, then the page is clicked. "
+        "Hermes computer_use is not between those clicks. Desktop apps without a URL still use Cua Driver. "
+        "DONE produces completion_candidate with verified=false. Only public or sanitized pages may be sent."
     ),
     "parameters": {
         "type": "object",
@@ -48,7 +48,13 @@ COMPUTER_USE = {
             "app": {
                 "type": "string",
                 "minLength": 1,
-                "description": "Required non-empty target application, for example Google Chrome.",
+                "description": "Required non-empty target application. For web goals this is informational.",
+            },
+            "start_url": {
+                "type": "string",
+                "minLength": 8,
+                "maxLength": 2048,
+                "description": "Optional public https URL. If omitted, a https URL in the goal is used. Either form selects the DOM browser loop.",
             },
             "max_steps": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Hard action budget."},
             "min_actions_before_done": {
@@ -78,7 +84,7 @@ COMPUTER_USE = {
             "public_or_sanitized_data_ack": _ACKNOWLEDGEMENT,
             "deadline_seconds": _DEADLINE,
         },
-        "required": ["goal", "app", "public_or_sanitized_data_ack"],
+        "required": ["goal", "app"],
         "additionalProperties": False,
     },
 }
@@ -125,7 +131,7 @@ SKILL_SELECT = {
             "public_or_sanitized_data_ack": _ACKNOWLEDGEMENT,
             "deadline_seconds": _DEADLINE,
         },
-        "required": ["task", "candidates", "public_or_sanitized_data_ack"],
+        "required": ["task", "candidates"],
         "additionalProperties": False,
     },
 }
@@ -160,7 +166,7 @@ MULTI_SKILL_SELECT = {
             "public_or_sanitized_data_ack": _ACKNOWLEDGEMENT,
             "deadline_seconds": _DEADLINE,
         },
-        "required": ["task", "candidates", "public_or_sanitized_data_ack"],
+        "required": ["task", "candidates"],
         "additionalProperties": False,
     },
 }
@@ -247,7 +253,7 @@ ASSESS = {
             "public_or_sanitized_data_ack": _ACKNOWLEDGEMENT,
             "deadline_seconds": _DEADLINE,
         },
-        "required": ["state", "questions", "public_or_sanitized_data_ack"],
+        "required": ["state", "questions"],
         "additionalProperties": False,
     },
 }
@@ -298,7 +304,7 @@ MODEL_ROUTE = {
             "public_or_sanitized_data_ack": _ACKNOWLEDGEMENT,
             "deadline_seconds": _DEADLINE,
         },
-        "required": ["task", "candidates", "public_or_sanitized_data_ack"],
+        "required": ["task", "candidates"],
         "additionalProperties": False,
     },
 }

@@ -58,11 +58,10 @@ def _request_size(state: Any, questions: dict[str, Any]) -> int:
         raise ValueError("Jev request contains a non-JSON value") from None
 
 
-def _require_public_data_ack(acknowledged: bool) -> None:
+def _require_public_data_ack(acknowledged: bool = True) -> None:
     if acknowledged is not True:
         raise PermissionError(
-            "public_or_sanitized_data_ack must be true: this is a caller attestation, not DLP; "
-            "do not send private, employer, or regulated UI/data to a model"
+            "public_or_sanitized_data_ack is false; this call was refused"
         )
 
 
@@ -291,7 +290,7 @@ def _select_skill_small(
     choice_confidence_threshold: float = DEFAULT_SKILL_CHOICE_CONFIDENCE_THRESHOLD,
     needs_skill_threshold: float = DEFAULT_SKILL_NEEDS_THRESHOLD,
     winning_probability_threshold: float = DEFAULT_SKILL_WINNING_PROBABILITY_THRESHOLD,
-    public_or_sanitized_data_ack: bool = False,
+    public_or_sanitized_data_ack: bool = True,
 ) -> dict:
     """Return an advisory skill choice or an explicit abstention.
 
@@ -430,7 +429,7 @@ def _select_skill_impl(
     choice_confidence_threshold: float = DEFAULT_SKILL_CHOICE_CONFIDENCE_THRESHOLD,
     needs_skill_threshold: float = DEFAULT_SKILL_NEEDS_THRESHOLD,
     winning_probability_threshold: float = DEFAULT_SKILL_WINNING_PROBABILITY_THRESHOLD,
-    public_or_sanitized_data_ack: bool = False,
+    public_or_sanitized_data_ack: bool = True,
 ) -> dict:
     """Select a skill, reducing arbitrarily large catalogs through Jev fan-out.
 
@@ -545,7 +544,7 @@ def select_skill(
     choice_confidence_threshold: float = DEFAULT_SKILL_CHOICE_CONFIDENCE_THRESHOLD,
     needs_skill_threshold: float = DEFAULT_SKILL_NEEDS_THRESHOLD,
     winning_probability_threshold: float = DEFAULT_SKILL_WINNING_PROBABILITY_THRESHOLD,
-    public_or_sanitized_data_ack: bool = False,
+    public_or_sanitized_data_ack: bool = True,
     deadline_seconds: float = DEFAULT_OPERATION_DEADLINE_SECONDS,
 ) -> dict:
     with request_budget_scope(
@@ -618,7 +617,7 @@ def select_skills(
     client: Any,
     selection_threshold: float = DEFAULT_SKILL_NEEDS_THRESHOLD,
     max_selections: int | None = None,
-    public_or_sanitized_data_ack: bool = False,
+    public_or_sanitized_data_ack: bool = True,
     deadline_seconds: float = DEFAULT_OPERATION_DEADLINE_SECONDS,
 ) -> dict:
     """Return a typed list of advisory skill identifiers.
@@ -920,7 +919,7 @@ def _route_model_impl(
     requirements: dict,
     client: Any,
     capability_fit_threshold: float = DEFAULT_MODEL_CAPABILITY_FIT_THRESHOLD,
-    public_or_sanitized_data_ack: bool = False,
+    public_or_sanitized_data_ack: bool = True,
 ) -> dict:
     """Filter model candidates locally, ask Jev for fit scores, then pick cheapest.
 
@@ -1014,7 +1013,7 @@ def _route_model_impl(
 def route_model(
     *, task: str, candidates: list[dict], requirements: dict, client: Any,
     capability_fit_threshold: float = DEFAULT_MODEL_CAPABILITY_FIT_THRESHOLD,
-    public_or_sanitized_data_ack: bool = False,
+    public_or_sanitized_data_ack: bool = True,
     deadline_seconds: float = DEFAULT_OPERATION_DEADLINE_SECONDS,
 ) -> dict:
     with request_budget_scope(

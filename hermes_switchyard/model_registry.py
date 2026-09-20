@@ -29,7 +29,7 @@ def route_model_from_registry(
     requirements: dict[str, Any] | None,
     client: Any,
     capability_fit_threshold: float = DEFAULT_MODEL_CAPABILITY_FIT_THRESHOLD,
-    public_or_sanitized_data_ack: bool = False,
+    public_or_sanitized_data_ack: bool = True,
     deadline_seconds: float = DEFAULT_OPERATION_DEADLINE_SECONDS,
     registry: Sequence[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:

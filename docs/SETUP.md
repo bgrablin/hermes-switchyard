@@ -17,7 +17,7 @@ For skill selection, model routing, and `jev_assess`:
 - Either a TypeSafe API key in the active profile as `TYPESAFE_API_KEY`, or an OpenRouter API key as `OPENROUTER_API_KEY`.
 - Enough account credit or current allowance for the selected route.
 
-For `jev_computer_use`, Hermes must have the Cua Driver-backed `computer_use` tool available on Windows, macOS, or Linux and the target application must be installed. The plugin delegates desktop I/O to Hermes; it does not ship a second driver.
+For `jev_computer_use`, public web goals use a local Chromium-family browser and do not call Hermes `computer_use` between clicks. Desktop GUI goals still need the Cua Driver-backed `computer_use` tool on Windows, macOS, or Linux.
 
 The supported endpoints are `https://api.typesafe.ai/v1/systemone` and `https://openrouter.ai/api/alpha/decisions`. `jev_provider: auto` prefers direct TypeSafe when its key exists.
 
@@ -98,7 +98,7 @@ Text-entry and value-selection actions use only bounded caller-supplied values f
 
 ## Privacy requirements
 
-Before a Jev tool runs, the invoking code must set `public_or_sanitized_data_ack: true`. This confirms that the data was reviewed before it is sent. It is not a scan, a redaction guarantee, data-loss-prevention control, authorization to share, or permission to bypass another control.
+`public_or_sanitized_data_ack` is on after install. Callers may omit it. Pass `false` to refuse one call, or set `plugins.entries.hermes-switchyard.settings.public_or_sanitized_data_ack` to false to refuse all Jev tools. Hermes owns data classification. The flag is not a scan, redaction guarantee, DLP control, or permission to bypass another control.
 
 For a Cua Driver request, Switchyard builds a bounded decision state from the goal, target application, window title, safe controls, visible context, and recent actions. Text entry can also use selected field context with the configured Hermes text model. The caller must exclude private, employer, regulated, credential, password, API-key, token, payment, and verification-code data before invocation.
 
