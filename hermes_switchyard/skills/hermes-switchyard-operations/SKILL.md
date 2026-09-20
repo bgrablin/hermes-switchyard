@@ -43,6 +43,18 @@ entrypoint must reject before network access or desktop capture.
 - API keys never appear in model-facing or tool error text.
 - `jev_assess` exposes Choice, Score, and Noul. Score answers are validated for ordered levels, legend, probability distribution, and confidence before returning.
 
+## Credential ownership
+
+The plugin reads keys through Hermes' profile secret scope (`agent.secret_scope.get_secret`)
+and never reads `os.environ` directly. It still receives the raw key and builds the
+bearer header itself, because the only host-owned model interface documented for plugins
+(`ctx.llm`) exposes chat and structured completions, not the native Decisions
+`state`/`questions` wire format. Host-managed native Decisions transport would require a
+Hermes core capability that does not exist at the pinned Hermes upstream; that is an
+explicit host-change dependency, not a plugin-only fix. Reusing the existing OpenRouter
+key is the supported credential path; credential presence never silently selects the
+billed provider when `jev_provider` is configured explicitly.
+
 ## Skill selection
 
 `jev_skill_select` is advisory only. Candidate identifiers are exact: leading or
