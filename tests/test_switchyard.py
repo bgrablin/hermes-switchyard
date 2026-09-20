@@ -256,6 +256,7 @@ class RoutingTests(unittest.TestCase):
                 task="x",
                 candidates=[{"name": "skill-a", "description": "special"}],
                 client=client,
+                public_or_sanitized_data_ack=False,
             )
         self.assertEqual(client.calls, [])
 
@@ -449,6 +450,7 @@ class RoutingTests(unittest.TestCase):
                 candidates=[{"id": "x", "description": "x", "approved": True, "cost": 0.1}],
                 requirements={},
                 client=client,
+                public_or_sanitized_data_ack=False,
             )
         self.assertEqual(client.calls, [])
 
@@ -599,7 +601,7 @@ class ClientTests(unittest.TestCase):
         calls = []
         client = DecisionClient(api_key="test-key", transport=lambda payload: calls.append(payload))
         with self.assertRaises(PermissionError):
-            client.decide("public", {"answer": {"type": "noul", "instructions": "Is the statement true?"}})
+            client.decide("public", {"answer": {"type": "noul", "instructions": "Is the statement true?"}}, public_or_sanitized_data_ack=False)
         self.assertEqual(calls, [])
 
     def test_concrete_version_suffix_is_allowed_but_substitution_is_not(self):
@@ -776,7 +778,7 @@ class ComputerUseTests(unittest.TestCase):
         dispatch = SyntheticDispatch([])
         client = ComputerClient(["BLOCKED"])
         with self.assertRaises(PermissionError):
-            run_computer_goal(goal="x", app="Chrome", max_steps=1, dispatch=dispatch, client=client)
+            run_computer_goal(goal="x", app="Chrome", max_steps=1, dispatch=dispatch, client=client, public_or_sanitized_data_ack=False)
         self.assertEqual(dispatch.capture_calls, 0)
         with self.assertRaises(ValueError):
             run_computer_goal(
@@ -1331,7 +1333,7 @@ class PluginEntryPointTests(unittest.TestCase):
             hermes_switchyard.register(incompatible)
             self.assertFalse(incompatible.checks["jev_assess"]())
 
-    def test_registered_handlers_deny_missing_ack_before_client_network_or_capture(self):
+    def test_registered_handlers_deny_false_ack_before_client_network_or_capture(self):
         import hermes_switchyard
 
         class Context:
@@ -1367,14 +1369,14 @@ class PluginEntryPointTests(unittest.TestCase):
                     "jev_model_route",
                 ):
                     with self.subTest(name=name):
-                        result = json.loads(context.tools[name]({}))
+                        result = json.loads(context.tools[name]({"public_or_sanitized_data_ack": False}))
                         self.assertEqual(
                             result,
                             {
                                 "status": "error",
                                 "error": {
                                     "code": "ack_required",
-                                    "reason": "public_or_sanitized_data_ack is required",
+                                    "reason": "public_or_sanitized_data_ack is false",
                                 },
                             },
                         )

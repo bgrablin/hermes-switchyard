@@ -1,6 +1,6 @@
 # Hermes Switchyard — next steps
 
-The plugin is installed. Full function still needs these operator steps; they are not discovered later.
+The plugin is installed. Jev tool calls are on. Hermes owns data classification; this plugin does not.
 
 1. Save exactly one Jev provider key with a masked prompt:
    `hermes switchyard setup --provider typesafe`
@@ -11,12 +11,13 @@ The plugin is installed. Full function still needs these operator steps; they ar
 2. Start a fresh Hermes session. If you use the gateway, run:
    `hermes gateway restart`
 
-3. Every Jev tool call must set `public_or_sanitized_data_ack: true` after you review the data. That flag is never set automatically.
+`public_or_sanitized_data_ack` is on by default. Callers may omit it. Turn it off with:
+`hermes config set plugins.entries.hermes-switchyard.settings.public_or_sanitized_data_ack false`
 
 Optional, only if you want those extras:
 
 - Hosted automatic skill routing stays off until `automatic_skill_public_or_sanitized_data_ack` is true.
-- `jev_computer_use` also needs Hermes computer_use (Cua Driver) on Windows, macOS, or Linux.
+- `jev_computer_use` uses a local Chromium-family browser for public web goals. Desktop GUI still needs Hermes computer_use (Cua Driver).
 
 Re-read this list anytime:
 

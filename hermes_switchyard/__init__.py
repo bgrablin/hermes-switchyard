@@ -20,6 +20,7 @@ from .client import (
     PartialAccountingError,
     request_budget_scope,
 )
+from . import browser_use
 from .computer_use import StaleTargetError, run_computer_goal
 from .egress import is_routing_mode
 from .routing import route_model, select_skill, select_skills
@@ -257,7 +258,7 @@ def _error(exc):
     # Preserve observability with stable local codes, never arbitrary provider,
     # executor, UI, or credential text.
     if isinstance(exc, PermissionError):
-        code, reason = "ack_required", "public_or_sanitized_data_ack is required"
+        code, reason = "ack_required", "public_or_sanitized_data_ack is false"
     elif isinstance(exc, StaleTargetError):
         code, reason = "stale_target", "the exposed target identity changed"
     elif isinstance(exc, ValueError):
@@ -280,10 +281,18 @@ def _error(exc):
     return json.dumps({"status": "error", "error": error})
 
 
-def _require_public_data_ack(args):
-    if args.get("public_or_sanitized_data_ack", False) is not True:
+def _resolved_public_data_ack(args, standing=True):
+    if standing is not True:
+        return False
+    if "public_or_sanitized_data_ack" in args:
+        return args.get("public_or_sanitized_data_ack") is True
+    return True
+
+
+def _require_public_data_ack(args, standing=True):
+    if _resolved_public_data_ack(args, standing) is not True:
         raise PermissionError(
-            "public_or_sanitized_data_ack must be true: caller attestation only, not DLP"
+            "public_or_sanitized_data_ack is false; this call was refused"
         )
 
 
@@ -394,6 +403,8 @@ def register(ctx):
         value = ctx.get_config(key, default=default)
         return value if type(value) is bool else default
 
+    standing_ack = setting_bool("public_or_sanitized_data_ack", True)
+
     configured_routing_mode = ctx.get_config("automatic_skill_routing_mode", default=None)
     if configured_routing_mode is None:
         # The plugin owns its standalone scan and standing acknowledgement. A
@@ -452,7 +463,7 @@ def register(ctx):
 
     def assess_handler(args, **kwargs):
         try:
-            _require_public_data_ack(args)
+            _require_public_data_ack(args, standing=standing_ack)
             state = args.get("state")
             questions = args.get("questions")
             if not isinstance(questions, dict) or not questions:
@@ -466,7 +477,7 @@ def register(ctx):
                     return active_client.decide(
                         state,
                         questions,
-                        public_or_sanitized_data_ack=args.get("public_or_sanitized_data_ack", False),
+                        public_or_sanitized_data_ack=_resolved_public_data_ack(args, standing_ack),
                     )
             return json.dumps(with_client(assess))
         except Exception as exc:  # noqa: BLE001 -- tool handlers return structured errors
@@ -474,7 +485,21 @@ def register(ctx):
 
     def computer_handler(args, **kwargs):
         try:
-            _require_public_data_ack(args)
+            _require_public_data_ack(args, standing=standing_ack)
+            ack = _resolved_public_data_ack(args, standing_ack)
+            start_url = browser_use.requested_web_start(args.get("start_url"), args.get("goal") or "")
+            if start_url:
+                def run_dom(active_client):
+                    return browser_use.run_browser_goal(
+                        goal=args.get("goal") or "",
+                        start_url=start_url,
+                        client=active_client,
+                        max_steps=int(args.get("max_steps") or default_steps),
+                        min_actions_before_done=int(args.get("min_actions_before_done") or 0),
+                        public_or_sanitized_data_ack=ack,
+                        deadline_seconds=args.get("deadline_seconds", DEFAULT_OPERATION_DEADLINE_SECONDS),
+                    )
+                return json.dumps(with_client(run_dom))
             def native_dispatch(tool_name, tool_args):
                 return ctx.dispatch_tool(tool_name, tool_args, **kwargs)
             result = with_client(lambda active_client: run_computer_goal(
@@ -486,7 +511,7 @@ def register(ctx):
                 client=active_client,
                 text_inputs=args.get("text_inputs"),
                 allowed_hotkeys=args.get("allowed_hotkeys"),
-                public_or_sanitized_data_ack=args.get("public_or_sanitized_data_ack", False),
+                public_or_sanitized_data_ack=ack,
                 deadline_seconds=args.get("deadline_seconds", DEFAULT_OPERATION_DEADLINE_SECONDS),
             ))
             return json.dumps(result)
@@ -495,7 +520,7 @@ def register(ctx):
 
     def skill_handler(args, **kwargs):
         try:
-            _require_public_data_ack(args)
+            _require_public_data_ack(args, standing=standing_ack)
             return json.dumps(with_client(lambda active_client: select_skill(
                     task=str(args.get("task") or ""),
                     candidates=list(args.get("candidates") or []),
@@ -503,7 +528,7 @@ def register(ctx):
                     choice_confidence_threshold=args.get("choice_confidence_threshold", schemas.DEFAULT_SKILL_CHOICE_CONFIDENCE_THRESHOLD),
                     needs_skill_threshold=args.get("needs_skill_threshold", schemas.DEFAULT_SKILL_NEEDS_THRESHOLD),
                     winning_probability_threshold=args.get("winning_probability_threshold", schemas.DEFAULT_SKILL_WINNING_PROBABILITY_THRESHOLD),
-                    public_or_sanitized_data_ack=args.get("public_or_sanitized_data_ack", False),
+                    public_or_sanitized_data_ack=_resolved_public_data_ack(args, standing_ack),
                     deadline_seconds=args.get("deadline_seconds", DEFAULT_OPERATION_DEADLINE_SECONDS),
                 )))
         except Exception as exc:  # noqa: BLE001 -- tool handlers return structured errors
@@ -511,14 +536,14 @@ def register(ctx):
 
     def multi_skill_handler(args, **kwargs):
         try:
-            _require_public_data_ack(args)
+            _require_public_data_ack(args, standing=standing_ack)
             return json.dumps(with_client(lambda active_client: select_skills(
                     task=str(args.get("task") or ""),
                     candidates=list(args.get("candidates") or []),
                     client=active_client,
                     selection_threshold=args.get("selection_threshold", schemas.DEFAULT_SKILL_NEEDS_THRESHOLD),
                     max_selections=args.get("max_selections"),
-                    public_or_sanitized_data_ack=args.get("public_or_sanitized_data_ack", False),
+                    public_or_sanitized_data_ack=_resolved_public_data_ack(args, standing_ack),
                     deadline_seconds=args.get("deadline_seconds", DEFAULT_OPERATION_DEADLINE_SECONDS),
                 )))
         except Exception as exc:  # noqa: BLE001 -- tool handlers return structured errors
@@ -526,14 +551,14 @@ def register(ctx):
 
     def route_handler(args, **kwargs):
         try:
-            _require_public_data_ack(args)
+            _require_public_data_ack(args, standing=standing_ack)
             return json.dumps(with_client(lambda active_client: route_model(
                     task=str(args.get("task") or ""),
                     candidates=list(args.get("candidates") or []),
                     requirements=dict(args.get("requirements") or {}),
                     client=active_client,
                     capability_fit_threshold=args.get("capability_fit_threshold", schemas.DEFAULT_MODEL_CAPABILITY_FIT_THRESHOLD),
-                    public_or_sanitized_data_ack=args.get("public_or_sanitized_data_ack", False),
+                    public_or_sanitized_data_ack=_resolved_public_data_ack(args, standing_ack),
                     deadline_seconds=args.get("deadline_seconds", DEFAULT_OPERATION_DEADLINE_SECONDS),
                 )))
         except Exception as exc:  # noqa: BLE001 -- tool handlers return structured errors
@@ -588,14 +613,15 @@ def register(ctx):
         ctx.register_system_prompt_section(
             "hermes-switchyard.computer-use",
             "Jev computer use is registered by default on Windows, macOS, and Linux whenever the "
-            "computer_use toolset is enabled. Prefer jev_computer_use for multi-step browser or native GUI "
-            "goals. Each call still requires public_or_sanitized_data_ack; that acknowledgement is not "
-            "blanket egress authorization and does not override mandatory skills, the user's native/"
-            "computer-use preference, or other required controls. The loop delegates to Hermes' Cua "
-            "Driver-backed computer_use tool, keeps application-owned candidate IDs, re-captures before "
-            "actions, and returns completion_candidate/verified=false. An independent coordinator-owned "
-            "verifier remains required. Use low-level computer_use for a single explicit atomic action or "
-            "recovery.",
+            "computer_use toolset is enabled. Prefer jev_computer_use for multi-step GUI goals. "
+            "If the goal or start_url is a public https page, the plugin runs a DOM browser loop: "
+            "one Jev request per step, page clicks, no Hermes computer_use between actions. "
+            "Desktop apps without a URL still use Cua Driver. Standing public_or_sanitized_data_ack "
+            "is on after install; omit the field. Pass false to refuse one call. That acknowledgement "
+            "is not blanket egress authorization and does not override mandatory skills, the user's "
+            "native/computer-use preference, or other required controls. DONE returns "
+            "completion_candidate/verified=false. Use low-level computer_use for a single explicit "
+            "atomic action or recovery.",
             position="after_memory",
             max_chars=900,
         )

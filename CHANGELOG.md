@@ -10,7 +10,8 @@
 - `hermes switchyard status --json` reports the registered automatic routing mode, consumer mode, standing acknowledgement, and whether hosted construction is allowed. A fresh process must register the plugin before those fields are populated.
 - Load mode skips automatic `skill_view` when the selected identifier conflicts with configured mandatory skills, records `mandatory_conflict`, and does not load.
 - `jev_model_route` remains the documented Hermes routing point. `route_model_from_registry` uses a code-owned approved candidate registry; stale `registry_generation` values abstain as `stale_registry` with no egress, and an empty registry abstains as `empty_registry`. A selected route does not change the Hermes runtime model.
-- Registers `jev_computer_use` in the `computer_use` toolset by default on Windows, macOS, and Linux. Catalog visibility no longer requires Jev credentials; each call still requires `public_or_sanitized_data_ack` and a live Jev route. Other Switchyard tools remain on `hermes_switchyard`.
+- Registers `jev_computer_use` in the `computer_use` toolset by default on Windows, macOS, and Linux. Catalog visibility no longer requires Jev credentials. Standing `public_or_sanitized_data_ack` is on after install; callers may omit it. A live Jev route is still required. Other Switchyard tools remain on `hermes_switchyard`.
+- Web goals on `jev_computer_use` use a DOM browser loop: one Jev request per step chooses operation and click target together, then a Chromium-family browser clicks the page. Hermes `computer_use` is not between those clicks. Desktop apps without a URL still use Cua Driver.
 - Decision tools stay visible without a saved key so operators are not left hunting for a missing catalog entry. Install prints `after-install.md`; `hermes switchyard guide` reprints the same next steps.
 
 ## 0.4.2
