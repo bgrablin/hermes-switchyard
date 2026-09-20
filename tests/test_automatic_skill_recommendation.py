@@ -877,5 +877,76 @@ class AutomaticRecommendationTests(unittest.TestCase):
                     manager.unload()
 
 
+class ProcessRestartAndMandatorySkillTests(unittest.TestCase):
+    def test_fresh_recommender_does_not_inherit_cache(self):
+        first = AutomaticSkillRecommender(
+            configured_candidates=[{"name": "docker-management", "description": "Docker"}],
+            routing_mode="local_only",
+            cache_seconds=300,
+        )
+        first.recommend("Diagnose a Docker container")
+        self.assertTrue(first._cache)
+        second = AutomaticSkillRecommender(
+            configured_candidates=[{"name": "docker-management", "description": "Docker"}],
+            routing_mode="local_only",
+            cache_seconds=300,
+        )
+        self.assertEqual(len(second._cache), 0)
+
+    def test_typed_consumer_skips_load_on_mandatory_skill_conflict(self):
+        loader_calls = {"n": 0}
+
+        def counting_loader(selected, task_id=None):
+            loader_calls["n"] += 1
+            return "# skill\ncontent"
+
+        hook = build_pre_llm_call_hook(
+            enabled=True,
+            consumer_mode="load",
+            skill_loader=counting_loader,
+            configured_candidates=[{"name": "docker-management", "description": "Docker"}],
+            routing_mode="local_only",
+            cache_seconds=0,
+            mandatory_skills=["xlsx"],
+        )
+        result = hook(
+            user_message="Diagnose a Docker container",
+            session_id="sess-mandatory",
+            turn_id="turn-mandatory",
+        )
+        self.assertEqual(loader_calls["n"], 0)
+        self.assertEqual(hook.last_receipt["consumer_status"], "mandatory_conflict")
+        self.assertFalse(hook.last_receipt["skill_load_verified"])
+        self.assertIsNone(hook.last_receipt["loaded_skill"])
+        self.assertTrue(hook.last_receipt["advisory_only"])
+        self.assertEqual(result["metadata"]["skill_recommendation"]["status"], "mandatory_conflict")
+        self.assertFalse(result["metadata"]["skill_recommendation"]["loaded_once"])
+
+    def test_typed_consumer_loads_when_selected_is_mandatory(self):
+        loader_calls = {"n": 0}
+
+        def counting_loader(selected, task_id=None):
+            loader_calls["n"] += 1
+            return f"# skill {selected}\ncontent"
+
+        hook = build_pre_llm_call_hook(
+            enabled=True,
+            consumer_mode="load",
+            skill_loader=counting_loader,
+            configured_candidates=[{"name": "docker-management", "description": "Docker"}],
+            routing_mode="local_only",
+            cache_seconds=0,
+            mandatory_skills=["docker-management"],
+        )
+        result = hook(
+            user_message="Diagnose a Docker container",
+            session_id="sess-mandatory-ok",
+            turn_id="turn-mandatory-ok",
+        )
+        self.assertEqual(loader_calls["n"], 1)
+        self.assertEqual(hook.last_receipt["consumer_status"], "loaded")
+        self.assertTrue(result["metadata"]["skill_recommendation"]["loaded_once"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -287,6 +287,34 @@ class F1ConsumerReceiptTests(unittest.TestCase):
                 hook(user_message="Diagnose a Docker container", session_id="sess-dedup", turn_id="turn-dedup")
                 self.assertEqual(loader_calls["n"], 1)
 
+    def test_mandatory_conflict_persists_without_load(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.dict(os.environ, {"HERMES_HOME": directory}, clear=False):
+                loader_calls = {"n": 0}
+
+                def counting_loader(selected, task_id=None):
+                    loader_calls["n"] += 1
+                    return "# skill\ncontent"
+
+                hook = self._hook(
+                    consumer_mode="load",
+                    skill_loader=counting_loader,
+                    mandatory_skills=["xlsx"],
+                )
+                hook(
+                    user_message="Diagnose a Docker container",
+                    session_id="sess-mandatory",
+                    turn_id="turn-mandatory",
+                )
+                receipt = hook.last_receipt
+                self.assertEqual(receipt["consumer_status"], "mandatory_conflict")
+                self.assertTrue(receipt["advisory_only"])
+                self.assertEqual(loader_calls["n"], 0)
+                stored = receipt_state.read_latest_receipt()
+                self.assertEqual(stored["consumer_status"], "mandatory_conflict")
+                self.assertTrue(stored["advisory_only"])
+                self.assertIsNone(stored["loaded_skill"])
+
     def test_persistence_failure_after_load_records_once(self):
         """Writer fails after loader succeeds: loading occurs once; disk record not replaced.
 

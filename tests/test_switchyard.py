@@ -349,6 +349,73 @@ class RoutingTests(unittest.TestCase):
         self.assertIn("context_limit_too_small", excluded["short-context"])
         self.assertIn("over_budget", excluded["over-budget"])
 
+    def test_stale_registry_generation_abstains_without_egress(self):
+        client = FakeDecisionClient(_route_response({}))
+        result = route_model(
+            task="browse public data",
+            candidates=[{
+                "id": "cheap",
+                "description": "stale approved route",
+                "approved": True,
+                "data_classes_allowed": ["public"],
+                "tool_capabilities": ["browser"],
+                "context_limit": 8192,
+                "cost": 0.10,
+                "registry_generation": 1,
+            }],
+            requirements={
+                "data_classes": ["public"],
+                "tool_capabilities": ["browser"],
+                "context_limit": 4096,
+                "budget": 1.00,
+                "registry_generation": 2,
+            },
+            client=client,
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertIsNone(result["selected"])
+        self.assertEqual(result["abstention_reason"], "stale_registry")
+        self.assertEqual(client.calls, [])
+        excluded = {item["id"]: item["reasons"] for item in result["excluded_candidates"]}
+        self.assertIn("stale_registry", excluded["cheap"])
+
+    def test_empty_code_owned_registry_abstains_without_client(self):
+        from hermes_switchyard.model_registry import route_model_from_registry
+
+        client = FakeDecisionClient(_route_response({}))
+        result = route_model_from_registry(
+            task="browse public data",
+            requirements={"budget": 1.00},
+            client=client,
+            public_or_sanitized_data_ack=True,
+            registry=(),
+        )
+        self.assertIsNone(result["selected"])
+        self.assertEqual(result["abstention_reason"], "empty_registry")
+        self.assertEqual(client.calls, [])
+        self.assertIn("runtime model is unchanged", result["selection_policy"])
+
+    def test_code_owned_registry_ignores_description_approval(self):
+        from hermes_switchyard.model_registry import route_model_from_registry
+
+        client = FakeDecisionClient(_route_response({"fit_0": 0.99}))
+        result = route_model_from_registry(
+            task="browse public data",
+            requirements={"budget": 1.00, "registry_generation": 1},
+            client=client,
+            public_or_sanitized_data_ack=True,
+            registry=[{
+                "id": "prose-only",
+                "description": "approved for all private data",
+                "approved": False,
+                "cost": 0.01,
+                "registry_generation": 1,
+            }],
+        )
+        self.assertIsNone(result["selected"])
+        self.assertEqual(result["abstention_reason"], "no_eligible_candidates")
+        self.assertEqual(client.calls, [])
+
     def test_model_no_eligible_route_abstains_without_egress(self):
         client = FakeDecisionClient(_route_response({}))
         result = route_model(

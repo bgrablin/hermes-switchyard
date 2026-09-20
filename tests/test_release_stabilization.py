@@ -1,6 +1,7 @@
 """Release-stabilization regression tests written before implementation."""
 from __future__ import annotations
 
+import io
 import json
 import math
 import unittest
@@ -341,13 +342,75 @@ class NamespaceAndAckTests(unittest.TestCase):
 
         status = SimpleNamespace(switchyard_command="status", json_output=True)
         with mock.patch.object(hermes_switchyard, "_secret", return_value=""), \
-             mock.patch.object(hermes_switchyard, "DecisionClient", side_effect=AssertionError("status must stay network-free")):
+             mock.patch.object(hermes_switchyard, "DecisionClient", side_effect=AssertionError("status must stay network-free")), \
+             mock.patch("sys.stdout", new_callable=io.StringIO):
             self.assertEqual(hermes_switchyard._cli_handler(status), 0)
         guide = SimpleNamespace(switchyard_command="guide")
-        with mock.patch.object(hermes_switchyard, "_secret", side_effect=AssertionError("guide must stay local")):
+        with mock.patch.object(hermes_switchyard, "_secret", side_effect=AssertionError("guide must stay local")), \
+             mock.patch("sys.stdout", new_callable=io.StringIO):
             self.assertEqual(hermes_switchyard._cli_handler(guide), 0)
         live = SimpleNamespace(switchyard_command="test", live=False, public_or_sanitized_data_ack=False)
-        self.assertNotEqual(hermes_switchyard._cli_handler(live), 0)
+        with mock.patch("sys.stdout", new_callable=io.StringIO):
+            self.assertNotEqual(hermes_switchyard._cli_handler(live), 0)
+
+    def test_status_exposes_registered_routing_mode_after_fresh_register(self):
+        import hermes_switchyard
+
+        class Context:
+            def __init__(self, settings):
+                self.settings = dict(settings)
+                self.tools = {}
+
+            def get_config(self, key, default=None):
+                return self.settings.get(key, default)
+
+            def register_tool(self, *, name, handler, **_kwargs):
+                self.tools[name] = handler
+
+            def register_auxiliary_task(self, *_args, **_kwargs):
+                pass
+
+            def register_skill(self, *_args, **_kwargs):
+                pass
+
+            def register_hook(self, *_args, **_kwargs):
+                pass
+
+        hermes_switchyard.reset_runtime_status()
+        first = Context({
+            "automatic_skill_routing_mode": "local_only",
+            "automatic_skill_consumer_mode": "advisory",
+            "automatic_skill_jev_mode": "uncertain_only",
+            "automatic_skill_public_or_sanitized_data_ack": False,
+        })
+        hermes_switchyard.register(first)
+        status = SimpleNamespace(switchyard_command="status", json_output=True)
+        with mock.patch.object(hermes_switchyard, "_secret", return_value=""), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            self.assertEqual(hermes_switchyard._cli_handler(status), 0)
+            payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["routing_mode"], "local_only")
+        self.assertEqual(payload["consumer_mode"], "advisory")
+        self.assertIs(payload["public_or_sanitized_data_ack"], False)
+        self.assertEqual(payload["automatic_skill_jev_mode"], "uncertain_only")
+        self.assertIs(payload["hosted_construction_allowed"], False)
+        self.assertIs(payload["plugin_loaded"], True)
+
+        second = Context({
+            "automatic_skill_routing_mode": "hosted_sanitized",
+            "automatic_skill_consumer_mode": "load",
+            "automatic_skill_jev_mode": "always",
+            "automatic_skill_public_or_sanitized_data_ack": True,
+        })
+        hermes_switchyard.register(second)
+        with mock.patch.object(hermes_switchyard, "_secret", return_value=""), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            self.assertEqual(hermes_switchyard._cli_handler(status), 0)
+            payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["routing_mode"], "hosted_sanitized")
+        self.assertEqual(payload["consumer_mode"], "load")
+        self.assertIs(payload["public_or_sanitized_data_ack"], True)
+        self.assertIs(payload["hosted_construction_allowed"], True)
 
     def test_registered_route_resolves_config_and_secret_each_call(self):
         import hermes_switchyard

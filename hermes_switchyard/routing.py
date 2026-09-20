@@ -35,6 +35,7 @@ _MODEL_REQUIREMENT_KEYS = frozenset({
     "tool_capabilities",
     "context_limit",
     "budget",
+    "registry_generation",
 })
 
 _CHOICE_MAX_OPTIONS = 255  # Jev's per-Choice contract; large catalogs are reduced hierarchically.
@@ -724,6 +725,10 @@ def _model_requirements(requirements: dict) -> dict[str, Any]:
         parsed["context_limit"] = _positive_integer(requirements["context_limit"], "requirements.context_limit")
     if "budget" in requirements:
         parsed["budget"] = _nonnegative_number(requirements["budget"], "requirements.budget")
+    if "registry_generation" in requirements:
+        parsed["registry_generation"] = _positive_integer(
+            requirements["registry_generation"], "requirements.registry_generation"
+        )
     return parsed
 
 
@@ -753,6 +758,11 @@ def _model_candidates(candidates: list[dict]) -> list[dict[str, Any]]:
         cost = None
         if "cost" in item:
             cost = _nonnegative_number(item["cost"], f"candidate {identifier!r}.cost")
+        registry_generation = None
+        if "registry_generation" in item:
+            registry_generation = _positive_integer(
+                item["registry_generation"], f"candidate {identifier!r}.registry_generation"
+            )
         records.append({
             "id": identifier,
             "description": description,
@@ -761,6 +771,7 @@ def _model_candidates(candidates: list[dict]) -> list[dict[str, Any]]:
             "tool_capabilities": capabilities,
             "context_limit": context_limit,
             "cost": cost,
+            "registry_generation": registry_generation,
             "position": position,
         })
     return records
@@ -775,6 +786,7 @@ def _eligible_model_candidates(
     required_tools = set(requirements.get("tool_capabilities", []))
     required_context = requirements.get("context_limit")
     budget = requirements.get("budget")
+    required_generation = requirements.get("registry_generation")
     for candidate in candidates:
         reasons: list[str] = []
         if candidate["approved"] is not True:
@@ -783,6 +795,10 @@ def _eligible_model_candidates(
             # A cost is always required because the final choice is code-owned and
             # must be provably the cheapest qualified candidate.
             reasons.append("missing_cost")
+        if required_generation is not None:
+            generation = candidate.get("registry_generation")
+            if generation is None or generation != required_generation:
+                reasons.append("stale_registry")
         if required_classes:
             allowed = candidate["data_classes_allowed"]
             if allowed is None:
@@ -930,7 +946,10 @@ def _route_model_impl(
         "usage": {},
     }
     if not eligible:
-        base["abstention_reason"] = "no_eligible_candidates"
+        if excluded and all("stale_registry" in item["reasons"] for item in excluded):
+            base["abstention_reason"] = "stale_registry"
+        else:
+            base["abstention_reason"] = "no_eligible_candidates"
         return base
 
     scores: dict[str, float] = {}

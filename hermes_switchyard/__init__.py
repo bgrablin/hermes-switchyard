@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from . import receipt_state, schemas
-from .automatic import _config_float, build_pre_llm_call_hook
+from .automatic import _config_float, build_pre_llm_call_hook, discover_mandatory_skills
 from .client import (
     DEFAULT_ENDPOINT,
     DEFAULT_OPERATION_DEADLINE_SECONDS,
@@ -21,7 +21,48 @@ from .client import (
     request_budget_scope,
 )
 from .computer_use import StaleTargetError, run_computer_goal
+from .egress import is_routing_mode
 from .routing import route_model, select_skill, select_skills
+
+
+_UNREGISTERED_RUNTIME_STATUS = {
+    "plugin_loaded": False,
+    "routing_mode": None,
+    "consumer_mode": None,
+    "public_or_sanitized_data_ack": None,
+    "automatic_skill_jev_mode": None,
+    "hosted_construction_allowed": False,
+}
+_RUNTIME_STATUS = dict(_UNREGISTERED_RUNTIME_STATUS)
+
+
+def reset_runtime_status() -> None:
+    """Clear register-time status. Tests use this to model a fresh process."""
+    _RUNTIME_STATUS.clear()
+    _RUNTIME_STATUS.update(_UNREGISTERED_RUNTIME_STATUS)
+
+
+def _publish_runtime_status(
+    *,
+    routing_mode: Any,
+    consumer_mode: Any,
+    public_or_sanitized_data_ack: bool,
+    automatic_skill_jev_mode: Any,
+) -> None:
+    ack = public_or_sanitized_data_ack is True
+    mode = routing_mode if is_routing_mode(routing_mode) else None
+    _RUNTIME_STATUS.update(
+        {
+            "plugin_loaded": True,
+            "routing_mode": mode,
+            "consumer_mode": consumer_mode if consumer_mode in {"advisory", "load"} else None,
+            "public_or_sanitized_data_ack": ack,
+            "automatic_skill_jev_mode": (
+                automatic_skill_jev_mode if automatic_skill_jev_mode in {"always", "uncertain_only"} else None
+            ),
+            "hosted_construction_allowed": bool(mode == "hosted_sanitized" and ack),
+        }
+    )
 
 
 def _cli_handler(args):
@@ -38,6 +79,12 @@ def _cli_handler(args):
             "status": "ready" if any(credential_presence.values()) else "credential_required",
             "network": False,
             "credential_presence": credential_presence,
+            "plugin_loaded": _RUNTIME_STATUS["plugin_loaded"],
+            "routing_mode": _RUNTIME_STATUS["routing_mode"],
+            "consumer_mode": _RUNTIME_STATUS["consumer_mode"],
+            "public_or_sanitized_data_ack": _RUNTIME_STATUS["public_or_sanitized_data_ack"],
+            "automatic_skill_jev_mode": _RUNTIME_STATUS["automatic_skill_jev_mode"],
+            "hosted_construction_allowed": _RUNTIME_STATUS["hosted_construction_allowed"],
         }
         print(
             json.dumps(payload, sort_keys=True)
@@ -372,6 +419,17 @@ def register(ctx):
             "automatic_skill_consumer_mode", default="advisory"
         ),
         skill_loader=_load_skill_context,
+        mandatory_skills=discover_mandatory_skills(
+            ctx.get_config("automatic_skill_mandatory_skills", default=[])
+        ),
+    )
+    _publish_runtime_status(
+        routing_mode=configured_routing_mode,
+        consumer_mode=ctx.get_config("automatic_skill_consumer_mode", default="advisory"),
+        public_or_sanitized_data_ack=setting_bool(
+            "automatic_skill_public_or_sanitized_data_ack", False
+        ),
+        automatic_skill_jev_mode=ctx.get_config("automatic_skill_jev_mode", default="always"),
     )
     if automatic_hook is not None and hasattr(ctx, "register_hook"):
         ctx.register_hook("pre_llm_call", automatic_hook)

@@ -59,6 +59,8 @@ HOSTED_SKIP_REASONS = frozenset(
         "cache_hit",
         "empty_task",
         "no_candidates",
+        "routing_mode_off",
+        "routing_mode_local_only",
         "diagnostic_value_unavailable",
     }
 )
@@ -114,7 +116,7 @@ CONSUMER_RECEIPT_FIELDS = frozenset({
 # `advisory_only` means "no skill was loaded in this operation." A terminal
 # consumer receipt records the load outcome instead, so `advisory_only` may
 # be False only when the receipt carries a valid consumer record.
-_CONSUMER_STATUSES = frozenset({"loaded", "load_failed", "explicit_override"})
+_CONSUMER_STATUSES = frozenset({"loaded", "load_failed", "explicit_override", "mandatory_conflict"})
 
 
 def _plugin_root(repo_dir: Path | str | None = None) -> Path:

@@ -179,6 +179,11 @@ _MODEL_CANDIDATE_PROPERTIES = {
     },
     "context_limit": {"type": "integer", "minimum": 1, "description": "Candidate context-token limit."},
     "cost": {"type": "number", "minimum": 0, "description": "Candidate unit cost used for code-owned cheapest selection."},
+    "registry_generation": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Generation of the code-owned approved registry that produced this candidate.",
+    },
 }
 
 
@@ -267,6 +272,11 @@ MODEL_ROUTE = {
                     "tool_capabilities": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": True},
                     "context_limit": {"type": "integer", "minimum": 1},
                     "budget": {"type": "number", "minimum": 0},
+                    "registry_generation": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Code-owned registry generation; mismatched or missing candidate generations abstain as stale_registry.",
+                    },
                 },
                 "additionalProperties": False,
                 "default": {},
