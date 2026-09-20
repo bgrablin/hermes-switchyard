@@ -730,12 +730,34 @@ def _partial_accounting_metadata(partial: Any) -> dict[str, Any]:
     for item in partial:
         if not isinstance(item, Mapping):
             continue
+        has_latency = (
+            isinstance(item.get("latency_ms"), (int, float))
+            and not isinstance(item.get("latency_ms"), bool)
+            and math.isfinite(item.get("latency_ms"))
+            and item.get("latency_ms") >= 0
+        ) or (
+            isinstance(item.get("total_latency_ms"), (int, float))
+            and not isinstance(item.get("total_latency_ms"), bool)
+            and math.isfinite(item.get("total_latency_ms"))
+            and item.get("total_latency_ms") >= 0
+        )
+        has_identifier = any(isinstance(item.get(field), str) and item.get(field) for field in ("model", "request_id"))
+        has_usage = isinstance(item.get("total_usage"), Mapping) or isinstance(item.get("usage"), Mapping)
+        entry_request_count = item.get("request_count")
+        if isinstance(entry_request_count, int) and not isinstance(entry_request_count, bool) and entry_request_count > 0:
+            count = entry_request_count
+        elif has_latency or has_identifier or has_usage:
+            count = 1
+        else:
+            continue
         last = item
-        request_count += 1
-        latency = item.get("latency_ms")
+        request_count += count
+        latency = item.get("total_latency_ms", item.get("latency_ms"))
         if isinstance(latency, (int, float)) and not isinstance(latency, bool) and math.isfinite(latency) and latency >= 0:
             total_latency_ms += float(latency)
-        usage = item.get("usage")
+        usage = item.get("total_usage")
+        if not isinstance(usage, Mapping):
+            usage = item.get("usage")
         if isinstance(usage, Mapping):
             for key, value in usage.items():
                 if (
