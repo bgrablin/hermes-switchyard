@@ -75,7 +75,17 @@ The default `automatic_skill_consumer_mode: advisory` adds model-visible context
 
 Jev tools require `public_or_sanitized_data_ack: true` in their input. This means the caller gives standing consent for the plugin-owned bounded classification path. The flag does not replace local scanning, grant unrestricted permission to share data, or bypass other controls. Automatic skill recommendations require the persistent setting plus a strict local per-turn scan; a future Hermes envelope is optional strengthening.
 
-For Cua Driver computer use, Jev may receive the goal, target application, window title, safe control labels, visible context, and recent actions through the selected Jev endpoint. Text-field operations require an explicit bounded caller-supplied value; the registered tool does not call the conversational Hermes LLM between Jev actions and abstains when no value is supplied. Do not send private, employer, regulated, credential, password, API-key, token, payment, or verification-code data.
+For Cua Driver computer use, Jev may receive the goal, target application, window title, safe control labels, visible context, and recent actions through the selected Jev endpoint. Text-field operations use only bounded caller-supplied values from `text_inputs`; the registered tool never calls a conversational Hermes LLM between Jev actions and abstains when no caller value is supplied. Do not send private, employer, regulated, credential, password, API-key, token, payment, or verification-code data.
+
+## Evidence, reconciliation, and deadlines
+
+`jev_computer_use` returns one typed receipt that records what is known, not a single success boolean. A dispatched action records the native `verdict`, whether the executor `effect_confirmed` the change, the `effect_status` string, and any `escalation`. These are distinct evidence levels: a native verdict is not proof a downstream task finished, load-mode verification is not proof a recommendation was correct, and an observed postcondition is not proof the whole goal was satisfied. Every receipt keeps `verified: false` with `verification_owner: coordinator` until Hermes independently checks the postcondition.
+
+Expected exceptions preserve partial progress instead of discarding it. If a later action, fresh capture, or native dispatch fails, the receipt still lists every prior action, decision, provider request, and cost, and it sets `reconcile_before_retry: true` when any side effect may already exist. That flag asks the coordinator to inspect before replaying; it is not a claim that replaying is safe.
+
+Provider usage after a partial failure can be incomplete. A missing usage value is not zero usage. A receipt may report a partial subtotal from completed responses and mark the operation cost incomplete rather than claiming a finished total.
+
+Operation deadlines are cooperative, not hard. The loop checks `operation_remaining_deadline()` before each Jev request and native action and bounds each request by the time left. Native operations such as a blocking dispatcher call or a lock acquisition may not be interruptible mid-flight, so the plugin does not claim to force a desktop action to stop instantly and never retries silently after the caller believes the operation stopped.
 
 ## Tools and limits
 
