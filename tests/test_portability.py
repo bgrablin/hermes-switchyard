@@ -175,6 +175,40 @@ class PortabilityTests(unittest.TestCase):
         self.assertEqual(check_portability._credential_path_failures(".env"), ["credential file is tracked in .env"])
         self.assertEqual(check_portability._credential_path_failures(".env.example"), [])
 
+    def test_content_scan_allows_loopback_bind_and_private_rejection_fixtures(self):
+        self.assertEqual(
+            check_portability._content_failures(
+                "hermes_switchyard/browser_use.py",
+                'sock.bind(("127.0.0.1", 0))\ncache = Path.home() / ".cache"\n',
+            ),
+            [],
+        )
+        self.assertEqual(
+            check_portability._content_failures(
+                "tests/test_browser_use.py",
+                'infer_start_url("https://192.168.0.1/", "open this")\n',
+            ),
+            [],
+        )
+        self.assertTrue(
+            any(
+                "IPv4 address" in item
+                for item in check_portability._content_failures(
+                    "hermes_switchyard/browser_use.py",
+                    'url = "https://8.8.8.8/"\n',
+                )
+            )
+        )
+        self.assertTrue(
+            any(
+                "private hostname suffix" in item
+                for item in check_portability._content_failures(
+                    "README.md",
+                    "Do not ship example.lan addresses.\n",
+                )
+            )
+        )
+
     def test_history_uses_nul_paths_and_fails_closed_on_unreadable_blob(self):
         responses = [
             subprocess.CompletedProcess([], 0, stdout="commit\n", stderr=""),
