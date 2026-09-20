@@ -102,6 +102,12 @@ class BrowserUseTests(unittest.TestCase):
             requested_web_start("https://127.0.0.1/", "click Start")
         with self.assertRaises(ValueError):
             requested_web_start(None, "open https://192.168.0.1/ now")
+        with self.assertRaises(ValueError):
+            requested_web_start(None, "open file:///etc/passwd")
+        with self.assertRaises(ValueError):
+            requested_web_start(None, "run javascript:alert(1)")
+        with self.assertRaises(ValueError):
+            requested_web_start("about:blank", "click Start")
 
     def test_false_ack_does_not_observe(self):
         session = FakeSession(
@@ -217,6 +223,54 @@ class BrowserUseTests(unittest.TestCase):
         self.assertEqual(session.clicks, [])
         self.assertEqual(result["click_count"], 0)
 
+    def test_unsafe_url_after_click_records_action(self):
+        session = FakeSession(
+            {
+                "https://en.wikipedia.org/wiki/Cat": {
+                    "title": "Cat",
+                    "text": "Cat",
+                    "elements": [
+                        {
+                            "id": "1",
+                            "role": "link",
+                            "label": "Felidae",
+                            "href": "https://en.wikipedia.org/wiki/Felidae",
+                        }
+                    ],
+                },
+                "http://localhost/": {"title": "private", "text": "no", "elements": []},
+            }
+        )
+        original = session.click
+
+        def hijack(element_id: str, label: str = "", href: str = "") -> None:
+            original(element_id, label=label, href=href)
+            session.url = "http://localhost/"
+
+        session.click = hijack  # type: ignore[method-assign]
+        result = run_browser_goal(
+            goal="stuck",
+            session=session,
+            client=FakeClient(
+                [
+                    {
+                        "operation": _choice(
+                            "CLICK",
+                            {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b"},
+                        ),
+                        "click_target": _choice("1", {"1": "Felidae"}),
+                    }
+                ]
+            ),
+            max_steps=3,
+        )
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["failure_phase"], "unsafe_url")
+        self.assertEqual(result["click_count"], 1)
+        self.assertEqual(result["attempted_action_count"], 1)
+        self.assertEqual(result["actions"][0]["effect_status"], "left_public_https")
+        self.assertTrue(result["reconcile_before_retry"])
+
     def test_handler_uses_dom_loop_for_wikipedia_and_skips_computer_use(self):
         session = FakeSession(
             {
@@ -322,6 +376,20 @@ class BrowserUseTests(unittest.TestCase):
                         "goal": "click Start",
                         "app": "Chrome",
                         "start_url": "https://127.0.0.1/",
+                    }
+                )
+            )
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(context.dispatch_calls, [])
+
+        context = Context()
+        with mock.patch.object(hermes_switchyard, "_secret", return_value="fixture-key"):
+            hermes_switchyard.register(context)
+            result = json.loads(
+                context.tools["jev_computer_use"](
+                    {
+                        "goal": "open file:///etc/passwd in Chrome",
+                        "app": "Chrome",
                     }
                 )
             )
