@@ -2,6 +2,8 @@
 
 ## Unreleased (PR #18 corrective pass)
 
+- Automatic hosted Jev is on after install. `automatic_skill_public_or_sanitized_data_ack` defaults true. Set it false to skip hosted automatic routing. Topic words such as "private" or "verification" no longer skip Jev; high-confidence secrets, payment values, and verification codes still do.
+- OpenRouter Decisions requests send Hermes Agent app headers (`HTTP-Referer`, `X-Title`, `X-OpenRouter-Title`) so usage shows as Hermes Agent instead of Unknown. Direct TypeSafe requests do not send those headers.
 - Adds an operation-level finalization boundary to computer use: an expected failure after execution began returns the partial ledger (known actions, uncertain-effect actions, provider decisions, last observation) instead of a generic error, and marks reconciliation before retry.
 - Normalizes OpenRouter's documented Decisions response `id` to the canonical internal `request_id`; contradictory dual identifiers are rejected and no identifier is invented.
 - Receipt validation now checks the record exactly as supplied: unknown fields are rejected with a set-difference test, persistence and readback round-trip the canonical record, a successful load requires the complete evidence group, and `cost: null` is the single unknown-cost representation.

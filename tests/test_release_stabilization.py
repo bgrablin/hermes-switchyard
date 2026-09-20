@@ -168,7 +168,45 @@ class ResponseBoundaryTests(unittest.TestCase):
                 public_or_sanitized_data_ack=True,
             )
         self.assertEqual(len(connection.requests), 1)
-        self.assertEqual(connection.requests[0][3]["Authorization"], "Bearer " + client.api_key)
+        headers = connection.requests[0][3]
+        self.assertEqual(headers["Authorization"], "Bearer " + client.api_key)
+        self.assertEqual(headers["HTTP-Referer"], "https://hermes-agent.nousresearch.com")
+        self.assertEqual(headers["X-Title"], "Hermes Agent")
+        self.assertEqual(headers["X-OpenRouter-Title"], "Hermes Agent")
+
+    def test_typesafe_requests_omit_openrouter_app_headers(self):
+        from hermes_switchyard import client as module
+        from hermes_switchyard.client import TYPESAFE_ENDPOINT
+
+        class RecordingConnection(_Connection):
+            def __init__(self, response: _Response):
+                super().__init__(response)
+                self.requests: list[tuple[str, str, bytes, dict[str, str]]] = []
+
+            def request(self, method, path, body=None, headers=None):
+                self.requests.append((method, path, body, dict(headers or {})))
+
+        response = _Response(
+            b'{"model":"jev-latest","answers":{"answer":{"noul":0.9}},"usage":{}}'
+        )
+        connection = RecordingConnection(response)
+        with mock.patch.object(module.http.client, "HTTPSConnection", return_value=connection):
+            client = DecisionClient(
+                api_key="fixture-key",
+                endpoint=TYPESAFE_ENDPOINT,
+                model="jev-latest",
+            )
+            client.decide(
+                "public",
+                {"answer": {"type": "noul", "instructions": "Is it true?"}},
+                public_or_sanitized_data_ack=True,
+            )
+        self.assertEqual(len(connection.requests), 1)
+        headers = connection.requests[0][3]
+        self.assertEqual(headers["Authorization"], "Bearer " + client.api_key)
+        self.assertNotIn("HTTP-Referer", headers)
+        self.assertNotIn("X-Title", headers)
+        self.assertNotIn("X-OpenRouter-Title", headers)
 
 
 class RoutingBoundaryTests(unittest.TestCase):

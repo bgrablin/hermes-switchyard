@@ -18,6 +18,12 @@ from typing import Any, cast
 
 DEFAULT_ENDPOINT = "https://openrouter.ai/api/alpha/decisions"
 TYPESAFE_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
+OPENROUTER_APP_HEADERS = {
+    "HTTP-Referer": "https://hermes-agent.nousresearch.com",
+    "X-Title": "Hermes Agent",
+    "X-OpenRouter-Title": "Hermes Agent",
+    "X-OpenRouter-Categories": "personal-agent,cli-agent",
+}
 OPENROUTER_MODELS = frozenset({"typesafe/jev-1.13", "typesafe/jev-1.13-20260917"})
 TYPESAFE_MODELS = frozenset({"jev-latest", "jev-1.13", "jev-1.13.0"})
 ALLOWED_ENDPOINTS = frozenset({DEFAULT_ENDPOINT, TYPESAFE_ENDPOINT})
@@ -364,6 +370,8 @@ class DecisionClient:
             "Content-Type": "application/json",
             "Connection": "keep-alive",
         }
+        if self.endpoint == DEFAULT_ENDPOINT:
+            headers.update(OPENROUTER_APP_HEADERS)
         with self._connection_lock:
             try:
                 remaining = self._remaining_deadline()

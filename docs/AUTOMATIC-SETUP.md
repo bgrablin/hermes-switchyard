@@ -82,16 +82,14 @@ hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_con
 
 Start a fresh Hermes process after changing the mode. In `load` mode, Switchyard passes one accepted exact identifier to Hermes' normal `skill_view` loader once per identified turn. Explicit skill instructions, abstention, invalid output, and loader rejection do not trigger an automatic load. Keep `advisory` unless the active profile intentionally delegates this bounded load decision.
 
-## 5. Configure hosted Jev only after a per-turn allow decision
+## 5. Hosted Jev is on after install
 
 Hosted Jev requires either a TypeSafe account/key or an OpenRouter account/key, plus available allowance. `jev_provider: auto` prefers direct TypeSafe. Codex or ChatGPT subscription billing does not pay for either route.
 
-Set the explicit hosted mode and standing acknowledgement only when the task is public or already sanitized:
+Install defaults are `hosted_sanitized`, `always`, and standing acknowledgement true. Ordinary turns can call Jev. To skip hosted automatic routing:
 
 ```text
-hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode hosted_sanitized
-hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_jev_mode always
-hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack true
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack false
 ```
 
 An optional host envelope may narrow the payload. It is not required. If supplied, it must be a versioned envelope such as:

@@ -3,10 +3,10 @@
 The hook defaults to advisory mode. Its opt-in typed consumer can load one
 accepted skill through Hermes' normal skill loader without changing a toolset or
 rewriting the cached system prompt. Local matching supplies a deterministic
-fallback. Hosted Jev is preferred when hosted_sanitized mode is enabled, standing user
-acknowledgement is true, and the local per-turn scan accepts the bounded task. A
-host envelope is optional strengthening and may provide a narrower sanitized
-payload. The automatic hosted payload then contains only the accepted task and
+fallback. Hosted Jev is preferred when hosted_sanitized mode is enabled (the
+install default). Standing acknowledgement is on after install; set it false to
+skip hosted automatic routing. A host envelope is optional strengthening and may
+provide a narrower sanitized payload. The automatic hosted payload then contains only the accepted task and
 exact candidate identifiers. Conversation history, candidate descriptions, and
 full skill bodies stay local.
 """
@@ -71,12 +71,12 @@ _PROMPT_INJECTION_RE = re.compile(
     re.IGNORECASE,
 )
 _PAYMENT_RE = re.compile(
-    r"\b(?:credit\s+card|card\s+number|cvv|cvc|bank\s+account|routing\s+number|payment)\b|"
+    r"\b(?:credit\s+card|card\s+number|cvv|cvc|bank\s+account|routing\s+number)\b|"
     r"\b(?:\d[ -]?){13,19}\b",
     re.IGNORECASE,
 )
 _VERIFICATION_RE = re.compile(
-    r"\b(?:one[- ]time|verification|authenticator|mfa|2fa|otp)\b(?:.{0,32}\b\d{4,10}\b)?",
+    r"\b(?:one[- ]time|verification|authenticator|mfa|2fa|otp)\b.{0,32}\b\d{4,10}\b",
     re.IGNORECASE,
 )
 _CONTACT_RE = re.compile(
@@ -89,8 +89,8 @@ _SECRET_VALUE_RE = re.compile(
     re.IGNORECASE,
 )
 _RESTRICTED_WORD_RE = re.compile(
-    r"\b(?:private|confidential|credential|password|passphrase|employer|regulated|hipaa|phi|"
-    r"classified|export[- ]controlled|"
+    r"\b(?:credential|password|passphrase|hipaa|phi|"
+    r"classified|confidential|export[- ]controlled|"
     r"Controlled Unclassified Information|CUI(?:\b|//))\b",
     re.IGNORECASE,
 )
@@ -308,7 +308,7 @@ class AutomaticSkillRecommender:
         routing_mode: str | None = None,
         hosted_enabled: bool | None = None,
         hosted_mode: str = "always",
-        public_or_sanitized_data_ack: bool = False,
+        public_or_sanitized_data_ack: bool = True,
         client_factory: Callable[[], Any] | None = None,
         cache_identity: Callable[[], Any] | None = None,
         local_threshold: float = DEFAULT_LOCAL_THRESHOLD,
@@ -332,8 +332,8 @@ class AutomaticSkillRecommender:
         if hosted_mode not in {"uncertain_only", "always"}:
             raise ValueError("hosted_mode must be 'uncertain_only' or 'always'")
         self.hosted_mode = hosted_mode
-        # Standing acknowledgement is still required before hosted construction.
-        # recommend() returns ack_required and skips the client when it is false.
+        # Standing acknowledgement is on after install. recommend() returns
+        # ack_required and skips the client only when it is explicitly false.
         self.public_or_sanitized_data_ack = public_or_sanitized_data_ack is True
         self.client_factory = client_factory
         self.cache_identity = cache_identity
@@ -1033,7 +1033,7 @@ def build_pre_llm_call_hook(
     routing_mode: str | None = None,
     hosted_enabled: bool | None = None,
     hosted_mode: str = "always",
-    public_or_sanitized_data_ack: bool = False,
+    public_or_sanitized_data_ack: bool = True,
     client_factory: Callable[[], Any] | None = None,
     cache_identity: Callable[[], Any] | None = None,
     local_threshold: float = DEFAULT_LOCAL_THRESHOLD,

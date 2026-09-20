@@ -96,6 +96,7 @@ class AutomaticRecommendationTests(unittest.TestCase):
         import hermes_switchyard
 
         context = _Context({
+            "automatic_skill_routing_mode": "local_only",
             "automatic_skill_candidates": [
                 {"name": "docker-management", "description": "Manage Docker containers and Compose services."},
                 {"name": "network-printer-operations", "description": "Operate network printers and scanners."},
@@ -121,7 +122,7 @@ class AutomaticRecommendationTests(unittest.TestCase):
             conversation_history=self._history(),
         )
         self.assertIsNotNone(no_fit)
-        self.assertEqual(no_fit["metadata"]["routing_reason"], "ack_required")
+        self.assertNotEqual(no_fit["metadata"]["routing_reason"], "ack_required")
 
     def test_typed_consumer_loads_an_accepted_skill_exactly_once(self):
         loaded = []
@@ -518,6 +519,40 @@ class AutomaticRecommendationTests(unittest.TestCase):
             result = recommender.recommend(task)
             self.assertEqual(result["hosted_attempted"], False, task)
             self.assertEqual(constructed, [], task)
+
+    def test_topic_words_do_not_skip_hosted_construction(self):
+        calls = []
+
+        def transport(payload):
+            calls.append(payload)
+            return {
+                "model": "typesafe/jev-1.13",
+                "answers": {
+                    "skill": {
+                        "choice": "docker-management",
+                        "confidence": 0.99,
+                        "probabilities": {"docker-management": 1.0},
+                    },
+                    "needs_skill": {"noul": 0.99},
+                },
+                "usage": {},
+            }
+
+        for task in (
+            "Review this private Discord plugin on Silver Hermes",
+            "OpenRouter shows GitHub verification for the commit",
+            "This is not a payment form, just a plugin default",
+        ):
+            calls.clear()
+            recommender = AutomaticSkillRecommender(
+                configured_candidates=[{"name": "docker-management", "description": "Docker"}],
+                routing_mode="hosted_sanitized",
+                public_or_sanitized_data_ack=True,
+                client_factory=lambda: DecisionClient(api_key="fixture-key", transport=transport),
+            )
+            result = recommender.recommend(task)
+            self.assertTrue(result["hosted_attempted"], task)
+            self.assertGreaterEqual(len(calls), 1, task)
 
     def test_allow_envelope_requires_standing_ack_and_uses_bounded_payload(self):
         calls = []
