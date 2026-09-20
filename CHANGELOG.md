@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased (PR #18 corrective pass)
+
+- Adds an operation-level finalization boundary to computer use: an expected failure after execution began returns the partial ledger (known actions, uncertain-effect actions, provider decisions, last observation) instead of a generic error, and marks reconciliation before retry.
+- Normalizes OpenRouter's documented Decisions response `id` to the canonical internal `request_id`; contradictory dual identifiers are rejected and no identifier is invented.
+- Receipt validation now checks the record exactly as supplied: unknown fields are rejected with a set-difference test, persistence and readback round-trip the canonical record, a successful load requires the complete evidence group, and `cost: null` is the single unknown-cost representation.
+- Public tool errors preserve `PartialAccountingError` evidence: a known request subtotal with explicit `total_usage_incomplete`, redacted identifiers, and no doubled accounting. Multi-skill and model-routing outer batch failures merge accounting from earlier successful batches.
+- Documents the credential-ownership boundary: keys come from Hermes' profile secret scope; host-managed native Decisions transport awaits a Hermes core capability and is an explicit host-change dependency.
+
 ## 0.4.2
 
 - Adds an opt-in typed automatic skill consumer that invokes Hermes' normal `skill_view` loader once per accepted turn while retaining advisory mode as the default.
