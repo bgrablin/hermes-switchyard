@@ -533,7 +533,7 @@ def register(ctx):
     )
     ctx.register_tool(
         name="jev_computer_use",
-        toolset="hermes_switchyard",
+        toolset="computer_use",
         schema=schemas.COMPUTER_USE,
         handler=computer_handler,
         check_fn=computer_route_available,

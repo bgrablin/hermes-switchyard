@@ -144,7 +144,8 @@ def inspect_native_plugin(
             schemas = []
             for name in sorted(EXPECTED_TOOLS):
                 entry = registry.get_entry(name, scope=host.manager.scope_key)
-                if entry is None or entry.toolset != "hermes_switchyard" or not callable(entry.handler):
+                expected_toolset = "computer_use" if name == "jev_computer_use" else "hermes_switchyard"
+                if entry is None or entry.toolset != expected_toolset or not callable(entry.handler):
                     raise NativeCompatibilityError(f"Hermes registry did not expose tool {name!r} correctly")
                 schemas.append(_schema_summary(name, entry.schema))
     except NativeCompatibilityError:
