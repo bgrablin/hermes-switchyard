@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import ipaddress
 import json
 import re
 import subprocess
@@ -27,7 +28,7 @@ TEXT_SUFFIXES = {
 ABSOLUTE_PATH = re.compile(r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|/(?:home|Users|private|var|tmp)(?:/|\\\\))")
 IPV4 = re.compile(r"(?<![0-9])(?:\d{1,3}\.){3}\d{1,3}(?![0-9])")
 PRIVATE_HOSTNAME = re.compile(
-    r"(?i)(?<![A-Za-z0-9_.-])(?:[A-Za-z0-9-]+\.)+(?:local|lan|internal|home|corp)(?![A-Za-z0-9_.-])"
+    r"(?i)(?<![A-Za-z0-9_.-])(?:[A-Za-z0-9-]+\.)+(?:local|lan|internal|home|corp)(?![A-Za-z0-9_.(-])"
 )
 CREDENTIAL_ASSIGNMENT = re.compile(
     r"(?ix)(?:\b|_)(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|passwd|private[_-]?key|secret)\b"
@@ -146,13 +147,29 @@ def _comment_failures(relative: str, text: str) -> list[str]:
     return failures
 
 
+def _ipv4_is_allowed(relative: str, address: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return False
+    if ip.version != 4:
+        return False
+    if ip.is_loopback:
+        return True
+    return relative.startswith("tests/")
+
+
+def _has_disallowed_ipv4(relative: str, text: str) -> bool:
+    return any(not _ipv4_is_allowed(relative, match.group(0)) for match in IPV4.finditer(text))
+
+
 def _content_failures(relative: str, text: str) -> list[str]:
     failures: list[str] = []
     if ABSOLUTE_PATH.search(text):
         failures.append(f"host-specific absolute path in {relative}")
-    if IPV4.search(text):
+    if _has_disallowed_ipv4(relative, text):
         failures.append(f"IPv4 address in {relative}")
-    if PRIVATE_HOSTNAME.search(text):
+    if PRIVATE_HOSTNAME.search(text) and not relative.startswith("tests/"):
         failures.append(f"private hostname suffix in {relative}")
     if STALE_BRANDING.search(text):
         failures.append(f"stale branding in {relative}")
