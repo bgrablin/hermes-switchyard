@@ -266,6 +266,7 @@ class F3PartialAccountingTests(unittest.TestCase):
         partial = ctx.exception.partial
         successful = [record for record in partial if record.get("request_id") == "req-1"]
         self.assertEqual(len(successful), 1)
+        self.assertEqual(successful[0]["request_count"], 1)
         self.assertEqual(successful[0]["usage"].get("cost"), 0.01)
 
 
@@ -422,4 +423,3 @@ class A0NoIntermediateModelCallTests(unittest.TestCase):
         # Exactly one terminal tool result was returned.
         self.assertIsInstance(result, dict)
         self.assertIn("status", result)
-

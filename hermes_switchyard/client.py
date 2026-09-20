@@ -584,6 +584,9 @@ class DecisionClient:
                     "latency_ms": call.get("latency_ms"),
                     "model": call.get("model"),
                     "request_id": call.get("request_id"),
+                    "request_count": int(call.get("request_count") or 1),
+                    "total_latency_ms": call.get("total_latency_ms", call.get("latency_ms")),
+                    "total_usage": call.get("total_usage", call.get("usage") or {}),
                     "usage": call.get("usage") or {},
                 }
             )
