@@ -112,7 +112,7 @@ For a Cua Driver request, Switchyard builds a bounded decision state from the go
 
 ## Missing-key symptoms and recovery
 
-If neither `TYPESAFE_API_KEY` nor `OPENROUTER_API_KEY` is available, Hermes can disable the plugin during loading and the Jev tools will not appear as available. If a request reaches the plugin without a key, it fails closed with a generic request-validation error rather than exposing credential details.
+If neither `TYPESAFE_API_KEY` nor `OPENROUTER_API_KEY` is available, the tools still appear after enablement. Calls fail closed until you save one key. Install prints `after-install.md`; `hermes switchyard guide` reprints it.
 
 Recover without changing code:
 

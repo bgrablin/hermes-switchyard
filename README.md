@@ -103,7 +103,7 @@ Future work includes a reviewed catalog admission, independent real-GUI coverage
 
 ## Safe credential setup
 
-The plugin can use either `TYPESAFE_API_KEY` or `OPENROUTER_API_KEY`. Both are optional alternatives, so plugin installation does not prompt for either one. After installation, save one key through Switchyard's masked setup command. With `jev_provider: auto`, direct TypeSafe is preferred when both are present.
+The plugin can use either `TYPESAFE_API_KEY` or `OPENROUTER_API_KEY`. Both are optional alternatives, so plugin installation does not prompt for either one. Hermes prints `after-install.md` at the end of install; `hermes switchyard guide` reprints those next steps. After installation, save one key through Switchyard's masked setup command. With `jev_provider: auto`, direct TypeSafe is preferred when both are present.
 
 ```text
 hermes plugins install bgrablin/hermes-switchyard --enable
