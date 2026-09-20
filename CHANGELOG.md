@@ -10,7 +10,7 @@
 - `hermes switchyard status --json` reports the registered automatic routing mode, consumer mode, standing acknowledgement, and whether hosted construction is allowed. A fresh process must register the plugin before those fields are populated.
 - Load mode skips automatic `skill_view` when the selected identifier conflicts with configured mandatory skills, records `mandatory_conflict`, and does not load.
 - `jev_model_route` remains the documented Hermes routing point. `route_model_from_registry` uses a code-owned approved candidate registry; stale `registry_generation` values abstain as `stale_registry` with no egress, and an empty registry abstains as `empty_registry`. A selected route does not change the Hermes runtime model.
-- Registers `jev_computer_use` in the `computer_use` toolset so Windows sessions launched with `--toolsets computer_use,terminal` can call it. Other Switchyard tools remain on `hermes_switchyard`.
+- Registers `jev_computer_use` in the `computer_use` toolset by default on Windows, macOS, and Linux. Catalog visibility no longer requires Jev credentials; each call still requires `public_or_sanitized_data_ack` and a live Jev route. Other Switchyard tools remain on `hermes_switchyard`.
 
 ## 0.4.2
 
