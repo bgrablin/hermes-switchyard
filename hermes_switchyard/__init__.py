@@ -7,6 +7,7 @@ import hashlib
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 from . import receipt_state, schemas
 from .automatic import _config_float, build_pre_llm_call_hook
@@ -16,6 +17,7 @@ from .client import (
     MAX_DECISION_REQUESTS,
     TYPESAFE_ENDPOINT,
     DecisionClient,
+    PartialAccountingError,
     request_budget_scope,
 )
 from .computer_use import StaleTargetError, run_computer_goal
@@ -146,6 +148,45 @@ def _secret(provider: str = "auto"):
     return ""
 
 
+def _partial_accounting(exc_partial: Any) -> dict[str, Any]:
+    """Summarize successful hosted calls recorded before a later failure."""
+    from .automatic import _partial_accounting_metadata
+
+    metadata = _partial_accounting_metadata(exc_partial)
+    if not metadata:
+        return {}
+    return metadata
+
+
+def _copy_redacted_jev_metadata_from_partial(exc_partial: Any) -> dict[str, Any]:
+    """Copy redacted partial-accounting metadata without provider text."""
+    summary = _partial_accounting(exc_partial)
+    if not summary:
+        return {}
+    # Only bounded local metadata survives: counts, numeric latencies, typed
+    # usage numbers, and identifiers that pass the receipt-safe identifier
+    # carrier never receives arbitrary provider strings.
+    allowed: dict[str, Any] = {}
+    for field in ("request_count", "total_latency_ms"):
+        value = summary.get(field)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+            allowed[field] = value
+    usage = summary.get("total_usage")
+    if isinstance(usage, dict):
+        bounded_usage = receipt_state.safe_usage(usage)
+        if bounded_usage:
+            allowed["total_usage"] = bounded_usage
+            cost_is_unknown = bounded_usage.get("cost", "absent") is None
+            allowed["cost_known"] = not cost_is_unknown
+    for field in ("model", "request_id"):
+        value = summary.get(field)
+        if isinstance(value, str):
+            bounded = receipt_state.safe_identifier(value, max_length=128)
+            if bounded is not None:
+                allowed[field] = bounded
+    return allowed
+
+
 def _error(exc):
     # Preserve observability with stable local codes, never arbitrary provider,
     # executor, UI, or credential text.
@@ -161,7 +202,16 @@ def _error(exc):
         code, reason = "execution_failed", "the bounded operation was not accepted"
     else:
         code, reason = "plugin_error", "the plugin operation failed"
-    return json.dumps({"status": "error", "error": {"code": code, "reason": reason}})
+    error = {"code": code, "reason": reason}
+    # Partial accounting evidence recorded before a later failure survives the
+    # public boundary through the same redacted metadata contract the success
+    # path uses; the known subtotal is marked incomplete.
+    if isinstance(exc, PartialAccountingError):
+        partial_metadata = _copy_redacted_jev_metadata_from_partial(exc.partial)
+        if partial_metadata:
+            error["partial_accounting"] = partial_metadata
+            error["total_usage_incomplete"] = True
+    return json.dumps({"status": "error", "error": error})
 
 
 def _require_public_data_ack(args):

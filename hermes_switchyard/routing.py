@@ -389,6 +389,10 @@ def _skill_partition_winners(
                 ) from exc
             raise
         except Exception as exc:
+            # The aggregate budget remains an operation-level signal, not a
+            # partition result, so budget exhaustion is re-raised verbatim.
+            if isinstance(exc, ValueError) and "budget exceeded" in str(exc):
+                raise
             if metadata:
                 raise PartialAccountingError(
                     "Jev skill partitioning failed after earlier successful partition(s)",
@@ -641,11 +645,29 @@ def select_skills(
             # batching equals the payload actually sent to Jev.
             questions = _multi_skill_batch_questions(batch, offset=offset, task=task)
             operation_remaining_deadline()
-            result = client.decide(
-                {"task": task, "skills": batch},
-                questions,
-                public_or_sanitized_data_ack=True,
-            )
+            try:
+                result = client.decide(
+                    {"task": task, "skills": batch},
+                    questions,
+                    public_or_sanitized_data_ack=True,
+                )
+            except PartialAccountingError as exc:
+                # Outer-batch boundary: earlier outer batches already produced
+                # accounting this loop owns; merge before surfacing so a later
+                # wire failure cannot discard earlier successful calls.
+                if metadata:
+                    raise PartialAccountingError(
+                        "Jev multi-skill scoring failed after earlier successful batch(es)",
+                        partial=metadata + list(exc.partial),
+                    ) from exc
+                raise
+            except Exception as exc:
+                if metadata:
+                    raise PartialAccountingError(
+                        "Jev multi-skill scoring failed after earlier successful batch(es)",
+                        partial=metadata,
+                    ) from exc
+                raise
             operation_remaining_deadline()
             metadata.append(_decision_metadata(result))
             answers = result.get("answers") if isinstance(result, dict) else None
@@ -922,11 +944,28 @@ def _route_model_impl(
             batch, task=task, requirements=parsed_requirements, offset=global_offset
         )
         operation_remaining_deadline()
-        result = client.decide(
-            eligible_state,
-            questions,
-            public_or_sanitized_data_ack=True,
-        )
+        try:
+            result = client.decide(
+                eligible_state,
+                questions,
+                public_or_sanitized_data_ack=True,
+            )
+        except PartialAccountingError as exc:
+            # Outer-batch boundary: keep accounting from earlier routing
+            # batches alongside the failing call's internal partial ledger.
+            if call_metadata:
+                raise PartialAccountingError(
+                    "Jev model routing failed after earlier successful batch(es)",
+                    partial=call_metadata + list(exc.partial),
+                ) from exc
+            raise
+        except Exception as exc:
+            if call_metadata:
+                raise PartialAccountingError(
+                    "Jev model routing failed after earlier successful batch(es)",
+                    partial=call_metadata,
+                ) from exc
+            raise
         operation_remaining_deadline()
         call_metadata.append(_route_metadata(result))
         answers = result["answers"]

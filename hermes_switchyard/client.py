@@ -166,7 +166,23 @@ def _reject_nonfinite_values(value: Any) -> None:
 def _strip_response_controls(result: dict[str, Any]) -> dict[str, Any]:
     """Keep only the typed response envelope; provider controls stay local."""
     _reject_nonfinite_values(result)
-    return {key: result[key] for key in _RESPONSE_FIELDS if key in result}
+    # OpenRouter's documented Decisions response carries its request identifier
+    # as `id`; older fixtures use `request_id`. Normalize to the canonical
+    # internal field before the allowlist drops unknown wire fields. Exactly one
+    # identifier may be present; contradictory dual identifiers are rejected
+    # rather than resolved silently.
+    wire_id = result.get("id")
+    canonical_id = result.get("request_id")
+    if wire_id is not None:
+        if type(wire_id) is not str or not 0 < len(wire_id) <= 128 or not wire_id.isprintable():
+            raise ValueError("Jev response identifier is not a bounded printable string")
+        if canonical_id is not None and canonical_id != wire_id:
+            raise ValueError("Jev response carries contradictory identifiers")
+        canonical_id = wire_id
+    stripped = {key: result[key] for key in _RESPONSE_FIELDS if key in result}
+    if canonical_id is not None:
+        stripped["request_id"] = canonical_id
+    return stripped
 
 
 def _require_public_data_ack(acknowledged: bool) -> None:
