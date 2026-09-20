@@ -713,6 +713,77 @@ def _caller_value_for_target(target: dict[str, Any], text_inputs: dict[str, tupl
     return values[0] if len(values) == 1 else None
 
 
+def _classify_computer_failure_phase(exc: BaseException) -> str:
+    """Map an escaped exception onto a stable failure-phase name."""
+    text = str(exc)
+    if isinstance(exc, StaleTargetError):
+        if "changed after text generation" in text:
+            return "text_input_resolution"
+        if "no longer available" in text or "identity is unavailable" in text:
+            return "pre_action_verification"
+        return "stale_target_verification"
+    if isinstance(exc, TimeoutError):
+        return "operation_deadline"
+    if isinstance(exc, TypeError):
+        return "decision_validation"
+    if isinstance(exc, ValueError):
+        if "text helper" in text:
+            return "text_input_resolution"
+        return "decision_validation"
+    # Fresh pre-action capture failure or another expected mid-operation
+    # failure. Distinguish capture from decision transport by message.
+    lowered = text.lower()
+    if "capture" in lowered:
+        return "pre_action_capture"
+    if "transport" in lowered or "connection" in lowered:
+        return "operation_decision"
+    return "operation_execution"
+
+
+def _finalize_computer_operation(
+    *,
+    exc: BaseException,
+    operation_id: str,
+    goal: str,
+    app: str,
+    actions: list[dict[str, Any]],
+    decisions: list[dict[str, Any]],
+    text_calls: list[dict[str, Any]],
+    started: float,
+    capture: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Finalize a computer operation after an expected mid-operation failure.
+
+    One operation-level boundary retains the local ledger: completed actions,
+    attempted actions with uncertain outcomes, recorded provider decisions,
+    and the last usable observation. The operation stops; the caller receives
+    evidence sufficient to decide whether to reconcile and retry. Partial
+    provider accounting inside the decisions ledger distinguishes a known
+    completed action from an action whose effect could not be established.
+    """
+    failure_phase = _classify_computer_failure_phase(exc)
+    # An action dispatched but whose semantic effect was never decoded is
+    # recorded as attempted with unknown effect, never as "nothing happened";
+    # the caller must reconcile before retrying it.
+    attempted = [
+        action for action in actions if action.get("effect_status") == "unknown"
+    ]
+    receipt = _operation_receipt(
+        operation_id=operation_id, goal=goal, app=app, actions=actions,
+        decisions=decisions, text_calls=text_calls, started=started,
+        status="partial_failure", capture=capture,
+        failure_phase=failure_phase,
+    )
+    receipt["attempted_action_count"] = len(actions)
+    receipt["uncertain_effect_action_count"] = len(attempted)
+    receipt["reconcile_before_retry"] = bool(actions)
+    receipt["evidence_note"] = (
+        "prior actions in this operation retained; the in-process ledger is "
+        "not recoverable after process termination"
+    )
+    return receipt
+
+
 def _run_computer_goal_impl(
     *,
     goal: str,
@@ -1259,18 +1330,29 @@ def _run_computer_goal_impl(
             decisions=decisions, text_calls=text_calls, started=started,
             status=status, capture=capture,
         )
-    except StaleTargetError:
+    except StaleTargetError as exc:
         # Stale target between decisions. If prior actions already changed
         # external state, return the best available partial evidence instead of
         # letting the exception escape and discard it. If no action has been
         # recorded yet, re-raise so the caller refuses the dispatch outright.
         if not actions:
             raise
-        return _operation_receipt(
-            operation_id=operation_id, goal=goal, app=app, actions=actions,
-            decisions=decisions, text_calls=text_calls, started=started,
-            status="partial_failure", capture=capture,
-            failure_phase="stale_target_verification",
+        return _finalize_computer_operation(
+            exc=exc, operation_id=operation_id, goal=goal, app=app,
+            actions=actions, decisions=decisions, text_calls=text_calls,
+            started=started, capture=capture,
+        )
+    except (RuntimeError, ValueError, TypeError) as exc:
+        # Operation-level finalization boundary: an expected failure that
+        # escapes the per-phase guards after execution began must not discard
+        # the ledger of earlier actions. Without recorded actions the failure
+        # is re-raised so the caller refuses the dispatch outright.
+        if not actions:
+            raise
+        return _finalize_computer_operation(
+            exc=exc, operation_id=operation_id, goal=goal, app=app,
+            actions=actions, decisions=decisions, text_calls=text_calls,
+            started=started, capture=capture,
         )
 
 

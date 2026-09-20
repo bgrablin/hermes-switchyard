@@ -248,9 +248,18 @@ def _receipt_state_file() -> Path | None:
     return home / "plugins" / PLUGIN_NAME / "receipt.json"
 
 
+def canonicalize_receipt(receipt: Any) -> dict[str, Any] | None:
+    """Return the exact record that validate, persist, and readback agree on."""
+    normalized = normalize_receipt(receipt)
+    if normalized is None or not validate_receipt(normalized):
+        return None
+    return normalized
+
+
 def store_latest_receipt(receipt: dict[str, Any]) -> bool:
     """Atomically retain the latest valid receipt for the diagnostic command."""
-    if not validate_receipt(receipt):
+    canonical = canonicalize_receipt(receipt)
+    if canonical is None:
         return False
     path = _receipt_state_file()
     if path is None:
@@ -261,7 +270,7 @@ def store_latest_receipt(receipt: dict[str, Any]) -> bool:
         fd, raw_path = tempfile.mkstemp(prefix=".receipt-", suffix=".tmp", dir=path.parent)
         temporary = Path(raw_path)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(receipt, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+            json.dump(canonical, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
@@ -287,7 +296,8 @@ def read_latest_receipt() -> dict[str, Any] | None:
         record = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, TypeError, ValueError):
         return None
-    return record if validate_receipt(record) else None
+    canonical = canonicalize_receipt(record)
+    return canonical
 
 
 def _finite(value: Any) -> bool:
@@ -337,21 +347,37 @@ def normalize_receipt(receipt: Any) -> dict[str, Any] | None:
 
 
 def validate_receipt(receipt: Any) -> bool:
-    """Validate the serialized, privacy-safe operator diagnostic contract."""
-    normalized = normalize_receipt(receipt)
-    if normalized is None:
+    """Validate one canonical receipt exactly as supplied, nothing more."""
+    if not isinstance(receipt, dict):
         return False
-    if not RECEIPT_FIELDS <= set(normalized):
+    allowed_fields = RECEIPT_FIELDS | CONSUMER_RECEIPT_FIELDS
+    if set(receipt) - allowed_fields:
+        # Undeclared fields are rejected (difference test, not superset).
         return False
-    consumer_present = bool(CONSUMER_RECEIPT_FIELDS & set(normalized))
-    if consumer_present and not CONSUMER_RECEIPT_FIELDS <= set(normalized):
+    if not RECEIPT_FIELDS <= set(receipt):
+        return False
+    consumer_present = bool(CONSUMER_RECEIPT_FIELDS & set(receipt))
+    if consumer_present and not CONSUMER_RECEIPT_FIELDS <= set(receipt):
         # Partial consumer records are rejected; they appear as a group.
         return False
-    if set(normalized) > RECEIPT_FIELDS | CONSUMER_RECEIPT_FIELDS:
-        return False
-    receipt = normalized
-    terminal = receipt["terminal_state"]
-    if terminal not in RECEIPT_TERMINAL_STATES:
+    # A successful-load receipt requires the complete evidence group; a failed
+    # or overridden load cannot claim a verified load or a loaded skill.
+    if consumer_present:
+        status = receipt["consumer_status"]
+        if status == "loaded":
+            if (
+                safe_identifier(receipt.get("loaded_skill") or "") is None
+                or receipt.get("loaded_source") not in {"local", "jev"}
+                or receipt.get("skill_load_verified") is not True
+                or receipt.get("advisory_only") is not False
+            ):
+                return False
+        else:
+            if receipt.get("loaded_skill") is not None or receipt.get("loaded_source") is not None:
+                return False
+            if status == "load_failed" and receipt.get("skill_load_verified") is not False:
+                return False
+    if receipt["terminal_state"] not in RECEIPT_TERMINAL_STATES:
         return False
     if receipt["source"] not in {"local", "jev", "none"}:
         return False
@@ -365,7 +391,7 @@ def validate_receipt(receipt: Any) -> bool:
         return False
     # advisory_only is False only for a terminal consumer receipt that recorded
     # a load outcome; an advisory-only receipt keeps advisory_only True.
-    if receipt["advisory_only"] is False and "consumer_status" not in receipt:
+    if receipt["advisory_only"] is False and not consumer_present:
         return False
     if receipt["hosted_succeeded"] and not receipt["hosted_attempted"]:
         return False
@@ -388,7 +414,13 @@ def validate_receipt(receipt: Any) -> bool:
             return False
     usage = receipt["total_usage"]
     if not isinstance(usage, dict) or any(
-        key not in USAGE_NUMERIC_KEYS or not _finite(value) for key, value in usage.items()
+        key not in USAGE_NUMERIC_KEYS
+        # The single unknown-cost representation is `cost: None` (matching
+        # safe_usage). Anything else must be a finite non-negative number;
+        # a numeric cost is validated like every other usage field.
+        or (key != "cost" and not _finite(value))
+        or (key == "cost" and value is not None and not _finite(value))
+        for key, value in usage.items()
     ):
         return False
     source_sha = receipt["source_sha"]
@@ -408,16 +440,16 @@ def validate_receipt(receipt: Any) -> bool:
         return False
     if identity["source_sha"] != source_sha:
         return False
-    if terminal == "local_selection" and (receipt["source"] != "local" or not selected):
+    if receipt["terminal_state"] == "local_selection" and (receipt["source"] != "local" or not selected):
         return False
-    if terminal == "hosted_selection" and (receipt["source"] != "jev" or not receipt["hosted_attempted"] or not selected):
+    if receipt["terminal_state"] == "hosted_selection" and (receipt["source"] != "jev" or not receipt["hosted_attempted"] or not selected):
         return False
-    if terminal == "hosted_failure_local_fallback" and (
+    if receipt["terminal_state"] == "hosted_failure_local_fallback" and (
         receipt["source"] != "local" or not receipt["hosted_attempted"] or not receipt["hosted_error"] or not selected
     ):
         return False
-    if terminal == "hosted_skipped" and (receipt["hosted_attempted"] or not skip_reason):
+    if receipt["terminal_state"] == "hosted_skipped" and (receipt["hosted_attempted"] or not skip_reason):
         return False
-    if terminal == "cache_hit" and receipt["hosted_attempted"]:
+    if receipt["terminal_state"] == "cache_hit" and receipt["hosted_attempted"]:
         return False
     return True
