@@ -36,9 +36,7 @@ from .client import (
 MAX_PAGE_ELEMENTS = 48
 MAX_PAGE_TEXT = 4000
 _URL_IN_TEXT = re.compile(r"https?://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+", re.I)
-_UNSAFE_URI = re.compile(
-    r"(?i)\b(?:file|javascript|data|about|vbscript|blob):(?://|/|[A-Za-z0-9+/=;,._-])"
-)
+_UNSAFE_URI = re.compile(r"(?i)\b(?:file|javascript|data|about|vbscript|blob):")
 _WIKI_FROM = re.compile(
     r"(?i)\b(?:start(?:ing)?(?: on| at)?|from|article(?: titled| is)?|open(?:ed)?(?: article)?(?: is)?)\s+"
     r"([A-Z][A-Za-z0-9'().-]{0,80})"
@@ -149,14 +147,14 @@ def infer_start_url(explicit: Any, goal: str) -> str | None:
 
 def requested_web_start(explicit: Any, goal: str) -> str | None:
     """Return a public https URL, None for a native GUI goal, or raise if a non-public URL was requested."""
+    text = goal if isinstance(goal, str) else ""
+    if _UNSAFE_URI.search(text):
+        raise ValueError("start_url must be a public https URL")
     if isinstance(explicit, str) and explicit.strip():
         candidate = explicit.strip()
         if _UNSAFE_URI.search(candidate) or not _public_http_url(candidate):
             raise ValueError("start_url must be a public https URL")
         return candidate
-    text = goal if isinstance(goal, str) else ""
-    if _UNSAFE_URI.search(text):
-        raise ValueError("start_url must be a public https URL")
     match = _URL_IN_TEXT.search(text)
     if match:
         candidate = match.group(0).rstrip(").,;")
