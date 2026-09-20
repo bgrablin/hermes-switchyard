@@ -101,6 +101,20 @@ RECEIPT_FIELDS = frozenset(
     }
 )
 PLUGIN_IDENTITY_FIELDS = frozenset({"plugin", "version", "source_sha"})
+# Fields a terminal automatic consumer adds to a receipt so the load outcome
+# survives a persistence/readback round trip. `consumer_status` names the
+# terminal load result; `loaded_skill`, `loaded_source`, and
+# `skill_load_verified` capture the successful-load readback.
+CONSUMER_RECEIPT_FIELDS = frozenset({
+    "consumer_status",
+    "loaded_skill",
+    "loaded_source",
+    "skill_load_verified",
+})
+# `advisory_only` means "no skill was loaded in this operation." A terminal
+# consumer receipt records the load outcome instead, so `advisory_only` may
+# be False only when the receipt carries a valid consumer record.
+_CONSUMER_STATUSES = frozenset({"loaded", "load_failed", "explicit_override"})
 
 
 def _plugin_root(repo_dir: Path | str | None = None) -> Path:
@@ -285,10 +299,57 @@ def _finite(value: Any) -> bool:
         return False
 
 
+def normalize_receipt(receipt: Any) -> dict[str, Any] | None:
+    """Return a receipt valid by construction, or None when malformed.
+
+    Advisory-only receipts keep ``advisory_only=True`` and carry no consumer
+    record. Terminal consumer receipts carry a valid consumer record;
+    ``advisory_only`` is derived as ``consumer_status != 'loaded'`` so a
+    load-mode record is valid by construction and an advisory record is never
+    misread as a successful load. ``verified`` stays False so a load is never
+    presented as task completion.
+    """
+    if not isinstance(receipt, dict):
+        return None
+    receipt = dict(receipt)
+    consumer_status = receipt.get("consumer_status")
+    if consumer_status is not None and (
+        type(consumer_status) is not str or consumer_status not in _CONSUMER_STATUSES
+    ):
+        return None
+    skill_load_verified = receipt.get("skill_load_verified")
+    if skill_load_verified is not None and type(skill_load_verified) is not bool:
+        return None
+    loaded_skill = receipt.get("loaded_skill")
+    if loaded_skill is not None and safe_identifier(loaded_skill) is None:
+        return None
+    loaded_source = receipt.get("loaded_source")
+    if loaded_source is not None and safe_identifier(loaded_source) is None:
+        return None
+    if consumer_status is not None:
+        receipt["consumer_status"] = consumer_status
+        receipt["loaded_skill"] = loaded_skill
+        receipt["loaded_source"] = loaded_source
+        receipt["skill_load_verified"] = skill_load_verified
+        receipt["advisory_only"] = bool(consumer_status != "loaded")
+    receipt["verified"] = False
+    return receipt
+
+
 def validate_receipt(receipt: Any) -> bool:
     """Validate the serialized, privacy-safe operator diagnostic contract."""
-    if not isinstance(receipt, dict) or set(receipt) != RECEIPT_FIELDS:
+    normalized = normalize_receipt(receipt)
+    if normalized is None:
         return False
+    if not RECEIPT_FIELDS <= set(normalized):
+        return False
+    consumer_present = bool(CONSUMER_RECEIPT_FIELDS & set(normalized))
+    if consumer_present and not CONSUMER_RECEIPT_FIELDS <= set(normalized):
+        # Partial consumer records are rejected; they appear as a group.
+        return False
+    if set(normalized) > RECEIPT_FIELDS | CONSUMER_RECEIPT_FIELDS:
+        return False
+    receipt = normalized
     terminal = receipt["terminal_state"]
     if terminal not in RECEIPT_TERMINAL_STATES:
         return False
@@ -300,7 +361,11 @@ def validate_receipt(receipt: Any) -> bool:
     for key in ("hosted_attempted", "hosted_succeeded", "verified", "advisory_only"):
         if type(receipt[key]) is not bool:
             return False
-    if receipt["verified"] is not False or receipt["advisory_only"] is not True:
+    if receipt["verified"] is not False:
+        return False
+    # advisory_only is False only for a terminal consumer receipt that recorded
+    # a load outcome; an advisory-only receipt keeps advisory_only True.
+    if receipt["advisory_only"] is False and "consumer_status" not in receipt:
         return False
     if receipt["hosted_succeeded"] and not receipt["hosted_attempted"]:
         return False

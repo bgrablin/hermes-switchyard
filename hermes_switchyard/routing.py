@@ -514,28 +514,52 @@ def select_skill(
         )
 
 
+def _multi_skill_batch_questions(
+    batch: list[dict], *, offset: int, task: str
+) -> dict[str, dict[str, Any]]:
+    """Build the exact multi-skill questions sent to Jev for one batch.
+
+    Every question carries its candidate's exact identifier and description, so
+    the caller can size a request using the same structure it will serialize.
+    """
+    return {
+        f"{_MULTI_SKILL_PREFIX}{offset + index}": {
+            "type": "noul",
+            "instructions": (
+                "Does this exact offered skill materially help with the task? "
+                f"Candidate identifier: {item['name']}. "
+                f"Candidate description: {item.get('description', '')}"
+            ),
+            "criteria": {"true": "The skill helps", "false": "The skill does not help"},
+        }
+        for index, item in enumerate(batch)
+    }
+
+
 def _multi_skill_batches(candidates: list[dict], *, task: str) -> list[list[dict]]:
     batches: list[list[dict]] = []
     current: list[dict] = []
+    offset = 0
     for candidate in candidates:
-        trial = current + [candidate]
-        questions = {
-            f"{_MULTI_SKILL_PREFIX}{index}": {
-                "type": "noul",
-                "instructions": "Does this offered skill materially help with the task?",
-                "criteria": {"true": "The skill helps", "false": "The skill does not help"},
-            }
-            for index, _item in enumerate(trial)
-        }
-        state = {"task": task, "skills": trial}
-        too_large = _request_size(state, questions) > MAX_REQUEST_BYTES
-        if not current and too_large:
-            raise ValueError("a single skill candidate exceeds the bounded serialized request budget")
-        if current and (len(trial) > MAX_QUESTIONS_PER_REQUEST or too_large):
-            batches.append(current)
-            current = [candidate]
-        else:
+        while True:
+            trial = current + [candidate]
+            questions = _multi_skill_batch_questions(
+                trial, offset=offset, task=task
+            )
+            too_large = _request_size(
+                {"task": task, "skills": trial}, questions
+            ) > MAX_REQUEST_BYTES
+            if not current and too_large:
+                raise ValueError(
+                    "a single skill candidate exceeds the bounded serialized request budget"
+                )
+            if current and (len(trial) > MAX_QUESTIONS_PER_REQUEST or too_large):
+                batches.append(current)
+                offset += len(current)
+                current = []
+                continue
             current = trial
+            break
     if current:
         batches.append(current)
     return batches
@@ -572,18 +596,9 @@ def select_skills(
         metadata: list[dict[str, Any]] = []
         offset = 0
         for batch in _multi_skill_batches(candidates, task=task):
-            questions = {
-                f"{_MULTI_SKILL_PREFIX}{offset + index}": {
-                    "type": "noul",
-                    "instructions": (
-                        "Does this exact offered skill materially help with the task? "
-                        f"Candidate identifier: {item['name']}. "
-                        f"Candidate description: {item.get('description', '')}"
-                    ),
-                    "criteria": {"true": "The skill helps", "false": "The skill does not help"},
-                }
-                for index, item in enumerate(batch)
-            }
+            # Reuse the exact shared construction so the size checked during
+            # batching equals the payload actually sent to Jev.
+            questions = _multi_skill_batch_questions(batch, offset=offset, task=task)
             operation_remaining_deadline()
             result = client.decide(
                 {"task": task, "skills": batch},
