@@ -1382,6 +1382,34 @@ class PluginEntryPointTests(unittest.TestCase):
         self.assertEqual(client.call_count, 0)
         self.assertEqual(context.dispatch_calls, [])
 
+    def test_jev_computer_use_registers_in_computer_use_toolset(self):
+        import hermes_switchyard
+
+        class Context:
+            def __init__(self):
+                self.toolsets = {}
+
+            def get_config(self, _key, default=None):
+                return default
+
+            def register_auxiliary_task(self, *_args, **_kwargs):
+                pass
+
+            def register_tool(self, *, name, toolset, **_kwargs):
+                self.toolsets[name] = toolset
+
+            def register_skill(self, *_args, **_kwargs):
+                pass
+
+            def register_hook(self, *_args, **_kwargs):
+                pass
+
+        context = Context()
+        hermes_switchyard.register(context)
+        self.assertEqual(context.toolsets["jev_computer_use"], "computer_use")
+        for name in ("jev_assess", "jev_skill_select", "jev_skill_select_many", "jev_model_route"):
+            self.assertEqual(context.toolsets[name], "hermes_switchyard")
+
     def test_windows_prompt_keeps_computer_use_pilot_configurable(self):
         import hermes_switchyard
 
