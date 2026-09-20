@@ -53,7 +53,7 @@ Use the secure setup steps in [docs/SETUP.md](docs/SETUP.md). Never pass an API 
 - **General assessment:** `jev_assess` exposes Choice, Score, and Noul through validated bounded requests. Large independent question sets are batched without dropping questions; the plugin never turns a probability into an unreviewed side effect.
 - **Skill selection:** `jev_skill_select` recommends one skill from the candidate list supplied by Hermes. Catalogs larger than Jev's per-Choice limit are searched with partition fan-out and recursive reduction; no tail is silently discarded. It never loads the skill.
 - **Multi-skill selection:** `jev_skill_select_many` independently scores the complete bounded catalog and returns a typed list of exact skill identifiers. It is a separate advisory contract and never loads or mutates skills.
-- **Model routing:** `jev_model_route` filters candidates using explicit metadata and requirements, then recommends the lowest-cost qualified candidate. It never changes the active Hermes model and does not try another provider when Jev fails.
+- **Model routing:** `jev_model_route` is the documented Hermes routing point. It filters candidates using explicit code-owned metadata and requirements, then recommends the lowest-cost qualified candidate. `route_model_from_registry` supplies a real approved candidate registry at that point. It never changes the active Hermes model and does not try another provider when Jev fails. Stale registry generations abstain as `stale_registry`; an empty registry abstains as `empty_registry`.
 - **Cua Driver computer use:** `jev_computer_use` delegates to Hermes' existing Cua Driver-backed `computer_use` tool on Windows, macOS, and Linux. Jev first chooses an operation, then only the relevant bounded target family; dense-partition finalists receive a global Choice. Fresh capture identity checks remain mandatory.
 
 ## Automatic skill recommendations
@@ -69,7 +69,7 @@ The local scan rejects restricted data before the hosted client is constructed. 
 
 Automatic hosted Jev receives only the accepted bounded task and exact candidate identifiers. Candidate descriptions, conversation history, and full skill bodies remain local. A valid Jev abstention is preserved; a transport failure may preserve a local winner. The hook exposes only redacted routing status/reason metadata.
 
-The default `automatic_skill_consumer_mode: advisory` adds model-visible context without loading anything. Set it to `load` to pass one accepted exact identifier to Hermes' normal `skill_view` loader once per turn. Explicit skill instructions, abstention, invalid results, and loader errors do not trigger an automatic load. Typed callback metadata and the local receipt report the selected identifier, source, consumer status, and whether the load occurred.
+The default `automatic_skill_consumer_mode: advisory` adds model-visible context without loading anything. Set it to `load` to pass one accepted exact identifier to Hermes' normal `skill_view` loader once per turn. Explicit skill instructions, abstention, invalid results, conflicts with configured mandatory skills, and loader errors do not trigger an automatic load. Typed callback metadata and the local receipt report the selected identifier, source, consumer status, and whether the load occurred.
 
 ## Privacy and data handling
 

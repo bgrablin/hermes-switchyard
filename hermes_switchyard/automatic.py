@@ -332,8 +332,8 @@ class AutomaticSkillRecommender:
         if hosted_mode not in {"uncertain_only", "always"}:
             raise ValueError("hosted_mode must be 'uncertain_only' or 'always'")
         self.hosted_mode = hosted_mode
-        # This legacy acknowledgement is deliberately never consulted when
-        # deciding whether the automatic path may construct a hosted client.
+        # Standing acknowledgement is still required before hosted construction.
+        # recommend() returns ack_required and skips the client when it is false.
         self.public_or_sanitized_data_ack = public_or_sanitized_data_ack is True
         self.client_factory = client_factory
         self.cache_identity = cache_identity
@@ -991,6 +991,41 @@ def _explicit_skill_override(task: Any, candidates: Any) -> str | None:
     return None
 
 
+def discover_mandatory_skills(configured: Any = None) -> tuple[str, ...]:
+    """Return exact mandatory skill identifiers without repairing names.
+
+    An explicit configured list, including an empty list, wins. ``None``
+    reads Hermes ``skills.always_load`` when that config is available and
+    fails closed to no mandatory skills otherwise.
+    """
+    names: list[str] = []
+    if isinstance(configured, (list, tuple)):
+        for item in configured:
+            if isinstance(item, str) and item:
+                names.append(item)
+        return tuple(names)
+    if configured is not None:
+        return ()
+    try:
+        from hermes_cli.config import load_config
+        cfg = load_config()
+    except Exception:
+        return ()
+    skills = cfg.get("skills") if isinstance(cfg, dict) else None
+    always_load = skills.get("always_load") if isinstance(skills, dict) else None
+    if not isinstance(always_load, list):
+        return ()
+    for item in always_load:
+        if isinstance(item, str) and item:
+            names.append(item)
+    return tuple(names)
+
+
+def _mandatory_skill_conflict(selected: str, mandatory_skills: Any) -> bool:
+    names = discover_mandatory_skills(mandatory_skills if isinstance(mandatory_skills, (list, tuple)) else ())
+    return bool(names) and selected not in names
+
+
 def build_pre_llm_call_hook(
     *,
     enabled: bool = True,
@@ -1006,6 +1041,7 @@ def build_pre_llm_call_hook(
     cache_seconds: float = DEFAULT_CACHE_SECONDS,
     consumer_mode: str = "advisory",
     skill_loader: Callable[..., str] | None = None,
+    mandatory_skills: Any = (),
 ) -> Callable[..., dict[str, Any] | None] | None:
     """Build a genuine Hermes ``pre_llm_call`` callback, or disable it."""
     if enabled is not True:
@@ -1094,6 +1130,8 @@ def build_pre_llm_call_hook(
             override = _explicit_skill_override(user_message, candidates)
             if override is not None:
                 status, loaded_context = "explicit_override", None
+            elif _mandatory_skill_conflict(selected, mandatory_skills):
+                status, loaded_context = "mandatory_conflict", None
             else:
                 try:
                     if active_skill_loader is None:

@@ -94,13 +94,16 @@ When present, the host must forward only a typed envelope and the plugin still e
 
 Every automatic recommendation ends by creating one typed receipt. The terminal state is one of `local_selection`, `hosted_selection`, `hosted_abstention`, `hosted_failure`, `hosted_failure_local_fallback`, `hosted_skipped`, or `cache_hit`. A cache-hit receipt reports no hosted attempt, request, latency, usage, or request ID for that attempt; the selected source remains the origin of the cached result.
 
-The supported operator diagnostic command is:
+The supported operator diagnostic commands are:
 
 ```text
+hermes switchyard status --json
 hermes switchyard receipt --json
 ```
 
-It prints the latest receipt retained by the plugin. The receipt contains stable source, selection, attempt, error/skip, model, request, latency, usage, candidate-count, and shortlist-policy fields. In load mode it also records `consumer_status`, `loaded_skill`, `loaded_source`, and `skill_load_verified`. `verified` remains `false`: the receipt does not prove recommendation correctness, a model change, or GUI completion. If no attempt has produced a receipt, the command prints a structured `no_receipt` diagnostic and exits non-zero.
+`status` is local and network-free. After the plugin registers in a fresh process, it reports the effective `routing_mode`, `consumer_mode`, standing acknowledgement, `automatic_skill_jev_mode`, and `hosted_construction_allowed`. Credential presence remains a separate readiness field. A process started before a config change can retain the previous hook and values.
+
+`receipt` prints the latest receipt retained by the plugin. The receipt contains stable source, selection, attempt, error/skip, model, request, latency, usage, candidate-count, and shortlist-policy fields. In load mode it also records `consumer_status`, `loaded_skill`, `loaded_source`, and `skill_load_verified`. `consumer_status` may be `loaded`, `load_failed`, `explicit_override`, or `mandatory_conflict`. `verified` remains `false`: the receipt does not prove recommendation correctness, a model change, or GUI completion. If no attempt has produced a receipt, the command prints a structured `no_receipt` diagnostic and exits non-zero.
 
 Receipts include the plugin version and an exact source SHA when a validated `SOURCE-MANIFEST.json` is present, such as in a release archive. Source checkouts without that release manifest use the explicit `unavailable` value rather than guessing from Git state. Task text, candidate descriptions, conversation history, credentials, local paths, and provider exception text are not serialized.
 
@@ -120,8 +123,20 @@ All settings are profile-scoped under `plugins.entries.hermes-switchyard.setting
 | `automatic_skill_jev` | `true` | Deprecated compatibility switch. When the new mode is unset, `false` maps to `local_only`; `true` is not authorization. |
 | `automatic_skill_jev_mode` | `always` | Evaluate the full catalog on every allowed turn. `uncertain_only` is an explicit latency-saving override. |
 | `automatic_skill_public_or_sanitized_data_ack` | `false` | Explicit standing acknowledgement for automatic hosted routing. It permits only the accepted bounded task and exact candidate identifiers after the local scan; it never bypasses that scan or other controls. |
+| `automatic_skill_mandatory_skills` | `[]` | Exact skill identifiers treated as mandatory. In `load` mode, a different recommendation is not auto-loaded and is recorded as `mandatory_conflict`. |
 
 Configuration is read when the plugin registers. Start a fresh Hermes process after changing these settings; an existing process may retain the previous hook and values.
+
+## Model routing
+
+`jev_model_route` is the documented Hermes routing point for model recommendations. Call it with an approved candidate registry whose `approved`, cost, data-class, tool, context, and `registry_generation` fields are code-owned. Descriptions never confer approval.
+
+`hermes_switchyard.model_registry.route_model_from_registry` is the explicit adapter for that registry. The shipped registry is empty. Coordinators pass a real approved list at the routing point. A selected route remains an auditable recommendation: the adapter does not change the Hermes runtime model, provider, credentials, or fallback policy. Distinct outcomes:
+
+- `empty_registry` when no candidates are configured
+- `stale_registry` when every candidate fails the required `registry_generation`
+- `no_eligible_candidates` for other policy exclusions, including unapproved or over-budget routes
+- provider unavailability is raised as a transport/client error with no automatic fallback
 
 ## Privacy and account boundary
 
