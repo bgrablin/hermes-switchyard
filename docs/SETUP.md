@@ -94,13 +94,7 @@ If an earlier setup pinned the TypeSafe-only alias while using `auto`, remove it
 hermes config unset plugins.entries.hermes-switchyard.settings.jev_model
 ```
 
-Some Windows text-entry actions use the host-owned Hermes text model. If Hermes has no configured model, choose one through the normal interactive command:
-
-```text
-hermes model
-```
-
-That model is separate from Jev. A Codex login can supply Hermes' host model when configured, but it does not supply a TypeSafe or OpenRouter account, key, credit, or Jev access.
+Text-entry and value-selection actions use only bounded caller-supplied values from `text_inputs`; the registered `jev_computer_use` tool never calls a conversational Hermes LLM to compose field text between Jev actions. If a text action needs a value, supply it in `text_inputs` before the operation. Jev and the configured host model are separate: Jev makes the decision, and the host model is used elsewhere. That model is separate from Jev. A Codex login can supply Hermes' host model when configured, but it does not supply a TypeSafe or OpenRouter account, key, credit, or Jev access.
 
 ## Privacy requirements
 
