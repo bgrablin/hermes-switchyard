@@ -109,6 +109,24 @@ class BrowserUseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             requested_web_start("about:blank", "click Start")
 
+    def test_rejects_unsafe_uri_variants(self):
+        cases = [
+            (None, "open file:///example.txt"),
+            (None, "run javascript:void(0)"),
+            (None, "open data:text/plain,example"),
+            (None, "open about:blank"),
+            (None, "open vbscript:MsgBox(1)"),
+            (None, "open blob:https://example.org/example"),
+            (None, "run javascript:(void(0))"),
+            (None, "run javascript:%76oid(0)"),
+            (None, "run javascript: void(0)"),
+            ("https://example.org/", "run javascript:void(0)"),
+        ]
+        for explicit, goal in cases:
+            with self.subTest(explicit=explicit, goal=goal):
+                with self.assertRaises(ValueError):
+                    requested_web_start(explicit, goal)
+
     def test_false_ack_does_not_observe(self):
         session = FakeSession(
             {
@@ -395,6 +413,61 @@ class BrowserUseTests(unittest.TestCase):
             )
         self.assertEqual(result["status"], "error")
         self.assertEqual(context.dispatch_calls, [])
+
+    def test_handler_refuses_unsafe_uri_variants_without_client_or_native(self):
+        class Context:
+            def __init__(self):
+                self.tools = {}
+                self.dispatch_calls = []
+
+            def get_config(self, _key, default=None):
+                return default
+
+            def register_auxiliary_task(self, *_args, **_kwargs):
+                pass
+
+            def register_tool(self, *, name, handler, **_kwargs):
+                self.tools[name] = handler
+
+            def register_skill(self, *_args, **_kwargs):
+                pass
+
+            def register_hook(self, *_args, **_kwargs):
+                pass
+
+            def dispatch_tool(self, *args, **kwargs):
+                self.dispatch_calls.append((args, kwargs))
+                raise AssertionError("computer_use must not run for a rejected URI")
+
+        payloads = [
+            {"goal": "open file:///example.txt", "app": "Chrome"},
+            {"goal": "run javascript:void(0)", "app": "Chrome"},
+            {"goal": "open data:text/plain,example", "app": "Chrome"},
+            {"goal": "open about:blank", "app": "Chrome"},
+            {"goal": "open vbscript:MsgBox(1)", "app": "Chrome"},
+            {"goal": "open blob:https://example.org/example", "app": "Chrome"},
+            {"goal": "run javascript:(void(0))", "app": "Chrome"},
+            {"goal": "run javascript:%76oid(0)", "app": "Chrome"},
+            {"goal": "run javascript: void(0)", "app": "Chrome"},
+            {
+                "goal": "run javascript:void(0)",
+                "app": "Chrome",
+                "start_url": "https://example.org/",
+            },
+        ]
+        for args in payloads:
+            with self.subTest(args=args):
+                context = Context()
+                with mock.patch.object(hermes_switchyard, "_secret", return_value="fixture-key"):
+                    hermes_switchyard.register(context)
+                    with mock.patch.object(
+                        hermes_switchyard,
+                        "DecisionClient",
+                        side_effect=AssertionError("client must not be constructed"),
+                    ):
+                        result = json.loads(context.tools["jev_computer_use"](args))
+                self.assertEqual(result["status"], "error")
+                self.assertEqual(context.dispatch_calls, [])
 
     def test_standing_false_refuses_explicit_true(self):
         self.assertFalse(
