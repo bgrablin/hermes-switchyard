@@ -46,7 +46,7 @@ entrypoint must reject before network access or desktop capture.
 ## Credential ownership
 
 The plugin reads keys through Hermes' profile secret scope (`agent.secret_scope.get_secret`)
-and never reads `os.environ` directly. It still receives the raw key and builds the
+and never reads process environment variables directly. It still receives the raw key and builds the
 bearer header itself, because the only host-owned model interface documented for plugins
 (`ctx.llm`) exposes chat and structured completions, not the native Decisions
 `state`/`questions` wire format. Host-managed native Decisions transport would require a
