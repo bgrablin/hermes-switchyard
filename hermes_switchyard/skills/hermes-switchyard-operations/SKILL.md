@@ -28,9 +28,11 @@ fallback. The coordinator owns those decisions.
 ## Data boundary
 
 `public_or_sanitized_data_ack` is on after install. Callers may omit it.
-Pass `false` to refuse one call. Hermes owns data classification; this is
-not DLP or authorization. Send no private, employer, regulated, credential,
-payment, or verification UI/data. Regex redaction is not authorization.
+Pass `false` to refuse one call. Automatic hosted routing uses the same
+on-by-default rule; set `automatic_skill_public_or_sanitized_data_ack` false
+to skip hosted automatic Jev. Hermes owns data classification; this is
+not DLP or authorization. Send no credential, payment, or verification UI/data.
+Regex redaction is not authorization.
 
 ## Fixed client contract
 

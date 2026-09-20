@@ -52,9 +52,9 @@ The automatic path has three explicit routing modes:
 | --- | --- | --- |
 | `off` | disabled | never |
 | `local_only` | enabled | never |
-| `hosted_sanitized` | enabled as a safe fallback | after standing acknowledgement and an allowed local scan; an envelope is optional |
+| `hosted_sanitized` | enabled as a safe fallback | on after install; set acknowledgement false to skip; an envelope is optional |
 
-`hosted_sanitized` is the product default. It does not mean that every turn is eligible. The persistent `automatic_skill_public_or_sanitized_data_ack` value is standing user consent for the plugin-owned classification path, not Hermes-owned DLP or unrestricted authorization.
+`hosted_sanitized` is the product default and is on after install. Ordinary turns can call Jev. Set `automatic_skill_public_or_sanitized_data_ack` false to skip hosted automatic routing. The value is not Hermes-owned DLP.
 
 The hosted request uses the selected fixed Jev endpoint with OpenRouter fallbacks disabled. A transport failure is reported as `hosted_failure` when there is no local winner, or `hosted_failure_local_fallback` when a local winner is preserved; a valid hosted abstention remains abstention and does not fall back locally. Hosted metadata is retained only in the typed routing receipt and callback state; it is not a user-facing completion claim.
 
@@ -119,10 +119,10 @@ All settings are profile-scoped under `plugins.entries.hermes-switchyard.setting
 | `automatic_skill_local_threshold` | `0.20` | Minimum local token-overlap score. Clamped to `[0, 1]`. |
 | `automatic_skill_local_margin` | `0.05` | Minimum gap between the top two local candidates. Clamped to `[0, 1]`. |
 | `automatic_skill_cache_seconds` | `30.0` | Per-process recommendation cache lifetime. Clamped to `[0, 300]`. |
-| `automatic_skill_routing_mode` | `hosted_sanitized` | `off`, `local_only`, or `hosted_sanitized`. Hosted mode requires standing acknowledgement plus the plugin's strict local per-turn scan; an allowed host envelope is optional strengthening. |
+| `automatic_skill_routing_mode` | `hosted_sanitized` | `off`, `local_only`, or `hosted_sanitized`. Hosted mode is on after install. Set `local_only` or `off` to restrict. An allowed host envelope is optional strengthening. |
 | `automatic_skill_jev` | `true` | Deprecated compatibility switch. When the new mode is unset, `false` maps to `local_only`; `true` is not authorization. |
 | `automatic_skill_jev_mode` | `always` | Evaluate the full catalog on every allowed turn. `uncertain_only` is an explicit latency-saving override. |
-| `automatic_skill_public_or_sanitized_data_ack` | `false` | Explicit standing acknowledgement for automatic hosted routing. It permits only the accepted bounded task and exact candidate identifiers after the local scan; it never bypasses that scan or other controls. |
+| `automatic_skill_public_or_sanitized_data_ack` | `true` | Standing consent for automatic hosted routing. On after install. Set `false` to skip hosted automatic Jev. |
 | `automatic_skill_mandatory_skills` | `[]` | Exact skill identifiers treated as mandatory. In `load` mode, a different recommendation is not auto-loaded and is recorded as `mandatory_conflict`. |
 
 Configuration is read when the plugin registers. Start a fresh Hermes process after changing these settings; an existing process may retain the previous hook and values.
@@ -176,7 +176,7 @@ A successful local smoke can be run without a TypeSafe or OpenRouter account:
 hermes chat -q "Diagnose an exiting Docker Compose container"
 ```
 
-If the current profile's `skills_list()` registry contains a matching skill, advisory mode adds a recommendation for `docker-management`. Load mode instead returns the body read through Hermes' normal loader and reports an exact typed load result. Hosted automatic routing requires `hosted_sanitized` and persistent acknowledgement; the plugin performs its strict local per-turn scan before constructing a client. A host envelope may narrow the payload, but is not required.
+If the current profile's `skills_list()` registry contains a matching skill, advisory mode adds a recommendation for `docker-management`. Load mode instead returns the body read through Hermes' normal loader and reports an exact typed load result. Hosted automatic routing is on after install. Set acknowledgement false or `local_only` to skip hosted Jev. A host envelope may narrow the payload, but is not required.
 
 The local hook can abstain when the registry is empty, no candidate overlap exists, or the top match is ambiguous. Abstention is normal behavior, not a failed skill load.
 

@@ -420,7 +420,7 @@ def register(ctx):
         routing_mode=configured_routing_mode,
         hosted_mode=ctx.get_config("automatic_skill_jev_mode", default="always"),
         public_or_sanitized_data_ack=setting_bool(
-            "automatic_skill_public_or_sanitized_data_ack", False
+            "automatic_skill_public_or_sanitized_data_ack", True
         ),
         client_factory=client,
         cache_identity=cache_identity,
@@ -454,7 +454,7 @@ def register(ctx):
         routing_mode=configured_routing_mode,
         consumer_mode=ctx.get_config("automatic_skill_consumer_mode", default="advisory"),
         public_or_sanitized_data_ack=setting_bool(
-            "automatic_skill_public_or_sanitized_data_ack", False
+            "automatic_skill_public_or_sanitized_data_ack", True
         ),
         automatic_skill_jev_mode=ctx.get_config("automatic_skill_jev_mode", default="always"),
     )

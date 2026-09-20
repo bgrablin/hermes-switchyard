@@ -58,14 +58,14 @@ Use the secure setup steps in [docs/SETUP.md](docs/SETUP.md). Never pass an API 
 
 ## Automatic skill recommendations
 
-When the plugin is enabled, the `pre_llm_call` lifecycle hook is on by default. It discovers the **full** active profile skill registry through Hermes' supported `skills_list` API and performs a fast local match. In `hosted_sanitized` mode, standing public-or-sanitized acknowledgement and a strict plugin-owned local per-turn scan are required; a compatible host may optionally provide an allowed envelope with a narrower sanitized payload. Set `automatic_skill_routing_mode` to `local_only` or `off` when hosted routing is not wanted. Set `automatic_skill_jev_mode` to `uncertain_only` only when latency matters more than Jev coverage.
+When the plugin is enabled, the `pre_llm_call` lifecycle hook is on by default. It discovers the **full** active profile skill registry through Hermes' supported `skills_list` API and performs a fast local match. `hosted_sanitized` is on after install, so ordinary turns can call Jev. Set `automatic_skill_public_or_sanitized_data_ack` to `false` or `automatic_skill_routing_mode` to `local_only` or `off` when hosted routing is not wanted. Set `automatic_skill_jev_mode` to `uncertain_only` only when latency matters more than Jev coverage.
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode hosted_sanitized
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_jev_mode always
 ```
 
-The local scan rejects restricted data before the hosted client is constructed. A host envelope, when supplied, must contain `version: 1`, `decision: "allow"`, `data_class: "public"` or `"sanitized"`, and bounded `allowed_payload`; explicit denied, unknown, restricted, or malformed envelopes fail closed. Without an envelope, the accepted bounded task is the hosted payload when standing acknowledgement is true and the local scan allows it. False acknowledgement always blocks hosted construction.
+The local scan rejects high-confidence secrets and payment or verification values before the hosted client is constructed. Topic words such as "private" or "verification" do not skip Jev. A host envelope, when supplied, must contain `version: 1`, `decision: "allow"`, `data_class: "public"` or `"sanitized"`, and bounded `allowed_payload`; explicit denied, unknown, restricted, or malformed envelopes fail closed. Without an envelope, the accepted bounded task is the hosted payload. Set standing acknowledgement false only to skip hosted construction.
 
 Automatic hosted Jev receives only the accepted bounded task and exact candidate identifiers. Candidate descriptions, conversation history, and full skill bodies remain local. A valid Jev abstention is preserved; a transport failure may preserve a local winner. The hook exposes only redacted routing status/reason metadata.
 
