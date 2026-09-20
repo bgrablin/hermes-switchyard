@@ -356,7 +356,9 @@ def register(ctx):
             return False
 
     def computer_route_available():
-        return sys.platform in {"win32", "darwin", "linux"} and route_available()
+        # Catalog visibility matches the native computer-use surface. Jev
+        # credentials are required at call time, not to advertise the tool.
+        return sys.platform in {"win32", "darwin", "linux"}
 
     def cache_identity():
         """Return live route scope with only a one-way credential generation."""
@@ -571,14 +573,15 @@ def register(ctx):
     if sys.platform in {"win32", "darwin", "linux"} and hasattr(ctx, "register_system_prompt_section"):
         ctx.register_system_prompt_section(
             "hermes-switchyard.computer-use",
-            "Jev computer use is a configurable capability for multi-step browser or native GUI goals on "
-            "Windows, macOS, and Linux. Use it only when the caller explicitly approves the run and attests "
-            "that all state is public or sanitized; that acknowledgement is not blanket egress authorization "
-            "and does not override mandatory skills, the user's native/computer-use preference, or other required "
-            "controls. The loop delegates to Hermes' Cua Driver-backed computer_use tool, keeps application-owned "
-            "candidate IDs, re-captures before actions, and returns completion_candidate/verified=false. An "
-            "independent coordinator-owned verifier remains required. Otherwise preserve the native computer-use "
-            "workflow, and use low-level computer_use for a single explicit atomic action or recovery.",
+            "Jev computer use is registered by default on Windows, macOS, and Linux whenever the "
+            "computer_use toolset is enabled. Prefer jev_computer_use for multi-step browser or native GUI "
+            "goals. Each call still requires public_or_sanitized_data_ack; that acknowledgement is not "
+            "blanket egress authorization and does not override mandatory skills, the user's native/"
+            "computer-use preference, or other required controls. The loop delegates to Hermes' Cua "
+            "Driver-backed computer_use tool, keeps application-owned candidate IDs, re-captures before "
+            "actions, and returns completion_candidate/verified=false. An independent coordinator-owned "
+            "verifier remains required. Use low-level computer_use for a single explicit atomic action or "
+            "recovery.",
             position="after_memory",
             max_chars=900,
         )

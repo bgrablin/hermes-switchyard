@@ -1410,6 +1410,41 @@ class PluginEntryPointTests(unittest.TestCase):
         for name in ("jev_assess", "jev_skill_select", "jev_skill_select_many", "jev_model_route"):
             self.assertEqual(context.toolsets[name], "hermes_switchyard")
 
+    def test_jev_computer_use_is_visible_without_credentials(self):
+        import hermes_switchyard
+
+        class Context:
+            def __init__(self):
+                self.checks = {}
+
+            def get_config(self, _key, default=None):
+                return default
+
+            def register_auxiliary_task(self, *_args, **_kwargs):
+                pass
+
+            def register_tool(self, *, name, check_fn, **_kwargs):
+                self.checks[name] = check_fn
+
+            def register_skill(self, *_args, **_kwargs):
+                pass
+
+            def register_hook(self, *_args, **_kwargs):
+                pass
+
+            def register_system_prompt_section(self, *_args, **_kwargs):
+                pass
+
+        context = Context()
+        with mock.patch.object(hermes_switchyard, "_secret", return_value=""):
+            with mock.patch.object(hermes_switchyard.sys, "platform", "win32"):
+                hermes_switchyard.register(context)
+                self.assertTrue(context.checks["jev_computer_use"]())
+                self.assertFalse(context.checks["jev_assess"]())
+            with mock.patch.object(hermes_switchyard.sys, "platform", "plan9"):
+                hermes_switchyard.register(context)
+                self.assertFalse(context.checks["jev_computer_use"]())
+
     def test_windows_prompt_keeps_computer_use_pilot_configurable(self):
         import hermes_switchyard
 
@@ -1437,14 +1472,14 @@ class PluginEntryPointTests(unittest.TestCase):
         with mock.patch.object(hermes_switchyard.sys, "platform", "win32"):
             hermes_switchyard.register(context)
         prompt, options = context.prompts["hermes-switchyard.computer-use"]
-        self.assertIn("configurable capability", prompt)
+        self.assertIn("registered by default", prompt)
+        self.assertIn("computer_use toolset is enabled", prompt)
         self.assertIn("Windows, macOS, and Linux", prompt)
-        self.assertIn("only when the caller explicitly approves the run", prompt)
-        self.assertIn("public or sanitized", prompt)
+        self.assertIn("public_or_sanitized_data_ack", prompt)
         self.assertIn("not blanket egress authorization", prompt)
         self.assertIn("does not override mandatory skills", prompt)
         self.assertIn("user's native/computer-use preference", prompt)
-        self.assertIn("Otherwise preserve the native computer-use workflow", prompt)
+        self.assertIn("Use low-level computer_use", prompt)
         self.assertEqual(options["position"], "after_memory")
 
 
