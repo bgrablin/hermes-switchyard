@@ -36,6 +36,9 @@ from .client import (
 MAX_PAGE_ELEMENTS = 48
 MAX_PAGE_TEXT = 4000
 _URL_IN_TEXT = re.compile(r"https?://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+", re.I)
+_UNSAFE_URI = re.compile(
+    r"(?i)\b(?:file|javascript|data|about|vbscript|blob):(?://|/|[A-Za-z0-9+/=;,._-])"
+)
 _WIKI_FROM = re.compile(
     r"(?i)\b(?:start(?:ing)?(?: on| at)?|from|article(?: titled| is)?|open(?:ed)?(?: article)?(?: is)?)\s+"
     r"([A-Z][A-Za-z0-9'().-]{0,80})"
@@ -148,10 +151,12 @@ def requested_web_start(explicit: Any, goal: str) -> str | None:
     """Return a public https URL, None for a native GUI goal, or raise if a non-public URL was requested."""
     if isinstance(explicit, str) and explicit.strip():
         candidate = explicit.strip()
-        if _public_http_url(candidate):
-            return candidate
-        raise ValueError("start_url must be a public https URL")
+        if _UNSAFE_URI.search(candidate) or not _public_http_url(candidate):
+            raise ValueError("start_url must be a public https URL")
+        return candidate
     text = goal if isinstance(goal, str) else ""
+    if _UNSAFE_URI.search(text):
+        raise ValueError("start_url must be a public https URL")
     match = _URL_IN_TEXT.search(text)
     if match:
         candidate = match.group(0).rstrip(").,;")
@@ -533,6 +538,22 @@ def _run_browser_loop(
                 reconcile_before_retry=True,
             )
         if not _public_http_url(str(after.get("url") or "")):
+            url_changed = str(after.get("url") or "") != str(page.get("url") or "")
+            actions.append(
+                {
+                    "step": step,
+                    "operation": operation,
+                    "label": label,
+                    "element": target_id,
+                    "url": str(after.get("url") or ""),
+                    "title": str(after.get("title") or "")[:240],
+                    "executor": "browser_dom",
+                    "verdict": None,
+                    "effect_confirmed": True if operation == "CLICK" else url_changed,
+                    "effect_status": "left_public_https",
+                    "escalation": None,
+                }
+            )
             return _browser_receipt(
                 operation_id=operation_id,
                 goal=goal,
@@ -725,7 +746,7 @@ class ChromiumSession:
 
     def __init__(self, start_url: str, *, headed: bool = False):
         if not _public_http_url(start_url):
-            raise ValueError("start_url must be a public http(s) URL")
+            raise ValueError("start_url must be a public https URL")
         binary = _browser_binary()
         if binary is None:
             raise RuntimeError("no Chromium-family browser is installed")
