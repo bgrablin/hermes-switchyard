@@ -345,7 +345,7 @@ class DecisionClient:
         if self._url.query:
             path += f"?{self._url.query}"
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": "Bearer " + self.api_key,
             "Content-Type": "application/json",
             "Connection": "keep-alive",
         }

@@ -16,6 +16,7 @@ from .client import (
     MAX_DECISION_REQUESTS,
     MAX_QUESTIONS_PER_REQUEST,
     MAX_REQUEST_BYTES,
+    PartialAccountingError,
     operation_remaining_deadline,
     request_budget_scope,
 )
@@ -143,6 +144,7 @@ def _decision_metadata(result: Any) -> dict[str, Any]:
         raise TypeError("Jev response usage must be an object")
     return {
         "model": result.get("model"),
+        "request_id": result.get("request_id"),
         "latency_ms": result.get("latency_ms"),
         "usage": usage,
         "request_count": int(result.get("request_count") or 1),
@@ -371,13 +373,28 @@ def _skill_partition_winners(
         )
         name = f"skill_chunk_{partition}"
         criteria = questions[name]["criteria"]
-        operation_remaining_deadline()
-        result = client.decide(
-            state,
-            questions,
-            public_or_sanitized_data_ack=True,
-        )
-        operation_remaining_deadline()
+        try:
+            operation_remaining_deadline()
+            result = client.decide(
+                state,
+                questions,
+                public_or_sanitized_data_ack=True,
+            )
+            operation_remaining_deadline()
+        except PartialAccountingError as exc:
+            if metadata:
+                raise PartialAccountingError(
+                    "Jev skill partitioning failed after earlier successful partition(s)",
+                    partial=metadata + exc.partial,
+                ) from exc
+            raise
+        except Exception as exc:
+            if metadata:
+                raise PartialAccountingError(
+                    "Jev skill partitioning failed after earlier successful partition(s)",
+                    partial=metadata,
+                ) from exc
+            raise
         answers = result.get("answers") if isinstance(result, dict) else None
         if not isinstance(answers, dict):
             raise TypeError("Jev large-skill response has no answers object")
@@ -442,12 +459,20 @@ def _select_skill_impl(
     reduction_metadata: list[dict[str, Any]] = []
     first_needs_score: float | None = None
     while len(pool) > _CHOICE_MAX_OPTIONS or not _skill_direct_request_fits(task, pool):
-        pool, metadata, needs_score = _skill_partition_winners(
-            task=task,
-            candidates=pool,
-            client=client,
-            include_needs_skill=rounds == 0,
-        )
+        try:
+            pool, metadata, needs_score = _skill_partition_winners(
+                task=task,
+                candidates=pool,
+                client=client,
+                include_needs_skill=rounds == 0,
+            )
+        except PartialAccountingError as exc:
+            if reduction_metadata:
+                raise PartialAccountingError(
+                    "Jev skill reduction failed after earlier successful round(s)",
+                    partial=reduction_metadata + exc.partial,
+                ) from exc
+            raise
         rounds += 1
         reduction_metadata.extend(metadata)
         if first_needs_score is None:
@@ -471,13 +496,28 @@ def _select_skill_impl(
                 "reduction_metadata": reduction_metadata,
                 **_aggregate_metadata(reduction_metadata),
             }
-    result = _select_skill_small(
-        task=task, candidates=pool, client=client,
-        choice_confidence_threshold=choice_confidence_threshold,
-        needs_skill_threshold=needs_skill_threshold,
-        winning_probability_threshold=winning_probability_threshold,
-        public_or_sanitized_data_ack=True,
-    )
+    try:
+        result = _select_skill_small(
+            task=task, candidates=pool, client=client,
+            choice_confidence_threshold=choice_confidence_threshold,
+            needs_skill_threshold=needs_skill_threshold,
+            winning_probability_threshold=winning_probability_threshold,
+            public_or_sanitized_data_ack=True,
+        )
+    except PartialAccountingError as exc:
+        if reduction_metadata:
+            raise PartialAccountingError(
+                "Jev final skill selection failed after earlier successful round(s)",
+                partial=reduction_metadata + exc.partial,
+            ) from exc
+        raise
+    except Exception as exc:
+        if reduction_metadata:
+            raise PartialAccountingError(
+                "Jev final skill selection failed after earlier successful round(s)",
+                partial=reduction_metadata,
+            ) from exc
+        raise
     result["candidate_count"] = len(candidates)
     result["offered_count"] = len(candidates)
     result["excluded_count"] = 0
@@ -486,6 +526,7 @@ def _select_skill_impl(
     result["reduction_metadata"] = reduction_metadata
     final_metadata = {
         "model": result.get("model"),
+        "request_id": result.get("request_id"),
         "latency_ms": result.get("latency_ms"),
         "usage": result.get("usage") or {},
         "request_count": int(result.get("request_count") or 1),

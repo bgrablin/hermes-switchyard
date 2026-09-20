@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import re
 import threading
 import time
@@ -23,6 +24,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from . import receipt_state
+from .client import PartialAccountingError
 from .egress import (
     ROUTING_MODES,
     TurnEgressEvaluation,
@@ -641,6 +643,11 @@ class AutomaticSkillRecommender:
                     client=self._pooled_client(),
                     public_or_sanitized_data_ack=True,
                 )
+            except PartialAccountingError as exc:
+                logger.debug("automatic Jev skill recommendation unavailable: %s", type(exc).__name__)
+                result["hosted_error"] = _hosted_error_code(exc)
+                _copy_redacted_jev_metadata(result, _partial_accounting_metadata(exc.partial))
+                hosted = None
             except Exception as exc:  # noqa: BLE001 -- automatic hook must fail open
                 logger.debug("automatic Jev skill recommendation unavailable: %s", type(exc).__name__)
                 result["hosted_error"] = _hosted_error_code(exc)
@@ -710,6 +717,46 @@ def _copy_redacted_jev_metadata(result: dict[str, Any], hosted: Mapping[str, Any
             bounded_usage = receipt_state.safe_usage(usage)
             if bounded_usage:
                 result[f"jev_{field}"] = bounded_usage
+
+
+def _partial_accounting_metadata(partial: Any) -> dict[str, Any]:
+    """Summarize successful hosted calls recorded before a later failure."""
+    if not isinstance(partial, list) or not partial:
+        return {}
+    total_latency_ms = 0.0
+    total_usage: dict[str, float] = {}
+    request_count = 0
+    last: Mapping[str, Any] | None = None
+    for item in partial:
+        if not isinstance(item, Mapping):
+            continue
+        last = item
+        request_count += 1
+        latency = item.get("latency_ms")
+        if isinstance(latency, (int, float)) and not isinstance(latency, bool) and math.isfinite(latency) and latency >= 0:
+            total_latency_ms += float(latency)
+        usage = item.get("usage")
+        if isinstance(usage, Mapping):
+            for key, value in usage.items():
+                if (
+                    isinstance(key, str)
+                    and isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    and math.isfinite(value)
+                ):
+                    total_usage[key] = total_usage.get(key, 0.0) + float(value)
+    if request_count == 0 or last is None:
+        return {}
+    metadata: dict[str, Any] = {
+        "request_count": request_count,
+        "total_latency_ms": total_latency_ms,
+        "total_usage": total_usage,
+    }
+    for field in ("latency_ms", "model", "request_id", "usage"):
+        value = last.get(field)
+        if value is not None:
+            metadata[field] = value
+    return metadata
 
 
 def redacted_routing_metadata(result: Mapping[str, Any]) -> dict[str, Any]:
