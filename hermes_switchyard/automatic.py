@@ -750,8 +750,9 @@ def _partial_accounting_metadata(partial: Any) -> dict[str, Any]:
     metadata: dict[str, Any] = {
         "request_count": request_count,
         "total_latency_ms": total_latency_ms,
-        "total_usage": total_usage,
     }
+    if total_usage:
+        metadata["total_usage"] = total_usage
     for field in ("latency_ms", "model", "request_id", "usage"):
         value = last.get(field)
         if value is not None:
