@@ -38,6 +38,7 @@ RELEASE_FILES = (
     "SECURITY.md",
     "THIRD_PARTY.md",
     "__init__.py",
+    "after-install.md",
     "docs/RELEASE.md",
     "docs/SETUP.md",
     "docs/AUTOMATIC-SETUP.md",

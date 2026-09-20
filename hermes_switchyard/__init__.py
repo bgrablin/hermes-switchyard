@@ -65,6 +65,21 @@ def _publish_runtime_status(
     )
 
 
+def _after_install_text() -> str:
+    """Return the install-time next-step text without network access."""
+    path = Path(__file__).resolve().parent.parent / "after-install.md"
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        text = ""
+    if text:
+        return text
+    return (
+        "Run hermes switchyard setup --provider typesafe "
+        "(or --provider openrouter), then start a fresh session."
+    )
+
+
 def _cli_handler(args):
     command = getattr(args, "switchyard_command", None) or getattr(args, "jev_command", None)
     if command == "status":
@@ -86,14 +101,18 @@ def _cli_handler(args):
             "automatic_skill_jev_mode": _RUNTIME_STATUS["automatic_skill_jev_mode"],
             "hosted_construction_allowed": _RUNTIME_STATUS["hosted_construction_allowed"],
         }
-        print(
-            json.dumps(payload, sort_keys=True)
-            if getattr(args, "json_output", False)
-            else f"Hermes Switchyard: {payload['status']} (local status only)"
-        )
+        if getattr(args, "json_output", False):
+            print(json.dumps(payload, sort_keys=True))
+        elif payload["status"] == "credential_required":
+            print(
+                "Hermes Switchyard: credential_required (local status only). "
+                "Run: hermes switchyard setup --provider typesafe"
+            )
+        else:
+            print(f"Hermes Switchyard: {payload['status']} (local status only)")
         return 0
     if command == "guide":
-        print("Hermes Switchyard uses Jev for bounded decisions. Use setup to save a provider key; use test --live only when a billed request is intended.")
+        print(_after_install_text())
         return 0
     if command == "test":
         if getattr(args, "live", False) is not True or getattr(args, "public_or_sanitized_data_ack", False) is not True:
@@ -343,16 +362,11 @@ def register(ctx):
         finally:
             active_client.close()
 
-    def route_available():
+    def decision_tools_available():
         try:
-            endpoint, model, provider = _route()
-            key = _secret(provider)
-            if not key:
-                return False
-            probe = DecisionClient(api_key=key, endpoint=endpoint, model=model)
-            probe.close()
+            _route()
             return True
-        except Exception:  # noqa: BLE001 -- unavailable routes stay hidden
+        except Exception:  # noqa: BLE001 -- invalid route config stays hidden
             return False
 
     def computer_route_available():
@@ -530,7 +544,7 @@ def register(ctx):
         toolset="hermes_switchyard",
         schema=schemas.ASSESS,
         handler=assess_handler,
-        check_fn=route_available,
+        check_fn=decision_tools_available,
         emoji="⚡",
     )
     ctx.register_tool(
@@ -546,7 +560,7 @@ def register(ctx):
         toolset="hermes_switchyard",
         schema=schemas.SKILL_SELECT,
         handler=skill_handler,
-        check_fn=route_available,
+        check_fn=decision_tools_available,
         emoji="⚡",
     )
     ctx.register_tool(
@@ -554,7 +568,7 @@ def register(ctx):
         toolset="hermes_switchyard",
         schema=schemas.MULTI_SKILL_SELECT,
         handler=multi_skill_handler,
-        check_fn=route_available,
+        check_fn=decision_tools_available,
         emoji="⚡",
     )
     ctx.register_tool(
@@ -562,7 +576,7 @@ def register(ctx):
         toolset="hermes_switchyard",
         schema=schemas.MODEL_ROUTE,
         handler=route_handler,
-        check_fn=route_available,
+        check_fn=decision_tools_available,
         emoji="⚡",
     )
     if hasattr(ctx, "register_skill"):

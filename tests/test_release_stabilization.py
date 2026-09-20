@@ -353,6 +353,25 @@ class NamespaceAndAckTests(unittest.TestCase):
         with mock.patch("sys.stdout", new_callable=io.StringIO):
             self.assertNotEqual(hermes_switchyard._cli_handler(live), 0)
 
+    def test_install_guide_names_required_operator_steps(self):
+        import hermes_switchyard
+
+        text = hermes_switchyard._after_install_text()
+        self.assertIn("hermes switchyard setup --provider typesafe", text)
+        self.assertIn("hermes switchyard setup --provider openrouter", text)
+        self.assertIn("hermes gateway restart", text)
+        self.assertIn("public_or_sanitized_data_ack", text)
+        self.assertIn("hermes switchyard guide", text)
+        guide = SimpleNamespace(switchyard_command="guide")
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            self.assertEqual(hermes_switchyard._cli_handler(guide), 0)
+        self.assertEqual(stdout.getvalue().strip(), text)
+        status = SimpleNamespace(switchyard_command="status", json_output=False)
+        with mock.patch.object(hermes_switchyard, "_secret", return_value=""), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            self.assertEqual(hermes_switchyard._cli_handler(status), 0)
+        self.assertIn("hermes switchyard setup --provider typesafe", stdout.getvalue())
+
     def test_status_exposes_registered_routing_mode_after_fresh_register(self):
         import hermes_switchyard
 

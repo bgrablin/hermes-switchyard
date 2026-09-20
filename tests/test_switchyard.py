@@ -1324,10 +1324,10 @@ class PluginEntryPointTests(unittest.TestCase):
         context = Context()
         with mock.patch.object(hermes_switchyard, "_secret", side_effect=lambda provider="auto": "typesafe" if provider == "typesafe" else ""):
             hermes_switchyard.register(context)
-            self.assertFalse(context.checks["jev_assess"]())
+            self.assertTrue(context.checks["jev_assess"]())
         with mock.patch.object(hermes_switchyard, "_secret", side_effect=lambda provider="auto": "openrouter" if provider == "openrouter" else ""):
             self.assertTrue(context.checks["jev_assess"]())
-            incompatible = Context({"jev_provider": "openrouter", "jev_model": "jev-latest"})
+            incompatible = Context({"jev_provider": "not-a-provider"})
             hermes_switchyard.register(incompatible)
             self.assertFalse(incompatible.checks["jev_assess"]())
 
@@ -1440,7 +1440,7 @@ class PluginEntryPointTests(unittest.TestCase):
             with mock.patch.object(hermes_switchyard.sys, "platform", "win32"):
                 hermes_switchyard.register(context)
                 self.assertTrue(context.checks["jev_computer_use"]())
-                self.assertFalse(context.checks["jev_assess"]())
+                self.assertTrue(context.checks["jev_assess"]())
             with mock.patch.object(hermes_switchyard.sys, "platform", "plan9"):
                 hermes_switchyard.register(context)
                 self.assertFalse(context.checks["jev_computer_use"]())
