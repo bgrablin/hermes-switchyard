@@ -211,7 +211,14 @@ class AutomaticRecommendationTests(unittest.TestCase):
         self.assertEqual(loaded, [])
         recommendation = result["metadata"]["skill_recommendation"]
         self.assertEqual(recommendation["status"], "explicit_override")
+        self.assertIsNone(recommendation["selected"])
+        self.assertEqual(recommendation["explicit_skill"], "network-printer-operations")
         self.assertFalse(recommendation["loaded_once"])
+        self.assertEqual(recommendation["delivery_status"], "skipped")
+        self.assertEqual(recommendation["adoption_status"], "suppressed")
+        self.assertEqual(recommendation["outcome_status"], "unverified")
+        self.assertEqual(hook.last_receipt["hosted_skip_reason"], "explicit_override")
+        self.assertEqual(hook.last_receipt["request_count"], 0)
 
     def test_register_wires_typed_consumer_to_normal_skill_loader(self):
         import hermes_switchyard
@@ -293,11 +300,12 @@ class AutomaticRecommendationTests(unittest.TestCase):
             self.assertFalse(hook.last_result["hosted_attempted"])
 
             # Attestation alone is not enough: the host must also supply an
-            # explicit per-turn allow envelope. A clean local scan is unknown,
-            # not sanitized.
+            # explicit per-turn allow envelope, and the consumer must be able
+            # to adopt (load). A clean local scan is unknown, not sanitized.
             attested_context = build_context({
                 "automatic_skill_routing_mode": "hosted_sanitized",
                 "automatic_skill_public_or_sanitized_data_ack": True,
+                "automatic_skill_consumer_mode": "load",
             })
             switchyard.register(attested_context)
             hook = attested_context.hooks["pre_llm_call"]
@@ -406,6 +414,8 @@ class AutomaticRecommendationTests(unittest.TestCase):
             hosted_mode="always",
             public_or_sanitized_data_ack=True,
             client_factory=lambda: DecisionClient(api_key="fixture-key", transport=transport),
+            consumer_mode="load",
+            skill_loader=lambda name, task_id=None: f"LOADED:{name}",
         )
         assert hook is not None
         registry_payload = {
@@ -457,6 +467,8 @@ class AutomaticRecommendationTests(unittest.TestCase):
             hosted_mode="always",
             public_or_sanitized_data_ack=True,
             client_factory=client_factory,
+            consumer_mode="load",
+            skill_loader=lambda name, task_id=None: f"LOADED:{name}",
         )
         result = hook(
             user_message="public Docker maintenance request",
@@ -719,6 +731,8 @@ class AutomaticRecommendationTests(unittest.TestCase):
             hosted_enabled=True,
             public_or_sanitized_data_ack=True,
             client_factory=forbidden_client,
+            consumer_mode="load",
+            skill_loader=lambda name, task_id=None: name,
         )
         assert hook is not None
         hook(
@@ -945,6 +959,8 @@ class AutomaticRecommendationTests(unittest.TestCase):
             routing_mode="hosted_sanitized",
             public_or_sanitized_data_ack=True,
             client_factory=lambda: DecisionClient(api_key="fixture-key", transport=transport),
+            consumer_mode="load",
+            skill_loader=lambda name, task_id=None: f"LOADED:{name}",
         )
         assert hook is not None
         result = hook(
@@ -1079,6 +1095,133 @@ class ProcessRestartAndMandatorySkillTests(unittest.TestCase):
         self.assertEqual(loader_calls["n"], 1)
         self.assertEqual(hook.last_receipt["consumer_status"], "loaded")
         self.assertTrue(result["metadata"]["skill_recommendation"]["loaded_once"])
+
+
+class AutomaticAdoptionContractTests(unittest.TestCase):
+    """Issue #19: delivery/adoption/outcome and pre-routing explicit override."""
+
+    def test_explicit_override_is_pre_routing_skip_with_zero_provider_requests(self):
+        constructed = []
+        payloads = []
+
+        def transport(payload):
+            payloads.append(payload)
+            raise AssertionError("explicit override must not call the provider")
+
+        def client_factory():
+            constructed.append(True)
+            return DecisionClient(api_key="fixture-key", transport=transport)
+
+        hook = build_pre_llm_call_hook(
+            configured_candidates=[
+                {"name": "docker-management", "description": "Manage Docker containers and Compose services."},
+                {"name": "network-printer-operations", "description": "Operate network printers and scanners."},
+            ],
+            routing_mode="hosted_sanitized",
+            public_or_sanitized_data_ack=True,
+            client_factory=client_factory,
+            consumer_mode="load",
+            skill_loader=lambda name, task_id=None: name,
+        )
+        assert hook is not None
+        result = hook(
+            user_message="Use network-printer-operations. Diagnose a Docker Compose container.",
+            session_id="session-explicit",
+            turn_id="turn-1",
+            turn_egress_policy={
+                "version": 1,
+                "decision": "allow",
+                "data_class": "sanitized",
+                "allowed_payload": "SANITIZED_DOCKER_TASK",
+            },
+        )
+        recommendation = result["metadata"]["skill_recommendation"]
+        self.assertEqual(constructed, [])
+        self.assertEqual(payloads, [])
+        self.assertEqual(recommendation["status"], "explicit_override")
+        self.assertEqual(hook.last_result["hosted_skipped"], "explicit_override")
+        self.assertFalse(hook.last_result["hosted_attempted"])
+        self.assertEqual(hook.last_receipt["hosted_skip_reason"], "explicit_override")
+        self.assertEqual(hook.last_receipt["request_count"], 0)
+        self.assertEqual(recommendation["delivery_status"], "skipped")
+        self.assertEqual(recommendation["adoption_status"], "suppressed")
+        self.assertEqual(recommendation["outcome_status"], "unverified")
+
+    def test_advisory_consumer_abstains_from_hosted_work(self):
+        constructed = []
+
+        def client_factory():
+            constructed.append(True)
+            raise AssertionError("advisory consumer must not construct hosted client")
+
+        hook = build_pre_llm_call_hook(
+            configured_candidates=[
+                {"name": "docker-management", "description": "Manage Docker containers and Compose services."},
+            ],
+            routing_mode="hosted_sanitized",
+            public_or_sanitized_data_ack=True,
+            client_factory=client_factory,
+            consumer_mode="advisory",
+        )
+        assert hook is not None
+        result = hook(
+            user_message="Diagnose a Docker Compose container that exits during startup",
+            turn_egress_policy={
+                "version": 1,
+                "decision": "allow",
+                "data_class": "sanitized",
+                "allowed_payload": "SANITIZED_DOCKER_TASK",
+            },
+        )
+        self.assertEqual(constructed, [])
+        self.assertEqual(hook.last_result["hosted_skipped"], "consumer_contract_unmet")
+        self.assertFalse(hook.last_result["hosted_attempted"])
+        recommendation = result["metadata"]["skill_recommendation"]
+        self.assertEqual(recommendation["status"], "advisory")
+        self.assertEqual(recommendation["delivery_status"], "delivered")
+        self.assertEqual(recommendation["adoption_status"], "not_adopted")
+        self.assertEqual(recommendation["outcome_status"], "unverified")
+        self.assertEqual(hook.last_receipt["delivery_status"], "delivered")
+        self.assertEqual(hook.last_receipt["adoption_status"], "not_adopted")
+        self.assertEqual(hook.last_receipt["outcome_status"], "unverified")
+
+    def test_paired_load_arm_improves_adoption_over_off_arm(self):
+        candidates = [
+            {"name": "docker-management", "description": "Manage Docker containers and Compose services."},
+        ]
+        off = build_pre_llm_call_hook(
+            enabled=False,
+            configured_candidates=candidates,
+            routing_mode="local_only",
+        )
+        self.assertIsNone(off)
+
+        loaded = []
+        on = build_pre_llm_call_hook(
+            configured_candidates=candidates,
+            routing_mode="local_only",
+            consumer_mode="load",
+            skill_loader=lambda name, task_id=None: loaded.append(name) or f"BODY:{name}",
+        )
+        assert on is not None
+        on_result = on(
+            user_message="Diagnose a Docker Compose container that exits during startup",
+            session_id="pair-on",
+            turn_id="t1",
+        )
+        off_adoption = 0
+        on_rec = on_result["metadata"]["skill_recommendation"]
+        on_adoption = 1 if on_rec["adoption_status"] == "adopted" else 0
+        self.assertEqual(loaded, ["docker-management"])
+        self.assertEqual(on_rec["delivery_status"], "delivered")
+        self.assertEqual(on_rec["adoption_status"], "adopted")
+        self.assertEqual(on_rec["outcome_status"], "unverified")
+        self.assertGreater(on_adoption, off_adoption)
+        # Delivery alone is never a verified outcome improvement.
+        self.assertEqual(on.last_receipt["outcome_status"], "unverified")
+        self.assertFalse(on.last_receipt["verified"])
+
+
 
 
 if __name__ == "__main__":

@@ -64,6 +64,8 @@ HOSTED_SKIP_REASONS = frozenset(
         "no_candidates",
         "routing_mode_off",
         "routing_mode_local_only",
+        "explicit_override",
+        "consumer_contract_unmet",
         "diagnostic_value_unavailable",
     }
 )
@@ -116,6 +118,16 @@ CONSUMER_RECEIPT_FIELDS = frozenset({
     "loaded_source",
     "skill_load_verified",
 })
+# Delivery / adoption / outcome stay separate. The plugin records outcome as
+# unverified so delivery alone is never reported as improvement.
+CONSUMPTION_CONTRACT_FIELDS = frozenset({
+    "delivery_status",
+    "adoption_status",
+    "outcome_status",
+})
+DELIVERY_STATUSES = frozenset({"delivered", "not_delivered", "skipped"})
+ADOPTION_STATUSES = frozenset({"adopted", "not_adopted", "suppressed", "not_applicable"})
+OUTCOME_STATUSES = frozenset({"unverified"})
 # `advisory_only` means "no skill was loaded in this operation." A terminal
 # consumer receipt records the load outcome instead, so `advisory_only` may
 # be False only when the receipt carries a valid consumer record.
@@ -449,6 +461,28 @@ def normalize_receipt(receipt: Any) -> dict[str, Any] | None:
         receipt["loaded_source"] = loaded_source
         receipt["skill_load_verified"] = skill_load_verified
         receipt["advisory_only"] = bool(consumer_status != "loaded")
+    delivery_status = receipt.get("delivery_status")
+    adoption_status = receipt.get("adoption_status")
+    outcome_status = receipt.get("outcome_status")
+    contract_present = any(
+        value is not None for value in (delivery_status, adoption_status, outcome_status)
+    )
+    if contract_present:
+        if (
+            delivery_status not in DELIVERY_STATUSES
+            or adoption_status not in ADOPTION_STATUSES
+            or outcome_status not in OUTCOME_STATUSES
+        ):
+            return None
+        # Invariants: adopted requires delivery; suppressed requires skipped delivery;
+        # the plugin never claims a verified outcome from delivery alone.
+        if adoption_status == "adopted" and delivery_status != "delivered":
+            return None
+        if adoption_status == "suppressed" and delivery_status != "skipped":
+            return None
+        receipt["delivery_status"] = delivery_status
+        receipt["adoption_status"] = adoption_status
+        receipt["outcome_status"] = "unverified"
     receipt["verified"] = False
     return receipt
 
@@ -457,7 +491,7 @@ def validate_receipt(receipt: Any) -> bool:
     """Validate one canonical receipt exactly as supplied, nothing more."""
     if not isinstance(receipt, dict):
         return False
-    allowed_fields = RECEIPT_FIELDS | CONSUMER_RECEIPT_FIELDS
+    allowed_fields = RECEIPT_FIELDS | CONSUMER_RECEIPT_FIELDS | CONSUMPTION_CONTRACT_FIELDS
     if set(receipt) - allowed_fields:
         # Undeclared fields are rejected (difference test, not superset).
         return False
@@ -467,6 +501,23 @@ def validate_receipt(receipt: Any) -> bool:
     if consumer_present and not CONSUMER_RECEIPT_FIELDS <= set(receipt):
         # Partial consumer records are rejected; they appear as a group.
         return False
+    contract_present = bool(CONSUMPTION_CONTRACT_FIELDS & set(receipt))
+    if contract_present and not CONSUMPTION_CONTRACT_FIELDS <= set(receipt):
+        return False
+    if contract_present:
+        if (
+            receipt.get("delivery_status") not in DELIVERY_STATUSES
+            or receipt.get("adoption_status") not in ADOPTION_STATUSES
+            or receipt.get("outcome_status") not in OUTCOME_STATUSES
+        ):
+            return False
+        if receipt["adoption_status"] == "adopted" and receipt["delivery_status"] != "delivered":
+            return False
+        if receipt["adoption_status"] == "suppressed" and receipt["delivery_status"] != "skipped":
+            return False
+        # Never accept a claimed outcome improvement on a plugin receipt.
+        if receipt["outcome_status"] != "unverified":
+            return False
     # A successful-load receipt requires the complete evidence group; a failed
     # or overridden load cannot claim a verified load or a loaded skill.
     if consumer_present:
