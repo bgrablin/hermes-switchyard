@@ -31,7 +31,19 @@ In plain terms, Jev caught **5 correct skill routes that local matching missed**
 
 This is evidence for **single-skill routing**, not a claim that every Hermes task improves. Switchyard still selects one skill at a time and completed 0 of 5 tests that required multiple skills. See the [method, complete results, hashes, and limitations](docs/BENCHMARKS.md) and the [machine-readable report](docs/benchmarks/live-selector-c6d9b28.json).
 
+Frozen evidence on tip `main` (do not invent better numbers than this report):
+
+- Report file: `docs/benchmarks/live-selector-c6d9b28.json`
+- Report content hash (`report_hash`): `959899acf6ad792e0e5622357444d07d03baea427c603ddd5e0ca75f741cf3ca`
+- Report file SHA-256: `552b581a084d42623656f9d0ba38b847d7a81ac160b138569654f2987980d762`
+- Dataset hash: `97a7702c0fa0474a8b13e8b018f4a1c86d4b9f84cbe5cba4c5d7122df73b6c28`
+- Required-set / multi-skill completion: **0 of 5** (known gap)
+
 ## Install
+
+### Why install
+
+Install Switchyard when you want measured single-skill routing: **12 of 12** correct with Jev versus **7 of 12** for local word matching on the frozen public benchmark, with skill-needed failures cut from **11 of 18** to **5 of 18**, **0 of 6** no-skill false recommendations, about **$0.000055** per decision, and about **0.20 s** typical latency (p95 about **0.325 s**). It is not multi-skill planning (**0 of 5** required-set completion).
 
 ### Quick install
 
