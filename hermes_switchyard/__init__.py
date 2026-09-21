@@ -662,6 +662,7 @@ def _cli_handler(args):
         result = ensure_platform_toolsets()
         if getattr(args, "json_output", False):
             print(json.dumps(result, sort_keys=True))
+            return 0 if result.get("ok") else 1
         elif result.get("ok"):
             if result.get("added"):
                 print(

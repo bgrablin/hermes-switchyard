@@ -861,6 +861,15 @@ class ToolsetCompositionTests(unittest.TestCase):
         self.assertIs(report["tools"]["jev_assess"]["callable"], False)
         self.assertEqual(report["tools"]["jev_assess"]["reason"], "toolset_not_selected")
 
+    def test_ensure_toolsets_json_failure_returns_nonzero(self):
+        args = SimpleNamespace(switchyard_command="ensure-toolsets", json_output=True)
+        result = {"ok": False, "reason": "config_unavailable", "added": [], "already_present": []}
+        with mock.patch.object(hermes_switchyard, "ensure_platform_toolsets", return_value=result), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            code = hermes_switchyard._cli_handler(args)
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(stdout.getvalue()), result)
+
 
 
 if __name__ == "__main__":
