@@ -19,12 +19,12 @@ Measured with/without Switchyard on tip **0.5.0** (`c8e6008`). Human-readable be
 | Model route | Switchyard `jev_model_route`: recommend a model for the task and leave a receipt | No Switchyard recommendation | **Ships in 0.5.0** — 3/3 agree with a local filter + receipt; does **not** switch Hermes’ active model yet (`applied: false`) |
 | Assess | Answering a small typed multiple-choice check | 2/3 correct | **3/3** correct |
 | Automatic skill routing | Quietly suggesting a skill before the model acts (local match) | Off → always silent | 1/2 needed skills caught; no false suggest |
-| Computer use | Driving the browser/desktop toward a goal | Stock Hermes A/B not run here | 1-click DOM race; goal still unverified by the tool |
+| Computer use | Driving the browser/desktop toward a goal | Stock Hermes `computer_use` A/B still pending fair Session-1 GUI run | **Cat→Felidae DOM:** 1 click, Jev ~322 ms, ~$0.00021, **`goal_verified: true`** (local `url_contains`) |
 
 - **Cheap:** about **$0.000055** per skill-select decision (~**$0.055** per 1,000)
 - **Fast:** about **0.19 s** typical; **0.30 s** at p95 on the frozen 24-task skill bench
 - **Also true, not table rows:** Switchyard does not invent a skill when none fits (0/6 on both arms).
-- **Honest gaps:** Automatic routing is not yet a counterbalanced Hermes-session win. Computer-use success is not `goal_verified` inside the tool.
+- **Honest gaps:** Automatic routing is not yet a counterbalanced Hermes-session win. Computer-use local predicates now set `goal_verified: true` when they match (see [PR #57](https://github.com/bgrablin/hermes-switchyard/pull/57)); stock Hermes GUI A/B is still the open comparison arm.
 
 This shows better single-skill routing and a working multi-skill API. It is not a claim that every Hermes task improves.
 

@@ -1,5 +1,5 @@
 {
-  "generated_at_ct": "2026-09-21 18:08:00 CT",
+  "generated_at_ct": "2026-09-21 18:51:51 CT",
   "plugin_tip": "c8e6008",
   "plugin_version": "0.5.0",
   "jev_model": "typesafe/jev-1.13",
@@ -498,27 +498,23 @@
     "feature": "jev_computer_use",
     "arms": {
       "switchyard_dom": {
-        "label": "with Switchyard DOM (run_browser_goal on tip-main)",
+        "label": "with Switchyard DOM (run_browser_goal after goal_verified fix)",
+        "tip_ref": "fix/goal-verified-local-predicate (PR #57)",
         "summary": {
           "status": "completion_candidate",
-          "verified": false,
-          "goal_verified": false,
+          "verified": true,
+          "goal_verified": true,
+          "verification_owner": "local_completion_predicate",
+          "completion_source": "local_predicate",
           "executor": "browser_dom",
           "backend": "chromium_dom",
-          "session_mode": "headless_ephemeral",
-          "browser": "chrome",
           "url": "https://en.wikipedia.org/wiki/Felidae",
           "title": "Felidae - Wikipedia",
           "click_count": 1,
-          "attempted_action_count": 1,
-          "action_dispatched_count": 1,
-          "effect_observed_count": 1,
           "jev_request_count": 1,
-          "jev_total_latency_ms": 249.2,
-          "elapsed_ms": 2231.8,
-          "session_setup_ms": 1371.2,
+          "jev_total_latency_ms": 322.3,
+          "elapsed_ms": 2231.3,
           "computer_use_dispatches": 0,
-          "failure_phase": null,
           "completion": {
             "source": "caller",
             "satisfied": true,
@@ -526,33 +522,13 @@
               "url_contains": true
             }
           },
-          "completion_source": "local_predicate",
-          "jev_total_cost": 0.00021256,
-          "wall_ms": 2307.0
+          "jev_total_cost": 0.000211932
         }
       },
       "stock_computer_use": {
         "label": "without Switchyard (stock Hermes computer_use)",
-        "fair_ab": "not_run",
-        "reason": "Stock computer_use A/B needs a separate Hermes GUI/session budget on the same task; not executed in this metrics pass. Windows headed Switchyard-only race is cited separately."
-      },
-      "prior_linux_fulltest": {
-        "label": "prior Linux DOM Felidae race (same box, earlier tip)",
-        "source": "local prior DOM Felidae race receipt (not committed; superseded by tip-main run above)",
-        "summary": {
-          "status": "completion_candidate",
-          "verified": false,
-          "goal_verified": false,
-          "backend": "chromium_dom",
-          "session_mode": "headless_ephemeral",
-          "url": "https://en.wikipedia.org/wiki/Felidae",
-          "click_count": 1,
-          "jev_request_count": 1,
-          "jev_total_latency_ms": 298.6,
-          "elapsed_ms": 944.2,
-          "computer_use_dispatches": 0
-        },
-        "jev_cost": 0.000211932
+        "fair_ab": "pending_session1_gui",
+        "reason": "Fair stock arm needs interactive Session-1 GUI on the same public goal; not completed in this pass. Switchyard DOM arm is measured with goal_verified true."
       }
     },
     "windows_headed_operator": {
@@ -579,5 +555,6 @@
         "note": "No multi-click long-race JSON receipt was retained on this metrics box; do not treat the operator note as a claim-gated hash-bound number."
       }
     }
-  }
+  },
+  "computer_use_note": "goal_verified true via local_completion_predicate after PR #57; stock A/B still pending"
 }
