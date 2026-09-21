@@ -614,6 +614,11 @@ class ClientTests(unittest.TestCase):
         DecisionClient._merge_usage(total, {"cost": None})
         DecisionClient._merge_usage(total, {"cost": 0.002})
         self.assertIsNone(total.get("cost"))
+        omitted = {}
+        DecisionClient._merge_usage(omitted, {"prompt_tokens": 1})
+        DecisionClient._merge_usage(omitted, {"cost": 0.002, "prompt_tokens": 1})
+        self.assertIsNone(omitted.get("cost"))
+        self.assertEqual(omitted.get("prompt_tokens"), 2.0)
 
     def test_total_question_budget_rejects_before_transport(self):
         from hermes_switchyard import schemas

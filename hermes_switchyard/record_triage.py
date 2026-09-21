@@ -110,7 +110,7 @@ def _validate_records(records: Any) -> list[dict[str, Any]]:
             raise ValueError("record title is outside the bounded size")
         if type(body) is not str or len(body) > MAX_BODY_CHARS:
             raise ValueError("record body is outside the bounded size")
-        if record["data_class"] not in _DATA_CLASSES:
+        if type(record["data_class"]) is not str or record["data_class"] not in _DATA_CLASSES:
             raise ValueError("every record must declare data_class public or synthetic")
         component = record.get("component")
         if component is not None and (type(component) is not str or not 1 <= len(component) <= 64):
