@@ -1684,10 +1684,22 @@ def _browser_receipt(
         for item in decisions
         if isinstance(item.get("latency_ms"), (int, float)) and not isinstance(item.get("latency_ms"), bool)
     ]
+    local_goal_verified = bool(
+        status == "completion_candidate"
+        and completion_source == "local_predicate"
+        and isinstance(completion, dict)
+        and completion.get("satisfied") is True
+    )
+    # A satisfied caller completion_condition is tool-owned verification of that
+    # predicate. Jev DONE without a local predicate stays unverified so the
+    # coordinator must still check. Hermes-level whole-agent claims remain out
+    # of scope for this receipt.
     receipt: dict[str, Any] = {
         "status": status,
-        "verified": False,
-        "verification_owner": "coordinator",
+        "verified": local_goal_verified,
+        "verification_owner": (
+            "local_completion_predicate" if local_goal_verified else "coordinator"
+        ),
         "executor": "browser_dom",
         "backend": DOM_BACKEND,
         "session_mode": DOM_SESSION_MODE,
@@ -1711,7 +1723,7 @@ def _browser_receipt(
         "attempted_action_count": len(actions),
         "action_dispatched_count": dispatched,
         "effect_observed_count": observed_effects,
-        "goal_verified": False,
+        "goal_verified": local_goal_verified,
         "click_count": click_count,
         "jev_request_count": len(decisions),
         "attempted_request_count": int(state.get("attempted_requests") or len(decisions)),

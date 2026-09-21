@@ -1092,8 +1092,9 @@ class BrowserReliabilityTests(unittest.TestCase):
         self.assertTrue(result["completion"]["satisfied"])
         self.assertEqual(len(client.calls), 1)
         self.assertEqual(result["jev_request_count"], 1)
-        self.assertEqual(result["verified"], False)
-        self.assertEqual(result["verification_owner"], "coordinator")
+        self.assertEqual(result["verified"], True)
+        self.assertEqual(result["verification_owner"], "local_completion_predicate")
+        self.assertTrue(result["goal_verified"])
 
     def test_completion_predicate_is_never_sent_to_the_provider(self):
         session = StaticSession(
@@ -1123,6 +1124,9 @@ class BrowserReliabilityTests(unittest.TestCase):
         self.assertEqual(result["status"], "completion_candidate")
         self.assertEqual(result["completion_source"], "provider_decision")
         self.assertFalse(result["completion"]["satisfied"])
+        self.assertFalse(result["goal_verified"])
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["verification_owner"], "coordinator")
         payload = json.dumps(client.calls[0]["state"]) + json.dumps(client.calls[0]["questions"])
         self.assertNotIn("Never Mentioned Target", payload)
         self.assertNotIn("completion", payload)
@@ -1191,9 +1195,9 @@ class BrowserReliabilityTests(unittest.TestCase):
         self.assertEqual(result["jev_request_count"], 1)
         self.assertEqual([item["operation"] for item in result["decisions"]], ["CLICK"])
         self.assertFalse(any(item.get("operation") == "DONE" for item in result["decisions"]))
-        self.assertEqual(result["verified"], False)
-        self.assertEqual(result["verification_owner"], "coordinator")
-        self.assertFalse(result["goal_verified"])
+        self.assertEqual(result["verified"], True)
+        self.assertEqual(result["verification_owner"], "local_completion_predicate")
+        self.assertTrue(result["goal_verified"])
 
     def test_paired_fixture_fewer_decide_calls_with_local_predicate(self):
         """Identical public fixture with and without a predicate: prove fewer Jev calls."""
@@ -1257,7 +1261,11 @@ class BrowserReliabilityTests(unittest.TestCase):
         self.assertEqual(optimized["completion_source"], "local_predicate")
         self.assertEqual(optimized["jev_request_count"], 1)
         self.assertEqual([item["operation"] for item in optimized["decisions"]], ["CLICK"])
-        self.assertEqual(optimized["verified"], False)
+        self.assertEqual(optimized["verified"], True)
+        self.assertEqual(optimized["verification_owner"], "local_completion_predicate")
+        self.assertTrue(optimized["goal_verified"])
+        self.assertFalse(baseline["goal_verified"])
+        self.assertEqual(baseline["verification_owner"], "coordinator")
 
         # Paired fixture metrics required by issue #25 (unit/fixture proof).
         self.assertLess(optimized["jev_request_count"], baseline["jev_request_count"])
@@ -1425,8 +1433,9 @@ class BrowserReliabilityTests(unittest.TestCase):
         self.assertEqual(result["completion"]["checks"], {"url_contains": True})
         self.assertEqual(result["url"], un)
         self.assertEqual(len(client.calls), 1)
-        self.assertFalse(result["goal_verified"])
-        self.assertEqual(result["verified"], False)
+        self.assertTrue(result["goal_verified"])
+        self.assertEqual(result["verified"], True)
+        self.assertEqual(result["verification_owner"], "local_completion_predicate")
 
     def test_provider_timeout_after_a_click_keeps_partial_evidence(self):
         cat = "https://en.wikipedia.org/wiki/Cat"
