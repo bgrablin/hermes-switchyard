@@ -484,6 +484,39 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(result["request_count"], 2)
         self.assertAlmostEqual(result["total_usage"]["cost"], 0.002)
 
+    def test_model_routing_persists_only_allowlisted_usage_keys(self):
+        class SecretUsageClient:
+            def decide(self, state, questions, *, public_or_sanitized_data_ack=False):
+                return {
+                    "model": "typesafe/jev-1.13",
+                    "answers": {name: {"noul": 0.95} for name in questions},
+                    "usage": {"cost": 0.001, "provider_controlled_secret_name": 7},
+                    "latency_ms": 1,
+                }
+
+        result = route_model(
+            task="public routing task",
+            candidates=[{"id": "x", "description": "x", "approved": True, "cost": 0.1}],
+            requirements={},
+            client=SecretUsageClient(),
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["total_usage"], {"cost": 0.001})
+        self.assertNotIn("provider_controlled_secret_name", json.dumps(result))
+
+    def test_aggregate_metadata_unknown_cost_is_not_zero(self):
+        from hermes_switchyard import routing
+
+        for first, second in ((None, 0.001), (0.001, None)):
+            with self.subTest(first=first, second=second):
+                result = routing._aggregate_metadata(
+                    [
+                        {"usage": {"cost": first}, "latency_ms": 1, "request_count": 1},
+                        {"usage": {"cost": second}, "latency_ms": 1, "request_count": 1},
+                    ]
+                )
+                self.assertIsNone(result["total_usage"].get("cost"))
+
 
 class ClientTests(unittest.TestCase):
     def test_score_answers_are_supported_and_validated(self):
@@ -553,6 +586,34 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(len(result["answers"]), 256)
         self.assertEqual(result["request_count"], 2)
         self.assertAlmostEqual(result["total_usage"]["cost"], 0.002)
+        self.assertNotIn("provider_controlled_secret_name", result["total_usage"])
+
+    def test_client_usage_keeps_only_allowlisted_keys(self):
+        client = DecisionClient(
+            api_key="test-key",
+            transport=lambda _payload: {
+                "model": "typesafe/jev-1.13",
+                "answers": {"q": {"noul": 0.9}},
+                "usage": {
+                    "prompt_tokens": 4,
+                    "provider_controlled_secret_name": 7,
+                    "note": "provider text",
+                },
+            },
+        )
+        result = client.decide(
+            "public",
+            {"q": {"type": "noul", "instructions": "Is this true?"}},
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["usage"], {"prompt_tokens": 4.0})
+        self.assertNotIn("provider_controlled_secret_name", json.dumps(result))
+
+    def test_merge_usage_unknown_cost_is_not_zero(self):
+        total: dict = {}
+        DecisionClient._merge_usage(total, {"cost": None})
+        DecisionClient._merge_usage(total, {"cost": 0.002})
+        self.assertIsNone(total.get("cost"))
 
     def test_total_question_budget_rejects_before_transport(self):
         from hermes_switchyard import schemas
