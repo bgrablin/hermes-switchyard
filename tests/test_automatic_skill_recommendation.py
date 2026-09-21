@@ -252,6 +252,9 @@ class AutomaticRecommendationTests(unittest.TestCase):
                 "selected": "docker-management",
                 "source": "local",
                 "loaded_once": True,
+                "delivery_status": "delivered",
+                "adoption_status": "adopted",
+                "outcome_status": "unverified",
             },
         )
 
