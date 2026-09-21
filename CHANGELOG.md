@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- DOM browser receipts: when a caller `completion_condition` is satisfied via `completion_source: local_predicate`, set `goal_verified: true`, `verified: true`, and `verification_owner: local_completion_predicate`. Jev `DONE` without a local predicate remains unverified (`verification_owner: coordinator`).
+
 - DOM browser `url_contains` completion matching is case-insensitive (aligned with title/text predicates) so a needle like `United_Nations` matches `https://en.wikipedia.org/wiki/United_Nations` regardless of casing; unit coverage proves the Wikipedia-shaped regression.
 - DOM browser `no_progress` aborts now wait until `min_actions_before_done` actions have been dispatched, so scenic multi-hop wiki races are not cut short by early consecutive stalls while the minimum action floor is still unmet.
 - DOM browser completion predicates (issue #25): derive a fixed local predicate from quoted `url equals|is "https://…"` / `url contains "…"` goal text (in addition to quoted title forms); refuse unquoted URL mining; after an action that satisfies a caller or derived URL/title/DOM predicate, stop without a second Jev `DONE` decision; paired Wikipedia-shaped unit fixture proves fewer `jev_request_count` / `jev_total_latency_ms` while preserving `completion_candidate` and `verified: false`.
