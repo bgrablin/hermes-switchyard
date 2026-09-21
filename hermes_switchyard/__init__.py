@@ -443,7 +443,11 @@ def _required_toolset_suppression(
             hits.add(name)
         elif name in {'all', '*'}:
             hits.update(toolsets)
-        elif resolve_toolset is not None:
+        for toolset in toolsets:
+            required = required_tools.get(toolset, set())
+            if name in required:
+                hits.add(toolset)
+        if not hits and resolve_toolset is not None:
             try:
                 resolved = {str(value) for value in resolve_toolset(name)}
             except Exception:  # noqa: BLE001
