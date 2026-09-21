@@ -515,6 +515,17 @@ def _derive_completion_condition(goal: Any) -> dict[str, Any] | None:
     return None
 
 
+def _url_contains_match(expected: str, url: str) -> bool:
+    """Case-insensitive substring match for URL completion predicates.
+
+    Hosts are case-insensitive per DNS, and Wikipedia-shaped goal needles such as
+    ``United_Nations`` must still match ``.../wiki/United_Nations`` when casing
+    differs. Title/text predicates already casefold; URL contains follows them so
+    a correct final URL is not a false negative.
+    """
+    return expected.casefold() in url.casefold()
+
+
 def _completion_status(condition: dict[str, Any] | None, page: dict[str, Any]) -> dict[str, Any] | None:
     """Evaluate the fixed predicate locally against one observation."""
     if not condition:
@@ -531,7 +542,7 @@ def _completion_status(condition: dict[str, Any] | None, page: dict[str, Any]) -
         if field == "url_equals":
             result = url == expected
         elif field == "url_contains":
-            result = expected in url
+            result = _url_contains_match(expected, url)
         elif field == "title_contains":
             result = expected.casefold() in title.casefold()
         elif field == "text_contains":
@@ -1055,8 +1066,12 @@ def _run_browser_loop(
         progress["last_state_hash"] = signature
         # Nonconsecutive revisits (A→B→A) are progress for the consecutive-stall
         # counter, but still a repeated observation before another paid decision.
-        if decision_signatures.count(signature) >= max(1, NO_PROGRESS_LIMIT - 1) and any(
-            prior != signature for prior in decision_signatures
+        # Scenic races raise min_actions_before_done so early revisit stalls must
+        # not abort before that many actions have been dispatched.
+        if (
+            len(actions) >= min_actions_before_done
+            and decision_signatures.count(signature) >= max(1, NO_PROGRESS_LIMIT - 1)
+            and any(prior != signature for prior in decision_signatures)
         ):
             return finish(
                 page=page,
@@ -1546,7 +1561,9 @@ def _run_browser_loop(
                 completion=completion,
                 completion_source="local_predicate",
             )
-        if stalled >= NO_PROGRESS_LIMIT:
+        # Defer no_progress until min_actions_before_done actions have been
+        # dispatched so long wiki hops are not aborted by early consecutive stalls.
+        if stalled >= NO_PROGRESS_LIMIT and len(actions) >= min_actions_before_done:
             return finish(
                 page=page,
                 status="blocked",
