@@ -1,53 +1,34 @@
 # Hermes Switchyard
 
-Jev-powered advisory selection, general typed assessment, and cross-platform Cua Driver computer-use support for Hermes Agent.
+Picks the right specialist skill for Hermes more often — cheap, fast, and careful not to invent one when you don’t need it.
 
 Version: 0.4.2
 
-[Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) is a structured decision model. Hermes Switchyard is the Hermes plugin integration around Jev: it applies plugin-owned local policy, supports standalone hosted routing with standing consent and per-turn scanning, keeps actions bounded, and leaves final verification to Hermes. A future Hermes turn envelope may strengthen a decision with a narrower sanitized payload, but is optional. The acknowledgement is not Hermes-owned DLP or automatic authorization. Jev owns typed judgments; Switchyard owns validation, routing, execution boundaries, and evidence.
-
-Jev supplies decision scores. Switchyard applies its eligibility and confidence rules; for model routing, it selects the cheapest qualified model. Hermes checks the result. This plugin uses Jev; it does not provide every feature that Jev supports.
+Hermes Switchyard is a plugin that helps Hermes choose skills, models, and computer-use actions. Under the hood it uses [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) for structured decisions; Switchyard applies local policy and keeps actions bounded. Defaults are **advisory**: Switchyard recommends, Hermes verifies. It does not modify Hermes core or silently change your active model. Automatic skill loading stays opt-in.
 
 ![Hermes Switchyard flow from Jev decisions through Switchyard validation to Hermes execution and verification](docs/assets/hermes-switchyard-overview.png)
 
-Switchyard gives Hermes another way to choose among a defined set of options. It does not modify Hermes core, silently change the active model, or claim that a recommendation or GUI action is correct. Automatic skill loading is opt-in; the default remains advisory.
+## Why install
 
-## Measured value
+Three wins on the frozen public benchmark (24 tasks, real Jev calls):
 
-**Bottom line: when one specialist skill was the right answer, Jev chose it correctly in all 12 tests. The local word-matching fallback chose correctly in only 7.**
-
-On the repository's frozen 24-task public benchmark, Switchyard made 24 real Jev calls with zero errors:
-
-| What a user would notice | Local word matching | Switchyard with Jev |
+| What you get | Local word matching | Switchyard + Jev |
 | --- | ---: | ---: |
-| Chose the correct skill when exactly one skill was needed | 7 of 12 | **12 of 12** |
-| Failed to return an acceptable answer on tasks that needed a skill | 11 of 18 | **5 of 18** |
-| Incorrectly recommended a skill when none was needed | **0 of 6** | **0 of 6** |
+| Correct skill when exactly one was needed | 7 of 12 | **12 of 12** |
+| Failures on tasks that needed a skill | 11 of 18 | **5 of 18** |
+| Invented a skill when none was needed | **0 of 6** | **0 of 6** |
 
-In plain terms, Jev caught **5 correct skill routes that local matching missed** and eliminated **6 of the local fallback's 11 failures**, without adding a false recommendation on no-skill tasks.
+- **Cheap:** about **$0.000055** per decision (~**$0.055** per 1,000)
+- **Fast:** about **0.20 s** typical; **0.325 s** at p95
+- **Honest gap:** still one skill at a time — multi-skill required sets are **0 of 5**
 
-- **Cost:** about **$0.000055 per decision**, or **$0.055 per 1,000 decisions** at the observed rate.
-- **Speed:** about **0.20 seconds for a typical decision**; 95% completed within **0.325 seconds**.
+This shows better single-skill routing. It is not a claim that every Hermes task improves.
 
-This is evidence for **single-skill routing**, not a claim that every Hermes task improves. Switchyard still selects one skill at a time and completed 0 of 5 tests that required multiple skills. See the [method, complete results, hashes, and limitations](docs/BENCHMARKS.md) and the [machine-readable report](docs/benchmarks/live-selector-c6d9b28.json).
-
-Frozen evidence on tip `main` (do not invent better numbers than this report):
-
-- Report file: `docs/benchmarks/live-selector-c6d9b28.json`
-- Report content hash (`report_hash`): `959899acf6ad792e0e5622357444d07d03baea427c603ddd5e0ca75f741cf3ca`
-- Report file SHA-256: `552b581a084d42623656f9d0ba38b847d7a81ac160b138569654f2987980d762`
-- Dataset hash: `97a7702c0fa0474a8b13e8b018f4a1c86d4b9f84cbe5cba4c5d7122df73b6c28`
-- Required-set / multi-skill completion: **0 of 5** (known gap)
+**Proof:** method, limitations, and verification hashes → [docs/BENCHMARKS.md](docs/BENCHMARKS.md) · [JSON report](docs/benchmarks/live-selector-c6d9b28.json)
 
 ## Install
 
-### Why install
-
-Install Switchyard when you want measured single-skill routing: **12 of 12** correct with Jev versus **7 of 12** for local word matching on the frozen public benchmark, with skill-needed failures cut from **11 of 18** to **5 of 18**, **0 of 6** no-skill false recommendations, about **$0.000055** per decision, and about **0.20 s** typical latency (p95 about **0.325 s**). It is not multi-skill planning (**0 of 5** required-set completion).
-
-### Quick install
-
-Install from the public GitHub repository. No GitHub login or token is required:
+Ready to try it? One command from the public repo — no GitHub login or token:
 
 ```text
 hermes plugins install bgrablin/hermes-switchyard --enable
