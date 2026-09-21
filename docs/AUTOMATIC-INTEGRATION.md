@@ -192,14 +192,23 @@ hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_can
 
 The config command parses list and mapping literals as YAML/JSON values. The list is still validated by the plugin and is not a permission grant.
 
-For an allowed public/synthetic smoke, configure the account first, then use the explicit routing mode and standing acknowledgement:
+For hosted-path smokes, configure the account first. Start from the default advisory consumer to observe the contract gate:
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode hosted_sanitized
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_jev_mode always
 ```
 
-Use only a task and configured metadata that are public or already sanitized. Start a fresh process. A plain `hermes chat` smoke in default advisory mode with `hosted_sanitized` set still exercises local matching only: the routing receipt reports `hosted_skip_reason=consumer_contract_unmet` and no hosted client is constructed. With `automatic_skill_consumer_mode=load` and acknowledgement true but no host-forwarded `turn_egress_policy`, the receipt reports `hosted_skip_reason=local_scan_unclassified` (transient result uses `hosted_skipped`). To exercise hosted construction, set load mode and have the host forward an allowed envelope such as:
+A plain `hermes chat` smoke in that advisory configuration still exercises local matching only: the routing receipt reports `hosted_skip_reason=consumer_contract_unmet` and no hosted client is constructed.
+
+Then enable the load consumer and standing acknowledgement for the missing-envelope and hosted paths:
+
+```text
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_consumer_mode load
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack true
+```
+
+Use only a task and configured metadata that are public or already sanitized. Start a fresh process. With load mode and acknowledgement true but no host-forwarded `turn_egress_policy`, the receipt reports `hosted_skip_reason=local_scan_unclassified` (transient result uses `hosted_skipped`). To exercise hosted construction, keep load mode and have the host forward an allowed envelope such as:
 
 ```json
 {"version":1,"decision":"allow","data_class":"sanitized","reason_code":"host_policy_allowed","allowed_payload":"Diagnose an exiting Docker Compose container"}
