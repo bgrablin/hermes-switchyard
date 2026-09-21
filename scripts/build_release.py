@@ -43,6 +43,7 @@ RELEASE_FILES = (
     "docs/SETUP.md",
     "docs/AUTOMATIC-SETUP.md",
     "docs/AUTOMATIC-INTEGRATION.md",
+    "docs/DOM-BROWSER-BACKEND.md",
     "docs/TEST-MATRIX.md",
     "docs/assets/hermes-switchyard-branding.png",
     "docs/assets/hermes-switchyard-overview.png",

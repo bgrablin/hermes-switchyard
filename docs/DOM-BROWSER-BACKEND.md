@@ -1,0 +1,148 @@
+# DOM browser backend
+
+`jev_computer_use` runs a DOM browser loop when the caller supplies a public
+`start_url` or when the goal contains a public https URL. One bounded Jev request
+per step chooses the operation and the click target together, and the plugin then
+acts on the page. Hermes `computer_use` is never inserted between those clicks.
+
+Desktop applications without a public URL still use Cua Driver.
+
+## Backend and session semantics
+
+Every DOM result reports what actually ran:
+
+| Field | Meaning |
+| --- | --- |
+| `backend` | `chromium_dom`, the only DOM implementation |
+| `session_mode` | `ephemeral_fresh_profile`, a per-run profile removed on close |
+| `browser` | `chromium`, `chrome`, or `edge` |
+| `browser_confinement` | `none` or `snap` |
+| `session_setup_ms` | measured launch and page-ready time for this call |
+| `jev_total_latency_ms` | summed provider decision latency, separate from setup |
+
+The backend never attaches to a user browser profile. Each call launches a fresh
+headless profile with restrictive permissions and removes only the directory it
+created. A caller that needs an authenticated or already open session must use the
+native `computer_use` path instead.
+
+## Supported operations
+
+The loop offers `CLICK`, `SCROLL_DOWN`, `SCROLL_UP`, `WAIT`, `DONE`, and `BLOCKED`.
+It does not type into fields, upload files, authenticate, or reach an existing
+signed-in session. A goal that requires one of those capabilities returns
+`status: unsupported_capability` with a request-free reason code before the first
+provider request, so no Jev requests are spent discovering the mismatch:
+
+| Code | Trigger |
+| --- | --- |
+| `dom_text_input_unsupported` | `text_inputs` supplied for a web goal, or the goal states typing into a field |
+| `dom_file_upload_unsupported` | the goal states an upload or attachment requirement |
+| `dom_authentication_unsupported` | the goal states a sign-in, password, or verification-code requirement |
+| `dom_existing_session_unsupported` | the goal asks for an existing, already open, or signed-in browser session |
+| `dom_hotkey_unsupported` | `allowed_hotkeys` supplied for a web goal |
+
+`unsupported_capability` is not a fallback and not a partial success. It reports a
+capability boundary and names the caller's next option.
+
+## Completion predicates
+
+A caller may supply `completion_condition`, a bounded predicate evaluated locally
+against every observation:
+
+```text
+{"url_equals": "https://example.org/target"}
+{"title_contains": "Analytical Engine"}
+{"text_contains": "Order confirmed", "element_label": "Order confirmed"}
+```
+
+The predicate is fixed before execution begins, is never sent to Jev, and cannot be
+relaxed mid-loop. When it is satisfied, the loop stops without another provider
+decision. `min_actions_before_done` still applies.
+
+One narrow derivation exists: a goal that states a quoted expectation, such as
+`stop when title contains "Analytical Engine"`, produces a predicate with
+`source: derived_goal_title`. No other goal text is interpreted.
+
+A predicate stop and a provider `DONE` both return `status: completion_candidate`
+with `verified: false`. The receipt records `completion_source` as
+`local_predicate` or `provider_decision` and reports each predicate check, so the
+difference between "the caller's condition matched" and "the model believed it was
+done" stays visible. Independent verification remains coordinator-owned.
+
+## Target offering and progress
+
+Snapshots offer up to 48 targets. Offering is scroll-relative: targets in the
+viewport come first, then targets within one viewport of it, then the remaining
+targets ordered by distance from the current viewport. Scrolling therefore advances
+the offered window instead of re-offering the top of the document, and a target that
+was not offered in the first snapshot becomes reachable after scrolling.
+
+Targets keep a stable identity across scrolls and recaptures, because the snapshot
+assigns each element one identifier from a per-document registry instead of
+renumbering by position.
+
+Progress is measured locally by an observation signature over URL, title, text, and
+the offered targets. Scroll offset and focus are excluded, because they describe the
+view rather than the content. When a scroll changes nothing, the loop retries the
+scroll locally up to the configured bound before spending another decision. When a
+bounded number of consecutive actions produce no progress, the loop stops with
+`failure_phase: no_progress` and `reconcile_before_retry: true` instead of paying for
+another provider decision over unchanged state.
+
+## Sandboxed browsers
+
+Some Linux distributions ship Chromium only as a Snap. The distribution wrapper
+`/usr/bin/chromium-browser` resolves to a confined Snap, so the wrapper path alone
+cannot decide whether the install is confined. The plugin resolves the target and
+reads the wrapper before choosing a profile location.
+
+A confined Chromium gets its per-run profile inside the Snap's own writable area,
+under the user's `snap/chromium/common` directory, because the runtime directory and
+the cache directory are not writable under confinement. A non-confined install is
+always preferred when both are present, and a startup failure returns a bounded
+local reason code such as `browser_profile_not_writable` or
+`snap_profile_unavailable`.
+
+## Action evidence
+
+Each action record separates three claims that are not interchangeable:
+
+| Field | Meaning |
+| --- | --- |
+| `action_dispatched` | the click, scroll, or wait was sent to the browser |
+| `effect_observed` | a URL, title, document, or focus change was observed afterwards |
+| `goal_verified` | always false inside the loop; the coordinator owns verification |
+
+`effect_confirmed` repeats `effect_observed` for compatibility and is never true
+without an observed delta, so a click that changes nothing reports
+`effect_status: no_observed_effect` instead of a confirmed effect.
+
+Every terminal path returns a structured receipt that keeps the actions already
+attempted. A provider timeout, malformed response, validation failure, deadline
+exit, startup failure, or unexpected error reports `failure_phase`,
+`failure_reason`, `attempted_request_count`, `last_state_hash`, and
+`reconcile_before_retry` rather than collapsing into a generic plugin error.
+
+## Verification status
+
+Offline behavior is covered by `tests/test_browser_use.py`, which uses scripted
+providers and fake sessions. Those tests do not call a live service.
+
+The backend was additionally exercised on a Linux host whose only browser is a
+confined Snap Chromium, using a real headless browser over CDP:
+
+- A 60-target fixture recorded the pre-fix behavior (last offered target
+  `Article item 48`, identical offered set after scrolling to the bottom, target 60
+  never offered) and the post-fix behavior (target 60 offered after scrolling,
+  offered set changed, identities stable).
+- A live public article page recorded a scroll-relative offered window (47 targets,
+  one target shared with the first snapshot), no identifier ever reassigned to a
+  different element, and a confined profile under `snap/chromium/common`.
+- A live public goal with a caller-supplied predicate clicked one target, observed
+  the URL change, satisfied the predicate on the live page, and stopped with one
+  provider decision instead of the two decisions the pre-fix loop required.
+
+These are local host checks. They are not part of CI and they are not a comparative
+benchmark against other browser automation. A paired live benchmark with a real
+provider remains pending, and the plugin still returns `verified: false` for every
+completion candidate.
