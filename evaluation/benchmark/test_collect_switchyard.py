@@ -126,6 +126,48 @@ class SwitchyardCollectorTests(unittest.TestCase):
         self.assertEqual(events, ["build", "set", "reset"])
 
 
+    def test_env_fallback_when_scoped_key_is_whitespace(self):
+        """Whitespace-only scoped values are unusable; fall back to process env."""
+        events: list[str] = []
+        captured: dict = {}
+        agent = types.ModuleType("agent")
+        agent.__path__ = []
+        scope = types.ModuleType("agent.secret_scope")
+        scope.build_profile_secret_scope = lambda home: events.append("build") or {
+            "OPENROUTER_API_KEY": "   "
+        }
+        def fake_set(value):
+            events.append("set")
+            captured.update(value)
+            return object()
+        scope.set_secret_scope = fake_set
+        scope.reset_secret_scope = lambda token: events.append("reset")
+        hermes_cli = types.ModuleType("hermes_cli")
+        hermes_cli.__path__ = []
+        constants = types.ModuleType("hermes_constants")
+        constants.get_hermes_home = lambda: Path(tempfile.gettempdir())
+        with mock.patch.dict(
+            sys.modules,
+            {
+                "agent": agent,
+                "agent.secret_scope": scope,
+                "hermes_cli": hermes_cli,
+                "hermes_constants": constants,
+            },
+            clear=False,
+        ), mock.patch.dict(
+            os.environ,
+            {"OPENROUTER_API_KEY": "env-fallback-key"},
+            clear=False,
+        ):
+            sys.modules.pop("hermes_cli.env_loader", None)
+            collect_switchyard._SECRET_SCOPE_TOKEN = None
+            collect_switchyard._hydrate_runtime_secret_scope()
+            self.assertEqual(captured.get("OPENROUTER_API_KEY"), "env-fallback-key")
+            collect_switchyard._reset_runtime_secret_scope()
+        self.assertEqual(events, ["build", "set", "reset"])
+
+
     def test_collect_writes_24_actual_rows_and_honors_source_identity(self):
         book, meta = benchmark.load_book()
         source = benchmark.source_hashes(ROOT)
