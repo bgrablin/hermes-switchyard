@@ -25,7 +25,15 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from . import receipt_state
-from .client import PartialAccountingError
+from .client import (
+    DEFAULT_AUTOMATIC_ROUTING_DEADLINE_SECONDS,
+    DeadlineExceeded,
+    HostCancelled,
+    LateResultDiscarded,
+    PartialAccountingError,
+    _validate_deadline_seconds,
+    host_cancel_scope,
+)
 from .egress import (
     ROUTING_MODES,
     TurnEgressEvaluation,
@@ -45,6 +53,8 @@ DEFAULT_LOCAL_MARGIN = 0.05
 DEFAULT_CACHE_SECONDS = 30.0
 MAX_CACHE_SECONDS = 300.0
 DEFAULT_CACHE_SIZE = 32
+# Re-export for callers; kept below the typical Hermes ~30s callback budget.
+DEFAULT_AUTOMATIC_DEADLINE_SECONDS = DEFAULT_AUTOMATIC_ROUTING_DEADLINE_SECONDS
 
 # Stable, privacy-safe terminal states for the routing-receipt surface. These
 # names identify every automatic-routing outcome without carrying task text,
@@ -312,10 +322,12 @@ class AutomaticSkillRecommender:
         public_or_sanitized_data_ack: bool = True,
         client_factory: Callable[[], Any] | None = None,
         cache_identity: Callable[[], Any] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
         local_threshold: float = DEFAULT_LOCAL_THRESHOLD,
         local_margin: float = DEFAULT_LOCAL_MARGIN,
         cache_seconds: float = DEFAULT_CACHE_SECONDS,
         cache_size: int = DEFAULT_CACHE_SIZE,
+        deadline_seconds: float = DEFAULT_AUTOMATIC_DEADLINE_SECONDS,
     ) -> None:
         self.configured_candidates = (
             _validate_candidates(configured_candidates, limit=None)
@@ -338,10 +350,12 @@ class AutomaticSkillRecommender:
         self.public_or_sanitized_data_ack = public_or_sanitized_data_ack is True
         self.client_factory = client_factory
         self.cache_identity = cache_identity
+        self.cancel_check = cancel_check
         self.local_threshold = local_threshold
         self.local_margin = local_margin
         self.cache_seconds = max(0.0, min(float(cache_seconds), MAX_CACHE_SECONDS))
         self.cache_size = max(1, min(int(cache_size), 128))
+        self.deadline_seconds = _validate_deadline_seconds(deadline_seconds)
         self._cache: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
         self._lock = threading.RLock()
         self._client: Any | None = None
@@ -637,21 +651,28 @@ class AutomaticSkillRecommender:
             # Only the host-provided bounded payload crosses this boundary. The
             # original task, history, descriptions, and skill bodies do not.
             result["hosted_attempted"] = True
+            # Intervention timeout is separate from the 60s explicit-tool /
+            # computer-use deadline and from the per-request provider I/O timeout.
+            result["intervention_deadline_seconds"] = self.deadline_seconds
             try:
-                hosted = select_skill(
-                    task=evaluation.allowed_payload if evaluation is not None else "",
-                    candidates=hosted_candidates,
-                    client=self._pooled_client(),
-                    public_or_sanitized_data_ack=True,
-                )
+                with host_cancel_scope(self.cancel_check):
+                    hosted = select_skill(
+                        task=evaluation.allowed_payload if evaluation is not None else "",
+                        candidates=hosted_candidates,
+                        client=self._pooled_client(),
+                        public_or_sanitized_data_ack=True,
+                        deadline_seconds=self.deadline_seconds,
+                    )
             except PartialAccountingError as exc:
                 logger.debug("automatic Jev skill recommendation unavailable: %s", type(exc).__name__)
                 result["hosted_error"] = _hosted_error_code(exc)
+                result["hosted_error_code"] = result["hosted_error"]
                 _copy_redacted_jev_metadata(result, _partial_accounting_metadata(exc.partial))
                 hosted = None
             except Exception as exc:  # noqa: BLE001 -- automatic hook must fail open
                 logger.debug("automatic Jev skill recommendation unavailable: %s", type(exc).__name__)
                 result["hosted_error"] = _hosted_error_code(exc)
+                result["hosted_error_code"] = result["hosted_error"]
                 hosted = None
             if isinstance(hosted, dict):
                 _copy_redacted_jev_metadata(result, hosted)
@@ -668,13 +689,18 @@ class AutomaticSkillRecommender:
                     }
                 )
             elif hosted is None:
-                # A transport/client failure is unavailable; preserve a local
-                # result if one exists. A valid Jev abstention below is never
-                # overridden by this fallback.
-                result["hosted_error"] = "transport_or_execution_failure"
-                result["hosted_error_code"] = "transport_or_execution_failure"
+                # Preserve the classified failure code (deadline / cancel / late
+                # discard / transport). A local winner may still be kept.
+                error_code = result.get("hosted_error")
+                if error_code not in HOSTED_ERROR_CODES:
+                    error_code = "transport_or_execution_failure"
+                result["hosted_error"] = error_code
+                result["hosted_error_code"] = error_code
                 result["routing_status"] = "hosted_failure_local_fallback" if local_selected else "hosted_failure"
-                result["routing_reason"] = "hosted_request_failed"
+                if error_code in {"deadline_exceeded", "host_cancelled", "late_result_discarded"}:
+                    result["routing_reason"] = error_code
+                else:
+                    result["routing_reason"] = "hosted_request_failed"
                 if local_selected:
                     result["status"] = "selected"
                     result["source"] = "local"
@@ -789,7 +815,7 @@ def redacted_routing_metadata(result: Mapping[str, Any]) -> dict[str, Any]:
         "routing_mode", "routing_status", "routing_reason", "status", "source",
         "selected", "hosted_attempted", "hosted_skipped", "hosted_error_code",
         "candidate_count", "cache_hit", "policy_status", "policy_reason",
-        "policy_data_class", "policy_version",
+        "policy_data_class", "policy_version", "intervention_deadline_seconds",
     )
     metadata: dict[str, Any] = {}
     for field in fields:
@@ -815,10 +841,23 @@ def _config_bool(value: Any, default: bool) -> bool:
 
 def _hosted_error_code(exc: Exception) -> str:
     # Map any hosted failure to a stable local code. Provider, transport, and
-    # executor details are never surfaced in a receipt.
+    # executor details are never surfaced in a receipt. Deadline / cancel /
+    # late-discard outcomes stay distinct from generic transport failures.
+    if isinstance(exc, PartialAccountingError) and isinstance(exc.__cause__, BaseException):
+        cause_code = _hosted_error_code(exc.__cause__)  # type: ignore[arg-type]
+        if cause_code in {"deadline_exceeded", "host_cancelled", "late_result_discarded"}:
+            return cause_code
+    if isinstance(exc, HostCancelled):
+        return "host_cancelled"
+    if isinstance(exc, LateResultDiscarded):
+        return "late_result_discarded"
+    if isinstance(exc, DeadlineExceeded) or isinstance(exc, TimeoutError):
+        return "deadline_exceeded"
     if isinstance(exc, PermissionError):
         return "ack_required"
     if isinstance(exc, ValueError):
+        if "budget exceeded" in str(exc):
+            return "request_budget_exhausted"
         return "validation_failure"
     if isinstance(exc, TypeError):
         return "typed_response_failure"
@@ -1037,9 +1076,11 @@ def build_pre_llm_call_hook(
     public_or_sanitized_data_ack: bool = True,
     client_factory: Callable[[], Any] | None = None,
     cache_identity: Callable[[], Any] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
     local_threshold: float = DEFAULT_LOCAL_THRESHOLD,
     local_margin: float = DEFAULT_LOCAL_MARGIN,
     cache_seconds: float = DEFAULT_CACHE_SECONDS,
+    deadline_seconds: float = DEFAULT_AUTOMATIC_DEADLINE_SECONDS,
     consumer_mode: str = "advisory",
     skill_loader: Callable[..., str] | None = None,
     mandatory_skills: Any = (),
@@ -1061,9 +1102,11 @@ def build_pre_llm_call_hook(
             public_or_sanitized_data_ack=public_or_sanitized_data_ack,
             client_factory=client_factory,
             cache_identity=cache_identity,
+            cancel_check=cancel_check,
             local_threshold=local_threshold,
             local_margin=local_margin,
             cache_seconds=cache_seconds,
+            deadline_seconds=deadline_seconds,
         )
     except (TypeError, ValueError) as exc:
         logger.warning("automatic skill recommendation disabled by invalid configuration: %s", type(exc).__name__)

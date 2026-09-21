@@ -39,11 +39,30 @@ MAX_DECISION_REQUESTS = 64
 MAX_TOTAL_QUESTIONS = MAX_QUESTIONS_PER_REQUEST * MAX_DECISION_REQUESTS
 MAX_OPERATION_REQUESTS = 256
 DEFAULT_OPERATION_DEADLINE_SECONDS = 60.0
+# Automatic pre_llm_call advice must finish before a typical Hermes plugin
+# callback budget (~30s). Keep this comfortably below that host timeout and
+# separate from explicit decision / computer-use deadlines (60s).
+DEFAULT_AUTOMATIC_ROUTING_DEADLINE_SECONDS = 20.0
 
 _RESPONSE_FIELDS = frozenset({"model", "answers", "usage", "latency_ms", "request_id"})
 _OPERATION_DEADLINE: ContextVar[float | None] = ContextVar(
     "jev_operation_deadline", default=None
 )
+_HOST_CANCEL_CHECK: ContextVar[Any] = ContextVar(
+    "jev_host_cancel_check", default=None
+)
+
+
+class DeadlineExceeded(TimeoutError):
+    """Aggregate operation wall-clock deadline expired before or between requests."""
+
+
+class LateResultDiscarded(TimeoutError):
+    """Provider work finished after the consumer deadline; the result must not be used."""
+
+
+class HostCancelled(TimeoutError):
+    """Host abandoned the plugin callback; stop further requests."""
 
 
 def _validate_deadline_seconds(value: Any) -> float:
@@ -69,14 +88,39 @@ def operation_deadline_scope(deadline_seconds: float | None):
         _OPERATION_DEADLINE.reset(token)
 
 
+@contextmanager
+def host_cancel_scope(cancel_check: Callable[[], bool] | None):
+    """Install an optional host-cancel predicate for cooperative abort."""
+    if cancel_check is None:
+        yield
+        return
+    token = _HOST_CANCEL_CHECK.set(cancel_check)
+    try:
+        yield
+    finally:
+        _HOST_CANCEL_CHECK.reset(token)
+
+
 def operation_remaining_deadline() -> float | None:
-    """Return remaining aggregate time, or raise once the operation expires."""
+    """Return remaining aggregate time, or raise once the operation expires.
+
+    Also raises ``HostCancelled`` when an installed host-cancel check reports
+    that the consumer abandoned the callback.
+    """
+    cancel_check = _HOST_CANCEL_CHECK.get()
+    if callable(cancel_check):
+        try:
+            cancelled = bool(cancel_check())
+        except Exception:  # noqa: BLE001 -- cancel probes must not mask deadlines
+            cancelled = False
+        if cancelled:
+            raise HostCancelled("host cancelled the plugin callback")
     deadline = _OPERATION_DEADLINE.get()
     if deadline is None:
         return None
     remaining = deadline - time.monotonic()
     if remaining <= 0:
-        raise TimeoutError("Jev aggregate deadline exceeded")
+        raise DeadlineExceeded("Jev aggregate deadline exceeded")
     return remaining
 
 
@@ -309,7 +353,7 @@ class DecisionClient:
         if deadline is not None:
             local_remaining = deadline - time.monotonic()
             if local_remaining <= 0:
-                raise TimeoutError("Jev aggregate deadline exceeded")
+                raise DeadlineExceeded("Jev aggregate deadline exceeded")
             remaining = local_remaining if remaining is None else min(remaining, local_remaining)
         return remaining
 
@@ -352,11 +396,20 @@ class DecisionClient:
         if self.transport is not None:
             try:
                 result = self.transport(payload)
-                self._remaining_deadline()
+            except (DeadlineExceeded, LateResultDiscarded, HostCancelled):
+                raise
             except TimeoutError:
                 raise
             except Exception as exc:  # noqa: BLE001 - never expose transport/payload details
                 raise RuntimeError(f"Jev transport failed: {type(exc).__name__}") from None
+            try:
+                self._remaining_deadline()
+            except DeadlineExceeded as exc:
+                # The consumer can no longer use this response. Discard it and
+                # record a distinct late-result outcome rather than publishing.
+                raise LateResultDiscarded(
+                    "Jev late result discarded after aggregate deadline"
+                ) from exc
             if not isinstance(result, dict):
                 raise TypeError("Jev transport returned a non-object response")
             return _strip_response_controls(result)
@@ -410,6 +463,12 @@ class DecisionClient:
             except (OSError, TimeoutError, http.client.HTTPException) as exc:
                 self._close_connection()
                 raise RuntimeError(f"Jev connection failed: {type(exc).__name__}") from None
+        try:
+            self._remaining_deadline()
+        except DeadlineExceeded as exc:
+            raise LateResultDiscarded(
+                "Jev late result discarded after aggregate deadline"
+            ) from exc
         try:
             result = _strict_json_loads(raw)
         except (TypeError, ValueError, json.JSONDecodeError):
