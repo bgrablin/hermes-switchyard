@@ -651,7 +651,8 @@ class BrowserUseTests(unittest.TestCase):
         self.assertEqual(result["failure_phase"], "operation_deadline")
         self.assertTrue(result["reconcile_before_retry"])
         self.assertEqual(result["attempted_action_count"], 1)
-        self.assertEqual(result["jev_request_count"], 1)
+        self.assertEqual(result["jev_request_count"], 2)
+        self.assertTrue(any(item.get("failed") is True for item in result["decisions"]))
         self.assertEqual(session.clicks, ["1"])
         self.assertEqual(result["url"], dest)
         action = result["actions"][0]
