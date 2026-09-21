@@ -9,7 +9,7 @@ The feature is advisory by default, with an opt-in typed loader consumer:
 - `load` mode invokes Hermes' normal `skill_view` loader once for an accepted exact identifier in a turn;
 - it does not change the system prompt, toolset, active model, provider, credentials, or fallback policy;
 - it uses local token matching for a local-only fallback;
-- the product default is `local_only`; hosted construction requires an explicit `hosted_sanitized` opt-in, `automatic_skill_consumer_mode=load`, persistent acknowledgement, the plugin-owned strict local per-turn scan, and an allowed host `turn_egress_policy` envelope whose bounded `allowed_payload` is the only hosted task text; advisory mode records `consumer_contract_unmet` and never hosts;
+- the product defaults are `hosted_sanitized`, `automatic_skill_consumer_mode=load`, and standing acknowledgement true; hosted construction requires load mode, standing acknowledgement, the plugin-owned strict local per-turn scan, and either an allowed host `turn_egress_policy` envelope (`egress_authority: host_envelope`) or a clean local scan under standing ack (`egress_authority: standing_ack`); advisory mode records `consumer_contract_unmet` and never hosts;
 - persistent acknowledgement is required for standalone hosted mode, but local per-turn scanning remains mandatory and the acknowledgement never overrides restricted content or other controls.
 
 The current plugin manifest is version `0.5.0` and declares `pre_llm_call` in `provides_hooks`.
@@ -21,9 +21,9 @@ For each Hermes user turn, the plugin receives the normal `pre_llm_call` callbac
 - `user_message` for bounded local matching;
 - Hermes' profile-scoped `tools.skills_tool.skills_list()` response as the default local candidate source;
 - explicit configured candidates when `automatic_skill_candidates` is non-empty;
-- the required `turn_egress_policy` envelope when hosted construction is intended (absent or non-allow envelopes fail closed for hosting).
+- an optional `turn_egress_policy` allow envelope when the host classifies the turn; when absent, standing acknowledgement plus a clean local scan authorize hosting; explicit non-allow envelopes still fail closed.
 
-The plugin never uses prior user or assistant messages, or the cached system prompt, as a hosted candidate catalog. The original task is bounded to 4,000 characters for local matching. A hosted call uses only the envelope's bounded `allowed_payload` and exact candidate identifiers. Candidate descriptions, conversation history, and full skill bodies stay local. In default advisory mode, a recommendation is returned to Hermes as ephemeral user-message context:
+The plugin never uses prior user or assistant messages, or the cached system prompt, as a hosted candidate catalog. The original task is bounded to 4,000 characters for local matching. A hosted call uses only the authorized bounded payload (envelope `allowed_payload`, or standing-ack task text) and exact candidate identifiers. Candidate descriptions, conversation history, and full skill bodies stay local. In advisory mode, a recommendation is returned to Hermes as ephemeral user-message context:
 
 ```text
 Advisory skill recommendation: consider the exact skill identifier "..." if it fits this request. The plugin did not load it. Mandatory skills, explicit instructions, safety controls, and the user's preferences take precedence.
@@ -52,7 +52,7 @@ The automatic path has three explicit routing modes:
 | --- | --- | --- |
 | `off` | disabled | never |
 | `local_only` | enabled | never |
-| `hosted_sanitized` | not enabled by default | explicit opt-in; also requires `load` consumer mode, acknowledgement true, and an allowed host envelope |
+| `hosted_sanitized` | install default | requires `load` consumer mode and acknowledgement true; host allow envelope or standing ack + clean local scan |
 
 `local_only` is the product default. Ordinary turns do not construct hosted Jev. Set `automatic_skill_routing_mode` to `hosted_sanitized`, set `automatic_skill_consumer_mode` to `load`, and set `automatic_skill_public_or_sanitized_data_ack` to `true` to explicitly opt in; the attestation default is `false`, and advisory consumer mode cannot authorize hosted work (`consumer_contract_unmet`). The value is not Hermes-owned DLP.
 
@@ -71,15 +71,15 @@ The standalone envelope contract is:
 }
 ```
 
-The accepted envelope shape uses `allow` for `decision`, `public` or `sanitized` for `data_class`, and a non-empty, control-safe `allowed_payload` of at most 4,000 characters. Envelopes containing `deny`, `unknown`, malformed, or restricted values fail closed before `client_factory()` is called. With no envelope, the plugin still scans the bounded task locally for restricted patterns, but a clean scan is classified `unknown` with reason `local_scan_unclassified` and does **not** construct a hosted client—only an explicit host allow envelope may assert `public` or `sanitized`. The local scan flags explicit restricted markings such as `confidential`, `classified`, `export-controlled`, `hipaa`/`phi`, and the explicit `CUI` / `Controlled Unclassified Information` banners. The scan is heuristic, not a comprehensive DLP standard, so a clean scan never implies certified sanitized or authorized content. The envelope is required for hosted construction; the plugin owns its local classification and is not a DLP engine.
+The accepted envelope shape uses `allow` for `decision`, `public` or `sanitized` for `data_class`, and a non-empty, control-safe `allowed_payload` of at most 4,000 characters. Envelopes containing `deny`, `unknown`, malformed, or restricted values fail closed before `client_factory()` is called. With no envelope and standing acknowledgement true, the plugin scans the bounded task locally for restricted patterns; a clean scan authorizes hosting with `egress_authority: standing_ack` and `reason_code: standing_ack_allowed` (bounded task text is the hosted payload). Restricted scan hits still fail closed. The local scan flags explicit restricted markings such as `confidential`, `classified`, `export-controlled`, `hipaa`/`phi`, and the explicit `CUI` / `Controlled Unclassified Information` banners. The scan is heuristic, not a comprehensive DLP standard, so a clean scan never implies certified sanitized or authorized content beyond the operator's standing acknowledgement. The plugin owns its local classification and is not a DLP engine.
 
-When the envelope is allowed and `automatic_skill_jev_mode` is `always`, Jev is called even when local matching is confident. `uncertain_only` is an explicit latency-saving override. The automatic hosted state contains only the allowed payload and candidate identifiers. It contains no candidate descriptions, conversation history, or skill bodies. Before hosted work, a confidence-bounded `local_prefilter_shortlist` may reduce large catalogs when the score cutoff is clear. In `uncertain_only` mode, a cheap `local_no_skill_gate` may abstain when lexical overlap is near zero. Insufficient margin fails closed to complete-catalog partition fan-out and recursive reduction; the provider's 255-option Choice limit is not a catalog limit. Receipts record which shortlist policy ran.
+When hosting is authorized (host envelope or standing ack) and `automatic_skill_jev_mode` is `always`, Jev is called even when local matching is confident. `uncertain_only` is an explicit latency-saving override. The automatic hosted state contains only the allowed payload and candidate identifiers. It contains no candidate descriptions, conversation history, or skill bodies. Before hosted work, a confidence-bounded `local_prefilter_shortlist` may reduce large catalogs when the score cutoff is clear. In `uncertain_only` mode, a cheap `local_no_skill_gate` may abstain when lexical overlap is near zero. Insufficient margin fails closed to complete-catalog partition fan-out and recursive reduction; the provider's 255-option Choice limit is not a catalog limit. Receipts record which shortlist policy ran.
 
 A valid hosted abstention is terminal for that turn and does not fall back to the local winner. A transport or client failure is unavailable and may preserve a local recommendation. Automatic results expose redacted `routing_status` and `routing_reason` metadata; they never expose task text, policy payload, descriptions, history, skill bodies, provider exception text, or credentials.
 
 ### Host-provided per-turn envelope
 
-Hosted automatic routing requires the host to forward a typed allow envelope on the existing invocation:
+Hosts may forward a typed allow envelope on the existing invocation:
 
 ```python
 _invoke_hook(
@@ -89,7 +89,7 @@ _invoke_hook(
 )
 ```
 
-The host must forward only a typed envelope; the plugin still enforces standing acknowledgement, local policy, and redacted receipts. Envelope evaluation (when hosted mode is selected) still runs so redacted policy metadata can be recorded, but advisory consumer mode skips hosted client construction as `consumer_contract_unmet`. In `load` mode, when the envelope is absent, denied, unknown, malformed, or restricted, hosted construction is skipped (`local_scan_unclassified` for a clean scan with no envelope). Local matching may still run because it does not cross the boundary. Current Hermes core may not yet propagate the envelope on every path; until it does, hosted automatic routing stays fail-closed even when `hosted_sanitized`, load mode, and acknowledgement are set.
+When present, the host must forward only a typed envelope; the plugin still enforces standing acknowledgement, local policy, and redacted receipts. Envelope evaluation (when hosted mode is selected) still runs so redacted policy metadata can be recorded, but advisory consumer mode skips hosted client construction as `consumer_contract_unmet`. In `load` mode with standing acknowledgement true and no envelope, a clean local scan allows hosting (`egress_authority: standing_ack`). Denied, unknown, malformed, or restricted envelopes still skip hosting. Local matching may still run because it does not cross the boundary. Current Hermes core may not yet propagate the envelope on every path; standing acknowledgement covers that gap for clean turns without inventing a second policy language.
 
 ## Routing receipts and diagnostics
 
@@ -115,16 +115,16 @@ All settings are profile-scoped under `plugins.entries.hermes-switchyard.setting
 | Key | Default | Effect |
 | --- | ---: | --- |
 | `automatic_skill_recommendation` | `true` | Register the automatic `pre_llm_call` hook. Set `false` to disable the feature. |
-| `automatic_skill_consumer_mode` | `advisory` | `advisory` injects recommendation context and cannot authorize hosted construction (`consumer_contract_unmet`). `load` invokes Hermes' normal skill loader once per accepted turn, exposes typed load readback, and is required for hosted Jev. |
+| `automatic_skill_consumer_mode` | `load` | `advisory` injects recommendation context and cannot authorize hosted construction (`consumer_contract_unmet`). `load` invokes Hermes' normal skill loader once per accepted turn, exposes typed load readback, and is required for hosted Jev. |
 | `automatic_skill_candidates` | `[]` | Explicit list of strings or `{name, description}` objects. Empty means use the full Hermes active profile `skills_list()` registry. |
 | `automatic_skill_local_threshold` | `0.20` | Minimum local token-overlap score. Clamped to `[0, 1]`. |
 | `automatic_skill_local_margin` | `0.05` | Minimum gap between the top two local candidates. Clamped to `[0, 1]`. |
 | `automatic_skill_cache_seconds` | `30.0` | Per-process recommendation cache lifetime. Clamped to `[0, 300]`. |
 | `automatic_skill_deadline_seconds` | `20.0` | End-to-end automatic hosted routing deadline. Kept below the typical Hermes ~30s callback timeout; separate from explicit tool deadlines. |
-| `automatic_skill_routing_mode` | `local_only` | `off`, `local_only`, or `hosted_sanitized`. Hosted mode requires explicit opt-in, `automatic_skill_consumer_mode=load`, and an allowed host `turn_egress_policy` envelope. |
+| `automatic_skill_routing_mode` | `hosted_sanitized` | `off`, `local_only`, or `hosted_sanitized`. Hosted mode requires `automatic_skill_consumer_mode=load`, standing acknowledgement, and either a host allow envelope or a clean local scan. |
 | `automatic_skill_jev` | `true` | Deprecated compatibility switch retained for configuration compatibility. It never authorizes hosted egress; set `automatic_skill_routing_mode` to `hosted_sanitized` for explicit opt-in. |
 | `automatic_skill_jev_mode` | `always` | Evaluate the full catalog on every allowed turn. `uncertain_only` is an explicit latency-saving override. |
-| `automatic_skill_public_or_sanitized_data_ack` | `false` | Explicit operator attestation required before hosted automatic routing sends bounded task and candidate identifiers to Jev. The `local_only` default never constructs hosted Jev; hosted routing additionally requires `hosted_sanitized` routing mode. Set `true` to attest and enable. This is not DLP; private, employer, regulated, credential, payment, or verification content remains prohibited. |
+| `automatic_skill_public_or_sanitized_data_ack` | `true` | Explicit operator attestation required before hosted automatic routing sends bounded task and candidate identifiers to Jev. The `local_only` default never constructs hosted Jev; hosted routing additionally requires `hosted_sanitized` routing mode. Set `true` to attest and enable. This is not DLP; private, employer, regulated, credential, payment, or verification content remains prohibited. |
 | `automatic_skill_mandatory_skills` | `[]` | Exact skill identifiers treated as mandatory. In `load` mode, a different recommendation is not auto-loaded and is recorded as `mandatory_conflict`. |
 
 Configuration is read when the plugin registers. Start a fresh Hermes process after changing these settings; an existing process may retain the previous hook and values.
@@ -144,7 +144,7 @@ Configuration is read when the plugin registers. Start a fresh Hermes process af
 
 The fallback local path sends no automatic recommendation request to Jev. The current task still enters the user's selected Hermes model through the normal turn, so local matching is not a DLP control.
 
-The automatic hosted path sends only the host-approved envelope `allowed_payload` and exact candidate identifiers to the selected Jev endpoint. Candidate descriptions, conversation history, and full skill bodies remain local. A successful plugin-owned classification does not establish provider retention, residency, or zero-data-retention properties.
+The automatic hosted path sends only the authorized bounded payload and exact candidate identifiers to the selected Jev endpoint. Candidate descriptions, conversation history, and full skill bodies remain local. A successful plugin-owned classification does not establish provider retention, residency, or zero-data-retention properties.
 
 The selected credential is separate from a Codex or ChatGPT subscription. Save either provider key through Switchyard's masked setup command; never put a key in a URL, shell history, config value, repository file, or issue report.
 
@@ -180,7 +180,7 @@ A successful local smoke can be run without a TypeSafe or OpenRouter account:
 hermes chat -q "Diagnose an exiting Docker Compose container"
 ```
 
-If the current profile's `skills_list()` registry contains a matching skill, advisory mode adds a recommendation for `docker-management`. Load mode instead returns the body read through Hermes' normal loader and reports an exact typed load result. Automatic routing is local-only after install. To opt into hosted Jev, set `hosted_sanitized`, `automatic_skill_consumer_mode=load`, acknowledgement true, and forward an allowed `turn_egress_policy` envelope. Advisory mode alone records `consumer_contract_unmet`. In load mode without an envelope, hosted construction stays skipped as `local_scan_unclassified`.
+If the current profile's `skills_list()` registry contains a matching skill, advisory mode adds a recommendation for `docker-management`. Load mode (install default) instead returns the body read through Hermes' normal loader and reports an exact typed load result. Automatic routing is `hosted_sanitized` after install. Opt down to `local_only` / `advisory` for privacy. Advisory mode alone records `consumer_contract_unmet`. In load mode without an envelope, a clean local scan allows hosting with `egress_authority: standing_ack`.
 
 The local hook can abstain when the registry is empty, no candidate overlap exists, or the top match is ambiguous. Abstention is normal behavior, not a failed skill load.
 
@@ -201,14 +201,14 @@ hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_jev
 
 A plain `hermes chat` smoke in that advisory configuration still exercises local matching only: the routing receipt reports `hosted_skip_reason=consumer_contract_unmet` and no hosted client is constructed.
 
-Then enable the load consumer and standing acknowledgement for the missing-envelope and hosted paths:
+Install defaults already enable load consumer and standing acknowledgement. To exercise the missing-envelope standing-ack path, keep those defaults:
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_consumer_mode load
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack true
 ```
 
-Use only a task and configured metadata that are public or already sanitized. Start a fresh process. With load mode and acknowledgement true but no host-forwarded `turn_egress_policy`, the receipt reports `hosted_skip_reason=local_scan_unclassified` (transient result uses `hosted_skipped`). To exercise hosted construction, keep load mode and have the host forward an allowed envelope such as:
+Use only a task and configured metadata that are public or already sanitized. Start a fresh process. With load mode and acknowledgement true but no host-forwarded `turn_egress_policy`, a clean local scan allows hosted construction and redacted metadata reports `egress_authority=standing_ack` / `policy_reason=standing_ack_allowed`. To exercise host-envelope authorization, have the host forward an allowed envelope such as:
 
 ```json
 {"version":1,"decision":"allow","data_class":"sanitized","reason_code":"host_policy_allowed","allowed_payload":"Diagnose an exiting Docker Compose container"}

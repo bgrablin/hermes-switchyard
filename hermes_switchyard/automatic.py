@@ -1,24 +1,24 @@
 """Automatic, bounded skill routing through Hermes ``pre_llm_call``.
 
-The hook defaults to advisory mode. Its opt-in typed consumer can load one
-accepted skill through Hermes' normal ``skill_view`` loader without changing a
-toolset or rewriting the cached system prompt. Local matching supplies a
-deterministic fallback and a measured prefilter for hosted fan-out. Automatic
-routing defaults to local-only matching. Hosted Jev is available only when
-``hosted_sanitized`` mode is explicitly selected *and* the consumer can adopt
-(``load`` mode). Advisory recommendations never authorize hosted work: delivery
-alone is not adoption. Standing acknowledgement is retained for explicit hosted
-opt-in; it does not authorize hosted automatic routing by itself. Hosted
-construction also requires an explicit host per-turn allow envelope
-(``turn_egress_policy``); a clean local scan is ``unknown`` /
-``local_scan_unclassified`` and fails closed. The automatic hosted payload then
-contains only the envelope's bounded ``allowed_payload`` and exact candidate
-identifiers. Conversation history, candidate descriptions, and full skill bodies
-stay local. Before hosted partition fan-out, a confidence-bounded shortlist may
-reduce the candidate set, and ``uncertain_only`` may apply a cheap local
-no-skill gate; insufficient margin fails closed to the full catalog. Receipts
-record whether ``local_no_skill_gate``, ``local_prefilter_shortlist``, or full
-recall ran.
+The hook defaults to ``load`` consumer mode with ``hosted_sanitized`` routing.
+It can load one accepted skill through Hermes' normal ``skill_view`` loader
+without changing a toolset or rewriting the cached system prompt. Local
+matching supplies a deterministic fallback and a measured prefilter for hosted
+fan-out. Hosted Jev runs when ``hosted_sanitized`` is selected, the consumer can
+adopt (``load`` mode), standing acknowledgement is true, and either a host
+allow envelope is present or the local restricted-pattern scan is clean
+(``egress_authority: standing_ack``). Advisory recommendations never authorize
+hosted work: delivery alone is not adoption. Explicit deny, unknown, malformed,
+or restricted host envelopes still fail closed; restricted local scans still
+fail closed. When a host allow envelope is present, the automatic hosted
+payload contains only the envelope's bounded ``allowed_payload`` and exact
+candidate identifiers; under standing ack with no envelope, the bounded local
+task text that passed the scan is used instead. Conversation history, candidate
+descriptions, and full skill bodies stay local. Before hosted partition
+fan-out, a confidence-bounded shortlist may reduce the candidate set, and
+``uncertain_only`` may apply a cheap local no-skill gate; insufficient margin
+fails closed to the full catalog. Receipts record whether
+``local_no_skill_gate``, ``local_prefilter_shortlist``, or full recall ran.
 
 Every automatic turn records delivery, adoption, and outcome separately.
 Outcome stays ``unverified`` at the plugin boundary so delivery is never claimed
@@ -49,6 +49,9 @@ from .client import (
     host_cancel_scope,
 )
 from .egress import (
+    DEFAULT_CONSUMER_MODE,
+    DEFAULT_ROUTING_MODE,
+    EGRESS_AUTHORITY_STANDING_ACK,
     ROUTING_MODES,
     TurnEgressEvaluation,
     evaluate_turn_egress_policy,
@@ -456,9 +459,14 @@ class AutomaticSkillRecommender:
         )
         # ``hosted_enabled`` is retained only for callers using the legacy
         # constructor API. The plugin registration path always supplies an
-        # explicit mode, whose unset configuration fallback is local-only.
+        # explicit mode; unset configuration falls back to DEFAULT_ROUTING_MODE.
         if routing_mode is None:
-            routing_mode = "hosted_sanitized" if hosted_enabled is True else "local_only"
+            if hosted_enabled is True:
+                routing_mode = "hosted_sanitized"
+            elif hosted_enabled is False:
+                routing_mode = "local_only"
+            else:
+                routing_mode = DEFAULT_ROUTING_MODE
         if not is_routing_mode(routing_mode):
             raise ValueError(f"routing_mode must be one of {sorted(ROUTING_MODES)!r}")
         self.routing_mode = routing_mode
@@ -466,8 +474,10 @@ class AutomaticSkillRecommender:
         if hosted_mode not in {"uncertain_only", "always"}:
             raise ValueError("hosted_mode must be 'uncertain_only' or 'always'")
         self.hosted_mode = hosted_mode
-        # Standing acknowledgement is on after install. recommend() returns
+        # Standing acknowledgement defaults on after install. recommend() returns
         # ack_required and skips the client only when it is explicitly false.
+        # When true and no host envelope is supplied, a clean local scan allows
+        # hosted construction with egress_authority=standing_ack.
         self.public_or_sanitized_data_ack = public_or_sanitized_data_ack is True
         self.client_factory = client_factory
         self.cache_identity = cache_identity
@@ -691,20 +701,22 @@ class AutomaticSkillRecommender:
                     version=1,
                 )
             else:
-                # The local scan is a bounded restricted-pattern blocklist,
-                # not a positive classifier. Finding no restricted pattern
-                # means the data class is unknown, not "sanitized" -- only an
-                # explicit host per-turn policy may assert "sanitized". Fail
-                # closed here the same way an explicit unknown policy does.
+                # No host envelope: standing operator acknowledgement plus a
+                # clean local restricted-pattern scan authorize hosting. The
+                # scan is a blocklist, not a positive classifier; restricted
+                # hits still fail closed. Authorization is recorded as
+                # egress_authority=standing_ack (not a second policy language).
                 scan_reason = _local_scan_reason(task, task_text)
                 if scan_reason is None:
                     evaluation = TurnEgressEvaluation(
-                        allowed=False,
-                        decision="unknown",
-                        data_class="unknown",
-                        status="unknown",
-                        reason_code="local_scan_unclassified",
+                        allowed=True,
+                        decision="allow",
+                        data_class="sanitized",
+                        status="allowed",
+                        reason_code="standing_ack_allowed",
+                        allowed_payload=task_text,
                         version=1,
+                        egress_authority=EGRESS_AUTHORITY_STANDING_ACK,
                     )
                 else:
                     evaluation = TurnEgressEvaluation(
@@ -825,8 +837,9 @@ class AutomaticSkillRecommender:
             result["routing_status"] = "hosted_skipped"
             result["routing_reason"] = "client_unavailable"
         else:
-            # Only the host-provided bounded payload crosses this boundary. The
-            # original task, history, descriptions, and skill bodies do not.
+            # Only the authorized bounded payload crosses this boundary (host
+            # envelope allowed_payload, or standing-ack task text). History,
+            # descriptions, and skill bodies do not.
             result["hosted_attempted"] = True
             # Intervention timeout is separate from the 60s explicit-tool /
             # computer-use deadline and from the per-request provider I/O timeout.
@@ -1001,7 +1014,8 @@ def redacted_routing_metadata(result: Mapping[str, Any]) -> dict[str, Any]:
         "routing_mode", "routing_status", "routing_reason", "status", "source",
         "selected", "hosted_attempted", "hosted_skipped", "hosted_error_code",
         "candidate_count", "cache_hit", "policy_status", "policy_reason",
-        "policy_data_class", "policy_version", "intervention_deadline_seconds",
+        "policy_data_class", "policy_version", "egress_authority",
+        "intervention_deadline_seconds",
     )
     metadata: dict[str, Any] = {}
     for field in fields:
@@ -1335,7 +1349,7 @@ def build_pre_llm_call_hook(
     local_margin: float = DEFAULT_LOCAL_MARGIN,
     cache_seconds: float = DEFAULT_CACHE_SECONDS,
     deadline_seconds: float = DEFAULT_AUTOMATIC_DEADLINE_SECONDS,
-    consumer_mode: str = "advisory",
+    consumer_mode: str = DEFAULT_CONSUMER_MODE,
     skill_loader: Callable[..., str] | None = None,
     mandatory_skills: Any = (),
 ) -> Callable[..., dict[str, Any] | None] | None:
