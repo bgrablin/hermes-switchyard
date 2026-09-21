@@ -14,7 +14,9 @@ Every DOM result reports what actually ran:
 | Field | Meaning |
 | --- | --- |
 | `backend` | `chromium_dom`, the only DOM implementation |
-| `session_mode` | `ephemeral_fresh_profile`, a per-run profile removed on close |
+| `session_mode` | `headless_ephemeral`, a per-run profile removed on close |
+| `capabilities` | the explicit capability set for this backend and mode |
+| `session_identity` | `mode`, `profile` (`fresh_ephemeral`), `context_generation` (always `1` here), `tab` (`single_tab`) |
 | `browser` | `chromium`, `chrome`, or `edge` |
 | `browser_confinement` | `none` or `snap` |
 | `session_setup_ms` | measured launch and page-ready time for this call |
@@ -22,8 +24,10 @@ Every DOM result reports what actually ran:
 
 The backend never attaches to a user browser profile. Each call launches a fresh
 headless profile with restrictive permissions and removes only the directory it
-created. A caller that needs an authenticated or already open session must use the
-native `computer_use` path instead.
+created. The session-mode vocabulary is `headless_ephemeral`,
+`managed_persistent`, and `attached_existing_user_browser`; this backend
+implements only `headless_ephemeral`. A caller that needs an authenticated or
+already open session must use the native `computer_use` path instead.
 
 ## Supported operations
 
@@ -37,12 +41,14 @@ provider request, so no Jev requests are spent discovering the mismatch:
 | --- | --- |
 | `dom_text_input_unsupported` | `text_inputs` supplied for a web goal, or the goal states typing into a field |
 | `dom_file_upload_unsupported` | the goal states an upload or attachment requirement |
-| `dom_authentication_unsupported` | the goal states a sign-in, password, or verification-code requirement |
+| `dom_authentication_unsupported` | the goal states a sign-in, sign-up, registration, authentication, password, or verification-code requirement |
 | `dom_existing_session_unsupported` | the goal asks for an existing, already open, or signed-in browser session |
 | `dom_hotkey_unsupported` | `allowed_hotkeys` supplied for a web goal |
 
 `unsupported_capability` is not a fallback and not a partial success. It reports a
-capability boundary and names the caller's next option.
+capability boundary and names the caller's next option. The capability set is also
+reported on every receipt as `capabilities`, so a caller can see the whole set and
+not just the mismatch.
 
 ## Completion predicates
 
@@ -71,11 +77,15 @@ done" stays visible. Independent verification remains coordinator-owned.
 
 ## Target offering and progress
 
-Snapshots offer up to 48 targets. Offering is scroll-relative: targets in the
-viewport come first, then targets within one viewport of it, then the remaining
-targets ordered by distance from the current viewport. Scrolling therefore advances
-the offered window instead of re-offering the top of the document, and a target that
-was not offered in the first snapshot becomes reachable after scrolling.
+Snapshots offer up to 48 targets. Candidate scanning is windowed around the
+current viewport: only targets within a bounded window (three viewport heights)
+above or below the viewport are considered, so on a long page the scan follows
+the viewport instead of stopping at a fixed document-order prefix. Offering is
+scroll-relative: targets in the viewport come first, then targets within one
+viewport of it, then the remaining considered targets ordered by distance from
+the current viewport. Scrolling therefore advances the offered window instead of
+re-offering the top of the document, and a target that was not offered in the
+first snapshot becomes reachable by scrolling toward it.
 
 Targets keep a stable identity across scrolls and recaptures, because the snapshot
 assigns each element one identifier from a per-document registry instead of
@@ -122,6 +132,16 @@ attempted. A provider timeout, malformed response, validation failure, deadline
 exit, startup failure, or unexpected error reports `failure_phase`,
 `failure_reason`, `attempted_request_count`, `last_state_hash`, and
 `reconcile_before_retry` rather than collapsing into a generic plugin error.
+
+## Decision gating
+
+A provider choice carries its own confidence and a probability distribution over
+the alternatives. Before any action is dispatched, the loop checks both: a choice
+whose confidence is below the configured floor, or whose margin over the
+runner-up is too small to be decisive, abstains with `failure_phase:
+low_confidence` or `ambiguous_decision` and dispatches nothing. The floors are
+conservative for the public-navigation risk class and are single-sourced module
+constants, not values copied from another task.
 
 ## Verification status
 
