@@ -134,6 +134,7 @@ _SNAPSHOT_JS = """(() => {
     if (!id) { id = String(registry.next++); registry.ids.set(el, id); }
     return id;
   }
+  const clickRegistry = window.__hermesSwitchyardClickNodes || (window.__hermesSwitchyardClickNodes = new Map());
   const viewportHeight = window.innerHeight || 800;
   const scrollY = Math.round(window.scrollY || window.pageYOffset || 0);
   function placementOf(el) {
@@ -199,6 +200,9 @@ _SNAPSHOT_JS = """(() => {
   for (const item of candidates) { if (item.placement.inViewport) inViewport += 1; }
   const elements = offered.map(item => {
     const id = stableId(item.el);
+    // The click lookup resolves through this private registry, not a page-mutable
+    // selector, so a predeclared duplicate attribute can never steal a click.
+    clickRegistry.set(id, item.el);
     item.el.setAttribute("data-jev-id", id);
     return {
       id,
@@ -1038,12 +1042,42 @@ def _run_browser_loop(
                         reconcile_before_retry=bool(actions),
                     )
                 target_id = matched["id"]
+                # The provider call can take long enough for a navigation to be
+                # refused while it decided, so the fatal guard is rechecked after
+                # the fresh capture and immediately before dispatch.
+                blocked_before = _fatal_destination_violation(session)
+                if blocked_before is not None:
+                    return finish(
+                        page=fresh,
+                        status="blocked",
+                        failure_phase="destination_blocked",
+                        failure_reason=str(blocked_before.get("code") or "destination_blocked"),
+                        reconcile_before_retry=bool(actions),
+                    )
                 session.click(target_id, label=matched["label"], href=matched["href"])
                 action_dispatched = True
             elif operation in {"SCROLL_DOWN", "SCROLL_UP"}:
+                blocked_before = _fatal_destination_violation(session)
+                if blocked_before is not None:
+                    return finish(
+                        page=page,
+                        status="blocked",
+                        failure_phase="destination_blocked",
+                        failure_reason=str(blocked_before.get("code") or "destination_blocked"),
+                        reconcile_before_retry=bool(actions),
+                    )
                 session.scroll("down" if operation == "SCROLL_DOWN" else "up")
                 action_dispatched = True
             else:
+                blocked_before = _fatal_destination_violation(session)
+                if blocked_before is not None:
+                    return finish(
+                        page=page,
+                        status="blocked",
+                        failure_phase="destination_blocked",
+                        failure_reason=str(blocked_before.get("code") or "destination_blocked"),
+                        reconcile_before_retry=bool(actions),
+                    )
                 session.wait(0.2)
                 action_dispatched = True
             after = session.observe()
@@ -1673,8 +1707,8 @@ class ChromiumSession:
         expected_href = json.dumps(href)
         clicked = self._evaluate(
             f"""(() => {{
-              const el = document.querySelector('[data-jev-id="{element_id}"]');
-              if (!el) return {{ok: false}};
+              const el = (window.__hermesSwitchyardClickNodes || new Map()).get("{element_id}");
+              if (!el || !el.isConnected) return {{ok: false}};
               const liveLabel = String(el.innerText || el.getAttribute("aria-label") || "").replace(/\\s+/g, " ").trim().slice(0, 120);
               const liveHref = String(el.href || el.getAttribute("href") || "");
               if ({expected_label} && liveLabel !== {expected_label}) return {{ok: false}};
@@ -2013,7 +2047,10 @@ def _browser_profile_dir(binary: Path | str | None = None) -> tempfile.Temporary
         probe = None
     else:
         probe = binary
-    if probe is not None and _is_snap_chromium(probe):
+    # The merged detector also classifies ``exec snap run chromium`` wrappers
+    # that the path-only check misses, so the confined profile is placed inside
+    # ~/snap/chromium/common for every confined entry point.
+    if probe is not None and _is_snap_confined(probe):
         common = Path.home() / "snap" / "chromium" / "common"
         try:
             common.mkdir(parents=True, exist_ok=True)

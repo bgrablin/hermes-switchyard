@@ -308,28 +308,6 @@ def _origin(url: str) -> tuple[str, str, int | None]:
     except ValueError:
         return "", "", None
 
-_FETCH_PATTERNS = [{"urlPattern": "*", "requestStage": "Request"}]
-_AUTO_ATTACH = {"autoAttach": True, "waitForDebuggerOnStart": True, "flatten": True}
-# A dedicated worker rejects Fetch.enable, and the requests it makes are paused
-# on the parent page's session, so the parent's interception already covers it.
-_PARENT_COVERED_TARGETS = frozenset({"worker"})
-_OBSERVED_METHODS = frozenset(
-    {
-        "Fetch.requestPaused",
-        "Target.attachedToTarget",
-        "Network.responseReceived",
-        "Network.webSocketCreated",
-    }
-)
-
-
-def _origin(url: str) -> tuple[str, str, int | None]:
-    try:
-        parts = urlsplit(url)
-        return parts.scheme.casefold(), (parts.hostname or "").casefold(), parts.port
-    except ValueError:
-        return "", "", None
-
 
 def _connect_pinned(address: str, port: int, timeout: float) -> socket.socket:
     """Dial an address literal. A hostname is refused so nothing is resolved here."""
@@ -825,6 +803,11 @@ class DestinationGuard:
         pending: set[int] = set()
         early_messages: list[dict[str, Any]] = []
         try:
+            # The child record exists before any setup send, so an ack processed
+            # between _register_setup and this publication finds its owner and is
+            # consumed inline instead of being lost to a missing child record.
+            with self._lock:
+                self._child_pending[session_id] = {"waiting": waiting, "pending": set()}
             for method, body in self.root_setup():
                 if covered and method == "Fetch.enable":
                     continue
@@ -837,10 +820,12 @@ class DestinationGuard:
                         self._setup_expecting = None
                 early = self._register_setup(message_id, session_id)
                 pending.add(message_id)
+                with self._lock:
+                    child = self._child_pending.get(session_id)
+                    if child is not None:
+                        child["pending"].add(message_id)
                 if early is not None:
                     early_messages.append(early)
-            with self._lock:
-                self._child_pending[session_id] = {"waiting": waiting, "pending": set(pending)}
             for early in early_messages:
                 self._consume_setup_ack(early, session_id)
             with self._lock:
@@ -1058,7 +1043,22 @@ class DestinationGuard:
 
     def report(self) -> dict[str, Any]:
         with self._lock:
+            # The bounded report must surface the terminal refusal: when the
+            # latest fatal violation falls outside the first window, it replaces
+            # the oldest nonfatal entry instead of being absent from the receipt.
             blocked = [dict(item) for item in self._violations[:MAX_REPORTED_VIOLATIONS]]
+            latest = self._latest_fatal
+            if (
+                latest is not None
+                and MAX_REPORTED_VIOLATIONS < len(self._violations)
+                and latest["seq"] > self._violations[MAX_REPORTED_VIOLATIONS - 1]["seq"]
+            ):
+                for index in range(MAX_REPORTED_VIOLATIONS - 1, -1, -1):
+                    if not blocked[index].get("fatal"):
+                        blocked[index] = dict(latest)
+                        break
+                else:
+                    blocked[-1] = dict(latest)
             return {
                 "policy": POLICY_NAME,
                 "version": POLICY_VERSION,
