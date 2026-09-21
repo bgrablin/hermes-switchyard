@@ -57,12 +57,20 @@ TOOL_TOOLSETS = {
 # under a different toolset without raising.
 _REGISTERED_HANDLERS: dict[str, Any] = {}
 
+# Resolves the provider the configured route uses, so status can check that provider's key
+# instead of any key. Set by register(); absent in a process where register() never ran.
+_ROUTE_STATUS: dict[str, Any] = {}
+
+# Providers a Jev route can resolve to, each with its own credential.
+PROVIDERS = ("typesafe", "openrouter")
+
 
 def reset_runtime_status() -> None:
     """Clear register-time status. Tests use this to model a fresh process."""
     _RUNTIME_STATUS.clear()
     _RUNTIME_STATUS.update(_UNREGISTERED_RUNTIME_STATUS)
     _REGISTERED_HANDLERS.clear()
+    _ROUTE_STATUS.clear()
 
 
 def _publish_runtime_status(
@@ -126,6 +134,7 @@ def _load_hermes_seams() -> SimpleNamespace:
         resolve_toolset=None,
         validate_toolset=None,
         default_selection=None,
+        disabled_toolsets=None,
     )
     try:
         from tools.registry import registry
@@ -164,31 +173,56 @@ def _load_hermes_seams() -> SimpleNamespace:
 
         return "platform_default", sorted(str(name) for name in _get_platform_tools(config, "cli"))
 
+    def disabled_toolsets():
+        """Return agent.disabled_toolsets, which Hermes' CLI applies to every session it starts."""
+        from agent.skill_utils import parse_config_string_list
+        from hermes_cli.config import load_config
+
+        agent_config = (load_config() or {}).get("agent") or {}
+        names = parse_config_string_list(agent_config.get("disabled_toolsets"))
+        return [str(name).strip() for name in names if str(name).strip()]
+
     seams.default_selection = default_selection
+    seams.disabled_toolsets = disabled_toolsets
     return seams
 
 
 def _resolve_selection(seams: SimpleNamespace, requested: Any) -> dict[str, Any]:
-    """Return the toolset selection to evaluate: an explicit pin, else Hermes' CLI default."""
+    """Return the toolset selection to evaluate: an explicit pin, else Hermes' CLI default.
+
+    Hermes subtracts the configured agent.disabled_toolsets from every CLI session, including
+    one with an explicit pin, so that list is part of the selection.
+    """
     text = str(requested).strip() if requested is not None else ""
     if text:
         source = "explicit_toolsets"
         enabled = [part.strip() for part in text.split(",") if part.strip()]
     else:
         source, enabled = seams.default_selection()
+    disabled_source = getattr(seams, "disabled_toolsets", None)
+    disabled = list(disabled_source()) if disabled_source is not None else []
     unknown: list[str] = []
     if seams.validate_toolset is not None:
         unknown = [name for name in enabled if not seams.validate_toolset(name)]
-    return {"source": source, "enabled_toolsets": enabled, "unknown_toolsets": unknown}
+    return {
+        "source": source,
+        "enabled_toolsets": enabled,
+        "disabled_toolsets": disabled,
+        "unknown_toolsets": unknown,
+    }
 
 
-def _catalog_names(seams: SimpleNamespace, enabled_toolsets: list[str]) -> set[str]:
+def _catalog_names(seams: SimpleNamespace, enabled_toolsets: list[str], disabled_toolsets: list[str]) -> set[str]:
     """Return the tool names in the catalog Hermes builds for a session with these toolsets.
 
     This is the un-deferred catalog that Tool Search's tool_describe and tool_call check
     against, so a name missing here is "not found in the session's callable catalog".
     """
-    arguments = {"enabled_toolsets": list(enabled_toolsets), "disabled_toolsets": None, "quiet_mode": True}
+    arguments = {
+        "enabled_toolsets": list(enabled_toolsets),
+        "disabled_toolsets": list(disabled_toolsets) or None,
+        "quiet_mode": True,
+    }
     try:
         definitions = seams.get_tool_definitions(skip_tool_search_assembly=True, **arguments)
     except TypeError:  # a Hermes without Tool Search has no deferred catalog to skip
@@ -235,10 +269,14 @@ def _unavailable_exposure(reason: str) -> dict[str, Any]:
 
 
 def _exposure_failure_reason(
-    seams: SimpleNamespace, entry: Any, enabled_toolsets: list[str], tool_name: str
+    seams: SimpleNamespace, entry: Any, selection: dict[str, Any], tool_name: str
 ) -> str:
     """Explain why a tool this plugin registered is absent from the session catalog."""
-    if _selection_reaches(seams, enabled_toolsets, tool_name) is False:
+    # Suppression is checked first: adding the toolset to --toolsets cannot help while
+    # agent.disabled_toolsets names it, because Hermes subtracts that list last.
+    if _selection_reaches(seams, selection["disabled_toolsets"], tool_name) is True:
+        return "toolset_disabled"
+    if _selection_reaches(seams, selection["enabled_toolsets"], tool_name) is False:
         return "toolset_not_selected"
     check = getattr(entry, "check_fn", None)
     if check is not None:
@@ -283,7 +321,7 @@ def _tool_exposure_report(requested_toolsets: Any = None, *, seams: SimpleNamesp
             report["unavailable_reason"] = "hermes_catalog_unavailable"
         else:
             try:
-                catalog = _catalog_names(seams, selection["enabled_toolsets"])
+                catalog = _catalog_names(seams, selection["enabled_toolsets"], selection["disabled_toolsets"])
             except Exception:  # noqa: BLE001
                 report["unavailable_reason"] = "catalog_query_failed"
     if catalog is not None:
@@ -303,18 +341,43 @@ def _tool_exposure_report(requested_toolsets: Any = None, *, seams: SimpleNamesp
         if catalog is not None:
             tool["callable"] = name in catalog
             if tool["registered"] is True and tool["callable"] is False:
-                tool["reason"] = _exposure_failure_reason(seams, entry, selection["enabled_toolsets"], name)
+                tool["reason"] = _exposure_failure_reason(seams, entry, selection, name)
     return report
 
 
-def _overall_status(credential_presence: dict[str, bool], exposure: dict[str, Any]) -> str:
+def _effective_provider() -> str | None:
+    """Return the provider the configured route uses, or None when it cannot be resolved."""
+    resolver = _ROUTE_STATUS.get("effective_provider")
+    if resolver is None:
+        return None
+    try:
+        provider = resolver()
+    except Exception:  # noqa: BLE001 -- an invalid route is reported through the tools' own checks
+        return None
+    return provider if provider in PROVIDERS else None
+
+
+def _credential_ready(credential_presence: dict[str, bool], effective_provider: str | None) -> bool:
+    """Return whether the key the configured route needs exists.
+
+    A key for the other provider does not count: a route that resolves to one provider cannot
+    use the other provider's key. When the route cannot be resolved, any key is accepted.
+    """
+    if effective_provider in credential_presence:
+        return bool(credential_presence[effective_provider])
+    return any(credential_presence.values())
+
+
+def _overall_status(
+    credential_presence: dict[str, bool], exposure: dict[str, Any], effective_provider: str | None = None
+) -> str:
     """Collapse tool exposure and credentials into one readiness word, worst problem first."""
     states = list(exposure["tools"].values())
     if any(state["registered"] is False for state in states):
         return "tools_not_registered"
     if any(state["callable"] is False for state in states):
         return "tools_not_callable"
-    if not any(credential_presence.values()):
+    if not _credential_ready(credential_presence, effective_provider):
         return "credential_required"
     if any(state["registered"] is None or state["callable"] is None for state in states):
         return "exposure_unverified"
@@ -330,6 +393,10 @@ _EXPOSURE_ADVICE = {
     "toolset_not_selected": (
         "toolset {registry_toolset} is not selected; add it to --toolsets or enable it in `hermes tools`."
     ),
+    "toolset_disabled": (
+        "toolset {registry_toolset} is listed in agent.disabled_toolsets, which Hermes applies even to an "
+        "explicit --toolsets pin; remove it from that list or enable it in `hermes tools`."
+    ),
     "availability_check_failed": "its availability check returned false.",
     "not_in_catalog": "its toolset is selected and its check passes, but Hermes still left it out.",
 }
@@ -342,6 +409,8 @@ def _exposure_lines(exposure: dict[str, Any]) -> list[str]:
     if selection is not None:
         names = ", ".join(selection["enabled_toolsets"]) or "(none)"
         lines.append(f"Session toolsets ({selection['source']}): {names}")
+        if selection["disabled_toolsets"]:
+            lines.append("Disabled by agent.disabled_toolsets: " + ", ".join(selection["disabled_toolsets"]))
         if selection["unknown_toolsets"]:
             lines.append("Unknown toolsets Hermes ignores: " + ", ".join(selection["unknown_toolsets"]))
     if exposure["evidence"] != "hermes_tool_definitions":
@@ -368,13 +437,16 @@ def _cli_handler(args):
             exposure = _tool_exposure_report(getattr(args, "toolsets", None))
         except Exception:  # noqa: BLE001 -- a fault in the report must not hide the rest of status
             exposure = _unavailable_exposure("exposure_report_failed")
-        status = _overall_status(credential_presence, exposure)
+        effective_provider = _effective_provider()
+        credential_missing = not _credential_ready(credential_presence, effective_provider)
+        status = _overall_status(credential_presence, exposure, effective_provider)
         payload = {
             "plugin": "hermes-switchyard",
             "plugin_version": _plugin_version(),
             "status": status,
             "network": False,
             "credential_presence": credential_presence,
+            "effective_provider": effective_provider,
             "plugin_loaded": _RUNTIME_STATUS["plugin_loaded"],
             "routing_mode": _RUNTIME_STATUS["routing_mode"],
             "consumer_mode": _RUNTIME_STATUS["consumer_mode"],
@@ -387,13 +459,19 @@ def _cli_handler(args):
             print(json.dumps(payload, sort_keys=True))
             return 0
         setup_hint = "Run: hermes switchyard setup --provider typesafe"
+        if effective_provider is not None and credential_missing and any(credential_presence.values()):
+            setup_hint = (
+                f"The configured route uses {effective_provider}, whose key is missing. "
+                f"Run: hermes switchyard setup --provider {effective_provider}, "
+                "or point jev_provider at the provider whose key exists."
+            )
         if status == "credential_required":
             print(f"Hermes Switchyard: credential_required (local status only). {setup_hint}")
         else:
             print(f"Hermes Switchyard: {status} (local status only)")
         for line in _exposure_lines(exposure):
             print(line)
-        if status != "credential_required" and not any(credential_presence.values()):
+        if status != "credential_required" and credential_missing:
             print(f"Credential: credential_required. {setup_hint}")
         return 0
     if command == "guide":
@@ -671,6 +749,15 @@ def register(ctx):
             return True
         except Exception:  # noqa: BLE001 -- invalid route config stays hidden
             return False
+
+    def effective_provider():
+        """Return the provider the configured route resolves to, or None when it is invalid."""
+        try:
+            return _route()[2]
+        except Exception:  # noqa: BLE001 -- an invalid route stays hidden, as in the tool checks
+            return None
+
+    _ROUTE_STATUS["effective_provider"] = effective_provider
 
     def computer_route_available():
         # Catalog visibility matches the native computer-use surface. Jev

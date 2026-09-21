@@ -20,11 +20,15 @@ def _deny_network(*_args, **_kwargs):
     raise OSError("network access is disabled in this probe")
 
 
-def _catalog(model_tools, enabled_toolsets):
-    """Return the tool names Hermes puts in the un-deferred session catalog."""
+def _catalog(model_tools, enabled_toolsets, disabled_toolsets):
+    """Return the tool names Hermes puts in the un-deferred session catalog.
+
+    Hermes' CLI passes the configured agent.disabled_toolsets list alongside every selection,
+    including an explicit pin, so the comparison has to do the same.
+    """
     definitions = model_tools.get_tool_definitions(
         enabled_toolsets=enabled_toolsets,
-        disabled_toolsets=None,
+        disabled_toolsets=disabled_toolsets or None,
         quiet_mode=True,
         skip_tool_search_assembly=True,
     )
@@ -74,15 +78,19 @@ def main() -> int:
         except SystemExit as exc:
             exit_code = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)
 
+    from agent.skill_utils import parse_config_string_list
+    from hermes_cli.config import load_config
+
+    config = load_config()
+    disabled = list(parse_config_string_list((config.get("agent") or {}).get("disabled_toolsets")))
     catalogs = {}
     for label, toolsets in scenario.get("catalog_selections", {}).items():
-        catalogs[label] = {"toolsets": list(toolsets), "tools": _catalog(model_tools, toolsets)}
+        catalogs[label] = {"toolsets": list(toolsets), "tools": _catalog(model_tools, toolsets, disabled)}
     if scenario.get("catalog_default"):
-        from hermes_cli.config import load_config
         from hermes_cli.tools_config import _get_platform_tools
 
-        default = sorted(_get_platform_tools(load_config(), "cli"))
-        catalogs["default"] = {"toolsets": default, "tools": _catalog(model_tools, default)}
+        default = sorted(_get_platform_tools(config, "cli"))
+        catalogs["default"] = {"toolsets": default, "tools": _catalog(model_tools, default, disabled)}
 
     entries = {}
     for name in scenario.get("tool_names", []):
@@ -94,6 +102,7 @@ def main() -> int:
         "stdout": captured.getvalue(),
         "catalogs": catalogs,
         "registry": entries,
+        "disabled_toolsets": disabled,
     }
     Path(scenario["result_path"]).write_text(json.dumps(result), encoding="utf-8")
     return 0

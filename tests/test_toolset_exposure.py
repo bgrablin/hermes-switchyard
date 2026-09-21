@@ -57,8 +57,10 @@ class _StandInHermes:
     def __init__(self):
         self.entries = {}
         self.default_selection = ("platform_default", ["terminal", COMPUTER_USE_TOOLSET, PLUGIN_TOOLSET])
+        self.disabled = []
         self.hidden = set()
         self.reject_tool_search_keyword = False
+        self.catalog_calls = []
 
     def accept(self, name, toolset, handler, check_fn):
         self.entries[name] = SimpleNamespace(name=name, toolset=toolset, handler=handler, check_fn=check_fn)
@@ -73,9 +75,12 @@ class _StandInHermes:
     def get_tool_definitions(self, enabled_toolsets=None, disabled_toolsets=None, quiet_mode=False, **keywords):
         if keywords.get("skip_tool_search_assembly") and self.reject_tool_search_keyword:
             raise TypeError("get_tool_definitions() got an unexpected keyword argument 'skip_tool_search_assembly'")
+        self.catalog_calls.append({"enabled": list(enabled_toolsets or []), "disabled": list(disabled_toolsets or [])})
         names = set()
         for toolset in enabled_toolsets or []:
             names.update(self._toolset_tools(toolset))
+        for toolset in disabled_toolsets or []:
+            names.difference_update(self._toolset_tools(toolset))
         definitions = []
         for name in sorted(names):
             if name in self.hidden or not self._passes_check(self.entries.get(name)):
@@ -100,6 +105,7 @@ class _StandInHermes:
             resolve_toolset=self._toolset_tools,
             validate_toolset=self._known,
             default_selection=lambda: self.default_selection,
+            disabled_toolsets=lambda: list(self.disabled),
         )
 
 
@@ -302,6 +308,46 @@ class ToolsetExposureReportTests(unittest.TestCase):
         self.assertTrue(all(state["callable"] is False for state in report["tools"].values()))
 
 
+    def test_a_globally_disabled_toolset_is_not_callable_even_when_it_is_pinned(self):
+        self.hermes.disabled = [COMPUTER_USE_TOOLSET]
+        report = self.report(f"{COMPUTER_USE_TOOLSET},{PLUGIN_TOOLSET}")
+        state = report["tools"]["jev_computer_use"]
+        self.assertIs(state["registered"], True)
+        self.assertIs(state["callable"], False)
+        self.assertEqual(state["reason"], "toolset_disabled")
+        for name, other in report["tools"].items():
+            if name != "jev_computer_use":
+                self.assertIs(other["callable"], True, name)
+        self.assertEqual(report["selection"]["disabled_toolsets"], [COMPUTER_USE_TOOLSET])
+        self.assertEqual(self.status(report), "tools_not_callable")
+
+    def test_suppression_outranks_a_missing_selection(self):
+        # Adding the toolset to the pin cannot help while the configured list names it.
+        self.hermes.disabled = [PLUGIN_TOOLSET]
+        report = self.report("terminal")
+        self.assertEqual(report["tools"]["jev_assess"]["reason"], "toolset_disabled")
+        self.assertEqual(report["tools"]["jev_computer_use"]["reason"], "toolset_not_selected")
+
+    def test_the_default_selection_honors_the_disabled_list_too(self):
+        self.hermes.disabled = [COMPUTER_USE_TOOLSET]
+        state = self.report(None)["tools"]["jev_computer_use"]
+        self.assertIs(state["callable"], False)
+        self.assertEqual(state["reason"], "toolset_disabled")
+
+    def test_the_catalog_builder_receives_the_configured_disabled_list(self):
+        self.hermes.disabled = ["memory", COMPUTER_USE_TOOLSET]
+        self.report("terminal")
+        self.assertEqual(self.hermes.catalog_calls[-1]["disabled"], ["memory", COMPUTER_USE_TOOLSET])
+
+    def test_an_unreadable_disabled_list_is_never_assumed_empty(self):
+        seams = self.hermes.seams()
+        seams.disabled_toolsets = mock.Mock(side_effect=RuntimeError("config unreadable"))
+        report = hermes_switchyard._tool_exposure_report("terminal", seams=seams)
+        self.assertEqual(report["unavailable_reason"], "selection_unresolved")
+        self.assertTrue(all(state["callable"] is None for state in report["tools"].values()))
+        self.assertEqual(self.status(report), "exposure_unverified")
+
+
 class StatusCommandTests(unittest.TestCase):
     """The operator-facing command must carry the registered-versus-callable distinction."""
 
@@ -377,6 +423,70 @@ class StatusCommandTests(unittest.TestCase):
         self.assertEqual(pinned.toolsets, "computer_use,hermes_switchyard")
         self.assertTrue(pinned.json_output)
         self.assertIsNone(parser.parse_args(["status"]).toolsets)
+
+
+    def register_with(self, settings):
+        hermes_switchyard.reset_runtime_status()
+        self.hermes = _StandInHermes()
+        with mock.patch.object(hermes_switchyard, "_secret", return_value=""):
+            hermes_switchyard.register(_PluginContext(self.hermes, settings))
+
+    @staticmethod
+    def keys(*present):
+        """Return a stand-in for the secret lookup that only knows the named providers' keys."""
+        def lookup(provider="auto"):
+            order = {"typesafe": ("typesafe",), "openrouter": ("openrouter",), "auto": ("typesafe", "openrouter")}[provider]
+            return PLACEHOLDER_CREDENTIAL if any(name in present for name in order) else ""
+        return lookup
+
+    def status_output(self, present, *, json_output=True):
+        args = SimpleNamespace(
+            switchyard_command="status", json_output=json_output, toolsets=f"{COMPUTER_USE_TOOLSET},{PLUGIN_TOOLSET}"
+        )
+        with mock.patch.object(hermes_switchyard, "_secret", side_effect=self.keys(*present)), \
+             mock.patch.object(hermes_switchyard, "_load_hermes_seams", return_value=self.hermes.seams()), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            self.assertEqual(hermes_switchyard._cli_handler(args), 0)
+        return json.loads(stdout.getvalue()) if json_output else stdout.getvalue()
+
+    def test_readiness_follows_the_key_of_the_provider_the_route_uses(self):
+        cases = (
+            ({"jev_provider": "openrouter"}, ("typesafe",), "credential_required", "openrouter"),
+            ({"jev_provider": "openrouter"}, ("openrouter",), "ready", "openrouter"),
+            ({"jev_provider": "typesafe"}, ("openrouter",), "credential_required", "typesafe"),
+            ({"jev_provider": "typesafe"}, ("typesafe",), "ready", "typesafe"),
+            ({}, ("openrouter",), "ready", "openrouter"),
+            ({}, ("typesafe", "openrouter"), "ready", "typesafe"),
+            ({}, (), "credential_required", "openrouter"),
+        )
+        for settings, present, expected_status, expected_provider in cases:
+            with self.subTest(settings=settings, present=present):
+                self.register_with(settings)
+                payload = self.status_output(present)
+                self.assertEqual(payload["status"], expected_status)
+                self.assertEqual(payload["effective_provider"], expected_provider)
+                self.assertEqual(
+                    payload["credential_presence"], {name: name in present for name in ("typesafe", "openrouter")}
+                )
+
+    def test_the_setup_hint_names_the_provider_whose_key_is_missing(self):
+        self.register_with({"jev_provider": "openrouter"})
+        text = self.status_output(("typesafe",), json_output=False)
+        self.assertIn("credential_required", text)
+        self.assertIn("hermes switchyard setup --provider openrouter", text)
+        self.assertNotIn("Hermes Switchyard: ready", text)
+
+    def test_with_no_key_at_all_the_setup_hint_keeps_the_default_provider(self):
+        self.register_with({})
+        self.assertIn("hermes switchyard setup --provider typesafe", self.status_output((), json_output=False))
+
+    def test_an_invalid_route_leaves_the_effective_provider_unknown(self):
+        self.register_with({"jev_provider": "not-a-provider"})
+        payload = self.status_output(("typesafe",))
+        self.assertIsNone(payload["effective_provider"])
+        self.assertEqual(payload["status"], "tools_not_callable")
+        state = payload["tool_exposure"]["tools"]["jev_assess"]
+        self.assertEqual(state["reason"], "availability_check_failed")
 
 
 def _hermes_environment(home: Path) -> dict[str, str]:
@@ -527,7 +637,12 @@ class RealHermesExposureTests(unittest.TestCase):
         self.assertEqual(result["exit_code"], 0, result["stdout"])
         lines = result["stdout"].strip().splitlines()
         self.assertTrue(lines, "hermes switchyard status printed nothing")
-        return SimpleNamespace(status=json.loads(lines[-1]), catalogs=result["catalogs"], registry=result["registry"])
+        return SimpleNamespace(
+            status=json.loads(lines[-1]),
+            catalogs=result["catalogs"],
+            registry=result["registry"],
+            disabled=result["disabled_toolsets"],
+        )
 
     def assert_status_agrees_with_hermes(self, status, catalog_tools):
         exposure = status["tool_exposure"]
@@ -644,6 +759,39 @@ class RealHermesExposureTests(unittest.TestCase):
         self.assertEqual(selection["unknown_toolsets"], ["computer-use"])
         self.assertTrue(all(not state["callable"] for state in outcome.status["tool_exposure"]["tools"].values()))
         self.assertFalse(set(outcome.catalogs["computer-use"]["tools"]) & set(TOOL_TOOLSETS))
+
+
+    def test_a_globally_disabled_toolset_is_not_reported_callable_even_when_pinned(self):
+        pin = f"{COMPUTER_USE_TOOLSET},{PLUGIN_TOOLSET}"
+        extra = f"agent:\n  disabled_toolsets: [{COMPUTER_USE_TOOLSET}]\n"
+        outcome = self.run_hermes(pin=pin, catalog_pins=(pin,), credential=True, extra_config=extra)
+        self.assertEqual(outcome.disabled, [COMPUTER_USE_TOOLSET], "Hermes did not read the configured suppression list")
+        catalog = set(outcome.catalogs[pin]["tools"])
+        self.assert_status_agrees_with_hermes(outcome.status, catalog)
+        if "jev_computer_use" in catalog:
+            self.skipTest("this Hermes build does not subtract agent.disabled_toolsets from a pinned selection")
+        exposure = outcome.status["tool_exposure"]
+        self.assertEqual(exposure["selection"]["disabled_toolsets"], [COMPUTER_USE_TOOLSET])
+        state = exposure["tools"]["jev_computer_use"]
+        self.assertIs(state["registered"], True)
+        self.assertIs(state["callable"], False)
+        self.assertEqual(state["reason"], "toolset_disabled")
+        self.assertEqual(outcome.status["status"], "tools_not_callable")
+        for name, toolset in TOOL_TOOLSETS.items():
+            if toolset == PLUGIN_TOOLSET:
+                self.assertIs(exposure["tools"][name]["callable"], True, name)
+
+    def test_readiness_follows_the_key_of_the_provider_the_configured_route_uses(self):
+        pin = f"{COMPUTER_USE_TOOLSET},{PLUGIN_TOOLSET}"
+        # The probe supplies a TypeSafe key only, so an OpenRouter route has no key to use.
+        mismatched = self.run_hermes(pin=pin, catalog_pins=(pin,), credential=True, settings={"jev_provider": "openrouter"})
+        self.assert_status_agrees_with_hermes(mismatched.status, set(mismatched.catalogs[pin]["tools"]))
+        self.assertEqual(mismatched.status["effective_provider"], "openrouter")
+        self.assertEqual(mismatched.status["credential_presence"], {"typesafe": True, "openrouter": False})
+        self.assertEqual(mismatched.status["status"], "credential_required")
+        matched = self.run_hermes(pin=pin, catalog_pins=(pin,), credential=True, settings={"jev_provider": "typesafe"})
+        self.assertEqual(matched.status["effective_provider"], "typesafe")
+        self.assertEqual(matched.status["status"], "ready")
 
 
 if __name__ == "__main__":
