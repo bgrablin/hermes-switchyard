@@ -15,7 +15,7 @@ Measured with/without Switchyard on tip **0.5.0** (`c8e6008`). Human-readable be
 | Feature | Without Switchyard | With Switchyard | What it means |
 | --- | ---: | ---: | --- |
 | **Skill pick** (`jev_skill_select`) | 7/12 single-skill correct | **12/12** | +5 specialist picks the local word matcher missed |
-| Skill-needed failures | 11/18 | **5/18** | Fewer silent misses when a skill was required |
+| Failed to pick a needed skill | 11/18 | **5/18** | Fewer times Hermes needed a skill and got none or the wrong one |
 | No-skill false recs | **0/6** | **0/6** | Does not invent a skill when none fits |
 | **Multi-skill** (`jev_skill_select_many`) | top-1 required-set **0/5** | **5/5** complete | Use `select_many` when several skills are needed together |
 | **Model pick** (`jev_model_route`) | 3/3 cheapest-qualified local | **3/3** + auditable receipt | Agrees with complete metadata; `applied: false` until Hermes has an apply seam |
