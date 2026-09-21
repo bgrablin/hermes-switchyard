@@ -1121,6 +1121,9 @@ class BrowserReliabilityTests(unittest.TestCase):
         self.assertEqual(len(client.calls), 2)
         self.assertEqual(session.scrolls.count("down"), 2 + 2 * browser_use.LOCAL_SCROLL_RECOVERY_LIMIT)
         self.assertNotIn("local_scroll_recovery", result["actions"][0])
+        recovery = [item for item in result["actions"] if str(item.get("label") or "").startswith("local_scroll_recovery_")]
+        self.assertEqual(len(recovery), 2 * browser_use.LOCAL_SCROLL_RECOVERY_LIMIT)
+        self.assertTrue(all(item["action_dispatched"] for item in recovery))
 
     def test_targets_beyond_the_first_snapshot_become_reachable(self):
         session = WindowedSession(total=60, window=48)
@@ -1294,6 +1297,7 @@ class BrowserReliabilityTests(unittest.TestCase):
         result = run_browser_goal(goal="Open the next page", session=session, client=client, max_steps=4)
         self.assertEqual(result["status"], "partial_failure")
         self.assertEqual(result["failure_phase"], "action")
+        self.assertEqual(result["failure_reason"], "transport_failure")
         self.assertEqual(result["action_dispatched_count"], 1)
         self.assertTrue(result["reconcile_before_retry"])
         action = result["actions"][0]
@@ -1323,6 +1327,8 @@ class BrowserReliabilityTests(unittest.TestCase):
         self.assertEqual(result["last_state_hash"], browser_use._observation_signature(final_page))
 
     def test_snap_profile_dir_unwritable_raises_structured_error(self):
+        if os.name == "nt":
+            raise unittest.SkipTest("snap confinement profiles are a Unix path")
         with tempfile.TemporaryDirectory() as raw:
             blocker = Path(raw) / "not-a-directory"
             blocker.write_text("x", encoding="utf-8")
@@ -1368,6 +1374,8 @@ class BrowserReliabilityTests(unittest.TestCase):
             self.assertEqual(confinement, "snap")
 
     def test_snap_confined_profile_lives_in_the_snap_area_and_cleans_up_exactly(self):
+        if os.name == "nt":
+            raise unittest.SkipTest("snap confinement profiles are a Unix path")
         with tempfile.TemporaryDirectory() as raw:
             home = Path(raw)
             with mock.patch.object(Path, "home", classmethod(lambda cls: home)):
@@ -1385,10 +1393,189 @@ class BrowserReliabilityTests(unittest.TestCase):
             home = Path(raw)
             runtime = home / "runtime"
             runtime.mkdir()
+            if os.name == "nt":
+                with mock.patch.dict(os.environ, {"TEMP": str(home), "LOCALAPPDATA": str(home)}, clear=False):
+                    with browser_use._browser_profile_dir("none") as directory:
+                        self.assertEqual(Path(directory).parent, home / "hermes-switchyard")
+                return
             with mock.patch.object(Path, "home", classmethod(lambda cls: home)):
                 with mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": str(runtime)}, clear=False):
                     with browser_use._browser_profile_dir("none") as directory:
                         self.assertEqual(Path(directory).parent, runtime)
+
+
+    def test_inconsistent_choice_probability_abstains_instead_of_using_top_gap(self):
+        # choice=CLICK is only 0.1 while DONE is 0.9; the old top-two gap was 0.8
+        # and would have dispatched. Margin must be P(choice)-max(other).
+        page = {
+            "url": "https://example.org/",
+            "title": "Start",
+            "text": "one link",
+            "elements": [{"id": "1", "label": "Next page", "href": "https://example.org/next", "role": "link"}],
+        }
+        answers = {
+            "operation": {
+                "choice": "CLICK",
+                "probabilities": {"DONE": 0.9, "CLICK": 0.1},
+                "confidence": 0.9,
+            },
+            "click_target": {"choice": "1", "probabilities": {"1": 1.0}, "confidence": 0.9},
+        }
+        session = StaticSession(page)
+        client = ScriptedClient([answers])
+        result = run_browser_goal(goal="Open the next page", session=session, client=client, max_steps=4)
+        self.assertEqual(result["status"], "abstained")
+        self.assertEqual(result["failure_phase"], "ambiguous_decision")
+        self.assertEqual(session.clicks, [])
+        confidence, margin = browser_use._decision_quality(answers["operation"])
+        self.assertEqual(confidence, 0.9)
+        self.assertAlmostEqual(margin, -0.8)
+
+    def test_deadline_before_any_action_does_not_require_reconciliation(self):
+        session = StaticSession(
+            {
+                "url": "https://example.org/",
+                "title": "Home",
+                "text": "Home page body",
+                "elements": [{"id": "1", "role": "link", "label": "Next page", "href": "https://example.org/next"}],
+            }
+        )
+
+        class ImmediateDeadlineClient(ScriptedClient):
+            @contextmanager
+            def request_budget(self, max_requests: int = 256, *, deadline_seconds=None):
+                raise TimeoutError("deadline before any action")
+                yield  # pragma: no cover
+
+        client = ImmediateDeadlineClient([])
+        result = run_browser_goal(goal="Reach the next page", session=session, client=client, max_steps=3)
+        self.assertEqual(result["status"], "deadline_exceeded")
+        self.assertEqual(result["failure_phase"], "deadline")
+        self.assertFalse(result["reconcile_before_retry"])
+        self.assertEqual(result["attempted_action_count"], 0)
+
+    def test_nonconsecutive_observation_cycle_stops_before_another_decision(self):
+        class AlternatingSession(StaticSession):
+            def __init__(self):
+                self.phase = 0
+                self.clicks = []
+                self.scrolls = []
+                self.pages = [
+                    {
+                        "url": "https://example.org/a",
+                        "title": "A",
+                        "text": "page A",
+                        "elements": [{"id": "1", "role": "link", "label": "Go", "href": "https://example.org/b"}],
+                    },
+                    {
+                        "url": "https://example.org/b",
+                        "title": "B",
+                        "text": "page B",
+                        "elements": [{"id": "1", "role": "link", "label": "Go", "href": "https://example.org/a"}],
+                    },
+                ]
+
+            def observe(self):
+                return dict(self.pages[self.phase % 2])
+
+            def click(self, element_id, label="", href=""):
+                self.clicks.append(element_id)
+                self.phase += 1
+
+        session = AlternatingSession()
+        click = {
+            "operation": _choice("CLICK", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b"}),
+            "click_target": _choice("1", {"1": "Go"}),
+        }
+        client = ScriptedClient([click, click, click, click])
+        result = run_browser_goal(goal="Keep moving", session=session, client=client, max_steps=10)
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["failure_phase"], "no_progress")
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual(len(session.clicks), 2)
+
+    def test_scroll_recovery_records_dispatches_and_keeps_unsafe_observation(self):
+        class RecoveringUnsafeSession(StaticSession):
+            def __init__(self):
+                super().__init__(
+                    {
+                        "url": "https://example.org/",
+                        "title": "Home",
+                        "text": "Home page body",
+                        "elements": [{"id": "1", "role": "link", "label": "Next page", "href": "https://example.org/next"}],
+                    }
+                )
+                self.scrolls = []
+
+            def scroll(self, direction):
+                self.scrolls.append(direction)
+                if len(self.scrolls) >= 2:
+                    self.page = {
+                        "url": "http://127.0.0.1/private",
+                        "title": "Private",
+                        "text": "should not complete",
+                        "elements": [],
+                    }
+
+            def observe(self):
+                return dict(self.page)
+
+        session = RecoveringUnsafeSession()
+        scroll = {
+            "operation": _choice("SCROLL_DOWN", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b"}),
+            "click_target": _choice("1", {"1": "Next page"}),
+        }
+        client = ScriptedClient([scroll])
+        result = run_browser_goal(goal="Find a later target", session=session, client=client, max_steps=4)
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["failure_phase"], "unsafe_url")
+        self.assertGreaterEqual(result["action_dispatched_count"], 2)
+        self.assertTrue(any(item.get("label", "").startswith("local_scroll_recovery_") for item in result["actions"]))
+        self.assertNotEqual(result["status"], "completion_candidate")
+
+    def test_successful_scroll_recovery_updates_parent_effect_and_counts(self):
+        class RecoveringSession(StaticSession):
+            def __init__(self):
+                super().__init__(
+                    {
+                        "url": "https://example.org/",
+                        "title": "Home",
+                        "text": "Home page body",
+                        "elements": [{"id": "1", "role": "link", "label": "Next page", "href": "https://example.org/next"}],
+                    }
+                )
+                self.scrolls = []
+
+            def scroll(self, direction):
+                self.scrolls.append(direction)
+                if len(self.scrolls) >= 2:
+                    self.page = {
+                        "url": "https://example.org/",
+                        "title": "Home",
+                        "text": "Home page body with more content revealed",
+                        "elements": [{"id": "1", "role": "link", "label": "Later", "href": "https://example.org/later"}],
+                    }
+
+            def observe(self):
+                return dict(self.page)
+
+        session = RecoveringSession()
+        scroll = {
+            "operation": _choice("SCROLL_DOWN", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b"}),
+            "click_target": _choice("1", {"1": "Next page"}),
+        }
+        done = {
+            "operation": _choice("DONE", {"SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b", "DONE": "d"}),
+        }
+        client = ScriptedClient([scroll, done])
+        result = run_browser_goal(goal="Reveal more", session=session, client=client, max_steps=4)
+        self.assertTrue(result["actions"][0].get("local_scroll_recovery"))
+        self.assertTrue(result["actions"][0]["effect_observed"])
+        recovery = [item for item in result["actions"] if str(item.get("label") or "").startswith("local_scroll_recovery_")]
+        self.assertGreaterEqual(len(recovery), 1)
+        self.assertTrue(all(item["action_dispatched"] for item in recovery))
+        self.assertGreaterEqual(result["action_dispatched_count"], 2)
+
 
 
 class SnapshotRecallTests(unittest.TestCase):
@@ -1404,6 +1591,10 @@ class SnapshotRecallTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        if os.environ.get("SWITCHYARD_LIVE_BROWSER_TESTS") != "1":
+            raise unittest.SkipTest(
+                "set SWITCHYARD_LIVE_BROWSER_TESTS=1 to run live Chromium snapshot recall tests"
+            )
         binary, _, _ = browser_use._browser_binary_details()
         if binary is None:
             raise unittest.SkipTest("no Chromium-family browser is available")
