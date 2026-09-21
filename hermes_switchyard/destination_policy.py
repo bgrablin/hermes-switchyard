@@ -292,6 +292,28 @@ def _origin(url: str) -> tuple[str, str, int | None]:
     except ValueError:
         return "", "", None
 
+_FETCH_PATTERNS = [{"urlPattern": "*", "requestStage": "Request"}]
+_AUTO_ATTACH = {"autoAttach": True, "waitForDebuggerOnStart": True, "flatten": True}
+# A dedicated worker rejects Fetch.enable, and the requests it makes are paused
+# on the parent page's session, so the parent's interception already covers it.
+_PARENT_COVERED_TARGETS = frozenset({"worker"})
+_OBSERVED_METHODS = frozenset(
+    {
+        "Fetch.requestPaused",
+        "Target.attachedToTarget",
+        "Network.responseReceived",
+        "Network.webSocketCreated",
+    }
+)
+
+
+def _origin(url: str) -> tuple[str, str, int | None]:
+    try:
+        parts = urlsplit(url)
+        return parts.scheme.casefold(), (parts.hostname or "").casefold(), parts.port
+    except ValueError:
+        return "", "", None
+
 
 class DestinationGuard:
     """Apply the destination policy to every request a browser target makes.
@@ -334,6 +356,10 @@ class DestinationGuard:
         self.integrity_reasons: list[str] = []
         self._unexpected_target = False
         self._cache: dict[str, tuple[float, list[str]]] = {}
+        self._early_acks: dict[int, dict[str, Any]] = {}
+        self._child_pending: dict[str, dict[str, Any]] = {}
+        self._latest_fatal: dict[str, Any] | None = None
+        self._setup_expecting: str | None = None
 
     # -- setup ---------------------------------------------------------------
 
@@ -365,9 +391,17 @@ class DestinationGuard:
             self._fail_integrity("executor_unavailable")
 
     def wait_idle(self, timeout: float = 2.0) -> bool:
-        """Wait until every submitted message has been handled."""
+        """Wait until every submitted message has been handled.
+
+        A timeout means a paused request may still be undecided. That is an
+        interception-integrity failure: the request stays fail-closed and the
+        run must not treat the session as clean.
+        """
         with self._idle:
-            return self._idle.wait_for(lambda: self._inflight == 0, timeout=timeout)
+            ready = self._idle.wait_for(lambda: self._inflight == 0, timeout=timeout)
+        if not ready:
+            self._fail_integrity("idle_timeout")
+        return ready
 
     def handle(self, message: dict[str, Any]) -> None:
         self._run(message)
@@ -447,6 +481,13 @@ class DestinationGuard:
         if code is None and hop > self._max_redirects:
             code = "redirect_limit"
         if code is None:
+            if not self.active:
+                self._answer(
+                    "Fetch.failRequest",
+                    {"requestId": request_id, "errorReason": "BlockedByClient"},
+                    session_id,
+                )
+                return
             self._answer("Fetch.continueRequest", {"requestId": request_id}, session_id)
             return
         scheme = decision.scheme if decision is not None else ""
@@ -482,25 +523,93 @@ class DestinationGuard:
             return
         target = params.get("targetInfo") if isinstance(params.get("targetInfo"), dict) else {}
         covered = target.get("type") in _PARENT_COVERED_TARGETS
+        waiting = bool(params.get("waitingForDebugger"))
+        pending: set[int] = set()
+        early_messages: list[dict[str, Any]] = []
         try:
             for method, body in self.root_setup():
                 if covered and method == "Fetch.enable":
                     continue
-                message_id = self._send(method, body, session_id)
                 with self._lock:
-                    self._setup[message_id] = session_id
-            if params.get("waitingForDebugger"):
-                self._send("Runtime.runIfWaitingForDebugger", {}, session_id)
+                    self._setup_expecting = session_id
+                try:
+                    message_id = self._send(method, body, session_id)
+                finally:
+                    with self._lock:
+                        self._setup_expecting = None
+                early = self._register_setup(message_id, session_id)
+                pending.add(message_id)
+                if early is not None:
+                    early_messages.append(early)
+            with self._lock:
+                self._child_pending[session_id] = {"waiting": waiting, "pending": set(pending)}
+            for early in early_messages:
+                self._consume_setup_ack(early, session_id)
+            with self._lock:
+                child = self._child_pending.get(session_id)
+                if child is not None and not child["pending"]:
+                    waiting_flag = bool(child.get("waiting"))
+                    self._child_pending.pop(session_id, None)
+                else:
+                    waiting_flag = None
+            if waiting_flag is not None:
+                self._resume_child(session_id, waiting_flag)
         except Exception:  # noqa: BLE001 -- a child that cannot be intercepted is not covered
+            with self._lock:
+                self._setup_expecting = None
+                self._child_pending.pop(session_id, None)
             self._fail_integrity("child_setup_failed")
+
+    def _register_setup(self, message_id: int, session_id: str) -> dict[str, Any] | None:
+        """Track a setup ack id, reclaiming any response that won the race."""
+        with self._lock:
+            self._setup[message_id] = session_id
+            return self._early_acks.pop(message_id, None)
+
+    def _resume_child(self, session_id: str, waiting: bool) -> None:
+        if not waiting:
+            return
+        try:
+            self._send("Runtime.runIfWaitingForDebugger", {}, session_id)
+        except Exception:  # noqa: BLE001 -- a child that cannot be resumed is not covered
+            self._fail_integrity("child_setup_failed")
+
+    def _consume_setup_ack(self, message: dict[str, Any], owner: str) -> None:
+        message_id = message.get("id")
+        if not isinstance(message_id, int):
+            return
+        with self._lock:
+            self._setup.pop(message_id, None)
+            child = self._child_pending.get(owner)
+            if child is not None:
+                child["pending"].discard(message_id)
+        if "error" in message:
+            with self._lock:
+                self._child_pending.pop(owner, None)
+            self._fail_integrity("child_setup_failed")
+            return
+        with self._lock:
+            child = self._child_pending.get(owner)
+            if child is None:
+                return
+            done = not child["pending"]
+            waiting = bool(child.get("waiting"))
+            if done:
+                self._child_pending.pop(owner, None)
+        if done:
+            self._resume_child(owner, waiting)
 
     def _on_ack(self, message: dict[str, Any]) -> None:
         message_id = message.get("id")
+        if not isinstance(message_id, int):
+            return
         with self._lock:
-            owner = self._setup.pop(message_id, None) if isinstance(message_id, int) else None
-            tracked = isinstance(message_id, int) and owner is not None
-        if tracked and "error" in message:
-            self._fail_integrity("child_setup_failed")
+            owner = self._setup.get(message_id)
+            if owner is None:
+                if self._setup_expecting is not None and len(self._early_acks) < 64:
+                    self._early_acks[message_id] = message
+                return
+        self._consume_setup_ack(message, owner)
 
     def _on_response(self, params: dict[str, Any], session_id: str | None) -> None:
         response = params.get("response") if isinstance(params.get("response"), dict) else {}
@@ -557,21 +666,29 @@ class DestinationGuard:
     ) -> None:
         with self._lock:
             self._seq += 1
+            entry = {
+                "seq": self._seq,
+                "code": code,
+                "scheme": scheme[:32],
+                "host": host[:253],
+                "resource_type": resource_type[:32],
+                "navigation": navigation,
+                "redirected": redirected,
+                "fatal": fatal,
+                "detected": detected,
+                "session": "child" if session_id else "root",
+            }
             if len(self._violations) < MAX_RECORDED_VIOLATIONS:
-                self._violations.append(
-                    {
-                        "seq": self._seq,
-                        "code": code,
-                        "scheme": scheme[:32],
-                        "host": host[:253],
-                        "resource_type": resource_type[:32],
-                        "navigation": navigation,
-                        "redirected": redirected,
-                        "fatal": fatal,
-                        "detected": detected,
-                        "session": "child" if session_id else "root",
-                    }
-                )
+                self._violations.append(entry)
+            elif fatal:
+                # Bounded nonfatal evidence must not hide a later fatal refusal.
+                for index, existing in enumerate(self._violations):
+                    if not existing.get("fatal"):
+                        self._violations.pop(index)
+                        self._violations.append(entry)
+                        break
+            if fatal:
+                self._latest_fatal = entry
 
     def _fail_integrity(self, reason: str) -> None:
         # The specific reason stays local; receipts carry only the bounded code.
@@ -582,9 +699,17 @@ class DestinationGuard:
         self._record("interception_unavailable", fatal=True, detected="integrity")
 
     def tracks_ack(self, message_id: int) -> bool:
-        """Return whether *message_id* answers a setup command this guard sent."""
+        """Return whether *message_id* answers, or may answer, a setup command.
+
+        While a setup send is in flight, unknown ids are accepted so a response
+        that arrives before registration can be buffered instead of dropped.
+        """
         with self._lock:
-            return message_id in self._setup
+            return (
+                message_id in self._setup
+                or message_id in self._early_acks
+                or self._setup_expecting is not None
+            )
 
     def note_unexpected_target(self) -> None:
         """Record, once, that a page target other than the session's exists."""
@@ -605,7 +730,12 @@ class DestinationGuard:
 
     def violations(self, since: int = 0) -> list[dict[str, Any]]:
         with self._lock:
-            return [dict(item) for item in self._violations if item["seq"] > since]
+            items = [dict(item) for item in self._violations if item["seq"] > since]
+            latest = self._latest_fatal
+            if latest is not None and latest["seq"] > since:
+                if not any(item["seq"] == latest["seq"] for item in items):
+                    items.append(dict(latest))
+            return items
 
     def report(self) -> dict[str, Any]:
         with self._lock:

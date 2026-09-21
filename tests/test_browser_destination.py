@@ -418,7 +418,12 @@ class DestinationGuardTests(unittest.TestCase):
         self.assertIn(("Fetch.enable", "S1"), methods)
         self.assertIn(("Network.enable", "S1"), methods)
         self.assertIn(("Target.setAutoAttach", "S1"), methods)
-        self.assertEqual(methods[-1], ("Runtime.runIfWaitingForDebugger", "S1"))
+        self.assertNotIn("Runtime.runIfWaitingForDebugger", [c["method"] for c in wire.sent])
+        for command in list(wire.sent):
+            if command["sessionId"] == "S1" and command["method"] != "Runtime.runIfWaitingForDebugger":
+                guard.handle({"id": command["id"], "sessionId": "S1", "result": {}})
+        self.assertEqual(wire.sent[-1]["method"], "Runtime.runIfWaitingForDebugger")
+        self.assertEqual(wire.sent[-1]["sessionId"], "S1")
         guard.handle(paused("9", "https://127.0.0.1/", resource_type="Fetch", session_id="S1"))
         failed = wire.of("Fetch.failRequest")
         self.assertEqual(failed[0]["sessionId"], "S1")
@@ -433,6 +438,10 @@ class DestinationGuardTests(unittest.TestCase):
         )
         self.assertEqual([c["sessionId"] for c in wire.of("Fetch.enable")], [], "a worker rejects Fetch.enable")
         self.assertEqual([c["sessionId"] for c in wire.of("Network.enable")], ["W1"])
+        self.assertNotIn("Runtime.runIfWaitingForDebugger", [c["method"] for c in wire.sent])
+        for command in list(wire.sent):
+            if command["sessionId"] == "W1":
+                guard.handle({"id": command["id"], "sessionId": "W1", "result": {}})
         self.assertEqual(wire.sent[-1]["method"], "Runtime.runIfWaitingForDebugger")
         # The worker's own request is paused on the parent page session and is decided there.
         guard.handle(paused("5", "https://127.0.0.1/w", resource_type="Fetch"))
@@ -449,6 +458,7 @@ class DestinationGuardTests(unittest.TestCase):
         )
         fetch_enable = wire.of("Fetch.enable")[0]
         guard.handle({"id": fetch_enable["id"], "sessionId": "S1", "error": {"message": "not supported"}})
+        self.assertNotIn("Runtime.runIfWaitingForDebugger", [c["method"] for c in wire.sent])
         [violation] = guard.violations()
         self.assertEqual(violation["code"], "interception_unavailable")
         self.assertTrue(violation["fatal"])
@@ -539,9 +549,80 @@ class DestinationGuardTests(unittest.TestCase):
             guard = DestinationGuard(wire, resolver=slow_resolver, executor=pool)
             guard.submit(paused("1", "https://example.com/"))
             self.assertFalse(guard.wait_idle(0.05))
+            self.assertTrue(any(v["code"] == "interception_unavailable" for v in guard.violations()))
+            self.assertFalse(guard.report()["interception_active"])
             release.set()
+            # Integrity already failed; a late decision must stay fail-closed.
             self.assertTrue(guard.wait_idle(2.0))
-        self.assertEqual(len(wire.of("Fetch.continueRequest")), 1)
+        self.assertEqual(len(wire.of("Fetch.continueRequest")), 0)
+        self.assertEqual(len(wire.of("Fetch.failRequest")), 1)
+
+
+    def test_setup_ack_arriving_before_registration_is_not_dropped(self):
+        """Response-before-registration must still block resume until processed."""
+        events = []
+        ids = {"n": 200}
+
+        def racing_send(method, params=None, session_id=None):
+            ids["n"] += 1
+            message_id = ids["n"]
+            events.append(("send", method, message_id, session_id))
+            # Deliver the ack before DestinationGuard can register the id.
+            if method != "Runtime.runIfWaitingForDebugger":
+                events.append(("early-ack", message_id))
+                guard.handle({"id": message_id, "sessionId": session_id, "result": {}})
+            return message_id
+
+        guard = DestinationGuard(racing_send, resolver=_public_resolver)
+        guard.handle(
+            {
+                "method": "Target.attachedToTarget",
+                "params": {
+                    "sessionId": "S1",
+                    "targetInfo": {"type": "iframe"},
+                    "waitingForDebugger": True,
+                },
+            }
+        )
+        resumes = [item for item in events if item[0] == "send" and item[1] == "Runtime.runIfWaitingForDebugger"]
+        self.assertEqual(len(resumes), 1, events)
+        self.assertEqual(resumes[0][3], "S1")
+        self.assertTrue(guard.report()["interception_active"])
+
+    def test_fatal_violation_is_preserved_after_evidence_cap(self):
+        guard, _wire = self.guard()
+        with mock.patch.object(destination_policy, "MAX_RECORDED_VIOLATIONS", 3):
+            for index in range(3):
+                guard.handle(paused(str(index), f"https://10.0.0.{index}/x.png", resource_type="Image"))
+            self.assertEqual(len(guard.violations()), 3)
+            self.assertTrue(all(not v["fatal"] for v in guard.violations()))
+            guard.handle(paused("nav", "https://127.0.0.1/secret"))
+            fatal = [v for v in guard.violations() if v["fatal"]]
+            self.assertEqual(len(fatal), 1, guard.violations())
+            self.assertEqual(fatal[0]["code"], "non_public_address")
+            self.assertTrue(fatal[0]["navigation"])
+
+    def test_idle_timeout_fails_closed_for_undecided_requests(self):
+        from concurrent.futures import ThreadPoolExecutor
+
+        release = threading.Event()
+
+        def slow_resolver(_host):
+            release.wait(2)
+            return ["10.0.0.1"]
+
+        wire = Wire()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            guard = DestinationGuard(wire, resolver=slow_resolver, executor=pool)
+            guard.submit(paused("1", "https://evil.example/"))
+            self.assertFalse(guard.wait_idle(0.05))
+            release.set()
+            guard.wait_idle(2.0)
+        self.assertTrue(any(v["code"] == "interception_unavailable" and v["fatal"] for v in guard.violations()))
+        self.assertEqual(len(wire.of("Fetch.continueRequest")), 0)
+        self.assertEqual(len(wire.of("Fetch.failRequest")), 1)
+
+
 
 
 # --------------------------------------------------------------------------- #
@@ -861,6 +942,14 @@ def _online() -> bool:
 class RealBrowserDestinationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        import os
+
+        # Offline discovery and hosted CI stay offline. Real Chromium + public
+        # origin navigations require an explicit opt-in.
+        if os.environ.get("SWITCHYARD_LIVE_BROWSER_TESTS") != "1":
+            raise unittest.SkipTest(
+                "set SWITCHYARD_LIVE_BROWSER_TESTS=1 to run live external-browser destination tests"
+            )
         binary, _, _ = browser_use._browser_binary_details()
         if binary is None:
             raise unittest.SkipTest("no Chromium-family browser is available")

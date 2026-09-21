@@ -427,7 +427,11 @@ def _failure_reason(exc: BaseException) -> str:
 
 
 def _decision_quality(answer: Any) -> tuple[float | None, float | None]:
-    """Read a choice's confidence and its margin over the runner-up.
+    """Read a choice's confidence and its margin over the best alternative.
+
+    Margin is ``P(chosen) - max(P(other options))``, not the gap between the two
+    globally highest probabilities. An inconsistent answer that names a
+    low-probability choice therefore gets a negative margin and abstains.
 
     Both are defensive: a missing or non-numeric field yields None, which the
     gate treats as no signal rather than a reason to dispatch.
@@ -440,16 +444,19 @@ def _decision_quality(answer: Any) -> tuple[float | None, float | None]:
     probabilities = answer.get("probabilities")
     margin = None
     if isinstance(probabilities, dict):
-        values = sorted(
-            (
-                float(value)
-                for value in probabilities.values()
-                if isinstance(value, (int, float)) and not isinstance(value, bool)
-            ),
-            reverse=True,
-        )
-        if len(values) >= 2:
-            margin = values[0] - values[1]
+        choice = answer.get("choice")
+        chosen = None
+        if choice in probabilities:
+            value = probabilities[choice]
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                chosen = float(value)
+        others = [
+            float(value)
+            for key, value in probabilities.items()
+            if key != choice and isinstance(value, (int, float)) and not isinstance(value, bool)
+        ]
+        if chosen is not None and others:
+            margin = chosen - max(others)
     return confidence, margin
 
 
@@ -663,7 +670,7 @@ def run_browser_goal(
             failure_phase="deadline",
             progress=progress,
             condition=condition,
-            reconcile_before_retry=True,
+            reconcile_before_retry=bool(actions),
         )
     except Exception as exc: # noqa: BLE001 -- every terminal path must keep action evidence
         progress["last_state_hash"] = _observation_signature(page)
@@ -803,6 +810,7 @@ def _run_browser_loop(
     signature = _observation_signature(page)
     progress["last_state_hash"] = signature
     stalled = 0
+    decision_signatures: list[str] = []
     # A caller-supplied predicate is fixed before execution. When it is already
     # satisfied there is nothing to decide, so no provider request is spent.
     completion = _completion_status(condition, page)
@@ -830,6 +838,19 @@ def _run_browser_loop(
         elements = _safe_elements(page.get("elements"))
         signature = _observation_signature(page)
         progress["last_state_hash"] = signature
+        # Nonconsecutive revisits (A→B→A) are progress for the consecutive-stall
+        # counter, but still a repeated observation before another paid decision.
+        if decision_signatures.count(signature) >= max(1, NO_PROGRESS_LIMIT - 1) and any(
+            prior != signature for prior in decision_signatures
+        ):
+            return finish(
+                page=page,
+                status="blocked",
+                failure_phase="no_progress",
+                stalled_observations=NO_PROGRESS_LIMIT,
+                reconcile_before_retry=bool(actions),
+            )
+        decision_signatures.append(signature)
         operation_criteria = {
             "SCROLL_DOWN": "Scroll down to reveal more page content",
             "SCROLL_UP": "Scroll up to reveal earlier page content",
@@ -1058,6 +1079,7 @@ def _run_browser_loop(
                 page=page,
                 status="partial_failure",
                 failure_phase="action",
+                failure_reason=_failure_reason(exc),
                 reconcile_before_retry=True,
             )
         blocked = _fatal_destination_violation(session)
@@ -1130,14 +1152,39 @@ def _run_browser_loop(
             )
         )
         progressed = content_changed or url_changed or title_changed
+        parent_action_index = len(actions) - 1
         if not progressed and operation in {"SCROLL_DOWN", "SCROLL_UP"}:
             # A scroll that reveals nothing is retried locally, inside this step,
             # instead of paying for another provider decision on unchanged state.
-            recovered = _local_scroll_recovery(session, operation, signature)
-            if recovered is not None:
-                after = recovered
+            recovery = _local_scroll_recovery(session, operation, signature, step=step)
+            actions.extend(recovery["records"])
+            if recovery["after"] is not None:
+                actions[parent_action_index]["local_scroll_recovery"] = True
+            if recovery["blocked"] is not None:
+                if recovery["after"] is not None:
+                    after = recovery["after"]
+                return finish(
+                    page=after,
+                    status="blocked",
+                    failure_phase="destination_blocked",
+                    failure_reason=str(recovery["blocked"].get("code") or "destination_blocked"),
+                    reconcile_before_retry=True,
+                )
+            if recovery["unsafe"]:
+                if recovery["after"] is not None:
+                    after = recovery["after"]
+                return finish(
+                    page=after,
+                    status="blocked",
+                    failure_phase="unsafe_url",
+                    reconcile_before_retry=True,
+                )
+            if recovery["after"] is not None:
+                after = recovery["after"]
                 progressed = True
-                actions[-1]["local_scroll_recovery"] = True
+                actions[parent_action_index]["effect_observed"] = True
+                actions[parent_action_index]["effect_confirmed"] = True
+                actions[parent_action_index]["effect_status"] = "document_changed"
         stalled = 0 if progressed else stalled + 1
         page.clear()
         page.update(after)
@@ -1200,18 +1247,48 @@ def _local_scroll_recovery(
     session: BrowserSession,
     operation: str,
     signature: str,
-) -> dict[str, Any] | None:
-    """Scroll further locally until the observation changes or the bound is hit."""
+    *,
+    step: int,
+) -> dict[str, Any]:
+    """Scroll further locally until the observation changes or the bound is hit.
+
+    Every recovery dispatch is recorded. An unsafe URL or fatal guard hit is
+    returned to the caller instead of discarding the observation, so the loop
+    can run the normal URL and destination checks before progress or completion.
+    """
     direction = "down" if operation == "SCROLL_DOWN" else "up"
+    records: list[dict[str, Any]] = []
     for _ in range(LOCAL_SCROLL_RECOVERY_LIMIT):
         operation_remaining_deadline()
         session.scroll(direction)
         candidate = session.observe()
+        changed = _observation_signature(candidate) != signature
+        records.append(
+            _action_record(
+                step=step,
+                operation=operation,
+                label=f"local_scroll_recovery_{direction}",
+                target_id=None,
+                page=candidate,
+                dispatched=True,
+                effect_observed=changed if _public_http_url(str(candidate.get("url") or "")) else None,
+                effect_status=(
+                    "document_changed"
+                    if changed and _public_http_url(str(candidate.get("url") or ""))
+                    else "left_public_https"
+                    if not _public_http_url(str(candidate.get("url") or ""))
+                    else "no_observed_effect"
+                ),
+            )
+        )
+        blocked = _fatal_destination_violation(session)
+        if blocked is not None:
+            return {"after": candidate, "records": records, "blocked": blocked, "unsafe": False}
         if not _public_http_url(str(candidate.get("url") or "")):
-            return None
-        if _observation_signature(candidate) != signature:
-            return candidate
-    return None
+            return {"after": candidate, "records": records, "blocked": None, "unsafe": True}
+        if changed:
+            return {"after": candidate, "records": records, "blocked": None, "unsafe": False}
+    return {"after": None, "records": records, "blocked": None, "unsafe": False}
 
 
 def _browser_receipt(
