@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Automatic E2E harness: resolve bare and namespace-qualified skill identifiers through the runtime registry before scoring (preserve raw and canonical forms in evidence); ship portable fixture skills instead of copying from an operator Hermes home; re-exec under the Hermes interpreter (`HERMES_PYTHON` or `hermes` CLI) without inventing `PYTHONPATH`; fail as `harness_invalid` when registry/import prerequisites are broken; expand the paired suite to three unique tasks (issue #24).
 - Fail closed when a clean local restricted-pattern scan has no host per-turn allow envelope: unclassified turns stay `data_class=unknown` (`local_scan_unclassified`) and are not forwarded to hosted Jev as `sanitized`.
 - Automatic hosted routing uses a separate intervention deadline (default 20s, below the typical Hermes ~30s plugin callback) from explicit decision/computer-use deadlines (60s). Remaining budget is checked before each partition/reduction request; late results after the deadline are discarded; distinct receipt codes record `deadline_exceeded`, `host_cancelled`, and `late_result_discarded`; intervention timeout is reported separately from provider I/O timeout (issue #26).
 - DOM browser receipts: preserve the action ledger on provider timeout/validation failures as `partial_failure` with `reconcile_before_retry`; distinguish `action_dispatched` / `effect_observed` / `goal_verified`; do not set `effect_confirmed` for same-document clicks with no observed URL/title/DOM delta (issue #28).
