@@ -86,6 +86,15 @@ def _unit(value: Any, name: str) -> float:
     return float(value)
 
 
+def _bounded_distribution(probabilities: Any, expected_keys: set[str], name: str) -> dict[str, float]:
+    if not isinstance(probabilities, dict) or set(probabilities) != expected_keys:
+        raise ValueError(name)
+    parsed = {key: _unit(value, "probability") for key, value in probabilities.items()}
+    if abs(sum(parsed.values()) - 1.0) >= 0.02:
+        raise ValueError(name)
+    return parsed
+
+
 def _validate_records(records: Any) -> list[dict[str, Any]]:
     if not isinstance(records, (list, tuple)) or not 1 <= len(records) <= MAX_RECORDS:
         raise ValueError(f"records must be a list of 1 to {MAX_RECORDS} objects")
@@ -198,18 +207,14 @@ def _parse_answers(
     if not isinstance(choice_answer, dict) or not isinstance(score_answer, dict):
         raise ValueError("answer missing")
     choice = choice_answer.get("choice")
-    probabilities = choice_answer.get("probabilities")
-    if choice not in DISPOSITIONS or not isinstance(probabilities, dict) or set(probabilities) != set(DISPOSITIONS):
+    if choice not in DISPOSITIONS:
         raise ValueError("disposition")
-    parsed = {key: _unit(value, "probability") for key, value in probabilities.items()}
+    parsed = _bounded_distribution(choice_answer.get("probabilities"), set(DISPOSITIONS), "disposition")
     confidence = _unit(choice_answer.get("confidence"), "confidence")
     if parsed[choice] < max(parsed.values()) - 1e-6:
         raise ValueError("disposition is not the winning choice")
-    severity_probabilities = score_answer.get("probabilities")
     expected_keys = {str(index) for index in range(len(SEVERITY_LEVELS))}
-    if not isinstance(severity_probabilities, dict) or set(severity_probabilities) != expected_keys:
-        raise ValueError("severity")
-    severity_parsed = {key: _unit(value, "probability") for key, value in severity_probabilities.items()}
+    severity_parsed = _bounded_distribution(score_answer.get("probabilities"), expected_keys, "severity")
     winner = max(expected_keys, key=lambda key: (severity_parsed[key], -int(key)))
     severity_probability = severity_parsed[winner]
     level = SEVERITY_LEVELS[int(winner)]
@@ -260,7 +265,10 @@ def _consume(record: dict[str, Any], decision: dict[str, Any]) -> tuple[dict[str
         })
     else:
         rule = decision.get("rule") or ""
-        payload["reason"] = rule if rule.startswith("exact_duplicate_of:") else "judged_out_of_scope"
+        if decision.get("source") == "local_rule" and rule.startswith("exact_duplicate_of:"):
+            payload["reason"] = rule
+        else:
+            payload["reason"] = "judged_out_of_scope"
     return outcome("acted", action=action), payload
 
 
@@ -308,14 +316,16 @@ class _Accounting:
         if not isinstance(usage, dict):
             self.cost_missing = True
             return
-        cost = usage.get("cost")
-        if type(cost) in (int, float) and math.isfinite(cost) and cost >= 0:
-            self.cost_reported.append(float(cost))
-        else:
+        bounded = receipt_state.safe_usage(usage)
+        cost = bounded.get("cost")
+        if cost is None or type(cost) not in (int, float) or not math.isfinite(cost) or cost < 0:
             self.cost_missing = True
-        for key, value in usage.items():
-            if key != "cost" and type(value) in (int, float) and math.isfinite(value):
-                self.usage[key] = self.usage.get(key, 0.0) + float(value)
+        else:
+            self.cost_reported.append(float(cost))
+        for key, value in bounded.items():
+            if key == "cost" or value is None:
+                continue
+            self.usage[key] = self.usage.get(key, 0.0) + float(value)
 
     def complete(self, result: dict[str, Any]) -> None:
         self.completed += 1
@@ -576,7 +586,9 @@ def verify_artifact(
     if manifest.get("thresholds") != {"disposition": disposition_threshold, "severity": severity_threshold}:
         errors.append("threshold_mismatch")
     by_id = {record["id"]: record for record in validated}
-    if [entry.get("id") for entry in entries if isinstance(entry, dict)] != [record["id"] for record in validated]:
+    if any(not isinstance(entry, dict) for entry in entries) or [
+        entry.get("id") for entry in entries
+    ] != [record["id"] for record in validated]:
         errors.append("record_set_mismatch")
         return report()
     local = _local_rules(validated)
@@ -596,6 +608,8 @@ def verify_artifact(
                 elif source == "jev":
                     if rid in local:
                         errors.append(f"local_rule_not_applied:{rid}")
+                    if decision.get("rule") is not None:
+                        errors.append(f"jev_rule_not_allowed:{rid}")
                     if disposition not in DISPOSITIONS:
                         errors.append(f"disposition_invalid:{rid}")
                     if not (
@@ -617,7 +631,21 @@ def verify_artifact(
                     errors.append(f"unassessed_reason_invalid:{rid}")
                 if source is not None or disposition is not None:
                     errors.append(f"unassessed_carries_a_decision:{rid}")
-            elif status != "abstained":
+            elif status == "abstained":
+                confidence = decision.get("confidence")
+                winning = decision.get("winning_probability")
+                below_threshold = (
+                    (type(confidence) in (int, float) and confidence < disposition_threshold)
+                    or (type(winning) in (int, float) and winning < disposition_threshold)
+                )
+                if not (
+                    source == "jev"
+                    and disposition in DISPOSITIONS
+                    and decision.get("reason") == "below_threshold"
+                    and below_threshold
+                ):
+                    errors.append(f"abstention_evidence_invalid:{rid}")
+            else:
                 errors.append(f"decision_status_invalid:{rid}")
             attempt = entry["attempt"]
             if source == "local_rule" and attempt.get("requested") is not False:
@@ -658,6 +686,9 @@ def verify_artifact(
                     errors.append(f"queue_not_routable:{rid}")
                 if disposition == "qualified" and payload.get("priority") != _priority(decision):
                     errors.append(f"priority_mismatch:{rid}")
+                _, expected_payload = _consume(record, decision)
+                if expected_payload != payload:
+                    errors.append(f"action_payload_mismatch:{rid}")
             elif state == "rejected":
                 if not (status == "accepted" and disposition == "qualified" and not _routable(record)):
                     errors.append(f"rejection_not_justified:{rid}")

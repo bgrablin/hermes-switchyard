@@ -228,6 +228,17 @@ def safe_usage(value: Any) -> dict[str, float | None]:
     return result
 
 
+def merge_usage(total: dict[str, float | None], usage: Any) -> None:
+    """Add allowlisted usage fields. A missing cost stays unknown, never zero."""
+    for key, value in safe_usage(usage).items():
+        if value is None:
+            total[key] = None
+            continue
+        if key in total and total[key] is None:
+            continue
+        total[key] = float(total.get(key) or 0.0) + float(value)
+
+
 def _hermes_home() -> Path | None:
     configured = os.environ.get("HERMES_HOME")
     if configured:

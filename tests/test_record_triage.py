@@ -7,6 +7,7 @@ no-fallback payload are exercised for real. Records are synthetic.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import tempfile
 import time
@@ -276,6 +277,62 @@ class MalformedResponseTests(TriageCase):
         self.assertEqual(result["status"], "failed")
 
 
+class ParserBoundaryTests(TriageCase):
+    def test_parse_answers_rejects_non_normalized_disposition_and_severity_distributions(self):
+        answers = {
+            "disposition__rec-001": _choice_answer(record_triage.DISPOSITIONS, "qualified", 0.95),
+            "severity__rec-001": _score_answer("major", 0.9),
+        }
+        for question_name in ("disposition__rec-001", "severity__rec-001"):
+            with self.subTest(question_name=question_name):
+                candidate = copy.deepcopy(answers)
+                probabilities = candidate[question_name]["probabilities"]
+                candidate[question_name]["probabilities"] = {
+                    key: 1.0 for key in probabilities
+                }
+                with self.assertRaises(ValueError):
+                    record_triage._parse_answers("rec-001", candidate, 0.80, 0.80)
+
+    def test_parse_answers_rejects_distributions_outside_client_tolerance(self):
+        answers = {
+            "disposition__rec-001": _choice_answer(record_triage.DISPOSITIONS, "qualified", 0.95),
+            "severity__rec-001": _score_answer("major", 0.9),
+        }
+        for question_name in ("disposition__rec-001", "severity__rec-001"):
+            with self.subTest(question_name=question_name):
+                candidate = copy.deepcopy(answers)
+                probabilities = candidate[question_name]["probabilities"]
+                keys = list(probabilities)
+                candidate[question_name]["probabilities"] = {
+                    key: (0.90 if key == keys[0] else 0.10) for key in keys
+                }
+                with self.assertRaises(ValueError):
+                    record_triage._parse_answers("rec-001", candidate, 0.80, 0.80)
+
+    def test_parse_answers_accepts_distributions_within_client_tolerance(self):
+        answers = {
+            "disposition__rec-001": _choice_answer(record_triage.DISPOSITIONS, "qualified", 0.95),
+            "severity__rec-001": _score_answer("major", 0.9),
+        }
+        answers["disposition__rec-001"]["probabilities"] = {
+            "qualified": 0.818,
+            "needs_info": 0.096,
+            "out_of_scope": 0.096,
+        }
+        answers["severity__rec-001"]["probabilities"] = {
+            "0": 0.030333333333333334,
+            "1": 0.030333333333333334,
+            "2": 0.919,
+            "3": 0.030333333333333334,
+        }
+
+        decision = record_triage._parse_answers("rec-001", answers, 0.80, 0.80)
+
+        self.assertEqual(decision["status"], "accepted")
+        self.assertEqual(decision["winning_probability"], 0.818)
+        self.assertEqual(decision["severity_probability"], 0.919)
+
+
 class DeadlineTests(TriageCase):
     def test_aggregate_deadline_fails_overrunning_batch_and_stops_later_ones(self):
         records = [_record(f"rec-00{i}") for i in range(1, 7)]
@@ -456,6 +513,96 @@ class VerifierTests(TriageCase):
         self.assertIn("accepted_below_threshold:rec-001", report["errors"])
 
 
+class CopilotReviewRegressionTests(TriageCase):
+    def test_verifier_rejects_abstention_without_completed_jev_evidence(self):
+        records = [_record("rec-001")]
+        script = Script()
+        script.fail_calls[0] = RuntimeError("provider failure")
+        self.run_triage(records, script)
+        manifest = self.manifest()
+        entry = manifest["records"][0]
+        entry["decision"]["status"] = "abstained"
+        manifest["unprocessed"] = {}
+        (self.out / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+        report = verify_artifact(self.out, records)
+
+        self.assertFalse(report["verified"])
+        self.assertIn("abstention_evidence_invalid:rec-001", report["errors"])
+
+    def test_verifier_exact_compares_needs_info_and_out_of_scope_payloads(self):
+        records = [_record("rec-001"), _record("rec-002")]
+        script = Script(**{
+            "rec-001": {"disposition": ("needs_info", 0.95)},
+            "rec-002": {"disposition": ("out_of_scope", 0.95)},
+        })
+        self.run_triage(records, script)
+        original_manifest = (self.out / "manifest.json").read_bytes()
+        original_files = {
+            record_id: (self.out / "actions" / f"{record_id}.json").read_bytes()
+            for record_id in ("rec-001", "rec-002")
+        }
+        for record_id, field, value in (
+            ("rec-001", "message", "forged request-info message"),
+            ("rec-002", "reason", "forged out-of-scope reason"),
+        ):
+            with self.subTest(record_id=record_id):
+                path = self.out / "actions" / f"{record_id}.json"
+                payload = json.loads(original_files[record_id])
+                payload[field] = value
+                data = (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
+                path.write_bytes(data)
+                manifest = json.loads(original_manifest)
+                entry = next(item for item in manifest["records"] if item["id"] == record_id)
+                entry["consumer"]["sha256"] = hashlib.sha256(data).hexdigest()
+                (self.out / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+                try:
+                    report = verify_artifact(self.out, records)
+                    self.assertFalse(report["verified"])
+                    self.assertIn(f"action_payload_mismatch:{record_id}", report["errors"])
+                finally:
+                    (self.out / "manifest.json").write_bytes(original_manifest)
+                    for restored_id, content in original_files.items():
+                        (self.out / "actions" / f"{restored_id}.json").write_bytes(content)
+
+    def test_verifier_rejects_non_object_manifest_entries_without_raising(self):
+        records = [_record("rec-001"), _record("rec-002")]
+        self.run_triage(records, Script())
+        manifest = self.manifest()
+        manifest["records"].append(5)
+        (self.out / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+        try:
+            report = verify_artifact(self.out, records)
+        except Exception as exc:  # noqa: BLE001 -- the contract is fail-closed, not a raised TypeError
+            self.fail(f"verify_artifact raised {type(exc).__name__}")
+        self.assertFalse(report["verified"])
+        self.assertTrue(report["errors"])
+
+    def test_verifier_rejects_forged_jev_duplicate_rule_on_out_of_scope(self):
+        records = [_record("rec-001"), _record("rec-002")]
+        script = Script(**{"rec-001": {"disposition": ("out_of_scope", 0.95)}})
+        self.run_triage(records, script)
+        manifest = self.manifest()
+        entry = next(item for item in manifest["records"] if item["id"] == "rec-001")
+        entry["decision"]["rule"] = "exact_duplicate_of:rec-002"
+        path = self.out / "actions" / "rec-001.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["reason"] = "exact_duplicate_of:rec-002"
+        data = (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
+        path.write_bytes(data)
+        entry["consumer"]["sha256"] = hashlib.sha256(data).hexdigest()
+        (self.out / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+        report = verify_artifact(self.out, records)
+
+        self.assertFalse(report["verified"])
+        self.assertTrue(
+            "jev_rule_not_allowed:rec-001" in report["errors"]
+            or "action_payload_mismatch:rec-001" in report["errors"]
+        )
+
+
 class InputValidationTests(TriageCase):
     def assert_rejected_before_provider(self, records, exception=ValueError, **kwargs):
         script = Script()
@@ -516,6 +663,25 @@ class AccountingTests(TriageCase):
         self.assertFalse(accounting["cost_known"])
         self.assertIsNone(accounting["total_cost"])
         self.assertEqual(accounting["known_cost_subtotal"], 0.01)
+
+    def test_provider_controlled_usage_keys_are_not_persisted(self):
+        script = Script()
+
+        def transport(payload):
+            result = script.transport(payload)
+            result["usage"]["provider_controlled_secret_name"] = 7
+            return result
+
+        client = DecisionClient(api_key="test-key", transport=transport)
+        result = run_record_triage([_record("rec-001")], client=client, out_dir=self.out)
+
+        self.assertEqual(
+            result["accounting"]["total_usage"],
+            {"prompt_tokens": 10.0, "completion_tokens": 2.0},
+        )
+        manifest = self.manifest()
+        self.assertEqual(manifest["accounting"]["total_usage"], result["accounting"]["total_usage"])
+        self.assertNotIn("provider_controlled_secret_name", json.dumps(manifest))
 
     def test_workflow_request_budget_is_enforced_locally(self):
         records = [_record(f"rec-{i:03d}") for i in range(1, 6)]
