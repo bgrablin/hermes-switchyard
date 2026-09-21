@@ -614,7 +614,7 @@ def ensure_platform_toolsets(
         cleared_suppressions = list(direct_suppressed)
         changed = True
 
-    verify = suppression
+    verify: dict[str, list[str]] | None = suppression
     if changed:
         try:
             save_config(config)
@@ -709,6 +709,49 @@ def ensure_platform_toolsets(
             return _ensure_failure(
                 'config_not_persisted',
                 detail='disabled_toolsets_unreadable_after_save',
+                added=added,
+                already_present=already_present,
+                focus_override=focus_override,
+                suppressed=suppressed or None,
+                suppression_entries=suppression_entries or None,
+                seeded_platforms=seeded,
+                platforms=platforms,
+                toolsets=toolsets,
+            )
+    else:
+        try:
+            reloaded = load_config()
+        except Exception as exc:  # noqa: BLE001
+            return _ensure_failure(
+                'config_unreadable',
+                detail=type(exc).__name__,
+                added=added,
+                already_present=already_present,
+                focus_override=focus_override,
+                suppressed=suppressed or None,
+                suppression_entries=suppression_entries or None,
+                seeded_platforms=seeded,
+                platforms=platforms,
+                toolsets=toolsets,
+            )
+        if not isinstance(reloaded, dict):
+            return _ensure_failure(
+                'config_invalid',
+                detail='config_not_object',
+                added=added,
+                already_present=already_present,
+                focus_override=focus_override,
+                suppressed=suppressed or None,
+                suppression_entries=suppression_entries or None,
+                seeded_platforms=seeded,
+                platforms=platforms,
+                toolsets=toolsets,
+            )
+        verify = _required_toolset_suppression(reloaded, toolsets)
+        if verify is None:
+            return _ensure_failure(
+                'config_invalid',
+                detail='disabled_toolsets_unreadable',
                 added=added,
                 already_present=already_present,
                 focus_override=focus_override,
