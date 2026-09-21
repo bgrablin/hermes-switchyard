@@ -364,6 +364,57 @@ class ReceiptContractTests(unittest.TestCase):
             os.environ.pop("HERMES_HOME", None)
             harness.close()
 
+    def test_migration_publication_is_atomically_non_clobbering_under_race(self):
+        import threading
+
+        harness = _MemoryFileHarness()
+        try:
+            os.environ["HERMES_HOME"] = harness._tmp.name
+            legacy = Path(harness._tmp.name) / "plugins" / receipt_state.PLUGIN_NAME / "receipt.json"
+            legacy.parent.mkdir(parents=True)
+            receipt = _base_advisory()
+            legacy.write_text(json.dumps(receipt), encoding="utf-8")
+            barrier = threading.Barrier(2)
+            results = []
+            lock = threading.Lock()
+
+            def migrate():
+                barrier.wait()
+                value = receipt_state.read_latest_receipt()
+                with lock:
+                    results.append(value)
+
+            threads = [threading.Thread(target=migrate) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+            new_path = receipt_state._receipt_state_file()
+            self.assertIsNotNone(new_path)
+            assert new_path is not None
+            canonical = receipt_state.canonicalize_receipt(receipt)
+            self.assertTrue(new_path.is_file())
+            self.assertEqual(json.loads(new_path.read_text(encoding="utf-8")), canonical)
+            self.assertEqual(results, [canonical, canonical])
+            self.assertEqual(list(new_path.parent.glob(".receipt-*.tmp")), [])
+        finally:
+            os.environ.pop("HERMES_HOME", None)
+            harness.close()
+
+    def test_stored_receipt_has_private_permissions(self):
+        harness = _MemoryFileHarness()
+        try:
+            os.environ["HERMES_HOME"] = harness._tmp.name
+            self.assertTrue(receipt_state.store_latest_receipt(_base_advisory()))
+            path = receipt_state._receipt_state_file()
+            self.assertIsNotNone(path)
+            assert path is not None
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        finally:
+            os.environ.pop("HERMES_HOME", None)
+            harness.close()
+
 
 # ------------------------------------------------------- D
 

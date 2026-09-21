@@ -284,14 +284,13 @@ def canonicalize_receipt(receipt: Any) -> dict[str, Any] | None:
     return normalized
 
 
-def store_latest_receipt(receipt: dict[str, Any]) -> bool:
-    """Atomically retain the latest valid receipt for the diagnostic command."""
-    canonical = canonicalize_receipt(receipt)
-    if canonical is None:
-        return False
-    path = _receipt_state_file()
-    if path is None:
-        return False
+def _write_canonical_receipt(path: Path, canonical: dict[str, Any], *, no_clobber: bool = False) -> bool:
+    """Atomically write one validated receipt with private permissions.
+
+    ``no_clobber=True`` publishes with an atomic no-replace link so a
+    destination created concurrently is never overwritten; the caller keeps
+    whatever landed first.
+    """
     temporary: Path | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -302,6 +301,17 @@ def store_latest_receipt(receipt: dict[str, Any]) -> bool:
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
+        if no_clobber:
+            try:
+                os.link(temporary, path)
+            except FileExistsError:
+                return False
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
+            temporary = None
+            return True
         os.replace(temporary, path)
         temporary = None
         return True
@@ -313,6 +323,17 @@ def store_latest_receipt(receipt: dict[str, Any]) -> bool:
                 temporary.unlink()
             except OSError:
                 pass
+
+
+def store_latest_receipt(receipt: dict[str, Any]) -> bool:
+    """Atomically retain the latest valid receipt for the diagnostic command."""
+    canonical = canonicalize_receipt(receipt)
+    if canonical is None:
+        return False
+    path = _receipt_state_file()
+    if path is None:
+        return False
+    return _write_canonical_receipt(path, canonical)
 
 
 def read_latest_receipt() -> dict[str, Any] | None:
@@ -340,27 +361,11 @@ def read_latest_receipt() -> dict[str, Any] | None:
 
     # Do not replace an unrelated or malformed new file. A successful first
     # read creates the new profile-owned copy; the legacy file remains intact
-    # as a rollback aid and is no longer consulted on later reads.
-    temporary: Path | None = None
-    try:
-        if path is not None and not path.exists():
-            path.parent.mkdir(parents=True, exist_ok=True)
-            fd, raw_path = tempfile.mkstemp(prefix=".receipt-", suffix=".tmp", dir=path.parent)
-            temporary = Path(raw_path)
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(canonical, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
-                handle.write("\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary, path)
-    except (OSError, TypeError, ValueError):
-        pass
-    finally:
-        if temporary is not None:
-            try:
-                temporary.unlink()
-            except OSError:
-                pass
+    # as a rollback aid and is no longer consulted on later reads. The
+    # publication is atomically non-clobbering: a destination created
+    # concurrently after the existence check wins and is never overwritten.
+    if path is not None and not path.exists():
+        _write_canonical_receipt(path, canonical, no_clobber=True)
     return canonical
 
 

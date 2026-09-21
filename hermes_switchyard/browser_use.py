@@ -843,11 +843,23 @@ class ChromiumSession:
                 self._proc.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 self._proc.kill()
+                try:
+                    self._proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    pass
             self._proc = None
-        try:
-            self._tmpdir.cleanup()
-        except OSError:
-            pass
+        # Snap Chromium's helper processes can hold the profile briefly after
+        # the main process exits. Retry bounded cleanup so the per-run
+        # directory is removed exactly instead of being silently left behind.
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                self._tmpdir.cleanup()
+            except OSError:
+                pass
+            if not Path(self._tmpdir.name).exists() or time.monotonic() >= deadline:
+                break
+            time.sleep(0.2)
 
     def __enter__(self) -> ChromiumSession:
         return self
@@ -898,6 +910,54 @@ class ChromiumSession:
         raise TimeoutError(f"page did not become ready ready={ready!r} href={href!r}")
 
 
+_SNAP_ENTRY_POINT = Path("/snap/bin/chromium")
+
+
+class BrowserStartupError(RuntimeError):
+    """A browser could not be prepared for launch; ``code`` is a stable reason."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def _wrapper_head(candidate: Path, limit: int = 4096) -> str:
+    """Read the head of a candidate wrapper, bounded for large real binaries.
+
+    Returns an empty string for unreadable files and for binary payloads:
+    a NUL byte in the prefix means the candidate is a compiled executable,
+    not a shell wrapper script.
+    """
+    try:
+        with open(candidate, "rb") as handle:
+            raw = handle.read(limit)
+    except OSError:
+        return ""
+    if b"\x00" in raw:
+        return ""
+    return raw.decode("utf-8", errors="replace")
+
+
+def _snap_wrapper_target(head: str) -> str | None:
+    """Return the confined target a wrapper execs, if it launches Snap Chromium.
+
+    The documented Ubuntu wrapper is exactly ``exec /snap/bin/chromium "$@"``,
+    but aliases and PATH shims vary the quoting and may add a ``--`` separator.
+    """
+    match = re.search(
+        r'(?m)^\s*exec\s+(?:"([^"]+)"|\'([^\']+)\'|(\S+))\s+(?:--\s+)?"\$@"\s*$',
+        head,
+    )
+    if match is None:
+        return None
+    target = next((group for group in match.groups() if group), "")
+    if not target:
+        return None
+    if not target.startswith("/snap/bin/"):
+        return None
+    return target
+
+
 def _browser_profile_dir(binary: Path | None = None) -> tempfile.TemporaryDirectory[str]:
     # The explicit Snap confinement rule is evaluated before the Windows
     # default so it holds on every platform. A real Windows browser path is
@@ -912,7 +972,10 @@ def _browser_profile_dir(binary: Path | None = None) -> tempfile.TemporaryDirect
         try:
             common.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            raise RuntimeError("Snap Chromium requires an accessible ~/snap/chromium/common directory") from exc
+            raise BrowserStartupError(
+                "snap_profile_unavailable",
+                "Snap Chromium requires an accessible ~/snap/chromium/common directory",
+            ) from exc
         return tempfile.TemporaryDirectory(
             prefix="switchyard-browser-",
             dir=str(common),
@@ -933,23 +996,45 @@ def _browser_profile_dir(binary: Path | None = None) -> tempfile.TemporaryDirect
     return tempfile.TemporaryDirectory(prefix="switchyard-browser-", dir=str(cache), ignore_cleanup_errors=True)
 
 
-def _is_snap_chromium(binary: Path) -> bool:
-    """Return whether *binary* is the strict-confined Chromium entry point."""
-    return binary == Path("/snap/bin/chromium")
+def _is_snap_chromium(binary: Path | None) -> bool:
+    """Return whether *binary* is a Snap-confined Chromium entry point.
+
+    Detection follows the resolved executable's identity rather than one
+    exact wrapper wording: the canonical entry point path (on every
+    platform, so the confinement rule still holds on Windows inputs), any
+    path under ``/snap/bin/``, and any wrapper whose script execs a
+    ``/snap/bin/...`` target (quoted, unquoted, or after a ``--``
+    separator).
+    """
+    if binary is None:
+        return False
+    try:
+        resolved = binary.resolve()
+    except OSError:
+        resolved = binary
+    for candidate in (binary, resolved):
+        if candidate == _SNAP_ENTRY_POINT:
+            return True
+        if str(candidate).startswith("/snap/bin/"):
+            return True
+    try:
+        if not binary.is_file():
+            return False
+    except OSError:
+        return False
+    return _snap_wrapper_target(_wrapper_head(binary)) is not None
 
 
 def _resolve_browser_binary(candidate: Path, *, snap_binary: Path | None = None) -> Path | None:
     """Resolve the Ubuntu Chromium wrapper without trusting its temporary path."""
     if not candidate.is_file():
         return None
-    try:
-        wrapper = candidate.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        wrapper = ""
-    target = snap_binary or Path("/snap/bin/chromium")
-    if re.search(r'(?m)^\s*exec\s+/snap/bin/chromium\s+"\$@"\s*$', wrapper):
-        if target.is_file():
-            return target
+    target_text = _snap_wrapper_target(_wrapper_head(candidate))
+    if target_text is None:
+        return candidate
+    target = snap_binary or Path(target_text)
+    if target.is_file():
+        return target
     return candidate
 
 

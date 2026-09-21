@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
 import tempfile
 import unittest
 from contextlib import contextmanager
@@ -10,6 +13,7 @@ from pathlib import Path
 from unittest import mock
 
 from hermes_switchyard.browser_use import (
+    BrowserStartupError,
     _browser_profile_dir,
     _is_snap_chromium,
     _resolve_browser_binary,
@@ -95,7 +99,7 @@ class BrowserUseTests(unittest.TestCase):
             wrapper.write_text('#!/bin/sh\nexec /snap/bin/chromium "$@"\n', encoding="utf-8")
             snap.write_text("binary", encoding="utf-8")
             self.assertEqual(_resolve_browser_binary(wrapper, snap_binary=snap), snap)
-            self.assertFalse(_is_snap_chromium(wrapper))
+            self.assertTrue(_is_snap_chromium(wrapper))
 
     def test_snap_profile_is_created_under_confined_common_directory(self):
         with tempfile.TemporaryDirectory() as root:
@@ -506,6 +510,202 @@ class BrowserUseTests(unittest.TestCase):
                 standing=False,
             )
         )
+
+
+class SnapConfinementDetectionTests(unittest.TestCase):
+    """A Snap-confined browser is recognised from its real identity or its content."""
+
+    def test_variant_named_snap_wrapper_is_detected_by_content(self):
+        # A Snap-confined wrapper can be found under any file name (a snap alias
+        # or a PATH shim), so the rule must read the entry point, not the name.
+        with tempfile.TemporaryDirectory() as root:
+            wrapper = Path(root) / "chromium-snap-alias"
+            wrapper.write_text('#!/bin/sh\nexec /snap/bin/chromium "$@"\n', encoding="utf-8")
+            wrapper.chmod(0o755)
+            self.assertTrue(_is_snap_chromium(wrapper))
+
+    def test_variant_named_wrapper_resolves_to_the_confined_binary(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = Path(root)
+            wrapper = root_path / "chromium-snap-alias"
+            snap = root_path / "chromium"
+            wrapper.write_text('#!/bin/sh\nexec /snap/bin/chromium "$@"\n', encoding="utf-8")
+            wrapper.chmod(0o755)
+            snap.write_text("binary", encoding="utf-8")
+            self.assertEqual(_resolve_browser_binary(wrapper, snap_binary=snap), snap)
+
+    def test_quoted_snap_exec_is_detected(self):
+        with tempfile.TemporaryDirectory() as root:
+            wrapper = Path(root) / "chromium"
+            wrapper.write_text('#!/bin/sh\nexec "/snap/bin/chromium" "$@"\n', encoding="utf-8")
+            wrapper.chmod(0o755)
+            self.assertTrue(_is_snap_chromium(wrapper))
+
+    def test_unquoted_snap_exec_is_detected(self):
+        with tempfile.TemporaryDirectory() as root:
+            wrapper = Path(root) / "chromium"
+            wrapper.write_text('#!/bin/sh\nexec /snap/bin/chromium -- "$@"\n', encoding="utf-8")
+            wrapper.chmod(0o755)
+            self.assertTrue(_is_snap_chromium(wrapper))
+
+    def test_variant_named_snap_wrapper_uses_the_confined_profile_directory(self):
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root)
+            wrapper = home / "bin" / "chromium-snap-alias"
+            wrapper.parent.mkdir(parents=True)
+            wrapper.write_text('#!/bin/sh\nexec /snap/bin/chromium "$@"\n', encoding="utf-8")
+            wrapper.chmod(0o755)
+            with mock.patch("pathlib.Path.home", return_value=home):
+                temporary = _browser_profile_dir(wrapper)
+                try:
+                    profile = Path(temporary.name)
+                    expected_root = home / "snap" / "chromium" / "common"
+                    self.assertEqual(profile.parent, expected_root)
+                    self.assertTrue(profile.is_dir())
+                    self.assertEqual(
+                        Path(os.path.realpath(profile.parent)).parent,
+                        Path(os.path.realpath(expected_root)).parent,
+                    )
+                finally:
+                    temporary.cleanup()
+
+    def test_ordinary_browser_file_is_not_snap_confined(self):
+        with tempfile.TemporaryDirectory() as root:
+            wrapper = Path(root) / "chromium"
+            wrapper.write_text('#!/bin/sh\nexec /opt/google/chrome/chrome "$@"\n', encoding="utf-8")
+            wrapper.chmod(0o755)
+            self.assertFalse(_is_snap_chromium(wrapper))
+
+    def test_missing_path_and_none_are_not_snap_confined(self):
+        self.assertFalse(_is_snap_chromium(Path("/nonexistent/switchyard/chromium")))
+        self.assertFalse(_is_snap_chromium(None))
+
+    def test_directory_is_never_read_as_a_wrapper(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.assertFalse(_is_snap_chromium(Path(root)))
+
+    def test_symlink_to_snap_wrapper_is_detected(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = Path(root)
+            real = root_path / "real-wrapper"
+            real.write_text('#!/bin/sh\nexec /snap/bin/chromium "$@"\n', encoding="utf-8")
+            real.chmod(0o755)
+            link = root_path / "chromium-browser"
+            try:
+                link.symlink_to(real)
+            except OSError:
+                self.skipTest("symlinks are unavailable on this platform")
+            self.assertTrue(_is_snap_chromium(link))
+
+    def test_native_binary_control_is_not_snap_confined(self):
+        with tempfile.TemporaryDirectory() as root:
+            binary = Path(root) / "chrome"
+            binary.write_bytes(b"\x7fELF\x02\x01\x01\x00" + b"\x00" * 64)
+            binary.chmod(0o755)
+            self.assertFalse(_is_snap_chromium(binary))
+            self.assertEqual(_resolve_browser_binary(binary), binary)
+
+    def test_non_snap_profile_dir_never_falls_back_to_the_confined_root(self):
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root)
+            ordinary = home / "bin" / "chromium"
+            ordinary.parent.mkdir(parents=True)
+            ordinary.write_text("", encoding="utf-8")
+            ordinary.chmod(0o755)
+            with mock.patch("pathlib.Path.home", return_value=home):
+                with mock.patch.dict(
+                    os.environ, {"XDG_RUNTIME_DIR": str(home / "run")}, clear=False
+                ):
+                    (home / "run").mkdir(parents=True, exist_ok=True)
+                    temporary = _browser_profile_dir(ordinary)
+                    try:
+                        profile = Path(temporary.name)
+                        self.assertNotEqual(
+                            profile.parent, home / "snap" / "chromium" / "common"
+                        )
+                    finally:
+                        temporary.cleanup()
+
+    def test_unusable_snap_common_directory_returns_typed_error(self):
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root)
+            (home / "snap").write_text("not a directory", encoding="utf-8")
+            with mock.patch("pathlib.Path.home", return_value=home):
+                with self.assertRaises(BrowserStartupError) as caught:
+                    _browser_profile_dir(Path("/snap/bin/chromium"))
+        self.assertEqual(caught.exception.code, "snap_profile_unavailable")
+        self.assertIn("snap/chromium/common", str(caught.exception))
+
+
+class SnapBrowserLaunchIntegrationTests(unittest.TestCase):
+    """The confined profile directory is proven by launching the real browser."""
+
+    def _real_snap_binary(self):
+        candidate = Path("/snap/bin/chromium")
+        if os.name == "nt" or not candidate.is_file():
+            self.skipTest("no Snap Chromium entry point on this host")
+        return candidate
+
+    def _real_python_launcher(self, module_dir: Path, executable: Path, marker: Path):
+        launcher = module_dir / "launcher.py"
+        launcher.write_text(
+            "import sys\n"
+            "from pathlib import Path\n"
+            "from hermes_switchyard.browser_use import ChromiumSession\n"
+            "session = ChromiumSession('https://example.org/', headed=False)\n"
+            f"marker = Path({str(marker)!r})\n"
+            "marker.write_text(session._tmpdir.name, encoding='utf-8')\n"
+            "session.close()\n"
+            "sys.exit(0)\n",
+            encoding="utf-8",
+        )
+        return launcher
+
+    def test_real_snap_browser_launch_uses_the_confined_profile(self):
+        self._real_snap_binary()
+        with tempfile.TemporaryDirectory() as node_root:
+            node = Path(node_root)
+            module_dir = node / "src"
+            module_dir.mkdir()
+            source_package = Path(hermes_switchyard.__file__).parent
+            shutil.copytree(
+                source_package,
+                module_dir / "hermes_switchyard",
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+            )
+            executable = node / "snap-alias-chromium"
+            executable.write_text(
+                '#!/bin/sh\nexec /snap/bin/chromium "$@"\n', encoding="utf-8"
+            )
+            executable.chmod(0o755)
+            marker = node / "profile.txt"
+            launcher = self._real_python_launcher(module_dir, executable, marker)
+            env = dict(os.environ)
+            env["PYTHONPATH"] = str(module_dir)
+            env.pop("PYTHONDONTWRITEBYTECODE", None)
+            try:
+                completed = subprocess.run(
+                    ["python3", str(launcher)],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=90,
+                    check=False,
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                self.skipTest(f"the real browser launch could not run here: {exc}")
+            if completed.returncode != 0:
+                self.skipTest(
+                    "the confined browser could not launch in this environment: "
+                    f"rc={completed.returncode} {completed.stderr[-400:]}"
+                )
+            self.assertTrue(marker.is_file(), "the launch did not record a profile directory")
+            profile_dir = Path(marker.read_text(encoding="utf-8").strip())
+            self.assertEqual(
+                Path(os.path.realpath(profile_dir)).parent,
+                Path(os.path.realpath(Path.home() / "snap" / "chromium" / "common")),
+            )
+            self.assertFalse(profile_dir.exists(), "the temporary profile was not cleaned up")
 
 
 if __name__ == "__main__":

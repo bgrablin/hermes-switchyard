@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Makes automatic skill routing `local_only` by default. Hosted automatic routing now requires an explicit `hosted_sanitized` profile setting; the legacy boolean remains compatibility-only and never authorizes hosted egress.
-- Resolves Ubuntu's `chromium-browser` Snap wrapper to `/snap/bin/chromium` and places each temporary browser profile under the Snap-accessible `~/snap/chromium/common` directory with exact per-run cleanup.
+- Resolves Ubuntu's `chromium-browser` Snap wrapper to `/snap/bin/chromium` and places each temporary browser profile under the Snap-accessible `~/snap/chromium/common` directory with exact per-run cleanup. Snap confinement is detected from the resolved executable and from a bounded wrapper-script prefix (quoted, unquoted, or `--`-separated exec targets; compiled binaries are never inspected as scripts), and an unusable confined directory raises a typed `snap_profile_unavailable` diagnostic.
 - Stores routing receipts under Hermes' profile-scoped `plugin-data/hermes-switchyard/` directory and migrates one valid legacy receipt without overwriting unrelated state.
 
 ## 0.4.2
