@@ -655,8 +655,15 @@ class NamespaceAndAckTests(unittest.TestCase):
             client_factory=factory,
             cache_seconds=0,
         )
-        recommender.recommend("public task")
-        recommender.recommend("another public task")
+        allowed_policy = {
+            "version": 1,
+            "decision": "allow",
+            "data_class": "sanitized",
+            "reason_code": "synthetic_fixture_allowed",
+            "allowed_payload": "SANITIZED_POOLED_CLIENT_TASK",
+        }
+        recommender.recommend("public task", turn_egress_policy=allowed_policy)
+        recommender.recommend("another public task", turn_egress_policy=allowed_policy)
         self.assertEqual(len(created), 1)
         recommender.close()
         self.assertEqual(created[0].closed, 1)
