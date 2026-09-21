@@ -595,26 +595,38 @@ class RealHermesExposureTests(unittest.TestCase):
 
     def run_hermes(self, *, pin=None, catalog_pins=(), catalog_default=False, credential=False,
                    settings=None, extra_config="", shadows=(), command=None, expect_exit=0,
-                   parse_status=True):
-        """Run a hermes switchyard command for real and return plugin/Hermes answers."""
+                   parse_status=True, home=None, retain_home=False):
+        """Run a hermes switchyard command for real and return plugin/Hermes answers.
+
+        When ``retain_home`` is true, the disposable HERMES_HOME is copied to a retained
+        directory returned as ``.home`` so a follow-up call can pass ``home=`` and reuse it.
+        When ``home`` is provided, the existing profile is reused (plugin files not rewritten).
+        """
         python, extra_environment = self.runner
-        with tempfile.TemporaryDirectory(prefix="switchyard-exposure-", ignore_cleanup_errors=True) as scratch:
-            base = Path(scratch)
-            home = base / "home"
-            plugin = home / "plugins" / "hermes-switchyard"
-            plugin.mkdir(parents=True)
-            (home / "bundled-plugins").mkdir()
-            for name in ("plugin.yaml", "__init__.py", "after-install.md"):
-                shutil.copy2(ROOT / name, plugin / name)
-            shutil.copytree(
-                ROOT / "hermes_switchyard", plugin / "hermes_switchyard",
-                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-            )
-            config = "plugins:\n  enabled:\n    - hermes-switchyard\n"
-            if settings:
-                config += "  entries:\n    hermes-switchyard:\n      settings:\n"
-                config += "".join(f"        {key}: {value}\n" for key, value in settings.items())
-            (home / "config.yaml").write_text(config + extra_config, encoding="utf-8")
+        owns_temp = home is None
+        scratch_ctx = tempfile.TemporaryDirectory(prefix="switchyard-exposure-", ignore_cleanup_errors=True) if owns_temp else None
+        try:
+            if owns_temp:
+                scratch = scratch_ctx.__enter__()
+                base = Path(scratch)
+                home = base / "home"
+                plugin = home / "plugins" / "hermes-switchyard"
+                plugin.mkdir(parents=True)
+                (home / "bundled-plugins").mkdir()
+                for name in ("plugin.yaml", "__init__.py", "after-install.md"):
+                    shutil.copy2(ROOT / name, plugin / name)
+                shutil.copytree(
+                    ROOT / "hermes_switchyard", plugin / "hermes_switchyard",
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+                )
+                config = "plugins:\n  enabled:\n    - hermes-switchyard\n"
+                if settings:
+                    config += "  entries:\n    hermes-switchyard:\n      settings:\n"
+                    config += "".join(f"        {key}: {value}\n" for key, value in settings.items())
+                (home / "config.yaml").write_text(config + extra_config, encoding="utf-8")
+            else:
+                home = Path(home)
+                base = home.parent
             if command is None:
                 argv = ["switchyard", "status", "--json"] + (["--toolsets", pin] if pin else [])
             else:
@@ -636,12 +648,24 @@ class RealHermesExposureTests(unittest.TestCase):
             environment.update(extra_environment)
             completed = subprocess.run(
                 [python, str(PROBE), str(scenario_path)],
-                env=environment, cwd=scratch, capture_output=True, encoding="utf-8", errors="replace",
+                env=environment, cwd=str(base), capture_output=True, encoding="utf-8", errors="replace",
                 timeout=300,
             )
             if completed.returncode != 0:
                 self.fail(f"probe failed with {completed.returncode}: {completed.stderr.strip()[-1500:]}")
             result = json.loads((base / "result.json").read_text(encoding="utf-8"))
+            retained_home = home
+            if retain_home and owns_temp:
+                retained = Path(tempfile.mkdtemp(prefix="switchyard-retained-"))
+                shutil.copytree(home, retained / "home")
+                # Preserve config mutations from ensure-toolsets
+                retained_home = retained / "home"
+        finally:
+            if scratch_ctx is not None and not retain_home:
+                scratch_ctx.__exit__(None, None, None)
+            elif scratch_ctx is not None and retain_home:
+                scratch_ctx.__exit__(None, None, None)
+
         self.assertEqual(result["exit_code"], expect_exit, result["stdout"])
         lines = result["stdout"].strip().splitlines()
         status = None
@@ -663,6 +687,7 @@ class RealHermesExposureTests(unittest.TestCase):
             disabled=result["disabled_toolsets"],
             platform_toolsets=result.get("platform_toolsets"),
             exit_code=result["exit_code"],
+            home=retained_home,
         )
 
     def assert_status_agrees_with_hermes(self, status, catalog_tools):
@@ -816,13 +841,14 @@ class RealHermesExposureTests(unittest.TestCase):
 
 
     def test_ensure_toolsets_cli_seeds_defaults_and_exposes_required_toolsets(self):
-        """Disposable HERMES_HOME: ensure-toolsets via real CLI, then default catalog."""
+        """Disposable HERMES_HOME: ensure-toolsets via real CLI, then status in the same home."""
         ensure = self.run_hermes(
             command=("ensure-toolsets", "--json"),
             catalog_default=True,
             credential=True,
             parse_status=False,
             expect_exit=0,
+            retain_home=True,
         )
         self.assertIsInstance(ensure.payload, dict)
         self.assertTrue(ensure.payload.get("ok"), ensure.payload)
@@ -834,7 +860,12 @@ class RealHermesExposureTests(unittest.TestCase):
         default = ensure.catalogs["default"]["toolsets"]
         self.assertIn(COMPUTER_USE_TOOLSET, default)
         self.assertIn(PLUGIN_TOOLSET, default)
-        status = self.run_hermes(catalog_default=True, credential=True)
+        # Reuse the same profile so status observes the persisted composition.
+        status = self.run_hermes(
+            catalog_default=True,
+            credential=True,
+            home=ensure.home,
+        )
         selection = status.status["tool_exposure"]["selection"]
         self.assertEqual(selection["source"], "platform_default")
         for name in TOOL_TOOLSETS:
@@ -922,6 +953,77 @@ class ToolsetCompositionTests(unittest.TestCase):
             holder["config"]["platform_toolsets"]["cli"],
             ["terminal", "file", "web", "computer_use", "hermes_switchyard"],
         )
+
+
+    def test_ensure_seed_probe_ignores_disabled_toolsets(self):
+        holder = {
+            "config": {
+                "agent": {"disabled_toolsets": ["web", "computer_use"]},
+            }
+        }
+        probed = {}
+
+        def load_config():
+            return copy.deepcopy(holder["config"])
+
+        def save_config(config):
+            holder["config"] = copy.deepcopy(config)
+
+        def get_platform_tools(config, platform):
+            probed["disabled"] = copy.deepcopy((config.get("agent") or {}).get("disabled_toolsets"))
+            return ["terminal", "file", "web"]
+
+        fake_config = mock.Mock()
+        fake_config.load_config = load_config
+        fake_config.save_config = save_config
+        fake_tools = mock.Mock()
+        fake_tools._get_platform_tools = get_platform_tools
+        with mock.patch.dict(
+            "sys.modules",
+            {
+                "hermes_cli.config": fake_config,
+                "hermes_cli": mock.Mock(config=fake_config, tools_config=fake_tools),
+                "hermes_cli.tools_config": fake_tools,
+            },
+        ):
+            result = hermes_switchyard.ensure_platform_toolsets()
+        self.assertTrue(result["ok"], result)
+        self.assertIsNone(probed.get("disabled"))
+        self.assertEqual(
+            holder["config"]["platform_toolsets"]["cli"],
+            ["terminal", "file", "web", "computer_use", "hermes_switchyard"],
+        )
+        self.assertEqual(holder["config"]["agent"]["disabled_toolsets"], ["web"])
+        self.assertEqual(result["cleared_suppressions"], ["computer_use"])
+
+    def test_ensure_fails_when_required_suppression_cannot_be_cleared(self):
+        holder = {
+            "config": {
+                "platform_toolsets": {"cli": ["terminal", "computer_use", "hermes_switchyard"]},
+                "agent": {"disabled_toolsets": ["computer_use"]},
+            }
+        }
+
+        def load_config():
+            return copy.deepcopy(holder["config"])
+
+        def save_config(config):
+            # Managed profile refuses to drop the suppression.
+            saved = copy.deepcopy(config)
+            saved["agent"] = {"disabled_toolsets": ["computer_use"]}
+            holder["config"] = saved
+
+        fake_config = mock.Mock()
+        fake_config.load_config = load_config
+        fake_config.save_config = save_config
+        with mock.patch.dict(
+            "sys.modules",
+            {"hermes_cli.config": fake_config, "hermes_cli": mock.Mock(config=fake_config)},
+        ):
+            result = hermes_switchyard.ensure_platform_toolsets()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "required_toolsets_suppressed")
+        self.assertEqual(result["suppressed_required_toolsets"], ["computer_use"])
 
     def test_ensure_rejects_malformed_non_list_platform_toolsets(self):
         holder = {"config": {"platform_toolsets": {"cli": "computer_use,terminal"}}}

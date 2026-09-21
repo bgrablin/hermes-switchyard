@@ -24,7 +24,7 @@ Optional extras:
 - Plugin Doctor reports registration only. Per-session callable exposure is different: run
   `hermes switchyard status --json`
   and, for an explicit pin,
-  `hermes switchyard status --json --toolsets computer_use,terminal`.
+  `hermes switchyard status --json --toolsets "computer_use,terminal"`.
 - `jev_computer_use` is callable only when the `computer_use` toolset is selected. Decision tools need `hermes_switchyard`. Ensure both without widening unrelated tools:
   `hermes switchyard ensure-toolsets`
   Setup also runs that ensure after saving a key. On Windows PowerShell, quote pins:

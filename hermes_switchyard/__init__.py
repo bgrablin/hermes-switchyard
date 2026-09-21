@@ -361,7 +361,11 @@ def _coding_focus_override(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def _platform_default_toolsets(config: dict[str, Any], platform: str) -> list[str] | None:
-    """Return Hermes' composite default toolsets for a platform, or None when unavailable."""
+    """Return Hermes' composite default toolsets for a platform, or None when unavailable.
+
+    Probe without agent.disabled_toolsets so a temporary suppression is not baked into the
+    saved platform list; Hermes continues to apply suppressions at session time.
+    """
     try:
         from hermes_cli.tools_config import _get_platform_tools
     except Exception:  # noqa: BLE001
@@ -372,11 +376,38 @@ def _platform_default_toolsets(config: dict[str, Any], platform: str) -> list[st
         probe_platforms = dict(existing)
         probe_platforms.pop(platform, None)
         probe["platform_toolsets"] = probe_platforms
+    agent = probe.get("agent")
+    if isinstance(agent, dict):
+        probe_agent = dict(agent)
+        probe_agent.pop("disabled_toolsets", None)
+        probe["agent"] = probe_agent
     try:
         names = _get_platform_tools(probe, platform)
     except Exception:  # noqa: BLE001
         return None
     return [str(name) for name in names]
+
+
+def _disabled_toolset_names(config: dict[str, Any]) -> list[str] | None:
+    """Return agent.disabled_toolsets as strings, or None when the value is unreadable."""
+    agent = config.get("agent")
+    if not isinstance(agent, dict):
+        return []
+    raw = agent.get("disabled_toolsets")
+    if raw is None:
+        return []
+    try:
+        from agent.skill_utils import parse_config_string_list
+    except ImportError:
+        if isinstance(raw, str):
+            return [part.strip() for part in raw.split(",") if part.strip()]
+        if isinstance(raw, (list, tuple, set)):
+            return [str(item).strip() for item in raw if str(item).strip()]
+        return None
+    try:
+        return [str(item).strip() for item in parse_config_string_list(raw) if str(item).strip()]
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _ensure_failure(
@@ -386,10 +417,13 @@ def _ensure_failure(
     added: list[str] | None = None,
     already_present: list[str] | None = None,
     focus_override: dict[str, Any] | None = None,
+    suppressed: list[str] | None = None,
+    cleared_suppressions: list[str] | None = None,
+    seeded_platforms: list[str] | None = None,
     platforms: tuple[str, ...] = ("cli",),
     toolsets: tuple[str, ...] = REQUIRED_SESSION_TOOLSETS,
 ) -> dict[str, Any]:
-    payload = {
+    payload: dict[str, Any] = {
         "ok": False,
         "reason": reason,
         "detail": detail,
@@ -400,6 +434,12 @@ def _ensure_failure(
     }
     if focus_override is not None:
         payload["focus_override"] = focus_override
+    if suppressed is not None:
+        payload["suppressed_required_toolsets"] = list(suppressed)
+    if cleared_suppressions is not None:
+        payload["cleared_suppressions"] = list(cleared_suppressions)
+    if seeded_platforms is not None:
+        payload["seeded_platforms"] = list(seeded_platforms)
     return payload
 
 
@@ -414,6 +454,8 @@ def ensure_platform_toolsets(
     materializing the list does not drop terminal/file and similar CLI capabilities.
     Malformed non-list values are rejected. After save, reloads and verifies persistence.
     Reports coding-focus overrides that bypass platform_toolsets for no-pin sessions.
+    Lifts required names out of agent.disabled_toolsets (Hermes enable flow) or fails
+    closed naming remaining suppressions.
     """
     try:
         from hermes_cli.config import load_config, save_config
@@ -479,6 +521,30 @@ def ensure_platform_toolsets(
                 added.append(key)
                 changed = True
 
+    disabled = _disabled_toolset_names(config)
+    if disabled is None:
+        return _ensure_failure(
+            "config_invalid",
+            detail="disabled_toolsets_unreadable",
+            added=added,
+            already_present=already_present,
+            focus_override=focus_override,
+            seeded_platforms=seeded,
+            platforms=platforms,
+            toolsets=toolsets,
+        )
+    suppressed = [name for name in toolsets if name in set(disabled)]
+    cleared_suppressions: list[str] = []
+    if suppressed:
+        agent = config.get("agent")
+        if not isinstance(agent, dict):
+            agent = {}
+            config["agent"] = agent
+        remaining = [name for name in disabled if name not in set(toolsets)]
+        agent["disabled_toolsets"] = remaining
+        cleared_suppressions = list(suppressed)
+        changed = True
+
     if changed:
         try:
             save_config(config)
@@ -489,6 +555,8 @@ def ensure_platform_toolsets(
                 added=added,
                 already_present=already_present,
                 focus_override=focus_override,
+                suppressed=suppressed or None,
+                seeded_platforms=seeded,
                 platforms=platforms,
                 toolsets=toolsets,
             )
@@ -501,6 +569,8 @@ def ensure_platform_toolsets(
                 added=added,
                 already_present=already_present,
                 focus_override=focus_override,
+                suppressed=suppressed or None,
+                seeded_platforms=seeded,
                 platforms=platforms,
                 toolsets=toolsets,
             )
@@ -511,6 +581,8 @@ def ensure_platform_toolsets(
                 added=added,
                 already_present=already_present,
                 focus_override=focus_override,
+                suppressed=suppressed or None,
+                seeded_platforms=seeded,
                 platforms=platforms,
                 toolsets=toolsets,
             )
@@ -522,6 +594,8 @@ def ensure_platform_toolsets(
                 added=added,
                 already_present=already_present,
                 focus_override=focus_override,
+                suppressed=suppressed or None,
+                seeded_platforms=seeded,
                 platforms=platforms,
                 toolsets=toolsets,
             )
@@ -534,6 +608,8 @@ def ensure_platform_toolsets(
                     added=added,
                     already_present=already_present,
                     focus_override=focus_override,
+                    suppressed=suppressed or None,
+                    seeded_platforms=seeded,
                     platforms=platforms,
                     toolsets=toolsets,
                 )
@@ -546,9 +622,37 @@ def ensure_platform_toolsets(
                     added=added,
                     already_present=already_present,
                     focus_override=focus_override,
+                    suppressed=suppressed or None,
+                    seeded_platforms=seeded,
                     platforms=platforms,
                     toolsets=toolsets,
                 )
+        verify_disabled = _disabled_toolset_names(reloaded)
+        if verify_disabled is None:
+            return _ensure_failure(
+                "config_not_persisted",
+                detail="disabled_toolsets_unreadable_after_save",
+                added=added,
+                already_present=already_present,
+                focus_override=focus_override,
+                suppressed=suppressed or None,
+                seeded_platforms=seeded,
+                platforms=platforms,
+                toolsets=toolsets,
+            )
+        still = [name for name in toolsets if name in set(verify_disabled)]
+        if still:
+            return _ensure_failure(
+                "required_toolsets_suppressed",
+                detail="still_disabled:" + ",".join(still),
+                added=added,
+                already_present=already_present,
+                focus_override=focus_override,
+                suppressed=still,
+                seeded_platforms=seeded,
+                platforms=platforms,
+                toolsets=toolsets,
+            )
 
     return {
         "ok": True,
@@ -558,9 +662,11 @@ def ensure_platform_toolsets(
         "already_present": already_present,
         "seeded_platforms": seeded,
         "focus_override": focus_override,
+        "cleared_suppressions": cleared_suppressions,
         "platforms": list(platforms),
         "toolsets": list(toolsets),
     }
+
 
 
 def _tool_exposure_report(requested_toolsets: Any = None, *, seams: SimpleNamespace | None = None) -> dict[str, Any]:
@@ -839,14 +945,26 @@ def _cli_handler(args):
             if focus.get("active"):
                 print(focus.get("note") or "Coding focus posture overrides platform_toolsets for no-pin sessions.")
         else:
-            print(
-                f"Could not ensure toolsets ({result.get('reason')}). "
-                "Enable Computer Use and Hermes Switchyard in `hermes tools`, "
-                'or pin both: hermes -t "computer_use,hermes_switchyard" chat'
-            )
+            reason = result.get("reason")
+            detail = result.get("detail")
+            suppressed = result.get("suppressed_required_toolsets") or []
+            suffix = f": {detail}" if detail else ""
+            print(f"Could not ensure toolsets ({reason}{suffix}).")
+            if suppressed:
+                print(
+                    "Required toolsets remain in agent.disabled_toolsets: "
+                    + ", ".join(suppressed)
+                    + ". Remove them in `hermes tools` or clear the suppression list."
+                )
+            else:
+                print(
+                    "Enable Computer Use and Hermes Switchyard in `hermes tools`, "
+                    'or pin both: hermes -t "computer_use,hermes_switchyard" chat'
+                )
             return 1
         return 0
     if command != "setup":
+
         print(
             "Usage: hermes switchyard <status|guide|setup|ensure-toolsets|receipt|test> "
             "[--provider ...|--json]"
