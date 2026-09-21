@@ -333,3 +333,24 @@ MODEL_ROUTE = {
         "additionalProperties": False,
     },
 }
+
+MODEL_ROUTE_APPROVED = {
+    "name": "jev_model_route_approved",
+    "description": (
+        "Advisory model recommendation from the active profile's code-owned approved registry. "
+        "The caller supplies only the public/sanitized task and requirements; provider, model, account, "
+        "authorization, context, and cost metadata come from local configuration. The tool never switches "
+        "the active Hermes model or falls back to another provider."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "task": {"type": "string"},
+            "requirements": MODEL_ROUTE["parameters"]["properties"]["requirements"],
+            "capability_fit_threshold": MODEL_ROUTE["parameters"]["properties"]["capability_fit_threshold"],
+            "public_or_sanitized_data_ack": _ACKNOWLEDGEMENT,
+        },
+        "required": ["task"],
+        "additionalProperties": False,
+    },
+}

@@ -23,7 +23,7 @@ The supported endpoints are `https://api.typesafe.ai/v1/systemone` and `https://
 
 ## Install
 
-The repository is public. No GitHub login or token is required.
+The repository is public. No GitHub login or token is required. Do not put a token in a Git URL.
 
 Install and enable the plugin with the supported one-liner:
 
