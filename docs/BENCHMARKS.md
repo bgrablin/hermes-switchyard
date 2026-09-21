@@ -4,17 +4,17 @@ Repository-owned with/without evidence for **0.5.0** tip `c8e6008`. Human-readab
 
 ## Per-feature scorecard
 
-| Feature surface | Without | With | Latency / cost (with) | Fair A/B? |
-| --- | ---: | ---: | --- | --- |
-| `jev_skill_select` (top-1) | 7/12 | **12/12** | p50 **185 ms**, p95 **303 ms**; **~$0.000055**/decision | Yes — frozen 24-task lexical vs live Jev |
-| Failed to pick a needed skill | 11/18 | **5/18** | (same run) | Yes |
-| No-skill false positives | 0/6 | **0/6** | (same run) | Yes |
-| `jev_skill_select_many` | one-skill pick completes **0/5** sets | **5/5** sets complete (mean coverage 1.0) | p50 **253 ms**, p95 **352 ms**; **$0.000347** for 5 | Yes — same 5 frozen multi-skill tasks |
-| `jev_model_route` | 3/3 local cheapest-qualified | **3/3** recommend | p50 **164 ms**; **$0.000067** for 3 | Partial — local filter is code-owned metadata, not Hermes default picker |
-| Model adapter receipt | n/a | `applied: **false**` | (adapter smoke) | Contract check on Hermes 0.19/0.21 |
-| `jev_assess` | 2/3 first-option | **3/3** Choice | p50 **212 ms**; **$0.000040** for 3 | Weak baseline only (n=3 smoke) |
-| Automatic routing (`local_only` vs `off`) | silent when off | 1/2 positives; no-fit stays silent | ~1–2 ms local | Yes for hook on/off; not whole-agent |
-| `jev_computer_use` DOM | stock A/B **not run** | Felidae: 1 click, Jev **249 ms**, ~**$0.000213**, `goal_verified: false` | Switchyard-only labeled | No fair stock A/B on this pass |
+| Feature | What this row measures | Without | With | Latency / cost (with) | Fair A/B? |
+| --- | --- | ---: | ---: | --- | --- |
+| Skill pick | One right specialist skill for a task (`jev_skill_select`) | 7/12 | **12/12** | p50 **185 ms**, p95 **303 ms**; **~$0.000055**/decision | Yes — frozen 24-task lexical vs live Jev |
+| Needed-skill failures | Needed a skill; got none or the wrong one | 11/18 | **5/18** | (same run) | Yes |
+| False skill suggestions | Suggested a skill when none was needed | 0/6 | **0/6** | (same run) | Yes |
+| Multi-skill pick | Finish a task that needs several skills (`jev_skill_select_many`) | 0/5 sets (one-skill pick) | **5/5** sets (mean coverage 1.0) | p50 **253 ms**, p95 **352 ms**; **$0.000347** for 5 | Yes — same 5 frozen multi-skill tasks |
+| Model pick | Recommend a model with an auditable receipt (`jev_model_route`) | 3/3 local cheapest-qualified | **3/3** recommend | p50 **164 ms**; **$0.000067** for 3 | Partial — local filter is code-owned metadata, not Hermes default picker |
+| Model apply receipt | Whether Hermes actually switched models | n/a | `applied: false` | (adapter smoke) | Contract check on Hermes 0.19/0.21 |
+| Assess | Small typed multiple-choice check (`jev_assess`) | 2/3 | **3/3** | p50 **212 ms**; **$0.000040** for 3 | Weak baseline only (n=3 smoke) |
+| Automatic skill routing | Pre-model skill hint, local match on vs off | silent when off | 1/2 needed; no-fit stays silent | ~1–2 ms local | Yes for hook on/off; not whole-agent |
+| Computer use | Browser/desktop goal progress (`jev_computer_use` DOM) | stock A/B **not run** | Felidae: 1 click, Jev **249 ms**, ~**$0.000213**, `goal_verified: false` | Switchyard-only labeled | No fair stock A/B on this pass |
 
 ## Skill select (frozen 24-task live value bench)
 
