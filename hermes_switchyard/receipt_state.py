@@ -284,6 +284,23 @@ def canonicalize_receipt(receipt: Any) -> dict[str, Any] | None:
     return normalized
 
 
+def _apply_private_permissions(path: Path) -> None:
+    """Restrict a receipt to its owner where the platform supports it.
+
+    POSIX: 0600. Windows: replace the inherited DACL with a protected DACL
+    granting the current user, SYSTEM, and Administrators full control,
+    matching Hermes's own Windows permission contract applied per file
+    without spawning ``icacls``. Raises ``OSError`` on failure so the caller
+    can fail closed (an unprotected receipt must never be published).
+    """
+    if os.name == "nt":
+        from hermes_switchyard import _win_acl
+
+        _win_acl.set_private_dacl(path)
+        return
+    os.chmod(path, 0o600)
+
+
 def _write_canonical_receipt(path: Path, canonical: dict[str, Any], *, no_clobber: bool = False) -> bool:
     """Atomically write one validated receipt with private permissions.
 
@@ -296,6 +313,11 @@ def _write_canonical_receipt(path: Path, canonical: dict[str, Any], *, no_clobbe
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, raw_path = tempfile.mkstemp(prefix=".receipt-", suffix=".tmp", dir=path.parent)
         temporary = Path(raw_path)
+        try:
+            _apply_private_permissions(temporary)
+        except OSError:
+            os.close(fd)
+            raise
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(canonical, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
             handle.write("\n")
@@ -323,7 +345,6 @@ def _write_canonical_receipt(path: Path, canonical: dict[str, Any], *, no_clobbe
                 temporary.unlink()
             except OSError:
                 pass
-
 
 def store_latest_receipt(receipt: dict[str, Any]) -> bool:
     """Atomically retain the latest valid receipt for the diagnostic command."""

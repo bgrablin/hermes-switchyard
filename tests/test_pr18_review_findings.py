@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -402,6 +403,7 @@ class ReceiptContractTests(unittest.TestCase):
             os.environ.pop("HERMES_HOME", None)
             harness.close()
 
+    @unittest.skipUnless(os.name == "posix", "POSIX mode bits")
     def test_stored_receipt_has_private_permissions(self):
         harness = _MemoryFileHarness()
         try:
@@ -414,6 +416,88 @@ class ReceiptContractTests(unittest.TestCase):
         finally:
             os.environ.pop("HERMES_HOME", None)
             harness.close()
+
+    def test_receipt_store_fails_closed_when_permissions_cannot_be_enforced(self):
+        # An unprotected receipt must never be published: if the kernel
+        # refuses the permission restriction (chmod on POSIX or the DACL
+        # on Windows), the store fails and leaves nothing behind.
+        harness = _MemoryFileHarness()
+        try:
+            os.environ["HERMES_HOME"] = harness._tmp.name
+            with mock.patch.object(
+                receipt_state, "_apply_private_permissions", side_effect=OSError("denied")
+            ):
+                self.assertFalse(receipt_state.store_latest_receipt(_base_advisory()))
+            path = receipt_state._receipt_state_file()
+            self.assertIsNotNone(path)
+            assert path is not None
+            self.assertFalse(path.exists())
+            self.assertEqual(list(path.parent.glob(".receipt-*.tmp")), [])
+        finally:
+            os.environ.pop("HERMES_HOME", None)
+            harness.close()
+
+    @unittest.skipUnless(os.name == "nt", "Windows security descriptor")
+    def test_stored_receipt_carries_a_protected_private_dacl(self):
+        # Windows has no POSIX mode bits. Windows privacy is the security
+        # descriptor, and Hermes's own Windows permission contract grants
+        # the current user full control while removing other grants. The
+        # receipt must carry that contract explicitly (a protected DACL),
+        # not depend on location inheritance; Hermes homes are
+        # operator-configurable and the hosted matrix even uses a runner
+        # temp directory.
+        from hermes_switchyard import _win_acl
+
+        harness = _MemoryFileHarness()
+        try:
+            os.environ["HERMES_HOME"] = harness._tmp.name
+            self.assertTrue(receipt_state.store_latest_receipt(_base_advisory()))
+            path = receipt_state._receipt_state_file()
+            self.assertIsNotNone(path)
+            assert path is not None
+            self._assert_private_windows_dacl(path)
+            # Replacement keeps working and stays protected.
+            self.assertTrue(receipt_state.store_latest_receipt(_base_advisory()))
+            self._assert_private_windows_dacl(path)
+        finally:
+            os.environ.pop("HERMES_HOME", None)
+            harness.close()
+
+    @unittest.skipUnless(os.name == "nt", "Windows security descriptor")
+    def test_migrated_receipt_carries_a_protected_private_dacl(self):
+        # The one-way legacy migration must publish the same protected
+        # file as the normal store path.
+        harness = _MemoryFileHarness()
+        try:
+            os.environ["HERMES_HOME"] = harness._tmp.name
+            legacy = Path(harness._tmp.name) / "plugins" / "hermes-switchyard" / "receipt.json"
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text(json.dumps(_base_advisory()), encoding="utf-8")
+            self.assertIsNotNone(receipt_state.read_latest_receipt())
+            path = receipt_state._receipt_state_file()
+            self.assertIsNotNone(path)
+            assert path is not None
+            self._assert_private_windows_dacl(path)
+        finally:
+            os.environ.pop("HERMES_HOME", None)
+            harness.close()
+
+    def _assert_private_windows_dacl(self, path):
+        from hermes_switchyard import _win_acl
+
+        owner = _win_acl.current_user_sid()
+        shape = _win_acl.read_dacl(path)
+        self.assertEqual(shape["owner"], owner)
+        self.assertTrue(shape["dacl_present"])
+        self.assertFalse(shape["dacl_defaulted"], "DACL must be explicitly applied, not inherited")
+        granted = {sid for sid, _mask, ace_type in shape["aces"] if ace_type == 0}
+        self.assertLessEqual(granted, {owner, "S-1-5-18", "S-1-5-32-544"})
+        self.assertTrue({"S-1-5-18", "S-1-5-32-544"}.issubset(granted), granted)
+        self.assertFalse(granted & {"S-1-1-0", "S-1-5-11", "S-1-5-32-545", "S-1-5-32-546"})
+        for principal in ("S-1-1-0", "S-1-5-11", "S-1-5-32-545", "S-1-5-32-546"):
+            self.assertEqual(_win_acl.effective_rights(path, principal), 0, principal)
+        attributes = path.stat().st_file_attributes
+        self.assertFalse(attributes & getattr(stat, "FILE_ATTRIBUTE_READONLY", 0x1))
 
 
 # ------------------------------------------------------- D
