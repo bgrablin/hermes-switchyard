@@ -69,9 +69,14 @@ The predicate is fixed before execution begins, is never sent to Jev, and cannot
 relaxed mid-loop. When it is satisfied, the loop stops without another provider
 decision. `min_actions_before_done` still applies.
 
-One narrow derivation exists: a goal that states a quoted expectation, such as
-`stop when title contains "Analytical Engine"`, produces a predicate with
-`source: derived_goal_title`. No other goal text is interpreted.
+Narrow quoted derivation is allowed only for these explicit goal phrases:
+
+- `title contains|equals|is "…"` → `source: derived_goal_title`, `title_contains`
+- `url equals|is "https://…"` → `source: derived_goal_url`, `url_equals` (public https only)
+- `url contains "…"` → `source: derived_goal_url`, `url_contains` (unsafe schemes refused)
+
+Unquoted URLs and free-form wording are never mined. When no safe predicate is
+supplied or derived, the loop falls back to a provider `DONE` decision.
 
 A predicate stop and a provider `DONE` both return `status: completion_candidate`
 with `verified: false`. The receipt records `completion_source` as
@@ -289,6 +294,12 @@ confined Snap Chromium, using a real headless browser over CDP:
   provider decision instead of the two decisions the pre-fix loop required.
 
 These are local host checks. They are not part of CI and they are not a comparative
-benchmark against other browser automation. A paired live benchmark with a real
-provider remains pending, and the plugin still returns `verified: false` for every
-completion candidate.
+benchmark against other browser automation. The plugin still returns `verified: false`
+for every completion candidate.
+
+Issue #25 unit/fixture proof (identical Ada Lovelace → Analytical Engine public
+fixture, scripted provider): without a predicate the loop spends two Jev decisions
+(`CLICK` then `DONE`); with `url_equals` it spends one (`CLICK` only), keeps
+`completion_candidate` / `verified: false`, and records lower `jev_request_count` and
+`jev_total_latency_ms`. A paired live-provider host benchmark is still optional and is
+not claimed here.
