@@ -115,9 +115,11 @@ def evaluate_turn_egress_policy(policy: Any) -> TurnEgressEvaluation:
     """Evaluate a host per-turn envelope without performing I/O.
 
     This helper validates only the envelope. Automatic hosted routing requires
-    an allow envelope at the call site; when none is supplied, the recommender
-    fail-closes as ``local_scan_unclassified`` after its local restricted-pattern
-    scan. Explicit deny, unknown, malformed, and restricted envelopes remain
+    an allow envelope at the call site. When none is supplied, the recommender
+    still applies acknowledgement and local-scan gates: false acknowledgement
+    yields ``ack_required``, restricted task text yields a specific
+    ``local_scan_*`` reason, and a clean scan yields ``local_scan_unclassified``.
+    Explicit deny, unknown, malformed, and restricted envelopes remain
     fail-closed here.
     """
     if policy is None:
