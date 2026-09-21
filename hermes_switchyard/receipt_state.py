@@ -49,6 +49,7 @@ HOSTED_SKIP_REASONS = frozenset(
         "ack_required",
         "local_scan_unknown_structured",
         "local_scan_unreadable",
+        "local_scan_no_envelope",
         "local_scan_control_character",
         "local_scan_prompt_injection",
         "local_scan_payment_data",
