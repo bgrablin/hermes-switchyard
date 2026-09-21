@@ -31,15 +31,19 @@ already open session must use the native `computer_use` path instead.
 
 ## Supported operations
 
-The loop offers `CLICK`, `SCROLL_DOWN`, `SCROLL_UP`, `WAIT`, `DONE`, and `BLOCKED`.
-It does not type into fields, upload files, authenticate, or reach an existing
-signed-in session. A goal that requires one of those capabilities returns
-`status: unsupported_capability` with a request-free reason code before the first
-provider request, so no Jev requests are spent discovering the mismatch:
+The loop offers `CLICK`, `TYPE_TEXT`, `SCROLL_DOWN`, `SCROLL_UP`, `WAIT`, `DONE`, and `BLOCKED`.
+`TYPE_TEXT` fills an ordinary text field with a bounded caller-supplied value from
+`text_inputs`, matched locally by exact field label and never sent to Jev. Password,
+file, payment, and other denied fields stay filtered out. The backend does not upload
+files, authenticate, use hotkeys, or reach an existing signed-in session. A goal that
+requires one of those unsupported capabilities, or that needs typing without
+`text_inputs`, returns `status: unsupported_capability` with a request-free reason
+code before the first provider request:
 
 | Code | Trigger |
 | --- | --- |
-| `dom_text_input_unsupported` | `text_inputs` supplied for a web goal, or the goal states typing into a field |
+| `dom_text_input_value_required` | the goal states typing into a field but no `text_inputs` were supplied |
+| `dom_sensitive_text_input_unsupported` | a `text_inputs` field label names a password, payment, or other denied field |
 | `dom_file_upload_unsupported` | the goal states an upload or attachment requirement |
 | `dom_authentication_unsupported` | the goal states a sign-in, sign-up, registration, authentication, password, or verification-code requirement |
 | `dom_existing_session_unsupported` | the goal asks for an existing, already open, or signed-in browser session |

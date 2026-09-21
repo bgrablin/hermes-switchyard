@@ -30,6 +30,7 @@ class FakeSession:
         self.pages = pages
         self.url = next(iter(pages))
         self.clicks: list[str] = []
+        self.typed: list[tuple[str, str, str]] = []
         self.scrolls: list[str] = []
 
     def observe(self) -> dict:
@@ -48,6 +49,14 @@ class FakeSession:
         dest = target["href"]
         if dest in self.pages:
             self.url = dest
+
+    def type_text(self, element_id: str, value: str, label: str = "") -> None:
+        self.typed.append((element_id, value, label))
+        page = self.pages[self.url]
+        target = next(item for item in page["elements"] if item["id"] == element_id)
+        if label and target["label"] != label:
+            raise RuntimeError("stale label")
+        target["value"] = value
 
     def scroll(self, direction: str) -> None:
         self.scrolls.append(direction)
@@ -966,6 +975,7 @@ class StaticSession:
     def __init__(self, page: dict):
         self.page = page
         self.clicks: list[str] = []
+        self.typed: list[tuple[str, str, str]] = []
         self.scrolls: list[str] = []
 
     def observe(self) -> dict:
@@ -973,6 +983,9 @@ class StaticSession:
 
     def click(self, element_id: str, label: str = "", href: str = "") -> None:
         self.clicks.append(element_id)
+
+    def type_text(self, element_id: str, value: str, label: str = "") -> None:
+        self.typed.append((element_id, value, label))
 
     def scroll(self, direction: str) -> None:
         self.scrolls.append(direction)
@@ -996,6 +1009,7 @@ class WindowedSession:
         self.window = window
         self.offset = 0
         self.clicks: list[str] = []
+        self.typed: list[tuple[str, str, str]] = []
         self.scrolls: list[str] = []
         self.url = "https://example.org/list"
 
@@ -1022,6 +1036,9 @@ class WindowedSession:
     def click(self, element_id: str, label: str = "", href: str = "") -> None:
         self.clicks.append(element_id)
         self.url = f"https://example.org/item/{element_id}"
+
+    def type_text(self, element_id: str, value: str, label: str = "") -> None:
+        self.typed.append((element_id, value, label))
 
     def scroll(self, direction: str) -> None:
         self.scrolls.append(direction)
@@ -1309,7 +1326,9 @@ class BrowserReliabilityTests(unittest.TestCase):
 
     def test_unsupported_dom_capabilities_refuse_before_any_request(self):
         cases = [
-            ({"goal": "type my account name into the search box", "text_inputs": [{"field_label": "Search", "value": "x"}]}, "dom_text_input_unsupported"),
+            ({"goal": "typing into the search field"}, "dom_text_input_value_required"),
+            ({"goal": "type into the search box"}, "dom_text_input_value_required"),
+            ({"goal": "fill the search field", "text_inputs": [{"field_label": "Password", "value": "x"}]}, "dom_sensitive_text_input_unsupported"),
             ({"goal": "log in and open the settings page"}, "dom_authentication_unsupported"),
             ({"goal": "upload the report as an attachment"}, "dom_file_upload_unsupported"),
             ({"goal": "use the browser I have open to check the cart"}, "dom_existing_session_unsupported"),
@@ -1318,7 +1337,6 @@ class BrowserReliabilityTests(unittest.TestCase):
             ({"goal": "sign up for an account"}, "dom_authentication_unsupported"),
             ({"goal": "register for the site"}, "dom_authentication_unsupported"),
             ({"goal": "log into the site"}, "dom_authentication_unsupported"),
-            ({"goal": "typing into the search field"}, "dom_text_input_unsupported"),
             ({"goal": "uploading the report as an attachment"}, "dom_file_upload_unsupported"),
             ({"goal": "download the attachments"}, "dom_file_upload_unsupported"),
             ({"goal": "use my session to check the cart"}, "dom_existing_session_unsupported"),
@@ -1345,6 +1363,110 @@ class BrowserReliabilityTests(unittest.TestCase):
                 self.assertIn(expected, result["unsupported_capabilities"])
                 self.assertEqual(result["attempted_request_count"], 0)
                 self.assertEqual(client.calls, [])
+                self.assertEqual(result["backend"], "chromium_dom")
+                self.assertEqual(result["session_mode"], "headless_ephemeral")
+                self.assertTrue(result["capabilities"]["typing"])
+                self.assertFalse(result["capabilities"]["upload"])
+                self.assertFalse(result["capabilities"]["existing_session"])
+
+    def test_dom_type_text_uses_caller_value_without_provider_value(self):
+        session = FakeSession(
+            {
+                "https://example.org/search": {
+                    "url": "https://example.org/search",
+                    "title": "Search",
+                    "text": "Public search form",
+                    "elements": [
+                        {
+                            "id": "1",
+                            "role": "textbox",
+                            "label": "Search",
+                            "href": "",
+                            "kind": "type",
+                            "in_viewport": True,
+                        },
+                        {
+                            "id": "2",
+                            "role": "button",
+                            "label": "Find articles",
+                            "href": "https://example.org/results",
+                            "kind": "click",
+                            "in_viewport": True,
+                        },
+                    ],
+                },
+                "https://example.org/results": {
+                    "url": "https://example.org/results",
+                    "title": "Results",
+                    "text": "Found matches",
+                    "elements": [],
+                },
+            }
+        )
+        client = ScriptedClient(
+            [
+                {
+                    "operation": _choice(
+                        "TYPE_TEXT",
+                        {
+                            "CLICK": "c",
+                            "TYPE_TEXT": "t",
+                            "SCROLL_DOWN": "s",
+                            "SCROLL_UP": "u",
+                            "WAIT": "w",
+                            "BLOCKED": "b",
+                            "DONE": "d",
+                        },
+                    ),
+                    "click_target": _choice("2", {"2": "Find articles"}),
+                    "type_target": _choice("1", {"1": "Search"}),
+                },
+                {
+                    "operation": _choice(
+                        "CLICK",
+                        {
+                            "CLICK": "c",
+                            "TYPE_TEXT": "t",
+                            "SCROLL_DOWN": "s",
+                            "SCROLL_UP": "u",
+                            "WAIT": "w",
+                            "BLOCKED": "b",
+                            "DONE": "d",
+                        },
+                    ),
+                    "click_target": _choice("2", {"2": "Find articles"}),
+                    "type_target": _choice("1", {"1": "Search"}),
+                },
+                {
+                    "operation": _choice(
+                        "DONE",
+                        {
+                            "SCROLL_DOWN": "s",
+                            "SCROLL_UP": "u",
+                            "WAIT": "w",
+                            "BLOCKED": "b",
+                            "DONE": "d",
+                        },
+                    ),
+                },
+            ]
+        )
+        result = run_browser_goal(
+            goal="Enter the query in Search then open the results",
+            session=session,
+            client=client,
+            max_steps=6,
+            text_inputs=[{"field_label": "Search", "value": "bounded caller text"}],
+        )
+        self.assertEqual(session.typed, [("1", "bounded caller text", "Search")])
+        self.assertEqual(session.clicks, ["2"])
+        self.assertEqual(result["status"], "completion_candidate")
+        self.assertEqual(result["capabilities"]["typing"], True)
+        self.assertEqual(result["session_mode"], "headless_ephemeral")
+        # Values stay local: the provider state must not include the typed string.
+        for call in client.calls:
+            dumped = json.dumps(call)
+            self.assertNotIn("bounded caller text", dumped)
 
     def test_backend_and_session_identity_are_reported(self):
         class IdentifiedSession(StaticSession):
@@ -1378,6 +1500,9 @@ class BrowserReliabilityTests(unittest.TestCase):
         self.assertEqual(result["browser"], "chromium")
         self.assertEqual(result["browser_confinement"], "snap")
         self.assertEqual(result["session_setup_ms"], 412.5)
+        self.assertEqual(result["capabilities"]["typing"], True)
+        self.assertEqual(result["capabilities"]["upload"], False)
+        self.assertEqual(result["session_identity"]["profile"], "fresh_ephemeral")
 
     def test_browser_startup_failure_returns_a_bounded_local_diagnostic(self):
         client = ScriptedClient([])

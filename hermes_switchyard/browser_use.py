@@ -56,7 +56,7 @@ DOM_CAPABILITIES = {
     "scroll": True,
     "wait": True,
     "done": True,
-    "typing": False,
+    "typing": True,  # ordinary text fields via caller text_inputs
     "upload": False,
     "authentication": False,
     "existing_session": False,
@@ -66,12 +66,15 @@ _COMPLETION_FIELDS = ("url_equals", "url_contains", "title_contains", "text_cont
 _QUOTED_TITLE_DERIVATION = re.compile(r'title\s+(?:contains|equals|is)\s+"([^"]{3,120})"', re.I)
 # Each family carries the wording variants that mean the same unsupported
 # requirement: a base form, its -ing/-ion inflections, and the phrasal forms a
-# caller may write instead ("log into" as well as "log in"). A narrow list lets a
-# goal that needs one of these capabilities reach the provider and spend a
-# request only to discover the mismatch, which is the cost this preflight exists
-# to avoid.
+# caller may write instead ("log into" as well as "log in"). Typing is handled
+# separately: ordinary text fields are supported when text_inputs are supplied;
+# a typing goal without values fails closed as dom_text_input_value_required.
+# This preflight exists so unsupported requirements do not burn a Jev request.
+_TYPING_NEED_SIGNAL = re.compile(
+    r"(?i)\b(?:typ(?:e|es|ed|ing)|enter(?:s|ed|ing)?|fill(?:s|ed|ing)?|writ(?:e|es|ing|ten))"
+    r"\b[^.]{0,40}\b(?:field|box|input|form|search|url bar|textbox)\b"
+)
 _CAPABILITY_SIGNALS = (
-    ("dom_text_input_unsupported", re.compile(r"(?i)\b(?:typ(?:e|es|ed|ing)|enter(?:s|ed|ing)?|fill(?:s|ed|ing)?|writ(?:e|es|ing|ten))\b[^.]{0,40}\b(?:field|box|input|form|search|url bar|textbox)\b")),
     ("dom_file_upload_unsupported", re.compile(r"(?i)\b(?:upload(?:s|ed|ing)?|attach(?:es|ed|ing|ment|ments)?|choose file|file picker)\b")),
     ("dom_authentication_unsupported", re.compile(r"(?i)\b(?:log ?in|log ?into|log ?out|sign ?in|sign ?into|sign ?up|sign ?out|log ?on|authenticat\w*|authoriz\w*|register(?:s|ed|ing|ation)?|credentials?)\b|\bpassword\b|\b2fa\b|verification code")),
     ("dom_existing_session_unsupported", re.compile(r"(?i)\b(?:my (?:account|inbox|browser|session)|already (?:open|signed in|logged in|authenticated)|existing (?:session|browser|profile)|the browser i have open|current (?:session|browser|profile))\b")),
@@ -149,6 +152,24 @@ _SNAPSHOT_JS = """(() => {
       height
     };
   }
+  function accessibleName(el) {
+    const aria = String(el.getAttribute("aria-label") || "").replace(/\\s+/g, " ").trim();
+    if (aria) return aria.slice(0, 120);
+    const id = el.getAttribute("id");
+    if (id) {
+      try {
+        const lab = document.querySelector('label[for="' + CSS.escape(id) + '"]');
+        const text = String((lab && (lab.innerText || lab.textContent)) || "").replace(/\\s+/g, " ").trim();
+        if (text) return text.slice(0, 120);
+      } catch (e) {}
+    }
+    const wrapped = el.closest("label");
+    if (wrapped) {
+      const text = String(wrapped.innerText || wrapped.textContent || "").replace(/\\s+/g, " ").trim();
+      if (text) return text.slice(0, 120);
+    }
+    return String(el.getAttribute("placeholder") || el.getAttribute("name") || el.getAttribute("title") || "").replace(/\\s+/g, " ").trim().slice(0, 120);
+  }
   function collect(selector) {
     const found = [];
     const skipLabel = /^(toggle|hide|move to sidebar|\\d+(\\.\\d+)*\\s)/i;
@@ -171,27 +192,54 @@ _SNAPSHOT_JS = """(() => {
       if (article.includes(":")) continue;
       const placement = placementOf(el);
     if (placement.top < windowTop || placement.top > windowBottom) continue;
-    found.push({ el, role: (el.getAttribute("role") || (el.tagName === "A" ? "link" : "button")).toLowerCase(), label, href, placement });
+    found.push({ el, role: (el.getAttribute("role") || (el.tagName === "A" ? "link" : "button")).toLowerCase(), label, href, placement, kind: "click" });
+    }
+    return found;
+  }
+  function collectTextFields() {
+    const found = [];
+    const selector = "input, textarea, [role='textbox'], [role='searchbox'], [contenteditable='true']";
+    const deniedType = /^(password|file|hidden|submit|button|checkbox|radio|image|reset|color|range|date|datetime-local|month|time|week)$/i;
+    const windowTop = scrollY - viewportHeight * __SWITCHYARD_SCAN_WINDOW__;
+    const windowBottom = scrollY + viewportHeight * (1 + __SWITCHYARD_SCAN_WINDOW__);
+    for (const el of root.querySelectorAll(selector)) {
+      if (found.length >= __SWITCHYARD_SCAN_BOUND__) break;
+      if (el.closest("#toc, .toc, nav, [role=navigation], .vector-toc, .mw-portlet, .vector-dropdown")) continue;
+      if (el.hidden || el.disabled || el.readOnly || el.getAttribute("aria-hidden") === "true" || el.closest("[hidden], [aria-hidden='true']")) continue;
+      const type = String(el.getAttribute("type") || (el.tagName === "TEXTAREA" ? "textarea" : "text")).toLowerCase();
+      if (deniedType.test(type)) continue;
+      const label = accessibleName(el);
+      if (!label || label.length < 2 || !/[A-Za-z]{2,}/.test(label)) continue;
+      const placement = placementOf(el);
+      if (placement.top < windowTop || placement.top > windowBottom) continue;
+      const roleAttr = String(el.getAttribute("role") || "").toLowerCase();
+      const role = roleAttr === "searchbox" || type === "search" ? "searchbox" : "textbox";
+      found.push({ el, role, label, href: "", placement, kind: "type", preferred: true });
     }
     return found;
   }
   // The article-body selector marks preferred targets, but it must never replace
   // the broader candidate set: replacing it dropped every other interactive target
   // on a page whose body happened to hold a handful of links.
-  const preferred = collect(".mw-parser-output p a[href], .infobox a[href], p a[href]");
+  const textFields = collectTextFields();
+  const textSet = new Set(textFields.map(item => item.el));
+  const preferred = collect(".mw-parser-output p a[href], .infobox a[href], p a[href]").filter(item => !textSet.has(item.el));
   const preferredSet = new Set(preferred.map(item => item.el));
-  let candidates = preferred.concat(
-    collect("a[href], button, [role='link'], [role='button']").filter(item => !preferredSet.has(item.el))
+  let clickCandidates = preferred.concat(
+    collect("a[href], button, [role='link'], [role='button']").filter(item => !preferredSet.has(item.el) && !textSet.has(item.el))
   );
-  for (const item of candidates) { item.preferred = preferredSet.has(item.el); }
+  for (const item of clickCandidates) { item.preferred = preferredSet.has(item.el); }
+  let candidates = textFields.concat(clickCandidates);
   if (candidates.length > __SWITCHYARD_SCAN_BOUND__) {
     candidates = candidates.slice(0, __SWITCHYARD_SCAN_BOUND__);
   }
   const rank = item => item.placement.inViewport ? 0 : (item.placement.nearViewport ? 1 : 2);
   // Offscreen candidates are ordered by distance from the current viewport, so a
   // scroll advances the offered window instead of re-offering the document top.
+  // Text fields keep a mild preference so ordinary form entry stays reachable.
   const viewportCenter = scrollY + viewportHeight / 2;
   candidates.sort((a, b) => rank(a) - rank(b)
+    || (a.kind === "type" ? 0 : 1) - (b.kind === "type" ? 0 : 1)
     || Math.abs(a.placement.center - viewportCenter) - Math.abs(b.placement.center - viewportCenter)
     || (b.preferred ? 1 : 0) - (a.preferred ? 1 : 0)
     || a.placement.top - b.placement.top);
@@ -200,10 +248,20 @@ _SNAPSHOT_JS = """(() => {
   for (const item of candidates) { if (item.placement.inViewport) inViewport += 1; }
   const elements = offered.map(item => {
     const id = stableId(item.el);
-    // The click lookup resolves through this private registry, not a page-mutable
-    // selector, so a predeclared duplicate attribute can never steal a click.
+    // The click/type lookup resolves through this private registry, not a page-mutable
+    // selector, so a predeclared duplicate attribute can never steal an action.
     clickRegistry.set(id, item.el);
     item.el.setAttribute("data-jev-id", id);
+    if (item.kind === "type") {
+      return {
+        id,
+        role: item.role === "searchbox" ? "searchbox" : "textbox",
+        label: item.label,
+        href: "",
+        kind: "type",
+        in_viewport: item.placement.inViewport
+      };
+    }
     return {
       id,
       role: (item.role === "link" || item.role === "hyperlink") ? "link" : "button",
@@ -251,6 +309,71 @@ class BrowserSession(Protocol):
 
     def click(self, element_id: str, label: str = "", href: str = "") -> None:
         ...
+
+    def type_text(self, element_id: str, value: str, label: str = "") -> None:
+        ...
+
+
+    def type_text(self, element_id: str, value: str, label: str = "") -> None:
+        """Fill one ordinary text field with a caller-supplied bounded value.
+
+        Values are never sent to Jev. Password, file, and hidden inputs are refused.
+        Identity is re-checked against the live accessible name before mutation.
+        """
+        if not re.fullmatch(r"[0-9]{1,9}", element_id):
+            raise ValueError("element id is not a snapshot index")
+        if type(value) is not str or not value or len(value) > 2_000:
+            raise ValueError("text value is out of bounds")
+        if any(ord(char) < 32 and char not in "\t\n\r" for char in value):
+            raise ValueError("text value contains a control character")
+        expected_label = json.dumps(label)
+        value_js = json.dumps(value)
+        typed = self._evaluate(
+            f"""(() => {{
+              const el = (window.__hermesSwitchyardClickNodes || new Map()).get("{element_id}");
+              if (!el || !el.isConnected) return {{ok: false, reason: "missing"}};
+              function accessibleName(node) {{
+                const aria = String(node.getAttribute("aria-label") || "").replace(/\\s+/g, " ").trim();
+                if (aria) return aria.slice(0, 120);
+                const id = node.getAttribute("id");
+                if (id) {{
+                  try {{
+                    const lab = document.querySelector('label[for="' + CSS.escape(id) + '"]');
+                    const text = String((lab && (lab.innerText || lab.textContent)) || "").replace(/\\s+/g, " ").trim();
+                    if (text) return text.slice(0, 120);
+                  }} catch (e) {{}}
+                }}
+                const wrapped = node.closest("label");
+                if (wrapped) {{
+                  const text = String(wrapped.innerText || wrapped.textContent || "").replace(/\\s+/g, " ").trim();
+                  if (text) return text.slice(0, 120);
+                }}
+                return String(node.getAttribute("placeholder") || node.getAttribute("name") || node.getAttribute("title") || "").replace(/\\s+/g, " ").trim().slice(0, 120);
+              }}
+              const liveLabel = accessibleName(el);
+              if ({expected_label} && liveLabel !== {expected_label}) return {{ok: false, reason: "stale"}};
+              const type = String(el.getAttribute("type") || "").toLowerCase();
+              if (type === "password" || type === "file" || type === "hidden") return {{ok: false, reason: "denied"}};
+              el.focus();
+              if ("value" in el) {{
+                el.value = "";
+                el.dispatchEvent(new Event("input", {{bubbles: true}}));
+                el.value = {value_js};
+                el.dispatchEvent(new Event("input", {{bubbles: true}}));
+                el.dispatchEvent(new Event("change", {{bubbles: true}}));
+              }} else if (el.isContentEditable) {{
+                el.textContent = {value_js};
+                el.dispatchEvent(new Event("input", {{bubbles: true}}));
+              }} else {{
+                return {{ok: false, reason: "not_editable"}};
+              }}
+              return {{ok: true}};
+            }})()"""
+        )
+        if not isinstance(typed, dict) or typed.get("ok") is not True:
+            raise RuntimeError("page element was not typeable")
+        self.wait(0.15)
+        self._wait_ready()
 
     def scroll(self, direction: str) -> None:
         ...
@@ -397,21 +520,66 @@ def _completion_status(condition: dict[str, Any] | None, page: dict[str, Any]) -
     }
 
 
+def _normalize_field_label(value: str) -> str:
+    return " ".join(value.casefold().split())
+
+
+def _prepare_dom_text_inputs(raw: Any) -> dict[str, tuple[str, ...]]:
+    """Index bounded caller values for DOM typing without exposing them to Jev."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, list) or len(raw) > 16:
+        raise ValueError("text_inputs must be a list with at most 16 entries")
+    indexed: dict[str, list[str]] = {}
+    for entry in raw:
+        if not isinstance(entry, dict) or set(entry) != {"field_label", "value"}:
+            raise ValueError("text_inputs entries require only field_label and value")
+        label = entry["field_label"]
+        value = entry["value"]
+        if type(label) is not str or not label.strip() or len(label) > 128:
+            raise ValueError("text input field_label must be a bounded non-empty string")
+        if type(value) is not str or not value or len(value) > 2_000:
+            raise ValueError("text input value must be a bounded non-empty string")
+        if any(ord(char) < 32 and char not in "\t\n\r" for char in value):
+            raise ValueError("text input value contains a control character")
+        indexed.setdefault(_normalize_field_label(label), []).append(value)
+    return {label: tuple(values) for label, values in indexed.items()}
+
+
+def _caller_value_for_dom_target(target: dict[str, Any], text_inputs: dict[str, tuple[str, ...]]) -> str | None:
+    values = text_inputs.get(_normalize_field_label(str(target.get("label", ""))), ())
+    return values[0] if len(values) == 1 else None
+
+
 def unsupported_dom_capabilities(goal: Any, text_inputs: Any, allowed_hotkeys: Any) -> list[str]:
     """Return local unsupported-capability codes for the DOM backend.
 
     This runs before the first provider request so an unsupported requirement
     fails locally instead of consuming Jev requests to discover the mismatch.
+    Ordinary text-field typing is supported when ``text_inputs`` supplies the
+    values; a typing goal without values fails as ``dom_text_input_value_required``.
     """
     codes: list[str] = []
-    if text_inputs:
-        codes.append("dom_text_input_unsupported")
     if allowed_hotkeys:
         codes.append("dom_hotkey_unsupported")
+    # Sensitive field labels (password, payment, verification) stay refused even
+    # when typing is otherwise available; credentials stay human-owned.
+    if isinstance(text_inputs, list):
+        for entry in text_inputs:
+            if not isinstance(entry, dict):
+                continue
+            label = _normalize_field_label(str(entry.get("field_label") or ""))
+            if any(part in label for part in _DENIED_LABEL_PARTS):
+                codes.append("dom_sensitive_text_input_unsupported")
+                break
     text = goal if isinstance(goal, str) else ""
     for code, pattern in _CAPABILITY_SIGNALS:
         if code not in codes and pattern.search(text):
             codes.append(code)
+    # Typing is available, but only with caller-supplied values. Detect the need
+    # before any request so the loop does not burn Jev discovering a missing value.
+    if "dom_text_input_value_required" not in codes and not text_inputs and _TYPING_NEED_SIGNAL.search(text):
+        codes.append("dom_text_input_value_required")
     return codes
 
 
@@ -527,12 +695,21 @@ def _safe_elements(raw: Any) -> list[dict[str, Any]]:
         if folded in {"edit", "cite", "[edit]", "learn more", "hide this message"}:
             continue
         seen.add(element_id)
+        kind = str(item.get("kind") or "click").casefold()
+        if kind == "type" or role in {"textbox", "searchbox", "textarea", "input"}:
+            role_out = "searchbox" if role == "searchbox" else "textbox"
+            kind_out = "type"
+            href_out = ""
+        else:
+            role_out = "link" if role in {"link", "hyperlink"} else "button"
+            kind_out = "click"
+            href_out = href[:500]
         record: dict[str, Any] = {
             "id": element_id,
-            "role": "link" if role in {"link", "hyperlink"} else "button",
+            "role": role_out,
             "label": label[:120],
-            "href": href[:500],
-            "kind": "click",
+            "href": href_out,
+            "kind": kind_out,
         }
         # Viewport knowledge is local and bounded; it lets the decision see which
         # offered targets are actually on screen without exposing page geometry.
@@ -578,8 +755,9 @@ def run_browser_goal(
         "confinement": None,
         "session_setup_ms": None,
     }
-    # The backend cannot type, upload, authenticate, or reach a signed-in session.
-    # Detect that requirement locally instead of paying Jev to discover it.
+    # Upload, authentication, existing-session attach, and hotkeys stay unsupported.
+    # Ordinary typing is supported when text_inputs supply values; otherwise a
+    # typing goal fails closed before any provider request.
     unsupported = unsupported_dom_capabilities(goal, text_inputs, allowed_hotkeys)
     if unsupported:
         return _browser_receipt(
@@ -595,6 +773,7 @@ def run_browser_goal(
             condition=condition,
             unsupported_capabilities=unsupported,
         )
+    caller_text_inputs = _prepare_dom_text_inputs(text_inputs)
     try:
         with request_budget_scope(client, MAX_OPERATION_REQUESTS, deadline_seconds=deadline_seconds):
             operation_remaining_deadline()
@@ -639,6 +818,7 @@ def run_browser_goal(
                         page=page,
                         progress=progress,
                         condition=condition,
+                        text_inputs=caller_text_inputs,
                     )
                 finally:
                     try:
@@ -660,6 +840,7 @@ def run_browser_goal(
                 page=page,
                 progress=progress,
                 condition=condition,
+                text_inputs=caller_text_inputs,
             )
     except TimeoutError:
         progress["last_state_hash"] = _observation_signature(page)
@@ -760,6 +941,7 @@ def _run_browser_loop(
     page: dict[str, Any],
     progress: dict[str, Any],
     condition: dict[str, Any] | None,
+    text_inputs: dict[str, tuple[str, ...]] | None = None,
 ) -> dict[str, Any]:
     """Run one bounded observe-decide-act loop over the session.
 
@@ -815,6 +997,7 @@ def _run_browser_loop(
     progress["last_state_hash"] = signature
     stalled = 0
     decision_signatures: list[str] = []
+    caller_text_inputs = text_inputs or {}
     # A caller-supplied predicate is fixed before execution. When it is already
     # satisfied there is nothing to decide, so no provider request is spent.
     completion = _completion_status(condition, page)
@@ -855,14 +1038,24 @@ def _run_browser_loop(
                 reconcile_before_retry=bool(actions),
             )
         decision_signatures.append(signature)
+        clickable = [item for item in elements if item.get("kind") != "type"]
+        typeable = [
+            item
+            for item in elements
+            if item.get("kind") == "type" and _caller_value_for_dom_target(item, caller_text_inputs) is not None
+        ]
         operation_criteria = {
             "SCROLL_DOWN": "Scroll down to reveal more page content",
             "SCROLL_UP": "Scroll up to reveal earlier page content",
             "WAIT": "Wait briefly because the page is still changing",
             "BLOCKED": "No safe offered action can progress the goal",
         }
-        if elements:
+        if clickable:
             operation_criteria["CLICK"] = "Click one offered page element"
+        if typeable:
+            operation_criteria["TYPE_TEXT"] = (
+                "Enter the caller-supplied value into one offered ordinary text field"
+            )
         if len(actions) >= min_actions_before_done:
             operation_criteria["DONE"] = "Every requirement in the goal is visibly satisfied"
         questions: dict[str, Any] = {
@@ -877,7 +1070,7 @@ def _run_browser_loop(
         }
         click_criteria = {
             item["id"]: f"[{item['id']}] {item['role']} {item['label']}"
-            for item in elements
+            for item in clickable
         }
         if click_criteria:
             questions["click_target"] = {
@@ -887,6 +1080,19 @@ def _run_browser_loop(
                     "If the operation is not CLICK, still pick the closest offered element and ignore it."
                 ),
                 "criteria": click_criteria,
+            }
+        type_criteria = {
+            item["id"]: f"[{item['id']}] {item['role']} {item['label']}"
+            for item in typeable
+        }
+        if type_criteria:
+            questions["type_target"] = {
+                "type": "choice",
+                "instructions": (
+                    "If the operation is TYPE_TEXT, choose one offered ordinary text field. "
+                    "If the operation is not TYPE_TEXT, still pick the closest offered field and ignore it."
+                ),
+                "criteria": type_criteria,
             }
         state = {
             "goal": goal,
@@ -999,6 +1205,8 @@ def _run_browser_loop(
         gate = _gate_decision(operation_answer)
         if gate is None and operation == "CLICK":
             gate = _gate_decision(answers.get("click_target"))
+        if gate is None and operation == "TYPE_TEXT":
+            gate = _gate_decision(answers.get("type_target"))
         if gate is not None:
             return finish(
                 page=page,
@@ -1064,6 +1272,70 @@ def _run_browser_loop(
                         reconcile_before_retry=bool(actions),
                     )
                 session.click(target_id, label=matched["label"], href=matched["href"])
+                action_dispatched = True
+            elif operation == "TYPE_TEXT":
+                target_answer = answers.get("type_target")
+                if not isinstance(target_answer, dict):
+                    raise TypeError("Jev browser decision is missing type_target")
+                target_id = str(target_answer.get("choice") or "")
+                chosen = next((item for item in typeable if item["id"] == target_id), None)
+                if chosen is None:
+                    return finish(
+                        page=page,
+                        status="abstained",
+                        failure_phase="target_selection",
+                    )
+                caller_value = _caller_value_for_dom_target(chosen, caller_text_inputs)
+                if caller_value is None:
+                    return finish(
+                        page=page,
+                        status="abstained",
+                        failure_phase="text_input_resolution",
+                    )
+                label = chosen["label"]
+                fresh = session.observe()
+                if not _public_http_url(str(fresh.get("url") or "")):
+                    return finish(
+                        page=fresh,
+                        status="blocked",
+                        failure_phase="unsafe_url",
+                        reconcile_before_retry=bool(actions),
+                    )
+                if str(fresh.get("url") or "") != str(page.get("url") or ""):
+                    return finish(
+                        page=fresh,
+                        status="abstained",
+                        failure_phase="stale_target",
+                        reconcile_before_retry=bool(actions),
+                    )
+                matched = next(
+                    (
+                        item
+                        for item in _safe_elements(fresh.get("elements"))
+                        if item.get("kind") == "type"
+                        and item["label"] == chosen["label"]
+                        and _caller_value_for_dom_target(item, caller_text_inputs) == caller_value
+                    ),
+                    None,
+                )
+                if matched is None:
+                    return finish(
+                        page=fresh,
+                        status="abstained",
+                        failure_phase="stale_target",
+                        reconcile_before_retry=bool(actions),
+                    )
+                target_id = matched["id"]
+                blocked_before = _fatal_destination_violation(session)
+                if blocked_before is not None:
+                    return finish(
+                        page=fresh,
+                        status="blocked",
+                        failure_phase="destination_blocked",
+                        failure_reason=str(blocked_before.get("code") or "destination_blocked"),
+                        reconcile_before_retry=bool(actions),
+                    )
+                session.type_text(target_id, caller_value, label=matched["label"])
                 action_dispatched = True
             elif operation in {"SCROLL_DOWN", "SCROLL_UP"}:
                 blocked_before = _fatal_destination_violation(session)
@@ -1173,11 +1445,16 @@ def _run_browser_loop(
         title_changed = str(after.get("title") or "") != str(page.get("title") or "")
         content_changed = _observation_signature(after) != signature
         focus_changed = str(after.get("focus") or "") != str(page.get("focus") or "")
-        observed = url_changed or title_changed or content_changed or focus_changed
+        # Input values are often absent from visible page text, so a validated
+        # TYPE_TEXT dispatch counts as an observed local field mutation.
+        text_entered = operation == "TYPE_TEXT" and action_dispatched is True
+        observed = url_changed or title_changed or content_changed or focus_changed or text_entered
         if url_changed:
             effect_status = "url_changed"
         elif title_changed:
             effect_status = "title_changed"
+        elif text_entered:
+            effect_status = "text_entered"
         elif content_changed or focus_changed:
             effect_status = "document_changed"
         else:
