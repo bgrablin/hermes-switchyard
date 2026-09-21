@@ -1366,6 +1366,7 @@ class ComputerUseTests(unittest.TestCase):
 class PluginEntryPointTests(unittest.TestCase):
     def test_cli_status_is_redacted_and_reports_fail_closed_default_readiness(self):
         import hermes_switchyard
+        hermes_switchyard.reset_runtime_status()
         output = io.StringIO()
         with mock.patch.object(hermes_switchyard, "_secret", return_value="synthetic-secret"), \
              redirect_stdout(output):
@@ -1375,9 +1376,11 @@ class PluginEntryPointTests(unittest.TestCase):
         result = json.loads(output.getvalue())
         self.assertEqual(code, 0)
         self.assertNotIn("synthetic-secret", output.getvalue())
-        # Fail-closed defaults: no premature readiness claims.
+        # Unregistered: no premature hosted-construction claim; ack is unknown
+        # until register() publishes install defaults.
         self.assertIsNotNone(result.get("status"))
-        self.assertIs(result.get("public_or_sanitized_data_ack"), False)
+        self.assertIsNone(result.get("public_or_sanitized_data_ack"))
+        self.assertIs(result.get("hosted_construction_allowed"), False)
         self.assertIn(result["status"], {
             "ready", "credential_required", "exposure_unverified",
             "tools_not_registered", "tools_not_callable",

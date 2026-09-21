@@ -18,23 +18,26 @@ distribution concentration. Noul/fit values are intended yes/no probabilities;
 calibration for correctness is not independently established. Do not make a
 calibrated-quality claim or treat a 0.8 threshold as 80% correctness.
 
-The automatic hook is advisory by default. Its opt-in typed consumer may pass
-one accepted exact identifier to Hermes' normal `skill_view` loader once per
-identified turn. Explicit skill instructions, abstention, invalid output, and
-loader rejection suppress that load. The plugin does not edit the cached system
-prompt, change the Hermes runtime model, or perform an automatic provider
-fallback. The coordinator owns those decisions.
+The automatic hook defaults to `load` consumer mode with `hosted_sanitized`
+routing. It may pass one accepted exact identifier to Hermes' normal
+`skill_view` loader once per identified turn. Explicit skill instructions,
+abstention, invalid output, and loader rejection suppress that load. The plugin
+does not edit the cached system prompt, change the Hermes runtime model, or
+perform an automatic provider fallback. The coordinator owns those decisions.
+Opt down to `advisory` / `local_only` for privacy.
 
 ## Data boundary
 
 `public_or_sanitized_data_ack` (tool calls) is on after install. Callers may
-omit it. Pass `false` to refuse one call. Automatic hosted routing is separate:
-`automatic_skill_public_or_sanitized_data_ack` defaults to false and must be set
-to true; hosted construction also requires `hosted_sanitized`,
-`automatic_skill_consumer_mode=load`, and a host allow envelope. Advisory mode
-yields `consumer_contract_unmet` (even if acknowledgement is false). In load
-mode, leaving the automatic acknowledgement false yields `ack_required`. Hermes
-owns data classification; this is not DLP or authorization. Send no credential,
+omit it. Pass `false` to refuse one call. Automatic hosted routing is separate
+and also defaults on: `automatic_skill_public_or_sanitized_data_ack` true with
+`hosted_sanitized` and `load`. Hosted construction uses a host allow envelope
+when present (`egress_authority: host_envelope`) or standing acknowledgement
+plus a clean local scan when absent (`egress_authority: standing_ack`).
+Advisory mode yields `consumer_contract_unmet`. Leaving the automatic
+acknowledgement false yields `ack_required`. Explicit deny/unknown/malformed/
+restricted envelopes and restricted local scans still fail closed. Hermes owns
+data classification; this is not DLP or authorization. Send no credential,
 payment, or verification UI/data. Regex redaction is not authorization.
 
 ## Fixed client contract
