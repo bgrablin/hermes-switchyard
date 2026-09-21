@@ -10,21 +10,27 @@ Hermes Switchyard is a plugin that helps Hermes choose skills, models, and compu
 
 ## Why install
 
-Three wins on the frozen public benchmark (24 tasks, real Jev calls):
+Measured with/without Switchyard on tip **0.5.0** (`c8e6008`). Human-readable benefits first; verification hashes live under [Proof](#proof).
 
-| What you get | Local word matching | Switchyard + Jev |
-| --- | ---: | ---: |
-| Correct skill when exactly one was needed | 7 of 12 | **12 of 12** |
-| Failures on tasks that needed a skill | 11 of 18 | **5 of 18** |
-| Invented a skill when none was needed | **0 of 6** | **0 of 6** |
+| Feature | Without Switchyard | With Switchyard | What it means |
+| --- | ---: | ---: | --- |
+| **Skill pick** (`jev_skill_select`) | 7/12 single-skill correct | **12/12** | +5 specialist picks the local word matcher missed |
+| Skill-needed failures | 11/18 | **5/18** | Fewer silent misses when a skill was required |
+| No-skill false recs | **0/6** | **0/6** | Does not invent a skill when none fits |
+| **Multi-skill** (`jev_skill_select_many`) | top-1 required-set **0/5** | **5/5** complete | Use `select_many` when several skills are needed together |
+| **Model pick** (`jev_model_route`) | 3/3 cheapest-qualified local | **3/3** + auditable receipt | Agrees with complete metadata; `applied: false` until Hermes has an apply seam |
+| **Assess** (`jev_assess`) | 2/3 first-option baseline | **3/3** typed Choice | Small smoke (n=3), not a competing-model study |
+| **Automatic routing** (local_only hook) | always silent when off | 1/2 positives + clean no-fit | Install-default local match; not a whole-agent outcome claim |
+| **Computer use** (`jev_computer_use`) | stock `computer_use` A/B not run here | DOM Felidae race: 1 click, ~0.25 s Jev, ~$0.00021; `goal_verified` stays false | Coordinator owns verification; pin `-t computer_use,hermes_switchyard` |
 
-- **Cheap:** about **$0.000055** per decision (~**$0.055** per 1,000)
-- **Fast:** about **0.20 s** typical; **0.325 s** at p95
-- **Honest gap:** on this frozen **top-1** `select_skill` bench, tasks that needed several skills together scored **0 of 5** (the separate `jev_skill_select_many` API is not what that score measures)
+- **Cheap:** about **$0.000055** per skill-select decision (~**$0.055** per 1,000)
+- **Fast:** about **0.19 s** typical; **0.30 s** at p95 on the frozen 24-task skill bench
+- **Honest gaps:** frozen **top-1** `select_skill` still scores required-sets **0/5** (that API picks one skill). Model pick does not beat a complete local cheapest filter on this microbench. Automatic routing is not yet a counterbalanced Hermes-session win. Computer-use success is not `goal_verified` inside the tool.
 
-This shows better single-skill routing. It is not a claim that every Hermes task improves.
+This shows better single-skill routing and a working multi-skill API. It is not a claim that every Hermes task improves.
 
-**Proof:** method, limitations, and verification hashes → [docs/BENCHMARKS.md](docs/BENCHMARKS.md) · [JSON report](docs/benchmarks/live-selector-c6d9b28.json)
+<a id="proof"></a>
+**Proof:** method, limitations, per-feature tables, and verification hashes → [docs/BENCHMARKS.md](docs/BENCHMARKS.md) · [selector JSON](docs/benchmarks/live-selector-c8e6008.json) · [feature battery JSON](docs/benchmarks/feature-battery-c8e6008.json)
 
 ## Install
 
@@ -120,7 +126,7 @@ The tools are advisory and bounded:
 - Skill selection and model routing work wherever Hermes can expose the plugin toolset. `jev_computer_use` is available on Windows, macOS, and Linux when Hermes' Cua Driver-backed `computer_use` tool is available.
 - The repository's offline tests use synthetic transports and do not call OpenRouter or drive a real GUI.
 
-Future work includes reviewed catalog admission, independent real-GUI coverage, multi-skill planning, and a counterbalanced whole-agent benchmark. Those are not provided by this release.
+Future work includes reviewed catalog admission, independent real-GUI coverage, multi-skill *planning/coordination* beyond `jev_skill_select_many`, and a counterbalanced whole-agent benchmark. Those are not provided by this release.
 
 ## Safe credential setup
 
