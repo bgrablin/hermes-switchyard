@@ -839,8 +839,26 @@ class AutomaticRecommendationTests(unittest.TestCase):
                 "reason_code": "synthetic_restricted",
                 "allowed_payload": "SYNTHETIC_RESTRICTED_PAYLOAD",
             },
+            {
+                "version": 1,
+                "decision": "allow",
+                "data_class": "sanitized",
+                # missing allowed_payload -> invalid
+            },
+            {
+                "version": 1,
+                "decision": "deny",
+                "data_class": "public",
+                "reason_code": "synthetic_denied",
+                "allowed_payload": "SYNTHETIC_DENIED_PAYLOAD",
+            },
         ]
-        reasons = ["per_turn_policy_unknown", "restricted_data_class"]
+        reasons = [
+            "per_turn_policy_unknown",
+            "restricted_data_class",
+            "per_turn_policy_invalid",
+            "per_turn_policy_denied",
+        ]
         for policy, reason in zip(policies, reasons):
             with self.subTest(reason=reason):
                 result = recommender.recommend("Docker maintenance", turn_egress_policy=policy)
