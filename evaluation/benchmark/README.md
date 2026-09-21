@@ -66,6 +66,16 @@ Luna collection command:
 
 Both collectors append a complete normalized receipt after every case. A provider or parsing failure is written as `measurement_status: "failed"` with a bounded error type and is never scored as a selection. The Switchyard collector resolves `OPENROUTER_API_KEY` only through Hermes' supported runtime secret scope and never prints it. The Luna collector delegates credential handling entirely to Hermes.
 
+For a live Switchyard-versus-local value report that does not consume Luna quota, pass a complete live Switchyard receipt set to the claim-gated report builder:
+
+    PYTHONPATH=evaluation/benchmark:. python3 evaluation/benchmark/value_report.py \
+      --plugin-path <reviewed-plugin-path> \
+      --switchyard-input switchyard.records.json \
+      --public-synthetic-ack --max-requests 24 \
+      --output value-report.json
+
+The retained exact-head result and its limitations are documented in [docs/BENCHMARKS.md](../../docs/BENCHMARKS.md). The report compares real Jev responses with the deterministic local lexical arm on identical frozen cases; it still does not establish whole-agent improvement.
+
 The Switchyard command must run with the Python environment that provides Hermes' `agent.secret_scope`; otherwise it refuses before any provider call. Do not replace that scope with a command-line key or a hand-read credential.
 
 Normalized arm input field map

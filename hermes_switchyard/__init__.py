@@ -25,6 +25,7 @@ from .client import (
 from . import browser_use
 from .computer_use import StaleTargetError, run_computer_goal
 from .egress import is_routing_mode
+from .model_policy import recommend_approved_model
 from .routing import route_model, select_skill, select_skills
 
 from .host_compat import ctx_get_config, register_auxiliary_task as register_host_auxiliary_task
@@ -51,6 +52,7 @@ TOOL_TOOLSETS = {
     "jev_skill_select": PLUGIN_TOOLSET,
     "jev_skill_select_many": PLUGIN_TOOLSET,
     "jev_model_route": PLUGIN_TOOLSET,
+    "jev_model_route_approved": PLUGIN_TOOLSET,
 }
 
 # Handlers this process passed to ctx.register_tool, by tool name. Comparing them with the
@@ -692,6 +694,9 @@ def _load_skill_context(name: str, *, task_id: str | None = None) -> str:
 
 def register(ctx):
     default_steps = int(ctx_get_config(ctx, "computer_max_steps", default=100))
+    approved_registry = ctx_get_config(ctx, "approved_model_registry", default=[])
+    approved_registry_version = ctx_get_config(ctx, "approved_model_registry_version", default="")
+    approved_registry_valid_until = ctx_get_config(ctx, "approved_model_registry_valid_until", default="")
     if hasattr(ctx, "register_cli_command"):
         ctx.register_cli_command(
             name="switchyard",
@@ -945,6 +950,25 @@ def register(ctx):
         except Exception as exc:  # noqa: BLE001 -- tool handlers return structured errors
             return _error(exc)
 
+    def approved_route_handler(args, **kwargs):
+        try:
+            _require_public_data_ack(args, standing=standing_ack)
+            result = recommend_approved_model(
+                task=str(args.get("task") or ""),
+                requirements=dict(args.get("requirements") or {}),
+                registry=approved_registry,
+                registry_version=approved_registry_version,
+                valid_until=approved_registry_valid_until,
+                client=client(),
+                capability_fit_threshold=args.get(
+                    "capability_fit_threshold", schemas.DEFAULT_MODEL_CAPABILITY_FIT_THRESHOLD
+                ),
+                public_or_sanitized_data_ack=_resolved_public_data_ack(args, standing_ack),
+            )
+            return json.dumps(result)
+        except Exception as exc:  # noqa: BLE001 -- tool handlers return structured errors
+            return _error(exc)
+
     def register_tool(name, schema, handler, check_fn):
         _REGISTERED_HANDLERS[name] = handler
         ctx.register_tool(
@@ -963,6 +987,9 @@ def register(ctx):
         "jev_skill_select_many", schemas.MULTI_SKILL_SELECT, multi_skill_handler, decision_tools_available
     )
     register_tool("jev_model_route", schemas.MODEL_ROUTE, route_handler, decision_tools_available)
+    register_tool(
+        "jev_model_route_approved", schemas.MODEL_ROUTE_APPROVED, approved_route_handler, decision_tools_available
+    )
     if hasattr(ctx, "register_skill"):
         ctx.register_skill(
             "hermes-switchyard-operations",

@@ -248,6 +248,45 @@ class AutomaticRecommendationTests(unittest.TestCase):
             },
         )
 
+    def test_plugin_registration_defaults_enable_hosted_jev_with_attestation(self):
+        import jev_decision
+
+        calls = []
+
+        def transport(payload):
+            calls.append(payload)
+            return {
+                "model": "typesafe/jev-1.13",
+                "answers": {
+                    "skill": {
+                        "choice": "docker-management",
+                        "confidence": 0.99,
+                        "probabilities": {"docker-management": 1.0},
+                    },
+                    "needs_skill": {"noul": 0.99},
+                },
+                "usage": {},
+            }
+
+        context = _Context({
+            "automatic_skill_candidates": [
+                {"name": "docker-management", "description": "Manage Docker containers"},
+            ]
+        })
+        with mock.patch.object(jev_decision, "_secret", return_value="fixture-key"), \
+             mock.patch.object(
+                 jev_decision,
+                 "DecisionClient",
+                 side_effect=lambda **_kwargs: DecisionClient(api_key="fixture-key", transport=transport),
+             ):
+            jev_decision.register(context)
+            hook = context.hooks["pre_llm_call"]
+            result = hook(user_message="public Docker maintenance request", conversation_history=[])
+        self.assertIsNotNone(result)
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(hook.last_result["hosted_attempted"])
+        self.assertEqual(hook.last_result["source"], "jev")
+
     def test_skill_registry_discovery_uses_public_response_schema(self):
         payload = {
             "success": True,
