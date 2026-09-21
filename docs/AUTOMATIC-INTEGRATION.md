@@ -101,7 +101,7 @@ hermes switchyard status --json
 hermes switchyard receipt --json
 ```
 
-`status` is local and network-free. After the plugin registers in a fresh process, it reports the effective `routing_mode`, `consumer_mode`, standing acknowledgement, `automatic_skill_jev_mode`, and `hosted_construction_allowed`. Credential presence remains a separate readiness field. A process started before a config change can retain the previous hook and values.
+`status` is local and network-free. After the plugin registers in a fresh process, it reports the effective `routing_mode`, `consumer_mode`, standing acknowledgement, `automatic_skill_jev_mode`, and `hosted_construction_allowed`. Credential presence remains a separate readiness field. It also reports `plugin_version` and a `tool_exposure` object that separates whether Hermes holds this plugin's registration for each tool from whether the tool is in the callable catalog for a session; see [Confirm what a session exposes](SETUP.md#confirm-what-a-session-exposes). A process started before a config change can retain the previous hook and values.
 
 `receipt` prints the latest receipt retained by the plugin. The receipt contains stable source, selection, attempt, error/skip, model, request, latency, usage, candidate-count, and shortlist-policy fields. In load mode it also records `consumer_status`, `loaded_skill`, `loaded_source`, and `skill_load_verified`. `consumer_status` may be `loaded`, `load_failed`, `explicit_override`, or `mandatory_conflict`. `verified` remains `false`: the receipt does not prove recommendation correctness, a model change, or GUI completion. If no attempt has produced a receipt, the command prints a structured `no_receipt` diagnostic and exits non-zero.
 

@@ -75,7 +75,45 @@ HERMES_HOME="$(mktemp -d)" hermes plugins doctor . --ci
 
 On Windows, set `HERMES_HOME` to a new temporary directory using the shell's normal environment-variable syntax. Plugin Doctor imports and registers plugin code in-process, so it checks the real loader but is not a sandbox. Use it only with reviewed code.
 
-A successful native check proves discovery and registration, not model quality, GUI completion, or permission to send private data.
+A successful native check proves discovery and registration, not model quality, GUI completion, or permission to send private data. It also does not prove that a session can call a tool.
+
+## Confirm what a session exposes
+
+Hermes puts a tool in a session's callable catalog only when the toolset the tool is registered under is selected for that session. The required composition is:
+
+- `jev_computer_use` is exposed only when the `computer_use` toolset is selected. Hermes' own `computer_use` tool is in the same toolset.
+- `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, and `jev_model_route` are exposed only when the `hermes_switchyard` toolset is selected.
+- A session started without `--toolsets` uses Hermes' default CLI selection, which includes both toolsets under a default configuration. A toolset list saved by `hermes tools` that leaves Computer Use off keeps `jev_computer_use` out of sessions.
+- An explicit `--toolsets` (`-t`) pin replaces the default selection and does not add plugin toolsets. To expose all five tools, name both: `hermes -t computer_use,hermes_switchyard chat`. In PowerShell, quote the list, because an unquoted comma is PowerShell's array operator.
+
+Registered and callable are different facts. Registered means Hermes' registry holds this plugin's own registration for the tool. Callable means the tool is in the catalog Hermes builds for a session with a given toolset selection. The plugin's own status command reports both, with no network access:
+
+```text
+hermes switchyard status --json
+hermes switchyard status --json --toolsets computer_use,terminal
+```
+
+The first form evaluates the toolsets Hermes' CLI uses for a session started without `--toolsets`. The second evaluates an explicit pin, so you can reproduce what a scripted launch will expose. `status` evaluates a fresh session with Hermes' own catalog builder. It does not read the catalog of a session that is already running, so start a fresh session after changing the plugin, its configuration, or the toolsets. The command exits with status 0 in every state; read the JSON.
+
+The `status` field names the first problem found, in this order:
+
+| `status` | Meaning | What to do |
+| --- | --- | --- |
+| `tools_not_registered` | Hermes' registry does not hold this plugin's registration for at least one tool. | Read that tool's `reason`. |
+| `tools_not_callable` | Every tool is registered, but at least one is missing from the evaluated session catalog. | Read that tool's `reason`. |
+| `credential_required` | The tools are registered and callable, but no Jev key is available. | Run `hermes switchyard setup --provider typesafe` or `--provider openrouter`. |
+| `exposure_unverified` | A key exists, but Hermes' registry or catalog could not be read, so callability is unknown. | See `tool_exposure.unavailable_reason`. Nothing is assumed available. |
+| `ready` | A key exists and all five tools are registered and callable in the evaluated selection. | None. |
+
+`tool_exposure.tools` lists each tool with `expected_toolset`, `registered`, `registry_toolset`, `callable`, and `reason`. A `null` value means it could not be determined, and it is never treated as available. `tool_exposure.selection` names the evaluated `source` (`explicit_toolsets`, `platform_default`, or `coding_posture`), the `enabled_toolsets`, and any `unknown_toolsets`, which are names Hermes ignores, such as a misspelled `computer-use`.
+
+| `reason` | Stage | Meaning | Fix |
+| --- | --- | --- | --- |
+| `not_registered` | registration | Hermes' registry has no entry for the tool. | Enable the plugin with `hermes plugins enable hermes-switchyard`, then start a fresh session. |
+| `owned_by_another_registration` | registration | The registry holds an entry under that name that this plugin did not register. Hermes rejects a second registration of a name that already sits in a different toolset, and it does so without raising an error, so a duplicate or legacy copy of the plugin, such as an install from before the rename to Hermes Switchyard, can hold the name. `registry_toolset` names the toolset that owns it. | Remove the duplicate or legacy copy and start a fresh session. |
+| `toolset_not_selected` | exposure | The selected toolsets do not include `registry_toolset`. | Add that toolset to `--toolsets`, or enable it in `hermes tools`. |
+| `availability_check_failed` | exposure | The toolset is selected, but the tool's own availability check returned false. For the decision tools that means an invalid or contradictory `jev_provider` or `api_endpoint`. For `jev_computer_use` it means an unsupported platform. | Correct the setting the check reads, then start a fresh session. |
+| `not_in_catalog` | exposure | The toolset is selected and the check passes, yet Hermes left the tool out. | Open an issue with the `status --json` output. The plugin cannot see Hermes' reason. |
 
 ## Configure the plugin
 
