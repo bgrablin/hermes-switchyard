@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- DOM browser receipts: preserve the action ledger on provider timeout/validation failures as `partial_failure` with `reconcile_before_retry`; distinguish `action_dispatched` / `effect_observed` / `goal_verified`; do not set `effect_confirmed` for same-document clicks with no observed URL/title/DOM delta (issue #28).
 - Hermes 0.19 status and live collector: when `parse_config_string_list` is missing, fall back to list/CSV parsing so `hermes switchyard status` resolves platform selection and reports real `callable` values (parser errors still fail closed); tolerate missing `hydrate_profile_secret_sources` and fall back to a process `OPENROUTER_API_KEY` when the scoped value is missing or unusable.
 - Host config fallback for Hermes 0.19 reads `plugins.entries.<id>.settings` (legacy `.config` accepted); outer entry fields such as `allow_tool_override` are no longer mistaken for plugin settings.
 - Tolerates Hermes 0.19.0 PluginContext hosts that omit `get_config`: `register()` falls back to `plugins.entries.<plugin_id>` (or install defaults) so tools, hooks, and `hermes switchyard` still register when the plugin is enabled.

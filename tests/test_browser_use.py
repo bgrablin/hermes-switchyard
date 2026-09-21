@@ -512,6 +512,162 @@ class BrowserUseTests(unittest.TestCase):
             )
         )
 
+    def test_noop_same_document_click_is_not_effect_confirmed(self):
+        """Issue #28: a dispatched click with no observed delta must not claim effect_confirmed."""
+        start = "https://example.com/article"
+        session = FakeSession(
+            {
+                start: {
+                    "title": "Article",
+                    "text": "Public article body with enough text.",
+                    "elements": [
+                        {
+                            "id": "1",
+                            "role": "link",
+                            "label": "Same page anchor",
+                            "href": start,
+                        },
+                        {
+                            "id": "2",
+                            "role": "link",
+                            "label": "Elsewhere",
+                            "href": "https://example.com/other",
+                        },
+                    ],
+                }
+            }
+        )
+        client = FakeClient(
+            [
+                {
+                    "operation": _choice(
+                        "CLICK",
+                        {
+                            "CLICK": "c",
+                            "SCROLL_DOWN": "s",
+                            "SCROLL_UP": "u",
+                            "WAIT": "w",
+                            "BLOCKED": "b",
+                        },
+                    ),
+                    "click_target": _choice("1", {"1": "Same page anchor", "2": "Elsewhere"}),
+                },
+                {
+                    "operation": _choice(
+                        "DONE",
+                        {
+                            "CLICK": "c",
+                            "SCROLL_DOWN": "s",
+                            "SCROLL_UP": "u",
+                            "WAIT": "w",
+                            "BLOCKED": "b",
+                            "DONE": "d",
+                        },
+                    ),
+                    "click_target": _choice("1", {"1": "Same page anchor", "2": "Elsewhere"}),
+                },
+            ]
+        )
+        result = run_browser_goal(
+            goal="Click the same-page link then finish",
+            session=session,
+            client=client,
+            max_steps=5,
+            min_actions_before_done=1,
+        )
+        self.assertEqual(result["status"], "completion_candidate")
+        self.assertFalse(result["goal_verified"])
+        self.assertEqual(session.clicks, ["1"])
+        action = result["actions"][0]
+        self.assertEqual(action["operation"], "CLICK")
+        self.assertTrue(action["action_dispatched"])
+        self.assertFalse(action["effect_observed"])
+        self.assertFalse(action["effect_confirmed"])
+        self.assertEqual(action["effect_status"], "unchanged")
+        self.assertFalse(action["goal_verified"])
+        self.assertIsInstance(result["last_state_hash"], str)
+        self.assertEqual(len(result["last_state_hash"]), 64)
+
+    def test_provider_timeout_after_click_returns_partial_receipt(self):
+        """Issue #28: a later provider timeout must preserve the completed click ledger."""
+        start = "https://example.com/start"
+        dest = "https://example.com/dest"
+        session = FakeSession(
+            {
+                start: {
+                    "title": "Start",
+                    "text": "Start page with enough text for the snapshot.",
+                    "elements": [
+                        {"id": "1", "role": "link", "label": "Continue", "href": dest},
+                    ],
+                },
+                dest: {
+                    "title": "Dest",
+                    "text": "Destination page with enough text for the snapshot.",
+                    "elements": [
+                        {"id": "1", "role": "link", "label": "Home", "href": start},
+                    ],
+                },
+            }
+        )
+
+        class TimeoutAfterClickClient(FakeClient):
+            def decide(self, state, questions, **kwargs):
+                self.calls.append({"state": state, "questions": dict(questions)})
+                if len(self.calls) >= 2:
+                    raise TimeoutError("provider timed out")
+                answers = self.script[0]
+                return {
+                    "answers": answers,
+                    "latency_ms": 12,
+                    "model": "jev-latest",
+                    "usage": {"input_tokens": 10, "output_tokens": 2},
+                }
+
+        client = TimeoutAfterClickClient(
+            [
+                {
+                    "operation": _choice(
+                        "CLICK",
+                        {
+                            "CLICK": "c",
+                            "SCROLL_DOWN": "s",
+                            "SCROLL_UP": "u",
+                            "WAIT": "w",
+                            "BLOCKED": "b",
+                        },
+                    ),
+                    "click_target": _choice("1", {"1": "Continue"}),
+                }
+            ]
+        )
+        result = run_browser_goal(
+            goal="Click Continue then the provider dies",
+            session=session,
+            client=client,
+            max_steps=5,
+            min_actions_before_done=1,
+        )
+        self.assertEqual(result["status"], "partial_failure")
+        self.assertEqual(result["failure_phase"], "operation_deadline")
+        self.assertTrue(result["reconcile_before_retry"])
+        self.assertEqual(result["attempted_action_count"], 1)
+        self.assertEqual(result["jev_request_count"], 2)
+        self.assertTrue(any(item.get("failed") is True for item in result["decisions"]))
+        self.assertEqual(session.clicks, ["1"])
+        self.assertEqual(result["url"], dest)
+        action = result["actions"][0]
+        self.assertEqual(action["operation"], "CLICK")
+        self.assertTrue(action["action_dispatched"])
+        self.assertTrue(action["effect_observed"])
+        self.assertTrue(action["effect_confirmed"])
+        self.assertEqual(action["effect_status"], "url_changed")
+        self.assertFalse(result["goal_verified"])
+        self.assertFalse(result["verified"])
+
+
+
+
 
 class SnapConfinementDetectionTests(unittest.TestCase):
     """A Snap-confined browser is recognised from its real identity or its content."""
@@ -1009,15 +1165,14 @@ class BrowserReliabilityTests(unittest.TestCase):
             ]
         )
         result = run_browser_goal(goal="Open Felidae", session=session, client=client, max_steps=5)
-        self.assertEqual(result["status"], "provider_failure")
-        self.assertEqual(result["failure_phase"], "decision")
-        self.assertEqual(result["failure_reason"], "provider_timeout")
-        self.assertEqual(result["click_count"], 1)
+        self.assertEqual(result["status"], "partial_failure")
+        self.assertEqual(result["failure_phase"], "operation_deadline")
+        self.assertTrue(result["reconcile_before_retry"])
         self.assertEqual(result["attempted_action_count"], 1)
-        self.assertEqual(result["attempted_request_count"], 2)
-        self.assertEqual(result["jev_request_count"], 1)
+        self.assertEqual(result["jev_request_count"], 2)
+        self.assertTrue(any(item.get("failed") is True for item in result["decisions"]))
         self.assertEqual(result["actions"][0]["action_dispatched"], True)
-        self.assertTrue(result["last_state_hash"])
+        self.assertEqual(len(result["last_state_hash"]), 64)
         self.assertTrue(result["reconcile_before_retry"])
 
     def test_malformed_response_keeps_partial_evidence(self):
@@ -1074,7 +1229,7 @@ class BrowserReliabilityTests(unittest.TestCase):
         self.assertEqual(action["action_dispatched"], True)
         self.assertIs(action["effect_observed"], False)
         self.assertIs(action["effect_confirmed"], False)
-        self.assertEqual(action["effect_status"], "no_observed_effect")
+        self.assertEqual(action["effect_status"], "unchanged")
         self.assertIs(action["goal_verified"], False)
         self.assertEqual(result["effect_observed_count"], 0)
 
