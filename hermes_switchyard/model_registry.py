@@ -1,6 +1,6 @@
 """Code-owned approved model registry for advisory Hermes routing.
 
-`jev_model_route` remains the documented Hermes routing point. Callers that
+`jev_model_route` remains the documented Hermes tool routing point. Coordinators should prefer `hermes_switchyard.model_route_adapter.recommend_model_route`, which wraps this helper with auditable receipts and safe Hermes seam registration. Callers that
 want a registry-backed recommendation use `route_model_from_registry` with an
 explicit approved candidate list. Descriptions never confer approval. A
 selected route is an auditable recommendation; this adapter never changes the
@@ -49,6 +49,9 @@ def route_model_from_registry(
             "latency_ms": None,
             "usage": {},
             "abstention_reason": "empty_registry",
+            "applied": False,
+            "no_fallback": True,
+            "source": "code_owned_registry",
         }
     parsed_requirements = dict(requirements or {})
     if "registry_generation" not in parsed_requirements:

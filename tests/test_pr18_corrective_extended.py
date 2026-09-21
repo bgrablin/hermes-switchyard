@@ -380,7 +380,7 @@ class F1SchemaTests(unittest.TestCase):
             "shortlist_policy": None,
             "verified": False,
             "advisory_only": True,
-            "plugin_identity": {"plugin": "hermes-switchyard", "version": "0.4.2", "source_sha": "unavailable"},
+            "plugin_identity": {"plugin": "hermes-switchyard", "version": "0.5.0", "source_sha": "unavailable"},
             "source_sha": "unavailable",
         }
         self.assertTrue(receipt_state.validate_receipt(legacy))
@@ -413,7 +413,7 @@ class F1SchemaTests(unittest.TestCase):
             "loaded_source": "local",
             "skill_load_verified": True,
             "advisory_only": False,
-            "plugin_identity": {"plugin": "hermes-switchyard", "version": "0.4.2", "source_sha": "unavailable"},
+            "plugin_identity": {"plugin": "hermes-switchyard", "version": "0.5.0", "source_sha": "unavailable"},
             "source_sha": "unavailable",
         }
         self.assertFalse(receipt_state.validate_receipt(base))
@@ -441,7 +441,7 @@ class F1SchemaTests(unittest.TestCase):
             "shortlist_policy": None,
             "verified": False,
             "advisory_only": 1,  # truthy int, not bool
-            "plugin_identity": {"plugin": "hermes-switchyard", "version": "0.4.2", "source_sha": "unavailable"},
+            "plugin_identity": {"plugin": "hermes-switchyard", "version": "0.5.0", "source_sha": "unavailable"},
             "source_sha": "unavailable",
         }
         self.assertFalse(receipt_state.validate_receipt(base))

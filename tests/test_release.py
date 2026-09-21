@@ -146,7 +146,7 @@ class ReleaseArchiveTests(unittest.TestCase):
                 second,
                 source_root=repo,
                 expected_source_sha=source_sha,
-                expected_version="0.4.2",
+                expected_version="0.5.0",
             )
             self.assertTrue(result["integrity_verified"])
             self.assertTrue(result["source_verified"])
