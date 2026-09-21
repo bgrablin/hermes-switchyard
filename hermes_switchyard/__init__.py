@@ -610,8 +610,7 @@ def ensure_platform_toolsets(
         cleared_suppressions = list(direct_suppressed)
         changed = True
 
-    verify_config = config
-    verify_label = 'unchanged'
+    verify = suppression
     if changed:
         try:
             save_config(config)
@@ -701,27 +700,20 @@ def ensure_platform_toolsets(
                     platforms=platforms,
                     toolsets=toolsets,
                 )
-        verify_config = reloaded
-        verify_label = 'reloaded'
-
-    verify = _required_toolset_suppression(verify_config, toolsets)
-    if verify is None:
-        return _ensure_failure(
-            'config_not_persisted' if verify_label == 'reloaded' else 'config_invalid',
-            detail=(
-                'disabled_toolsets_unreadable_after_save'
-                if verify_label == 'reloaded'
-                else 'disabled_toolsets_unreadable'
-            ),
-            added=added,
-            already_present=already_present,
-            focus_override=focus_override,
-            suppressed=suppressed or None,
-            suppression_entries=suppression_entries or None,
-            seeded_platforms=seeded,
-            platforms=platforms,
-            toolsets=toolsets,
-        )
+        verify = _required_toolset_suppression(reloaded, toolsets)
+        if verify is None:
+            return _ensure_failure(
+                'config_not_persisted',
+                detail='disabled_toolsets_unreadable_after_save',
+                added=added,
+                already_present=already_present,
+                focus_override=focus_override,
+                suppressed=suppressed or None,
+                suppression_entries=suppression_entries or None,
+                seeded_platforms=seeded,
+                platforms=platforms,
+                toolsets=toolsets,
+            )
     still = verify['suppressed']
     if still:
         entries = verify['suppressors']
