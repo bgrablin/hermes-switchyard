@@ -261,57 +261,78 @@ def _looks_like_python_executable(name: str) -> bool:
     return base == "python" or base.startswith("python3") or base.startswith("python2")
 
 
-def _env_shebang_command(env_args: list[str]) -> list[str]:
-    """Return the command argv portion of an ``env`` shebang."""
-    if not env_args:
+def _shebang_interpreter_and_optional(shebang_line: str) -> tuple[str, str | None]:
+    """Split a shebang the way the kernel does: interpreter + one optional arg.
+
+    Everything after the interpreter path is a single argument (not
+    whitespace-tokenized). ``env -S`` may re-parse that argument later.
+    """
+    line = shebang_line.strip()
+    if not line.startswith("#!"):
+        raise HarnessInvalid("hermes CLI wrapper has no shebang")
+    rest = line[2:].lstrip()
+    if not rest:
+        raise HarnessInvalid("hermes CLI shebang is empty")
+    parts = rest.split(None, 1)
+    optional = parts[1] if len(parts) > 1 else None
+    return parts[0], optional
+
+
+def _env_optional_command_for_validation(optional: str) -> list[str]:
+    """Whitespace-parse env's optional-arg only to validate the Python target.
+
+    The returned tokens must not be used as the re-exec argv; quoting/escaping
+    in ``env -S`` payloads must stay intact in the raw optional string.
+    """
+    tokens = optional.split()
+    if not tokens:
         return []
-    if env_args[0] == "-S" and len(env_args) >= 2:
-        return env_args[1].split() + list(env_args[2:])
-    if env_args[0].startswith("-S") and len(env_args[0]) > 2:
-        return env_args[0][2:].lstrip().split() + list(env_args[1:])
+    if tokens[0] == "-S" and len(tokens) >= 2:
+        return tokens[1].split() + list(tokens[2:])
+    if tokens[0].startswith("-S") and len(tokens[0]) > 2:
+        return tokens[0][2:].lstrip().split() + list(tokens[1:])
     index = 0
-    while index < len(env_args) and env_args[index].startswith("-"):
-        opt = env_args[index]
+    while index < len(tokens) and tokens[index].startswith("-"):
+        opt = tokens[index]
         if opt in ("-u", "-C", "-P"):
             index += 2
         else:
             index += 1
-    return list(env_args[index:])
+    return list(tokens[index:])
 
 
 def _parse_shebang_reexec_argv(shebang_line: str) -> list[str]:
     """Parse a ``#!`` line into an argv prefix for re-exec under Hermes Python.
 
     Supports a direct Python interpreter path and ``#!/usr/bin/env python3``
-    (including ``env -S``). Shell trampolines and other non-Python wrappers
-    raise ``HarnessInvalid`` so the harness writes harness_invalid evidence
-    instead of failing with a cryptic exec error.
+    (including ``env -S``). The optional shebang argument is preserved as one
+    argv element (kernel semantics); a whitespace parse of a copy is used only
+    to validate that an ``env`` launcher targets Python. Shell trampolines and
+    other non-Python wrappers raise ``HarnessInvalid`` so the harness writes
+    harness_invalid evidence instead of failing with a cryptic exec error.
     """
-    line = shebang_line.strip()
-    if not line.startswith("#!"):
-        raise HarnessInvalid("hermes CLI wrapper has no shebang")
-    tokens = line[2:].strip().split()
-    if not tokens:
-        raise HarnessInvalid("hermes CLI shebang is empty")
-
-    program = tokens[0]
+    program, optional = _shebang_interpreter_and_optional(shebang_line)
     prog_path = Path(program)
+    line = shebang_line.strip()
+
     if prog_path.name == "env":
-        command = _env_shebang_command(tokens[1:])
+        command = _env_optional_command_for_validation(optional) if optional else []
         if not command or not _looks_like_python_executable(command[0]):
             raise HarnessInvalid(
                 "hermes CLI env shebang does not target a Python interpreter "
                 f"({line!r}); set HERMES_PYTHON to the Hermes interpreter"
             )
         if prog_path.is_file() and os.access(prog_path, os.X_OK):
-            return list(tokens)
-        env_resolved = shutil.which("env")
-        if not env_resolved:
-            raise HarnessInvalid(
-                "hermes CLI uses an env shebang but env was not found on PATH; "
-                "set HERMES_PYTHON to the Hermes interpreter"
-            )
-        return [env_resolved, *tokens[1:]]
+            exe = str(prog_path)
+        else:
+            env_resolved = shutil.which("env")
+            if not env_resolved:
+                raise HarnessInvalid(
+                    "hermes CLI uses an env shebang but env was not found on PATH; "
+                    "set HERMES_PYTHON to the Hermes interpreter"
+                )
+            exe = env_resolved
+        return [exe] if optional is None else [exe, optional]
 
     if not _looks_like_python_executable(prog_path.name):
         raise HarnessInvalid(
@@ -322,7 +343,7 @@ def _parse_shebang_reexec_argv(shebang_line: str) -> list[str]:
         raise HarnessInvalid(
             f"hermes CLI shebang interpreter is not an executable file: {program}"
         )
-    return [str(prog_path), *tokens[1:]]
+    return [str(prog_path)] if optional is None else [str(prog_path), optional]
 
 
 def _reexec_argv_from_hermes_cli() -> list[str] | None:
@@ -343,7 +364,8 @@ def _reexec_interpreter_path(argv_prefix: list[str]) -> Path:
     if not argv_prefix:
         raise HarnessInvalid("Hermes re-exec argv is empty")
     if Path(argv_prefix[0]).name == "env":
-        command = _env_shebang_command(argv_prefix[1:])
+        optional = argv_prefix[1] if len(argv_prefix) > 1 else ""
+        command = _env_optional_command_for_validation(optional) if optional else []
         if not command:
             raise HarnessInvalid("hermes CLI env shebang missing Python command")
         resolved = shutil.which(command[0])
