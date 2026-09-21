@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import ipaddress
 import json
 import os
 import re
@@ -17,21 +16,25 @@ import shutil
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 import uuid
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import quote, urlsplit
 from urllib.request import urlopen
 
+from . import destination_policy
 from .client import (
     DEFAULT_OPERATION_DEADLINE_SECONDS,
     MAX_OPERATION_REQUESTS,
     operation_remaining_deadline,
     request_budget_scope,
 )
+from .destination_policy import DestinationGuard, DestinationPolicyError, redact_url
 
 
 MAX_PAGE_ELEMENTS = 48
@@ -230,6 +233,15 @@ _SNAPSHOT_JS.replace("__SWITCHYARD_SCAN_BOUND__", str(MAX_SCANNED_CANDIDATES))
 
 
 class BrowserSession(Protocol):
+    """Session surface the loop drives.
+
+    A session that enforces the destination policy also offers two optional
+    methods, read with ``getattr`` so a session without them still runs and is
+    reported as not enforcing: ``destination_violations() -> list[dict]`` (each
+    with ``seq``, ``code``, ``fatal``, ``navigation``) and
+    ``destination_report() -> dict``.
+    """
+
     def observe(self) -> dict[str, Any]:
         ...
 
@@ -282,23 +294,8 @@ def requested_web_start(explicit: Any, goal: str) -> str | None:
 
 
 def _public_http_url(value: str) -> bool:
-    parts = urlsplit(value)
-    if parts.scheme != "https" or not parts.netloc or parts.username is not None:
-        return False
-    host = parts.hostname
-    if not isinstance(host, str) or not host:
-        return False
-    folded = host.casefold().rstrip(".")
-    if folded == "localhost" or folded.endswith(".localhost") or folded.endswith(".local"):
-        return False
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
-        labels = folded.split(".")
-        if labels and all(part.isdigit() for part in labels):
-            return False
-        return "." in folded
-    return bool(ip.is_global)
+    """Lexical destination check: the code-owned policy, without any I/O."""
+    return destination_policy.is_public_https_url(value)
 
 
 def _observation_signature(page: dict[str, Any]) -> str:
@@ -474,7 +471,7 @@ def _gate_decision(answer: Any) -> str | None:
 
 def _startup_failure_reason(exc: BaseException) -> str:
     """Map one browser startup failure to a bounded local diagnostic code."""
-    if isinstance(exc, BrowserStartupError):
+    if isinstance(exc, (BrowserStartupError, DestinationPolicyError)):
         return exc.code
     text = f"{exc}".casefold()
     if "singletonlock" in text or "permission denied" in text:
@@ -597,6 +594,11 @@ def run_browser_goal(
                     manager = open_browser_session(start_url)
                     owned = manager.__enter__()
                 except Exception as exc:  # noqa: BLE001 -- startup diagnostics stay local and bounded
+                    refused = isinstance(exc, DestinationPolicyError)
+                    if refused:
+                        progress["destination"] = getattr(exc, "report", None) or destination_policy.static_report(
+                            "pre_launch_check"
+                        )
                     return _browser_receipt(
                         operation_id=operation_id,
                         goal=goal,
@@ -605,7 +607,7 @@ def run_browser_goal(
                         decisions=decisions,
                         started=started,
                         status="blocked",
-                        failure_phase="browser_startup",
+                        failure_phase="destination_policy" if refused else "browser_startup",
                         progress=progress,
                         condition=condition,
                         failure_reason=_startup_failure_reason(exc),
@@ -699,6 +701,39 @@ def _describe_backend(progress: dict[str, Any], session: BrowserSession) -> None
         progress["session_setup_ms"] = round(float(setup_ms), 1)
 
 
+def _fatal_destination_violation(session: BrowserSession) -> dict[str, Any] | None:
+    """Return the first fatal destination violation the session recorded.
+
+    Fatal means a refused navigation, a failure to prove interception, or an
+    address the browser actually reached that the policy refuses. A refused
+    subresource is evidence in the receipt but does not by itself stop the run.
+    A session that cannot answer is treated as unproven, not as clean.
+    """
+    read = getattr(session, "destination_violations", None)
+    if not callable(read):
+        return None
+    try:
+        items = read()
+    except Exception:  # noqa: BLE001 -- unavailable evidence fails closed
+        return {"code": "interception_unavailable", "fatal": True}
+    for item in items if isinstance(items, list) else []:
+        if isinstance(item, dict) and item.get("fatal") is True:
+            return item
+    return None
+
+
+def _destination_report(session: BrowserSession) -> dict[str, Any]:
+    """Return the session's destination evidence, or say it did not report any."""
+    read = getattr(session, "destination_report", None)
+    if not callable(read):
+        return destination_policy.static_report("session_did_not_report")
+    try:
+        report = read()
+    except Exception:  # noqa: BLE001 -- a report that cannot be read is not a clean report
+        return destination_policy.static_report("report_unavailable")
+    return report if isinstance(report, dict) else destination_policy.static_report("report_unavailable")
+
+
 def _run_browser_loop(
     *,
     goal: str,
@@ -724,6 +759,7 @@ def _run_browser_loop(
 
     def finish(**fields: Any) -> dict[str, Any]:
         reported = fields.pop("page", page)
+        progress["destination"] = _destination_report(session)
         # Every receipt hashes the page it reports, so a terminal path can
         # never pair a stale state hash with a newer observation.
         progress["last_state_hash"] = _observation_signature(reported)
@@ -746,6 +782,15 @@ def _run_browser_loop(
             page=page,
             status="blocked",
             failure_phase="capture",
+            reconcile_before_retry=False,
+        )
+    blocked = _fatal_destination_violation(session)
+    if blocked is not None:
+        return finish(
+            page=page,
+            status="blocked",
+            failure_phase="destination_blocked",
+            failure_reason=str(blocked.get("code") or "destination_blocked"),
             reconcile_before_retry=False,
         )
     if not _public_http_url(str(page.get("url") or "")):
@@ -771,6 +816,17 @@ def _run_browser_loop(
         )
     for step in range(1, max_steps + 1):
         operation_remaining_deadline()
+        # A page can navigate on its own between decisions, so the destination
+        # evidence is read again before every provider request.
+        blocked = _fatal_destination_violation(session)
+        if blocked is not None:
+            return finish(
+                page=page,
+                status="blocked",
+                failure_phase="destination_blocked",
+                failure_reason=str(blocked.get("code") or "destination_blocked"),
+                reconcile_before_retry=bool(actions),
+            )
         elements = _safe_elements(page.get("elements"))
         signature = _observation_signature(page)
         progress["last_state_hash"] = signature
@@ -879,6 +935,17 @@ def _run_browser_loop(
                 failure_phase="operation_selection",
             )
         if operation == "DONE":
+            # The page can navigate while the provider decides, so a completion
+            # candidate is offered only when no fatal refusal has since been recorded.
+            blocked = _fatal_destination_violation(session)
+            if blocked is not None:
+                return finish(
+                    page=page,
+                    status="blocked",
+                    failure_phase="destination_blocked",
+                    failure_reason=str(blocked.get("code") or "destination_blocked"),
+                    reconcile_before_retry=bool(actions),
+                )
             return finish(
                 page=page,
                 status="completion_candidate",
@@ -959,7 +1026,14 @@ def _run_browser_loop(
                 session.wait(0.2)
                 action_dispatched = True
             after = session.observe()
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 -- partial progress is kept whatever failed
+            if isinstance(exc, DestinationPolicyError):
+                # The session raises this only after the click reached the page,
+                # so the action was dispatched even though its result was refused.
+                action_dispatched = True
+            blocked = _fatal_destination_violation(session)
+            if blocked is None and isinstance(exc, DestinationPolicyError):
+                blocked = {"code": exc.code}
             actions.append(
                 _action_record(
                     step=step,
@@ -969,13 +1043,45 @@ def _run_browser_loop(
                     page=page,
                     dispatched=action_dispatched,
                     effect_observed=None,
-                    effect_status="unknown",
+                    effect_status="destination_blocked" if blocked is not None else "unknown",
                 )
             )
+            if blocked is not None:
+                return finish(
+                    page=page,
+                    status="blocked",
+                    failure_phase="destination_blocked",
+                    failure_reason=str(blocked.get("code") or "destination_blocked"),
+                    reconcile_before_retry=True,
+                )
             return finish(
                 page=page,
                 status="partial_failure",
                 failure_phase="action",
+                reconcile_before_retry=True,
+            )
+        blocked = _fatal_destination_violation(session)
+        if blocked is not None:
+            actions.append(
+                _action_record(
+                    step=step,
+                    operation=operation,
+                    label=label,
+                    target_id=target_id,
+                    page=after,
+                    dispatched=action_dispatched,
+                    effect_observed=any(
+                        str(after.get(key) or "") != str(page.get(key) or "") for key in ("url", "title", "focus")
+                    )
+                    or _observation_signature(after) != signature,
+                    effect_status="destination_blocked",
+                )
+            )
+            return finish(
+                page=page,
+                status="blocked",
+                failure_phase="destination_blocked",
+                failure_reason=str(blocked.get("code") or "destination_blocked"),
                 reconcile_before_retry=True,
             )
         if not _public_http_url(str(after.get("url") or "")):
@@ -1077,7 +1183,7 @@ def _action_record(
         "operation": operation,
         "label": label,
         "element": target_id,
-        "url": str(page.get("url") or ""),
+        "url": redact_url(str(page.get("url") or "")),
         "title": str(page.get("title") or "")[:240],
         "executor": "browser_dom",
         "verdict": None,
@@ -1155,7 +1261,7 @@ def _browser_receipt(
         "computer_use_dispatches": 0,
         "goal": goal,
         "app": "browser",
-        "url": str(page.get("url") or ""),
+        "url": redact_url(str(page.get("url") or "")),
         "title": str(page.get("title") or "")[:240],
         "actions": actions,
         "decisions": decisions,
@@ -1169,6 +1275,7 @@ def _browser_receipt(
         "attempted_request_count": int(state.get("attempted_requests") or len(decisions)),
         "jev_total_latency_ms": round(sum(latencies), 1) if latencies else 0.0,
         "last_state_hash": state.get("last_state_hash"),
+        "destination_policy": state.get("destination") or destination_policy.static_report("not_started"),
         "failure_phase": failure_phase,
         "reconcile_before_retry": reconcile_before_retry or bool(actions and status not in {"completion_candidate"}),
         "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
@@ -1226,6 +1333,10 @@ class _ChromeWebSocket:
         header = buffer.split(b"\r\n\r\n", 1)[0].decode("ascii", "replace")
         if " 101 " not in header.split("\r\n", 1)[0]:
             raise RuntimeError("browser debugger did not upgrade to websocket")
+
+    def set_blocking(self) -> None:
+        """Drop the handshake timeout so a reader thread never splits a frame."""
+        self._sock.settimeout(None)
 
     def send_json(self, payload: dict[str, Any]) -> None:
         data = json.dumps(payload).encode("utf-8")
@@ -1303,8 +1414,11 @@ class ChromiumSession:
     """Chrome DevTools session over a local Chromium-family browser."""
 
     def __init__(self, start_url: str, *, headed: bool = False):
-        if not _public_http_url(start_url):
-            raise ValueError("start_url must be a public https URL")
+        # The start URL is decided, including host resolution, before a browser
+        # process exists. A refusal here costs no launch and no provider request.
+        decision = destination_policy.check_destination(start_url, resolve=True)
+        if not decision.allowed:
+            raise DestinationPolicyError(decision.code)
         started = time.perf_counter()
         binary, family, confinement = _browser_binary_details()
         if binary is None:
@@ -1316,13 +1430,31 @@ class ChromiumSession:
         self._proc: subprocess.Popen[str] | None = None
         self._ws: _ChromeWebSocket | None = None
         self._next_id = 0
-        port = _free_localhost_port()
+        self._closing = False
+        self._send_lock = threading.Lock()
+        self._responses_ready = threading.Condition()
+        self._awaiting: set[int] = set()
+        self._responses: dict[int, dict[str, Any]] = {}
+        self._reader: threading.Thread | None = None
+        self._reader_stopped = False
+        self._pool: ThreadPoolExecutor | None = None
+        self._guard: DestinationGuard | None = None
+        self._target_id = ""
+        self._port = _free_localhost_port()
+        port = self._port
         profile = Path(self._tmpdir.name) / "profile"
         profile.mkdir(parents=True, exist_ok=True)
         try:
             os.chmod(profile, 0o700)
         except OSError:
             pass
+        try:
+            _write_profile_preferences(profile)
+        except OSError as exc:
+            self._tmpdir.cleanup()
+            raise BrowserStartupError("browser_profile_not_writable") from exc
+        # The browser starts on about:blank. Starting it on the start URL would
+        # load that page, and follow its redirects, before interception exists.
         command = [
             str(binary),
             f"--remote-debugging-port={port}",
@@ -1330,8 +1462,9 @@ class ChromiumSession:
             f"--user-data-dir={profile}",
             "--no-first-run",
             "--no-default-browser-check",
+            "--block-new-web-contents",
             f"--remote-allow-origins=http://127.0.0.1:{port}",
-            start_url,
+            "about:blank",
         ]
         if os.name != "nt":
             command[1:1] = ["--disable-gpu", "--disable-dev-shm-usage"]
@@ -1349,13 +1482,22 @@ class ChromiumSession:
         )
         try:
             ws_url = _wait_debugger_url(port, proc=self._proc, log_path=log_path)
+            self._target_id = urlsplit(ws_url).path.rsplit("/", 1)[-1]
             self._ws = _ChromeWebSocket(ws_url)
+            self._ws.set_blocking()
+            self._pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="switchyard-destination")
+            self._guard = DestinationGuard(self._transmit, executor=self._pool)
+            self._reader = threading.Thread(target=self._read_loop, name="switchyard-cdp-reader", daemon=True)
+            self._reader.start()
+            self._install_interception()
             self._cdp("Page.enable")
             self._cdp("Runtime.enable")
             self._cdp("Page.navigate", url=start_url)
             self._wait_ready()
-        except Exception:
+        except Exception as exc:
             log_file.close()
+            if isinstance(exc, DestinationPolicyError) and self._guard is not None:
+                exc.report = self._guard.report()  # type: ignore[attr-defined]
             try:
                 self.close()
             except Exception:
@@ -1372,6 +1514,7 @@ class ChromiumSession:
             "browser": self.browser_family,
             "confinement": self.confinement,
             "setup_ms": self.setup_ms,
+            "destination_enforcement": destination_policy.ENFORCEMENT,
         }
 
     def observe(self) -> dict[str, Any]:
@@ -1413,9 +1556,17 @@ class ChromiumSession:
         time.sleep(max(0.0, min(float(seconds), 2.0)))
 
     def close(self) -> None:
+        self._closing = True
+        with self._responses_ready:
+            self._responses_ready.notify_all()
         if self._ws is not None:
             self._ws.close()
             self._ws = None
+        if self._reader is not None and self._reader is not threading.current_thread():
+            self._reader.join(timeout=2)
+        if self._pool is not None:
+            self._pool.shutdown(wait=False, cancel_futures=True)
+            self._pool = None
         if self._proc is not None:
             self._proc.terminate()
             try:
@@ -1446,24 +1597,126 @@ class ChromiumSession:
     def __exit__(self, *_exc: object) -> None:
         self.close()
 
-    def _cdp(self, method: str, **params: Any) -> dict[str, Any]:
-        if self._ws is None:
-            raise RuntimeError("browser session is closed")
-        self._next_id += 1
-        message_id = self._next_id
-        self._ws.send_json({"id": message_id, "method": method, "params": params})
-        deadline = time.monotonic() + 15
-        while time.monotonic() < deadline:
-            message = self._ws.recv_json()
-            if message.get("id") != message_id:
+    def _transmit(self, method: str, params: dict[str, Any] | None = None, session_id: str | None = None, *, wait: bool = False) -> int:
+        """Send one protocol command and return its id, registering a wait if asked."""
+        with self._send_lock:
+            if self._ws is None:
+                raise RuntimeError("browser session is closed")
+            self._next_id += 1
+            message_id = self._next_id
+            payload: dict[str, Any] = {"id": message_id, "method": method, "params": params or {}}
+            if session_id:
+                payload["sessionId"] = session_id
+            if wait:
+                with self._responses_ready:
+                    self._awaiting.add(message_id)
+            self._ws.send_json(payload)
+        return message_id
+
+    def _read_loop(self) -> None:
+        """Read protocol frames on one thread so paused requests are answered promptly."""
+        ws = self._ws
+        guard = self._guard
+        if ws is None or guard is None:
+            return
+        while True:
+            try:
+                message = ws.recv_json()
+            except Exception:  # noqa: BLE001 -- any read failure ends interception evidence
+                if not self._closing:
+                    guard.mark_lost("reader_stopped")
+                with self._responses_ready:
+                    self._reader_stopped = True
+                    self._responses_ready.notify_all()
+                return
+            message_id = message.get("id")
+            if isinstance(message_id, int):
+                with self._responses_ready:
+                    if message_id in self._awaiting:
+                        self._awaiting.discard(message_id)
+                        self._responses[message_id] = message
+                        self._responses_ready.notify_all()
+                        continue
+                if guard.tracks_ack(message_id):
+                    guard.submit(message)
                 continue
-            if "error" in message:
-                raise RuntimeError(str(message["error"].get("message") or "browser command failed"))
-            result = message.get("result") or {}
-            if not isinstance(result, dict):
-                raise TypeError("browser command returned a non-object result")
-            return result
-        raise TimeoutError("browser command timed out")
+            guard.submit(message)
+
+    def _cdp(self, method: str, **params: Any) -> dict[str, Any]:
+        message_id = self._transmit(method, params, wait=True)
+        with self._responses_ready:
+            arrived = self._responses_ready.wait_for(
+                lambda: message_id in self._responses or self._reader_stopped or self._closing,
+                timeout=15,
+            )
+            message = self._responses.pop(message_id, None)
+            self._awaiting.discard(message_id)
+        if message is None:
+            if not arrived:
+                raise TimeoutError("browser command timed out")
+            raise RuntimeError("browser session is closed")
+        if "error" in message:
+            raise RuntimeError(str(message["error"].get("message") or "browser command failed"))
+        result = message.get("result") or {}
+        if not isinstance(result, dict):
+            raise TypeError("browser command returned a non-object result")
+        return result
+
+    def _install_interception(self) -> None:
+        """Enable request-stage interception before anything is navigated.
+
+        Interception that cannot be proven is a refusal: no navigation happens
+        and no provider request is spent on a session that cannot enforce.
+        """
+        assert self._guard is not None
+        try:
+            for method, params in self._guard.root_setup():
+                self._cdp(method, **params)
+        except Exception as exc:
+            raise DestinationPolicyError("interception_unavailable") from exc
+
+    def raise_if_destination_blocked(self, *, check_targets: bool = True) -> None:
+        """Raise when a navigation was refused or interception cannot be proven."""
+        for item in self.destination_violations(check_targets=check_targets):
+            if item.get("fatal") is True:
+                raise DestinationPolicyError(str(item.get("code") or "destination_blocked"))
+
+    def destination_violations(self, *, check_targets: bool = True) -> list[dict[str, Any]]:
+        """Return every refusal recorded so far, after in-flight decisions settle.
+
+        A request whose decision has not settled is still held by the browser, not
+        released, so waiting is bounded and an unsettled decision is not itself a
+        violation; the next read picks up whatever it decides.
+        """
+        guard = self._guard
+        if guard is None:
+            return [{"seq": 0, "code": "interception_unavailable", "fatal": True, "navigation": False}]
+        guard.wait_idle(1.5)
+        if check_targets and self.extra_page_targets():
+            guard.note_unexpected_target()
+        return guard.violations()
+
+    def destination_report(self) -> dict[str, Any]:
+        guard = self._guard
+        if guard is None:
+            return destination_policy.static_report("interception_not_installed")
+        guard.wait_idle(0.5)
+        return guard.report()
+
+    def extra_page_targets(self) -> int:
+        """Count page targets other than this session's; a popup would be one."""
+        try:
+            with urlopen(f"http://127.0.0.1:{self._port}/json/list", timeout=1) as response:
+                targets = json.loads(response.read().decode("utf-8"))
+        except (OSError, ValueError):
+            return 0
+        if not isinstance(targets, list):
+            return 0
+        return sum(
+            1
+            for item in targets
+            if isinstance(item, dict) and item.get("type") == "page" and item.get("id") != self._target_id
+        )
 
     def _evaluate(self, expression: str) -> Any:
         result = self._cdp("Runtime.evaluate", expression=expression, returnByValue=True, awaitPromise=True)
@@ -1479,9 +1732,11 @@ class ChromiumSession:
         ready = None
         href = None
         while time.monotonic() < deadline:
+            self.raise_if_destination_blocked(check_targets=False)
             ready = self._evaluate("document.readyState")
             href = self._evaluate("location.href")
             if ready in {"complete", "interactive"} and isinstance(href, str) and _public_http_url(href):
+                self.raise_if_destination_blocked()
                 return
             if isinstance(href, str) and href.startswith("http") and not _public_http_url(href):
                 raise RuntimeError("page left the public https boundary")
@@ -1607,6 +1862,23 @@ def _browser_profile_dir(binary: Path | str | None = None) -> tempfile.Temporary
                 "snap_profile_unavailable",
                 "Snap Chromium requires an accessible ~/snap/chromium/common directory",
             ) from exc
+# Chrome preconnects to a navigation target before request interception can
+# refuse it: six TCP connections reached a loopback listener on a refused
+# navigation. The per-run profile turns network prediction off, which removes
+# that connect. This was verified against the installed Chromium by the
+# real-browser tests; it is a browser-version-dependent setting, not a promise.
+_PROFILE_PREFERENCES = {
+    "net": {"network_prediction_options": 2},
+    "dns_prefetching": {"enabled": False},
+}
+
+
+def _write_profile_preferences(profile: Path) -> None:
+    default = profile / "Default"
+    default.mkdir(mode=0o700, parents=True, exist_ok=True)
+    (default / "Preferences").write_text(json.dumps(_PROFILE_PREFERENCES), encoding="utf-8")
+
+
     if os.name == "nt":
         base = Path(os.environ.get("TEMP") or os.environ.get("LOCALAPPDATA") or ".")
         cache = base / "hermes-switchyard"
