@@ -645,11 +645,17 @@ class SnapConfinementDetectionTests(unittest.TestCase):
             common.chmod(0o555)
             try:
                 with mock.patch("pathlib.Path.home", return_value=home):
-                    with self.assertRaises(BrowserStartupError) as caught:
+                    try:
                         _browser_profile_dir(Path("/snap/bin/chromium"))
+                    except BrowserStartupError as exc:
+                        caught = exc
+                    except OSError as exc:
+                        self.fail(f"unconverted {type(exc).__name__}")
+                    else:
+                        self.fail("expected BrowserStartupError")
             finally:
                 common.chmod(0o755)
-        self.assertEqual(caught.exception.code, "snap_profile_unavailable")
+        self.assertEqual(caught.code, "snap_profile_unavailable")
 
     def test_handler_preserves_snap_profile_unavailable(self):
         class Context:
@@ -713,8 +719,9 @@ class SnapBrowserLaunchIntegrationTests(unittest.TestCase):
             f"wrapper = Path({str(executable)!r})\n"
             "with mock.patch.object(browser_use, '_browser_binary', return_value=wrapper):\n"
             "    session = browser_use.ChromiumSession('https://example.org/', headed=False)\n"
+            "    launched = session._proc.args[0] if session._proc is not None else ''\n"
             f"    marker = Path({str(marker)!r})\n"
-            "    marker.write_text(session._tmpdir.name, encoding='utf-8')\n"
+            "    marker.write_text(chr(10).join([launched, session._tmpdir.name]), encoding='utf-8')\n"
             "    session.close()\n"
             "sys.exit(0)\n",
             encoding="utf-8",
@@ -760,7 +767,13 @@ class SnapBrowserLaunchIntegrationTests(unittest.TestCase):
                     f"rc={completed.returncode} {completed.stderr[-400:]}"
                 )
             self.assertTrue(marker.is_file(), "the launch did not record a profile directory")
-            profile_dir = Path(marker.read_text(encoding="utf-8").strip())
+            launched, profile_text = marker.read_text(encoding="utf-8").split("\n", 1)
+            self.assertEqual(
+                Path(os.path.realpath(launched)),
+                Path(os.path.realpath(executable)),
+                "the launch did not use the supplied Snap wrapper",
+            )
+            profile_dir = Path(profile_text.strip())
             self.assertEqual(
                 Path(os.path.realpath(profile_dir)).parent,
                 Path(os.path.realpath(Path.home() / "snap" / "chromium" / "common")),
