@@ -410,23 +410,59 @@ def _disabled_toolset_names(config: dict[str, Any]) -> list[str] | None:
         return None
 
 
-def _disabled_entry_suppresses_required(entry: str, required: tuple[str, ...]) -> bool:
-    """Return whether a disabled_toolsets entry suppresses any required toolset.
-
-    Exact names and Hermes composites such as ``all`` / ``*`` count. Resolved composites
-    that expand to the required names also count. Broad suppressors must not be auto-cleared.
-    """
-    if entry in required:
-        return True
-    if entry in {"*", "all"}:
-        return True
+def _required_toolset_suppression(
+    config: dict[str, Any], toolsets: tuple[str, ...]
+) -> dict[str, list[str]] | None:
+    """Return required toolsets currently suppressed and the disabling entries causing it."""
+    disabled = _disabled_toolset_names(config)
+    if disabled is None:
+        return None
     try:
         from toolsets import resolve_toolset
+    except Exception:  # noqa: BLE001 -- unavailable in some Hermes builds
+        resolve_toolset = None
 
-        resolved = {str(name) for name in resolve_toolset(entry)}
-    except Exception:  # noqa: BLE001 -- offline hosts without Hermes toolsets
-        return False
-    return bool(resolved & set(required))
+    required_tools: dict[str, set[str]] = {}
+    for toolset in toolsets:
+        names = {name for name, expected in TOOL_TOOLSETS.items() if expected == toolset}
+        if resolve_toolset is not None:
+            try:
+                names.update(str(name) for name in resolve_toolset(toolset))
+            except Exception:  # noqa: BLE001
+                pass
+        required_tools[toolset] = names
+
+    suppressed: list[str] = []
+    suppressors: list[str] = []
+    for entry in disabled:
+        name = str(entry).strip()
+        if not name:
+            continue
+        hits: set[str] = set()
+        if name in set(toolsets):
+            hits.add(name)
+        elif name in {'all', '*'}:
+            hits.update(toolsets)
+        elif resolve_toolset is not None:
+            try:
+                resolved = {str(value) for value in resolve_toolset(name)}
+            except Exception:  # noqa: BLE001
+                resolved = set()
+            for toolset in toolsets:
+                required = required_tools.get(toolset, set())
+                if required and resolved.intersection(required):
+                    hits.add(toolset)
+        if hits:
+            suppressors.append(name)
+            for toolset in toolsets:
+                if toolset in hits and toolset not in suppressed:
+                    suppressed.append(toolset)
+
+    return {
+        'disabled': [str(name).strip() for name in disabled if str(name).strip()],
+        'suppressed': suppressed,
+        'suppressors': suppressors,
+    }
 
 
 def _ensure_failure(
@@ -437,68 +473,68 @@ def _ensure_failure(
     already_present: list[str] | None = None,
     focus_override: dict[str, Any] | None = None,
     suppressed: list[str] | None = None,
+    suppression_entries: list[str] | None = None,
     cleared_suppressions: list[str] | None = None,
     seeded_platforms: list[str] | None = None,
-    broad_suppressors: list[str] | None = None,
-    platforms: tuple[str, ...] = ("cli",),
+    platforms: tuple[str, ...] = ('cli',),
     toolsets: tuple[str, ...] = REQUIRED_SESSION_TOOLSETS,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
-        "ok": False,
-        "reason": reason,
-        "detail": detail,
-        "added": list(added or []),
-        "already_present": list(already_present or []),
-        "platforms": list(platforms),
-        "toolsets": list(toolsets),
+        'ok': False,
+        'reason': reason,
+        'detail': detail,
+        'added': list(added or []),
+        'already_present': list(already_present or []),
+        'platforms': list(platforms),
+        'toolsets': list(toolsets),
     }
     if focus_override is not None:
-        payload["focus_override"] = focus_override
+        payload['focus_override'] = focus_override
     if suppressed is not None:
-        payload["suppressed_required_toolsets"] = list(suppressed)
+        payload['suppressed_required_toolsets'] = list(suppressed)
+    if suppression_entries is not None:
+        payload['suppression_entries'] = list(suppression_entries)
     if cleared_suppressions is not None:
-        payload["cleared_suppressions"] = list(cleared_suppressions)
+        payload['cleared_suppressions'] = list(cleared_suppressions)
     if seeded_platforms is not None:
-        payload["seeded_platforms"] = list(seeded_platforms)
-    if broad_suppressors is not None:
-        payload["broad_suppressors"] = list(broad_suppressors)
+        payload['seeded_platforms'] = list(seeded_platforms)
     return payload
 
 
 def ensure_platform_toolsets(
     *,
-    platforms: tuple[str, ...] = ("cli",),
+    platforms: tuple[str, ...] = ('cli',),
     toolsets: tuple[str, ...] = REQUIRED_SESSION_TOOLSETS,
 ) -> dict[str, Any]:
     """Add required session toolsets to Hermes platform_toolsets without removing others.
 
     When a platform key is absent, seeds Hermes' platform-default composite first so
     materializing the list does not drop terminal/file and similar CLI capabilities.
-    Explicit null / non-list values are rejected. After save, reloads and verifies the
-    complete intended platform lists persisted. Reports coding-focus overrides. Lifts
-    exact required names out of agent.disabled_toolsets; fails closed on broad
-    suppressors such as ``all`` / ``*`` without enabling unrelated tools.
+    Malformed non-list values are rejected. After save, reloads and verifies persistence.
+    Reports coding-focus overrides that bypass platform_toolsets for no-pin sessions.
+    Lifts required names out of agent.disabled_toolsets (Hermes enable flow) or fails
+    closed naming remaining suppressions.
     """
     try:
         from hermes_cli.config import load_config, save_config
     except Exception as exc:  # noqa: BLE001 -- config may be unavailable offline
-        return _ensure_failure("config_unavailable", detail=type(exc).__name__, platforms=platforms, toolsets=toolsets)
+        return _ensure_failure('config_unavailable', detail=type(exc).__name__, platforms=platforms, toolsets=toolsets)
     try:
         config = load_config()
     except Exception as exc:  # noqa: BLE001
-        return _ensure_failure("config_unreadable", detail=type(exc).__name__, platforms=platforms, toolsets=toolsets)
+        return _ensure_failure('config_unreadable', detail=type(exc).__name__, platforms=platforms, toolsets=toolsets)
     if not isinstance(config, dict):
-        return _ensure_failure("config_invalid", detail="config_not_object", platforms=platforms, toolsets=toolsets)
+        return _ensure_failure('config_invalid', detail='config_not_object', platforms=platforms, toolsets=toolsets)
 
     focus_override = _coding_focus_override(config)
-    platform_toolsets = config.get("platform_toolsets")
+    platform_toolsets = config.get('platform_toolsets')
     if platform_toolsets is None:
         platform_toolsets = {}
-        config["platform_toolsets"] = platform_toolsets
+        config['platform_toolsets'] = platform_toolsets
     elif not isinstance(platform_toolsets, dict):
         return _ensure_failure(
-            "config_invalid",
-            detail="platform_toolsets_not_object",
+            'config_invalid',
+            detail='platform_toolsets_not_object',
             focus_override=focus_override,
             platforms=platforms,
             toolsets=toolsets,
@@ -507,14 +543,14 @@ def ensure_platform_toolsets(
     added: list[str] = []
     already_present: list[str] = []
     seeded: list[str] = []
+    intended_platform_toolsets: dict[str, list[str]] = {}
     changed = False
-    intended: dict[str, list[str]] = {}
     for platform in platforms:
         if platform not in platform_toolsets:
             defaults = _platform_default_toolsets(config, platform)
             if defaults is None:
                 return _ensure_failure(
-                    "platform_default_unavailable",
+                    'platform_default_unavailable',
                     detail=platform,
                     focus_override=focus_override,
                     platforms=platforms,
@@ -525,32 +561,32 @@ def ensure_platform_toolsets(
             seeded.append(platform)
             changed = True
         else:
-            current = platform_toolsets[platform]
-            if not isinstance(current, list):
-                return _ensure_failure(
-                    "config_invalid",
-                    detail=f"{platform}_toolsets_not_list",
-                    focus_override=focus_override,
-                    platforms=platforms,
-                    toolsets=toolsets,
-                )
+            current = platform_toolsets.get(platform)
+        if not isinstance(current, list):
+            return _ensure_failure(
+                'config_invalid',
+                detail=f'{platform}_toolsets_not_list',
+                focus_override=focus_override,
+                platforms=platforms,
+                toolsets=toolsets,
+            )
         normalized = [str(item) for item in current]
         platform_toolsets[platform] = normalized
         for toolset in toolsets:
-            key = f"{platform}:{toolset}"
+            key = f'{platform}:{toolset}'
             if toolset in normalized:
                 already_present.append(key)
             else:
                 normalized.append(toolset)
                 added.append(key)
                 changed = True
-        intended[platform] = list(normalized)
+        intended_platform_toolsets[platform] = list(normalized)
 
-    disabled = _disabled_toolset_names(config)
-    if disabled is None:
+    suppression = _required_toolset_suppression(config, toolsets)
+    if suppression is None:
         return _ensure_failure(
-            "config_invalid",
-            detail="disabled_toolsets_unreadable",
+            'config_invalid',
+            detail='disabled_toolsets_unreadable',
             added=added,
             already_present=already_present,
             focus_override=focus_override,
@@ -558,47 +594,36 @@ def ensure_platform_toolsets(
             platforms=platforms,
             toolsets=toolsets,
         )
-    exact_hits = [name for name in toolsets if name in set(disabled)]
-    broad = [
-        entry
-        for entry in disabled
-        if entry not in set(toolsets) and _disabled_entry_suppresses_required(entry, toolsets)
-    ]
-    if broad:
-        return _ensure_failure(
-            "required_toolsets_suppressed",
-            detail="broad:" + ",".join(broad),
-            added=added,
-            already_present=already_present,
-            focus_override=focus_override,
-            suppressed=list(toolsets),
-            broad_suppressors=broad,
-            seeded_platforms=seeded,
-            platforms=platforms,
-            toolsets=toolsets,
-        )
+    disabled = suppression['disabled']
+    suppressed = suppression['suppressed']
+    suppression_entries = suppression['suppressors']
     cleared_suppressions: list[str] = []
-    if exact_hits:
-        agent = config.get("agent")
+    direct_suppressed = [name for name in toolsets if name in set(disabled)]
+    if direct_suppressed:
+        agent = config.get('agent')
         if not isinstance(agent, dict):
             agent = {}
-            config["agent"] = agent
-        remaining = [name for name in disabled if name not in set(toolsets)]
-        agent["disabled_toolsets"] = remaining
-        cleared_suppressions = list(exact_hits)
+            config['agent'] = agent
+        direct_set = set(direct_suppressed)
+        remaining = [name for name in disabled if name not in direct_set]
+        agent['disabled_toolsets'] = remaining
+        cleared_suppressions = list(direct_suppressed)
         changed = True
 
+    verify_config = config
+    verify_label = 'unchanged'
     if changed:
         try:
             save_config(config)
         except Exception as exc:  # noqa: BLE001
             return _ensure_failure(
-                "config_unwritable",
+                'config_unwritable',
                 detail=type(exc).__name__,
                 added=added,
                 already_present=already_present,
                 focus_override=focus_override,
-                suppressed=exact_hits or None,
+                suppressed=suppressed or None,
+                suppression_entries=suppression_entries or None,
                 seeded_platforms=seeded,
                 platforms=platforms,
                 toolsets=toolsets,
@@ -607,116 +632,125 @@ def ensure_platform_toolsets(
             reloaded = load_config()
         except Exception as exc:  # noqa: BLE001
             return _ensure_failure(
-                "config_not_persisted",
+                'config_not_persisted',
                 detail=type(exc).__name__,
                 added=added,
                 already_present=already_present,
                 focus_override=focus_override,
-                suppressed=exact_hits or None,
+                suppressed=suppressed or None,
+                suppression_entries=suppression_entries or None,
                 seeded_platforms=seeded,
                 platforms=platforms,
                 toolsets=toolsets,
             )
         if not isinstance(reloaded, dict):
             return _ensure_failure(
-                "config_not_persisted",
-                detail="reloaded_config_not_object",
+                'config_not_persisted',
+                detail='reloaded_config_not_object',
                 added=added,
                 already_present=already_present,
                 focus_override=focus_override,
-                suppressed=exact_hits or None,
+                suppressed=suppressed or None,
+                suppression_entries=suppression_entries or None,
                 seeded_platforms=seeded,
                 platforms=platforms,
                 toolsets=toolsets,
             )
-        reloaded_platforms = reloaded.get("platform_toolsets")
+        reloaded_platforms = reloaded.get('platform_toolsets')
         if not isinstance(reloaded_platforms, dict):
             return _ensure_failure(
-                "config_not_persisted",
-                detail="platform_toolsets_missing_after_save",
+                'config_not_persisted',
+                detail='platform_toolsets_missing_after_save',
                 added=added,
                 already_present=already_present,
                 focus_override=focus_override,
-                suppressed=exact_hits or None,
+                suppressed=suppressed or None,
+                suppression_entries=suppression_entries or None,
                 seeded_platforms=seeded,
                 platforms=platforms,
                 toolsets=toolsets,
             )
-        for platform, expected in intended.items():
+        for platform in platforms:
             persisted = reloaded_platforms.get(platform)
             if not isinstance(persisted, list):
                 return _ensure_failure(
-                    "config_not_persisted",
-                    detail=f"{platform}_missing_after_save",
+                    'config_not_persisted',
+                    detail=f'{platform}_missing_after_save',
                     added=added,
                     already_present=already_present,
                     focus_override=focus_override,
-                    suppressed=exact_hits or None,
+                    suppressed=suppressed or None,
+                    suppression_entries=suppression_entries or None,
                     seeded_platforms=seeded,
                     platforms=platforms,
                     toolsets=toolsets,
                 )
-            persisted_names = [str(item) for item in persisted]
-            # Full intended list must survive; a partial strip that keeps only required names is a failure.
-            if persisted_names != expected:
-                missing = [name for name in expected if name not in persisted_names]
+            persisted_names = {str(item) for item in persisted}
+            expected_names = intended_platform_toolsets.get(platform, [])
+            missing = [name for name in expected_names if name not in persisted_names]
+            if missing:
                 return _ensure_failure(
-                    "config_not_persisted",
-                    detail="list_mismatch:" + platform + ((":" + ",".join(missing)) if missing else ""),
+                    'config_not_persisted',
+                    detail=f'{platform}_entries_missing_after_save:' + ','.join(missing),
                     added=added,
                     already_present=already_present,
                     focus_override=focus_override,
-                    suppressed=exact_hits or None,
+                    suppressed=suppressed or None,
+                    suppression_entries=suppression_entries or None,
                     seeded_platforms=seeded,
                     platforms=platforms,
                     toolsets=toolsets,
                 )
-        verify_disabled = _disabled_toolset_names(reloaded)
-        if verify_disabled is None:
-            return _ensure_failure(
-                "config_not_persisted",
-                detail="disabled_toolsets_unreadable_after_save",
-                added=added,
-                already_present=already_present,
-                focus_override=focus_override,
-                suppressed=exact_hits or None,
-                seeded_platforms=seeded,
-                platforms=platforms,
-                toolsets=toolsets,
-            )
-        still_exact = [name for name in toolsets if name in set(verify_disabled)]
-        still_broad = [
-            entry
-            for entry in verify_disabled
-            if entry not in set(toolsets) and _disabled_entry_suppresses_required(entry, toolsets)
-        ]
-        if still_exact or still_broad:
-            return _ensure_failure(
-                "required_toolsets_suppressed",
-                detail="still_disabled:" + ",".join(still_exact + still_broad),
-                added=added,
-                already_present=already_present,
-                focus_override=focus_override,
-                suppressed=still_exact or list(toolsets),
-                broad_suppressors=still_broad or None,
-                seeded_platforms=seeded,
-                platforms=platforms,
-                toolsets=toolsets,
-            )
+        verify_config = reloaded
+        verify_label = 'reloaded'
+
+    verify = _required_toolset_suppression(verify_config, toolsets)
+    if verify is None:
+        return _ensure_failure(
+            'config_not_persisted' if verify_label == 'reloaded' else 'config_invalid',
+            detail=(
+                'disabled_toolsets_unreadable_after_save'
+                if verify_label == 'reloaded'
+                else 'disabled_toolsets_unreadable'
+            ),
+            added=added,
+            already_present=already_present,
+            focus_override=focus_override,
+            suppressed=suppressed or None,
+            suppression_entries=suppression_entries or None,
+            seeded_platforms=seeded,
+            platforms=platforms,
+            toolsets=toolsets,
+        )
+    still = verify['suppressed']
+    if still:
+        entries = verify['suppressors']
+        return _ensure_failure(
+            'required_toolsets_suppressed',
+            detail='disabled_by:' + ','.join(entries),
+            added=added,
+            already_present=already_present,
+            focus_override=focus_override,
+            suppressed=still,
+            suppression_entries=entries or None,
+            cleared_suppressions=cleared_suppressions,
+            seeded_platforms=seeded,
+            platforms=platforms,
+            toolsets=toolsets,
+        )
 
     return {
-        "ok": True,
-        "reason": "updated" if changed else "unchanged",
-        "detail": None,
-        "added": added,
-        "already_present": already_present,
-        "seeded_platforms": seeded,
-        "focus_override": focus_override,
-        "cleared_suppressions": cleared_suppressions,
-        "platforms": list(platforms),
-        "toolsets": list(toolsets),
+        'ok': True,
+        'reason': 'updated' if changed else 'unchanged',
+        'detail': None,
+        'added': added,
+        'already_present': already_present,
+        'seeded_platforms': seeded,
+        'focus_override': focus_override,
+        'cleared_suppressions': cleared_suppressions,
+        'platforms': list(platforms),
+        'toolsets': list(toolsets),
     }
-
 
 
 def _tool_exposure_report(requested_toolsets: Any = None, *, seams: SimpleNamespace | None = None) -> dict[str, Any]:
