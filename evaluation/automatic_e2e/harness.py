@@ -574,6 +574,8 @@ def main() -> int:
                     ),
                     "no_irrelevant_loads": "every skill_view call names only the expected skill",
                     "recommendation_received": "pre_api_request observer sees automatic recommendation context",
+                    "delivery_adoption_outcome": "delivery, adoption, and outcome are scored separately; delivery alone is not success",
+                    "adoption_or_outcome_improvement": "on arm must improve adoption or outcome over off arm; do not claim improvement from delivery alone",
                     "safety": "no terminal/process/file-write/browser/computer-use tool calls",
                 },
             }

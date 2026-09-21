@@ -64,6 +64,8 @@ HOSTED_SKIP_REASONS = frozenset(
         "no_candidates",
         "routing_mode_off",
         "routing_mode_local_only",
+        "explicit_override",
+        "consumer_contract_unmet",
         "diagnostic_value_unavailable",
     }
 )
@@ -116,10 +118,36 @@ CONSUMER_RECEIPT_FIELDS = frozenset({
     "loaded_source",
     "skill_load_verified",
 })
+# Delivery / adoption / outcome stay separate. The plugin records outcome as
+# unverified so delivery alone is never reported as improvement.
+CONSUMPTION_CONTRACT_FIELDS = frozenset({
+    "delivery_status",
+    "adoption_status",
+    "outcome_status",
+})
+DELIVERY_STATUSES = frozenset({"delivered", "not_delivered", "skipped"})
+ADOPTION_STATUSES = frozenset({"adopted", "not_adopted", "suppressed", "not_applicable"})
+OUTCOME_STATUSES = frozenset({"unverified"})
+# Exact valid (delivery_status, adoption_status) pairs. Contradictory mixes
+# such as skipped+not_adopted are rejected in normalize and validate.
+VALID_DELIVERY_ADOPTION_PAIRS = frozenset({
+    ("delivered", "adopted"),
+    ("delivered", "not_adopted"),
+    ("skipped", "suppressed"),
+    ("not_delivered", "not_applicable"),
+})
 # `advisory_only` means "no skill was loaded in this operation." A terminal
 # consumer receipt records the load outcome instead, so `advisory_only` may
 # be False only when the receipt carries a valid consumer record.
 _CONSUMER_STATUSES = frozenset({"loaded", "load_failed", "explicit_override", "mandatory_conflict"})
+# When both a consumer record and a consumption contract are present, the
+# pair must match the consumer outcome exactly.
+_CONSUMER_CONTRACT_EXPECTATIONS = {
+    "loaded": ("delivered", "adopted"),
+    "load_failed": ("delivered", "not_adopted"),
+    "explicit_override": ("skipped", "suppressed"),
+    "mandatory_conflict": ("skipped", "suppressed"),
+}
 
 
 def _plugin_root(repo_dir: Path | str | None = None) -> Path:
@@ -449,6 +477,29 @@ def normalize_receipt(receipt: Any) -> dict[str, Any] | None:
         receipt["loaded_source"] = loaded_source
         receipt["skill_load_verified"] = skill_load_verified
         receipt["advisory_only"] = bool(consumer_status != "loaded")
+    delivery_status = receipt.get("delivery_status")
+    adoption_status = receipt.get("adoption_status")
+    outcome_status = receipt.get("outcome_status")
+    contract_present = any(
+        value is not None for value in (delivery_status, adoption_status, outcome_status)
+    )
+    if contract_present:
+        if (
+            delivery_status not in DELIVERY_STATUSES
+            or adoption_status not in ADOPTION_STATUSES
+            or outcome_status not in OUTCOME_STATUSES
+        ):
+            return None
+        # Exact valid pairs only; contradictory mixes are dropped.
+        if (delivery_status, adoption_status) not in VALID_DELIVERY_ADOPTION_PAIRS:
+            return None
+        if consumer_status is not None:
+            expected = _CONSUMER_CONTRACT_EXPECTATIONS.get(consumer_status)
+            if expected is None or (delivery_status, adoption_status) != expected:
+                return None
+        receipt["delivery_status"] = delivery_status
+        receipt["adoption_status"] = adoption_status
+        receipt["outcome_status"] = "unverified"
     receipt["verified"] = False
     return receipt
 
@@ -457,7 +508,7 @@ def validate_receipt(receipt: Any) -> bool:
     """Validate one canonical receipt exactly as supplied, nothing more."""
     if not isinstance(receipt, dict):
         return False
-    allowed_fields = RECEIPT_FIELDS | CONSUMER_RECEIPT_FIELDS
+    allowed_fields = RECEIPT_FIELDS | CONSUMER_RECEIPT_FIELDS | CONSUMPTION_CONTRACT_FIELDS
     if set(receipt) - allowed_fields:
         # Undeclared fields are rejected (difference test, not superset).
         return False
@@ -467,6 +518,24 @@ def validate_receipt(receipt: Any) -> bool:
     if consumer_present and not CONSUMER_RECEIPT_FIELDS <= set(receipt):
         # Partial consumer records are rejected; they appear as a group.
         return False
+    contract_present = bool(CONSUMPTION_CONTRACT_FIELDS & set(receipt))
+    if contract_present and not CONSUMPTION_CONTRACT_FIELDS <= set(receipt):
+        return False
+    if contract_present:
+        if (
+            receipt.get("delivery_status") not in DELIVERY_STATUSES
+            or receipt.get("adoption_status") not in ADOPTION_STATUSES
+            or receipt.get("outcome_status") not in OUTCOME_STATUSES
+        ):
+            return False
+        if (
+            receipt["delivery_status"],
+            receipt["adoption_status"],
+        ) not in VALID_DELIVERY_ADOPTION_PAIRS:
+            return False
+        # Never accept a claimed outcome improvement on a plugin receipt.
+        if receipt["outcome_status"] != "unverified":
+            return False
     # A successful-load receipt requires the complete evidence group; a failed
     # or overridden load cannot claim a verified load or a loaded skill.
     if consumer_present:
@@ -483,6 +552,13 @@ def validate_receipt(receipt: Any) -> bool:
             if receipt.get("loaded_skill") is not None or receipt.get("loaded_source") is not None:
                 return False
             if status == "load_failed" and receipt.get("skill_load_verified") is not False:
+                return False
+        if contract_present:
+            expected = _CONSUMER_CONTRACT_EXPECTATIONS.get(status)
+            if expected is None or (
+                receipt["delivery_status"],
+                receipt["adoption_status"],
+            ) != expected:
                 return False
     if receipt["terminal_state"] not in RECEIPT_TERMINAL_STATES:
         return False
