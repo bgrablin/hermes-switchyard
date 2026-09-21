@@ -22,6 +22,7 @@ provides_tools:
   - jev_skill_select
   - jev_skill_select_many
   - jev_model_route
+  - jev_model_route_approved
 provides_hooks:
   - pre_llm_call
 config_schema:
@@ -29,6 +30,9 @@ config_schema:
   api_endpoint: {type: str, default: "https://openrouter.ai/api/alpha/decisions", description: Fixed TypeSafe or OpenRouter Jev endpoint; arbitrary endpoints fail closed}
   jev_model: {type: str, default: "", description: Provider-specific Jev alias; empty selects jev-latest for TypeSafe or typesafe/jev-1.13 for OpenRouter}
   computer_max_steps: {type: int, default: 100, description: Full computer-use action budget; callers may choose a smaller per-call bound}
+  approved_model_registry: {type: list, default: [], description: Profile-owned approved model records for jev_model_route_approved; provider account authorization and cost metadata are code-owned, never inferred}
+  approved_model_registry_version: {type: str, default: "", description: Required operator-managed version identifier for the approved model registry}
+  approved_model_registry_valid_until: {type: str, default: "", description: Required timezone-aware ISO-8601 expiry for the approved model registry}
   automatic_skill_recommendation: {type: bool, default: true, description: Enable bounded local skill recommendations in the pre_llm_call lifecycle hook}
   automatic_skill_consumer_mode: {type: str, default: "advisory", description: "advisory injects a recommendation; load invokes Hermes skill_view once per accepted turn and preserves typed load readback"}
   automatic_skill_candidates: {type: list, default: [], description: "Explicit skill candidate objects; an empty list uses the full Hermes active profile skills registry and candidate descriptions remain local-only for automatic hosted routing"}
@@ -38,6 +42,6 @@ config_schema:
   automatic_skill_routing_mode: {type: str, default: "local_only", description: "Automatic routing mode: off, local_only, or hosted_sanitized; local_only is the safe install default; hosted_sanitized is an explicit opt-in and a host envelope is optional strengthening"}
   automatic_skill_jev: {type: bool, default: true, description: "Deprecated compatibility switch; retained for configuration compatibility and never authorizes hosted egress; set automatic_skill_routing_mode to hosted_sanitized for explicit opt-in"}
   automatic_skill_jev_mode: {type: str, default: "always", description: "always evaluates the full catalog on every allowed turn; uncertain_only is an explicit latency-saving override"}
-  automatic_skill_public_or_sanitized_data_ack: {type: bool, default: true, description: "Standing consent for explicit hosted automatic Jev opt-in. The local_only default never constructs hosted routing. Set false to refuse hosted automatic routing. Not Hermes-owned DLP."}
+  automatic_skill_public_or_sanitized_data_ack: {type: bool, default: false, description: "Explicit operator attestation required before hosted automatic routing sends bounded task and candidate identifiers to Jev. Hosted automatic routing stays off until an operator sets this true together with hosted_sanitized routing mode. Restricted turns remain prohibited; this is not Hermes-owned DLP."}
   automatic_skill_mandatory_skills: {type: list, default: [], description: "Exact skill identifiers treated as mandatory; load mode does not auto-load a different recommendation"}
   public_or_sanitized_data_ack: {type: bool, default: true, description: "Standing consent for Jev tool calls. On after install. Callers may omit the field. Set false to refuse Jev calls."}

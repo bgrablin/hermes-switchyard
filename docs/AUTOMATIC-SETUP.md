@@ -157,6 +157,8 @@ Keep the previous 40-character SHA as the rollback target. Verify the installed 
 
 `hermes plugins list --enabled --plain`
 
+`hermes switchyard status` reports local readiness, tool exposure, provider, and whether a fresh session is required. It never prints the task, candidate descriptions, history, or credential value.
+
 - If `hermes-switchyard` is absent, enable it or inspect the install result.
 - If the plugin is enabled but no recommendation appears, check that the current process is fresh and that the request matches an available skill or configured candidate.
 - If the local path abstains, inspect the threshold and margin settings. Lowering them increases selection frequency; these are uncalibrated local policies, not quality probabilities.

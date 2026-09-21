@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import json
 import math
+import io
 import unittest
+from contextlib import redirect_stdout
 from types import SimpleNamespace
 from unittest import mock
 
@@ -1362,6 +1364,25 @@ class ComputerUseTests(unittest.TestCase):
 
 
 class PluginEntryPointTests(unittest.TestCase):
+    def test_cli_status_is_redacted_and_reports_fail_closed_default_readiness(self):
+        import hermes_switchyard
+        output = io.StringIO()
+        with mock.patch.object(hermes_switchyard, "_secret", return_value="synthetic-secret"), \
+             redirect_stdout(output):
+            code = hermes_switchyard._cli_handler(
+                SimpleNamespace(switchyard_command="status", json_output=True, toolsets=None)
+            )
+        result = json.loads(output.getvalue())
+        self.assertEqual(code, 0)
+        self.assertNotIn("synthetic-secret", output.getvalue())
+        # Fail-closed defaults: no premature readiness claims.
+        self.assertIsNotNone(result.get("status"))
+        self.assertIs(result.get("public_or_sanitized_data_ack"), False)
+        self.assertIn(result["status"], {
+            "ready", "credential_required", "exposure_unverified",
+            "tools_not_registered", "tools_not_callable",
+        })
+
     def test_cli_setup_uses_masked_prompt_and_profile_secret_writer(self):
         import hermes_switchyard
         try:
@@ -1433,6 +1454,7 @@ class PluginEntryPointTests(unittest.TestCase):
                     "jev_skill_select",
                     "jev_skill_select_many",
                     "jev_model_route",
+                    "jev_model_route_approved",
                 ):
                     with self.subTest(name=name):
                         result = json.loads(context.tools[name]({"public_or_sanitized_data_ack": False}))
