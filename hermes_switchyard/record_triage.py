@@ -26,11 +26,13 @@ from typing import Any, Sequence
 from . import receipt_state
 from .client import (
     DEFAULT_OPERATION_DEADLINE_SECONDS,
+    MAX_REQUEST_BYTES,
     PartialAccountingError,
     _validate_deadline_seconds,
     operation_remaining_deadline,
     request_budget_scope,
 )
+from .routing import _request_size
 
 WORKFLOW_ID = "record_triage.v1"
 TASK = (
@@ -67,6 +69,13 @@ _REQUIRED_FIELDS = frozenset({"id", "title", "body", "data_class"})
 _ALLOWED_FIELDS = _REQUIRED_FIELDS | {"component"}
 _DATA_CLASSES = frozenset({"public", "synthetic"})
 _SENT_FIELDS = ("id", "title", "body", "component")
+# Every provider request repeats `state`, so the workflow keeps each batch inside one request
+# instead of letting decide() split it and lose completed answers when a later split fails.
+_REQUEST_SIZE_MARGIN = 1024
+UNPROCESSED_REASONS = frozenset({
+    "deadline_exceeded", "provider_failed", "invalid_response", "malformed_answer",
+    "request_budget_exhausted",
+})
 _MANIFEST = "manifest.json"
 _ACTIONS = "actions"
 
@@ -147,6 +156,25 @@ def build_assessment_request(records: Sequence[dict[str, Any]]) -> tuple[dict[st
             "criteria": list(SEVERITY_LEVELS),
         }
     return {"task": TASK, "records": state_records}, questions
+
+
+def _plan_batches(records: list[dict[str, Any]], records_per_batch: int) -> list[list[dict[str, Any]]]:
+    """Group records into batches that each fit one bounded provider request."""
+    batches: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    for record in records:
+        trial = current + [record]
+        fits = len(trial) <= records_per_batch and _request_size(
+            *build_assessment_request(trial)
+        ) <= MAX_REQUEST_BYTES - _REQUEST_SIZE_MARGIN
+        if fits or not current:
+            current = trial
+        else:
+            batches.append(current)
+            current = [record]
+    if current:
+        batches.append(current)
+    return batches
 
 
 def _decision(status: str, **fields: Any) -> dict[str, Any]:
@@ -390,7 +418,7 @@ def run_record_triage(
             decisions[rid] = _decision("accepted", source="local_rule", disposition=disposition, rule=rule)
             attempts[rid] = {"batch": None, "requested": False, "completed": False}
     pending = [record for record in validated if record["id"] not in local]
-    batches = [pending[start:start + records_per_batch] for start in range(0, len(pending), records_per_batch)]
+    batches = _plan_batches(pending, records_per_batch)
 
     accounting = _Accounting()
     halted: str | None = None
@@ -427,21 +455,30 @@ def run_record_triage(
                     }
                     decisions[record["id"]] = _decision("unassessed", reason=reason)
                 continue
-            accounting.complete(result)
+            try:
+                accounting.complete(result)
+            except Exception:  # noqa: BLE001 -- malformed accounting must not discard the answers
+                accounting.usage_incomplete = True
+                accounting.cost_missing = True
             for record in batch:
                 attempts[record["id"]] = {"batch": index, "requested": True, "completed": True}
                 try:
                     decisions[record["id"]] = _parse_answers(
                         record["id"], result["answers"], disposition_threshold, severity_threshold
                     )
-                except (ValueError, TypeError):
+                except Exception:  # noqa: BLE001 -- one hostile answer must not lose the rest of the run
                     decisions[record["id"]] = _decision("unassessed", reason="malformed_answer")
 
     entries: list[dict[str, Any]] = []
     payloads: dict[str, dict[str, Any]] = {}
     for record in validated:
         rid = record["id"]
-        consumer, payload = _consume(record, decisions[rid])
+        try:
+            consumer, payload = _consume(record, decisions[rid])
+        except Exception:  # noqa: BLE001 -- a consumer fault must not lose other records' actions
+            consumer = {"status": "failed", "action": None, "reason": "consumer_error",
+                        "file": None, "sha256": None}
+            payload = None
         if payload is not None:
             data = _canonical_bytes(payload)
             relative = f"{_ACTIONS}/{rid}.json"
@@ -454,15 +491,22 @@ def run_record_triage(
                 consumer["file"] = relative
                 consumer["sha256"] = hashlib.sha256(data).hexdigest()
                 payloads[rid] = payload
-        entries.append({"id": rid, "decision": decisions[rid], "consumer": consumer})
+        entries.append({"id": rid, "attempt": attempts[rid], "decision": decisions[rid], "consumer": consumer})
 
+    unprocessed = {
+        entry["id"]: entry["decision"]["reason"]
+        for entry in entries if entry["decision"]["status"] == "unassessed"
+    }
+    report = accounting.report()
+    report["records_unprocessed"] = len(unprocessed)
     manifest = {
         "workflow": WORKFLOW_ID,
         "input_sha256": _input_digest(validated),
         "thresholds": {"disposition": disposition_threshold, "severity": severity_threshold},
         "records": entries,
         "queues": _queues(entries, payloads),
-        "accounting": accounting.report(),
+        "unprocessed": unprocessed,
+        "accounting": report,
     }
     try:
         _write_atomic(destination / _MANIFEST, _canonical_bytes(manifest))
@@ -475,11 +519,7 @@ def run_record_triage(
     return {
         "workflow": WORKFLOW_ID,
         "status": status,
-        "records": [
-            {"id": entry["id"], "attempt": attempts[entry["id"]], "decision": entry["decision"],
-             "consumer": entry["consumer"]}
-            for entry in entries
-        ],
+        "records": [dict(entry) for entry in entries],
         "accounting": manifest["accounting"],
         "artifact": {
             "status": artifact_status,
@@ -518,6 +558,10 @@ def verify_artifact(
     root = Path(out_dir)
     try:
         validated = _validate_records(records)
+    except ValueError:
+        errors.append("records_invalid")
+        return report()
+    try:
         manifest = _read_json(root / _MANIFEST)
         entries = manifest["records"]
         if not isinstance(entries, list) or manifest["workflow"] != WORKFLOW_ID:
@@ -568,8 +612,22 @@ def verify_artifact(
                         errors.append(f"severity_below_threshold:{rid}")
                 else:
                     errors.append(f"decision_source_invalid:{rid}")
-            elif status not in {"abstained", "unassessed"}:
+            elif status == "unassessed":
+                if decision["reason"] not in UNPROCESSED_REASONS:
+                    errors.append(f"unassessed_reason_invalid:{rid}")
+                if source is not None or disposition is not None:
+                    errors.append(f"unassessed_carries_a_decision:{rid}")
+            elif status != "abstained":
                 errors.append(f"decision_status_invalid:{rid}")
+            attempt = entry["attempt"]
+            if source == "local_rule" and attempt.get("requested") is not False:
+                errors.append(f"attempt_mismatch:{rid}")
+            elif source == "jev" and attempt.get("completed") is not True:
+                errors.append(f"attempt_mismatch:{rid}")
+            elif status == "unassessed" and attempt.get("completed") is not True and (
+                attempt.get("reason") != decision["reason"]
+            ):
+                errors.append(f"attempt_mismatch:{rid}")
 
             state = consumer["status"]
             if state == "acted":
@@ -592,6 +650,8 @@ def verify_artifact(
                 payloads[rid] = payload
                 if payload.get("record_id") != rid or payload.get("action") != consumer["action"]:
                     errors.append(f"action_file_content_mismatch:{rid}")
+                if payload.get("decision_source") != source:
+                    errors.append(f"action_file_source_mismatch:{rid}")
                 if disposition == "qualified" and (
                     not _routable(record) or payload.get("queue") != record["component"]
                 ):
@@ -606,7 +666,7 @@ def verify_artifact(
                     errors.append(f"accepted_decision_dropped:{rid}")
             elif state != "failed":
                 errors.append(f"consumer_status_invalid:{rid}")
-        except (OSError, ValueError, KeyError, TypeError):
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
             errors.append(f"entry_unreadable:{rid}")
 
     try:
@@ -618,6 +678,15 @@ def verify_artifact(
                 errors.append(f"unexpected_artifact_entry:{path.name}")
     except OSError:
         errors.append("artifact_directory_unreadable")
-    if manifest.get("queues") != _queues(entries, payloads):
-        errors.append("queues_mismatch")
+    try:
+        if manifest.get("queues") != _queues(entries, payloads):
+            errors.append("queues_mismatch")
+        expected_unprocessed = {
+            entry["id"]: entry["decision"]["reason"]
+            for entry in entries if entry["decision"]["status"] == "unassessed"
+        }
+        if manifest.get("unprocessed") != expected_unprocessed:
+            errors.append("unprocessed_mismatch")
+    except (KeyError, TypeError, AttributeError):
+        errors.append("manifest_structure_invalid")
     return report()

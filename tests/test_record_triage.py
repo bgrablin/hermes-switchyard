@@ -527,6 +527,219 @@ class AccountingTests(TriageCase):
         self.assertEqual(self.by_id(result)["rec-003"]["attempt"]["reason"], "request_budget_exhausted")
 
 
+class PartialRetentionTests(TriageCase):
+    """Completed assessments survive any later failure; unprocessed records are explicit evidence."""
+
+    def test_any_single_failed_batch_leaves_every_other_batch_acted(self):
+        records = [_record(f"rec-00{i}") for i in range(1, 7)]
+        for failing in (0, 1, 2):  # first, middle, last
+            with self.subTest(failing=failing):
+                out = Path(self._tmp.name) / f"case-{failing}"
+                script = Script()
+                script.fail_calls[failing] = RuntimeError(SECRET_MARKER)
+                result = run_record_triage(records, client=script.client(), out_dir=out, records_per_batch=2)
+                self.assertEqual(len(script.payloads), 3)
+                acted = {item["id"] for item in result["records"] if item["consumer"]["status"] == "acted"}
+                lost = {r["id"] for r in script.payloads[failing]["state"]["records"]}
+                self.assertEqual(acted, {r["id"] for r in records} - lost)
+                self.assertEqual(result["status"], "partial")
+
+    def test_consecutive_failed_batches_do_not_stop_a_later_success(self):
+        records = [_record(f"rec-00{i}") for i in range(1, 7)]
+        script = Script()
+        script.fail_calls[0] = RuntimeError("a")
+        script.fail_calls[1] = TypeError("b")  # the client normalises every transport error
+        result = self.run_triage(records, script, records_per_batch=2)
+        by_id = self.by_id(result)
+        self.assertEqual(len(script.payloads), 3)
+        self.assertEqual(by_id["rec-005"]["consumer"]["status"], "acted")
+        self.assertEqual(by_id["rec-001"]["decision"]["reason"], "provider_failed")
+        self.assertEqual(by_id["rec-003"]["decision"]["reason"], "provider_failed")
+        self.assertEqual(result["accounting"]["batches_failed"], 2)
+
+    def test_oversize_records_are_split_by_the_workflow_not_dropped_unattempted(self):
+        # Control characters serialise to six bytes, so eight maximal bodies cannot share one request.
+        records = [_record(f"rec-00{i}", body="\x00" * record_triage.MAX_BODY_CHARS) for i in range(1, 9)]
+        script = Script()
+        result = self.run_triage(records, script)
+        self.assertGreater(len(script.payloads), 1)
+        for payload in script.payloads:
+            self.assertLessEqual(len(json.dumps(payload, ensure_ascii=False).encode("utf-8")), 96_000)
+        self.assertEqual(sorted(script.sent_ids()), sorted(r["id"] for r in records))
+        self.assertEqual(result["status"], "complete")
+        self.assertEqual(result["accounting"]["requests_completed"], len(script.payloads))
+        self.assertTrue(verify_artifact(self.out, records)["verified"])
+
+    def test_failure_among_split_batches_keeps_the_completed_ones(self):
+        records = [_record(f"rec-00{i}", body="\x00" * record_triage.MAX_BODY_CHARS) for i in range(1, 9)]
+        for failing in (0, 1):
+            with self.subTest(failing=failing):
+                out = Path(self._tmp.name) / f"split-{failing}"
+                script = Script()
+                script.fail_calls[failing] = RuntimeError(SECRET_MARKER)
+                result = run_record_triage(records, client=script.client(), out_dir=out)
+                self.assertGreaterEqual(len(script.payloads), 2)
+                lost = {r["id"] for r in script.payloads[failing]["state"]["records"]}
+                self.assertTrue(lost)
+                for item in result["records"]:
+                    expected = "skipped" if item["id"] in lost else "acted"
+                    self.assertEqual(item["consumer"]["status"], expected, item["id"])
+                self.assertEqual(result["status"], "partial")
+                self.assertTrue(verify_artifact(out, records)["verified"])
+
+    def test_unexpected_exception_while_reading_an_answer_is_contained(self):
+        class Hostile(dict):
+            def get(self, *_args, **_kwargs):
+                raise RuntimeError(SECRET_MARKER)
+
+        class Client:
+            calls = 0
+
+            def decide(self, state, questions, *, public_or_sanitized_data_ack=False):
+                Client.calls += 1
+                if Client.calls == 1:
+                    return {"model": MODEL, "answers": Hostile(), "usage": {}}
+                return Script().transport({"questions": questions, "state": state})
+
+        records = [_record(f"rec-00{i}") for i in range(1, 5)]
+        result = run_record_triage(records, client=Client(), out_dir=self.out, records_per_batch=2)
+        by_id = self.by_id(result)
+        self.assertEqual(by_id["rec-001"]["decision"]["reason"], "malformed_answer")
+        self.assertEqual(by_id["rec-003"]["consumer"]["status"], "acted")
+        self.assertNotIn(SECRET_MARKER, json.dumps(result))
+        self.assertTrue(verify_artifact(self.out, records)["verified"])
+
+    def test_consumer_error_for_one_record_does_not_lose_the_others(self):
+        records = [_record("rec-001"), _record("rec-002"), _record("rec-003")]
+        original = record_triage._consume
+
+        def flaky(record, decision):
+            if record["id"] == "rec-002":
+                raise RuntimeError(SECRET_MARKER)
+            return original(record, decision)
+
+        with mock.patch.object(record_triage, "_consume", flaky):
+            result = self.run_triage(records, Script())
+        by_id = self.by_id(result)
+        self.assertEqual(by_id["rec-002"]["decision"]["status"], "accepted")
+        self.assertEqual(by_id["rec-002"]["consumer"]["status"], "failed")
+        self.assertEqual(by_id["rec-002"]["consumer"]["reason"], "consumer_error")
+        self.assertEqual(by_id["rec-001"]["consumer"]["status"], "acted")
+        self.assertEqual(by_id["rec-003"]["consumer"]["status"], "acted")
+        self.assertNotIn(SECRET_MARKER, json.dumps(result))
+        self.assertTrue(verify_artifact(self.out, records)["verified"])
+
+    def test_unprocessed_records_are_explicit_in_the_manifest_with_attempt_evidence(self):
+        records = [_record(f"rec-00{i}") for i in range(1, 7)]
+        script = Script()
+        script.fail_calls[1] = RuntimeError(SECRET_MARKER)
+        script.sleep[0] = 0.0
+        self.run_triage(records, script, records_per_batch=2)
+        manifest = self.manifest()
+        self.assertEqual(manifest["unprocessed"], {"rec-003": "provider_failed", "rec-004": "provider_failed"})
+        entry = {item["id"]: item for item in manifest["records"]}["rec-003"]
+        self.assertEqual(entry["attempt"], {
+            "batch": 1, "requested": True, "completed": False, "reason": "provider_failed",
+        })
+        self.assertEqual(manifest["accounting"]["records_unprocessed"], 2)
+        self.assertNotIn(SECRET_MARKER, json.dumps(manifest))
+
+    def test_verifier_rejects_a_hidden_or_invented_unprocessed_record(self):
+        records = [_record("rec-001"), _record("rec-002")]
+        script = Script()
+        script.fail_calls[0] = RuntimeError("x")
+        self.run_triage(records, script, records_per_batch=1)
+        self.assertTrue(verify_artifact(self.out, records)["verified"])
+        manifest = self.manifest()
+        del manifest["unprocessed"]["rec-001"]
+        (self.out / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        self.assertIn("unprocessed_mismatch", verify_artifact(self.out, records)["errors"])
+
+    def test_verifier_rejects_unknown_unassessed_reason_and_wrong_decision_source(self):
+        records = [_record("rec-001"), _record("rec-002")]
+        script = Script()
+        script.fail_calls[0] = RuntimeError("x")
+        self.run_triage(records, script, records_per_batch=1)
+        manifest = self.manifest()
+        manifest["records"][0]["decision"]["reason"] = "vibes"
+        manifest["unprocessed"]["rec-001"] = "vibes"
+        (self.out / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        self.assertIn("unassessed_reason_invalid:rec-001", verify_artifact(self.out, records)["errors"])
+
+    def test_verifier_rejects_attempt_evidence_that_contradicts_the_decision(self):
+        records = [_record("rec-001"), _record("rec-002", body=""), _record("rec-003")]
+        script = Script()
+        script.fail_calls[0] = RuntimeError("x")
+        self.run_triage(records, script, records_per_batch=1)
+        self.assertTrue(verify_artifact(self.out, records)["verified"])
+        for index, forged, code in (
+            (1, {"batch": 0, "requested": True, "completed": True}, "attempt_mismatch:rec-002"),  # local rule "sent"
+            (2, {"batch": 1, "requested": True, "completed": False, "reason": "provider_failed"}, "attempt_mismatch:rec-003"),
+            (0, {"batch": 0, "requested": True, "completed": False, "reason": "deadline_exceeded"}, "attempt_mismatch:rec-001"),
+        ):
+            with self.subTest(code=code):
+                manifest = self.manifest()
+                manifest["records"][index]["attempt"] = forged
+                original = (self.out / "manifest.json").read_bytes()
+                (self.out / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+                try:
+                    self.assertIn(code, verify_artifact(self.out, records)["errors"])
+                finally:
+                    (self.out / "manifest.json").write_bytes(original)
+
+    def test_verifier_reports_but_never_raises_on_hostile_manifest_shapes(self):
+        records = [_record("rec-001"), _record("rec-002")]
+        script = Script()
+        script.fail_calls[0] = RuntimeError("x")
+        self.run_triage(records, script, records_per_batch=1)
+        original = (self.out / "manifest.json").read_bytes()
+        for field, hostile in (("attempt", 5), ("decision", ["x"]), ("consumer", "x"), ("attempt", None)):
+            with self.subTest(field=field, hostile=hostile):
+                manifest = self.manifest()
+                manifest["records"][0][field] = hostile
+                (self.out / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+                report = verify_artifact(self.out, records)  # must not raise
+                self.assertFalse(report["verified"])
+                self.assertIn("entry_unreadable:rec-001", report["errors"])
+        (self.out / "manifest.json").write_bytes(original)
+        manifest = self.manifest()
+        manifest["records"][0]["decision"]["source"] = "jev"  # an unassessed record claiming a source
+        (self.out / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        self.assertIn("unassessed_carries_a_decision:rec-001", verify_artifact(self.out, records)["errors"])
+
+    def test_verifier_fails_closed_when_a_hash_valid_action_file_lacks_queue_fields(self):
+        import hashlib
+        records = [_record("rec-001")]
+        self.run_triage(records, Script())
+        path = self.out / "actions" / "rec-001.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        del payload["queue"], payload["priority"]
+        data = (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
+        path.write_bytes(data)
+        manifest = self.manifest()
+        manifest["records"][0]["consumer"]["sha256"] = hashlib.sha256(data).hexdigest()
+        (self.out / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        report = verify_artifact(self.out, records)  # must not raise
+        self.assertFalse(report["verified"])
+        self.assertIn("manifest_structure_invalid", report["errors"])
+
+    def test_verifier_checks_action_file_decision_source_and_reports_invalid_records_accurately(self):
+        records = [_record("rec-001")]
+        self.run_triage(records, Script())
+        path = self.out / "actions" / "rec-001.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["decision_source"] = "local_rule"
+        data = (json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8")
+        path.write_bytes(data)
+        import hashlib
+        manifest = self.manifest()
+        manifest["records"][0]["consumer"]["sha256"] = hashlib.sha256(data).hexdigest()
+        (self.out / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        self.assertIn("action_file_source_mismatch:rec-001", verify_artifact(self.out, records)["errors"])
+        bad = [dict(records[0], data_class="private")]
+        self.assertIn("records_invalid", verify_artifact(self.out, bad)["errors"])
+
+
 class JevAssessParityTests(unittest.TestCase):
     def test_workflow_request_is_accepted_by_the_registered_jev_assess_handler(self):
         state, questions = record_triage.build_assessment_request([_record("rec-001"), _record("rec-002")])
