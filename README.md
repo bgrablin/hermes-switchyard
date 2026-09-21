@@ -17,7 +17,7 @@ Measured with/without Switchyard on tip **0.5.0** (`c8e6008`). Human-readable be
 | **Skill pick** (`jev_skill_select`) | 7/12 single-skill correct | **12/12** | +5 specialist picks the local word matcher missed |
 | Failed to pick a needed skill | 11/18 | **5/18** | Fewer times Hermes needed a skill and got none or the wrong one |
 | No-skill false recs | **0/6** | **0/6** | Does not invent a skill when none fits |
-| **Multi-skill** (`jev_skill_select_many`) | top-1 required-set **0/5** | **5/5** complete | Use `select_many` when several skills are needed together |
+| **Multi-skill** (`jev_skill_select_many`) | one-skill pick completes **0/5** sets | **5/5** sets complete | When a task needs several skills together, use `select_many` — not one-skill pick |
 | **Model pick** (`jev_model_route`) | 3/3 cheapest-qualified local | **3/3** + auditable receipt | Agrees with complete metadata; `applied: false` until Hermes has an apply seam |
 | **Assess** (`jev_assess`) | 2/3 first-option baseline | **3/3** typed Choice | Small smoke (n=3), not a competing-model study |
 | **Automatic routing** (local_only hook) | always silent when off | 1/2 positives + clean no-fit | Install-default local match; not a whole-agent outcome claim |
@@ -25,7 +25,7 @@ Measured with/without Switchyard on tip **0.5.0** (`c8e6008`). Human-readable be
 
 - **Cheap:** about **$0.000055** per skill-select decision (~**$0.055** per 1,000)
 - **Fast:** about **0.19 s** typical; **0.30 s** at p95 on the frozen 24-task skill bench
-- **Honest gaps:** frozen **top-1** `select_skill` still scores required-sets **0/5** (that API picks one skill). Model pick does not beat a complete local cheapest filter on this microbench. Automatic routing is not yet a counterbalanced Hermes-session win. Computer-use success is not `goal_verified` inside the tool.
+- **Honest gaps:** Model pick does not beat a complete local cheapest filter on this microbench. Automatic routing is not yet a counterbalanced Hermes-session win. Computer-use success is not `goal_verified` inside the tool.
 
 This shows better single-skill routing and a working multi-skill API. It is not a claim that every Hermes task improves.
 

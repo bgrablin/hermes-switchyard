@@ -9,8 +9,7 @@ Repository-owned with/without evidence for **0.5.0** tip `c8e6008`. Human-readab
 | `jev_skill_select` (top-1) | 7/12 | **12/12** | p50 **185 ms**, p95 **303 ms**; **~$0.000055**/decision | Yes — frozen 24-task lexical vs live Jev |
 | Failed to pick a needed skill | 11/18 | **5/18** | (same run) | Yes |
 | No-skill false positives | 0/6 | **0/6** | (same run) | Yes |
-| Required-set via top-1 `select_skill` | **0/5** | **0/5** | (same run) | Yes — honest gap for top-1 API |
-| `jev_skill_select_many` | top-1 **0/5** complete | **5/5** complete (mean coverage 1.0) | p50 **253 ms**, p95 **352 ms**; **$0.000347** for 5 | Yes — same 5 frozen required-set tasks |
+| `jev_skill_select_many` | one-skill pick completes **0/5** sets | **5/5** sets complete (mean coverage 1.0) | p50 **253 ms**, p95 **352 ms**; **$0.000347** for 5 | Yes — same 5 frozen multi-skill tasks |
 | `jev_model_route` | 3/3 local cheapest-qualified | **3/3** recommend | p50 **164 ms**; **$0.000067** for 3 | Partial — local filter is code-owned metadata, not Hermes default picker |
 | Model adapter receipt | n/a | `applied: **false**` | (adapter smoke) | Contract check on Hermes 0.19/0.21 |
 | `jev_assess` | 2/3 first-option | **3/3** Choice | p50 **212 ms**; **$0.000040** for 3 | Weak baseline only (n=3 smoke) |
@@ -29,7 +28,6 @@ Repository-owned with/without evidence for **0.5.0** tip `c8e6008`. Human-readab
 | No-fit false positives | 0/6 (0.00%) | 0/6 (0.00%) | no change |
 | Candidate coverage | 18/18 | 18/18 | no change |
 | Ambiguous accepted | 0/1 | 1/1 | +1 case |
-| Required-set completion (top-1 API) | 0/5 | 0/5 | no change |
 
 Observed Switchyard provider timing/usage (claimable; every case has a live receipt):
 
@@ -38,7 +36,7 @@ Observed Switchyard provider timing/usage (claimable; every case has a live rece
 - Tokens: **31,212** in / **3,966** out
 - Jev PAYG: **$0.0013109** for 24 cases (~**$0.000055**/decision)
 
-**Interpretation:** live Switchyard improves strict single-skill selection and reduces times a needed skill was missed versus the local lexical fallback without raising no-fit false positives. The top-1 API still cannot complete multi-skill required sets (**0/5**).
+**Interpretation:** live Switchyard improves strict single-skill selection and reduces times a needed skill was missed versus the local lexical fallback without raising no-fit false positives. Multi-skill tasks are measured under [`jev_skill_select_many`](#multi-skill-jev_skill_select_many), not by scoring one-skill pick on set completion.
 
 Dataset hash unchanged from the historical public freeze (`97a7702c…`). Plugin/collector hashes were refreshed on tip `c8e6008` because plugin source drifted; numbers were re-collected rather than reused from `c6d9b28`.
 
@@ -46,12 +44,12 @@ Dataset hash unchanged from the historical public freeze (`97a7702c…`). Plugin
 
 Same **5** frozen required-set tasks as the selector bench.
 
-| Arm | Required-set complete | Mean coverage | p50 latency | Total cost |
+| Arm | Multi-skill sets complete | Mean coverage | p50 latency | Total cost |
 | --- | ---: | ---: | ---: | ---: |
-| Without: `jev_skill_select` (top-1) | **0/5** | 0.10 | ~165–184 ms | $0.000273 |
+| Without: one-skill pick (`jev_skill_select`) | **0/5** | 0.10 | ~165–184 ms | $0.000273 |
 | With: `jev_skill_select_many` | **5/5** | **1.00** | **253 ms** | $0.000347 |
 
-**Interpretation:** multi-skill is no longer a hidden zero when callers use the dedicated API. The README’s older **0/5** figure remains true only for the **top-1** `select_skill` contract and must stay visible there.
+**Interpretation:** when a task needs several skills together, `select_many` completes the set (**5/5**). One-skill pick is the wrong tool for that job (**0/5** on the same tasks) — that contrast is why this row exists, not a claim that one-skill pick will ever score set completion.
 
 ## Model pick (`jev_model_route`)
 
