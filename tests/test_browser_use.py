@@ -1146,6 +1146,203 @@ class BrowserReliabilityTests(unittest.TestCase):
         self.assertEqual(result["attempted_request_count"], 0)
         self.assertEqual(client.calls, [])
 
+    def test_url_equals_predicate_skips_second_decide_after_click(self):
+        """Wikipedia-shaped fixture: one CLICK, URL match, zero second DONE decide."""
+        ada = "https://en.wikipedia.org/wiki/Ada_Lovelace"
+        engine = "https://en.wikipedia.org/wiki/Analytical_Engine"
+        session = FakeSession(
+            {
+                ada: {
+                    "title": "Ada Lovelace",
+                    "text": "Ada Lovelace was an English mathematician.",
+                    "elements": [{"id": "1", "role": "link", "label": "Analytical Engine", "href": engine}],
+                },
+                engine: {
+                    "title": "Analytical Engine",
+                    "text": "The Analytical Engine was a proposed mechanical computer.",
+                    "elements": [],
+                },
+            }
+        )
+        client = ScriptedClient(
+            [
+                {
+                    "operation": _choice("CLICK", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b"}),
+                    "click_target": _choice("1", {"1": "Analytical Engine"}),
+                }
+            ]
+        )
+        result = run_browser_goal(
+            goal="Open the Analytical Engine article from Ada Lovelace",
+            session=session,
+            client=client,
+            max_steps=5,
+            min_actions_before_done=1,
+            completion_condition={"url_equals": engine},
+        )
+        self.assertEqual(result["status"], "completion_candidate")
+        self.assertEqual(result["completion_source"], "local_predicate")
+        self.assertTrue(result["completion"]["satisfied"])
+        self.assertEqual(result["completion"]["checks"], {"url_equals": True})
+        self.assertEqual(result["url"], engine)
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(result["jev_request_count"], 1)
+        self.assertEqual([item["operation"] for item in result["decisions"]], ["CLICK"])
+        self.assertFalse(any(item.get("operation") == "DONE" for item in result["decisions"]))
+        self.assertEqual(result["verified"], False)
+        self.assertEqual(result["verification_owner"], "coordinator")
+        self.assertFalse(result["goal_verified"])
+
+    def test_paired_fixture_fewer_decide_calls_with_local_predicate(self):
+        """Identical public fixture with and without a predicate: prove fewer Jev calls."""
+        ada = "https://en.wikipedia.org/wiki/Ada_Lovelace"
+        engine = "https://en.wikipedia.org/wiki/Analytical_Engine"
+
+        def pages():
+            return {
+                ada: {
+                    "title": "Ada Lovelace",
+                    "text": "Ada Lovelace was an English mathematician.",
+                    "elements": [{"id": "1", "role": "link", "label": "Analytical Engine", "href": engine}],
+                },
+                engine: {
+                    "title": "Analytical Engine",
+                    "text": "The Analytical Engine was a proposed mechanical computer.",
+                    "elements": [],
+                },
+            }
+
+        click = {
+            "operation": _choice(
+                "CLICK",
+                {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b", "DONE": "d"},
+            ),
+            "click_target": _choice("1", {"1": "Analytical Engine"}),
+        }
+        # Destination page offers no elements, so DONE answers omit click_target.
+        done = {
+            "operation": _choice(
+                "DONE",
+                {"SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b", "DONE": "d"},
+            ),
+        }
+
+        baseline_client = ScriptedClient([click, done])
+        baseline = run_browser_goal(
+            goal="Open the Analytical Engine article from Ada Lovelace",
+            session=FakeSession(pages()),
+            client=baseline_client,
+            max_steps=5,
+            min_actions_before_done=1,
+        )
+        optimized_client = ScriptedClient([dict(click)])
+        optimized = run_browser_goal(
+            goal="Open the Analytical Engine article from Ada Lovelace",
+            session=FakeSession(pages()),
+            client=optimized_client,
+            max_steps=5,
+            min_actions_before_done=1,
+            completion_condition={"url_equals": engine},
+        )
+
+        self.assertEqual(baseline["status"], "completion_candidate")
+        self.assertEqual(baseline["completion_source"], "provider_decision")
+        self.assertEqual(baseline["jev_request_count"], 2)
+        self.assertEqual([item["operation"] for item in baseline["decisions"]], ["CLICK", "DONE"])
+        self.assertEqual(baseline["verified"], False)
+
+        self.assertEqual(optimized["status"], "completion_candidate")
+        self.assertEqual(optimized["completion_source"], "local_predicate")
+        self.assertEqual(optimized["jev_request_count"], 1)
+        self.assertEqual([item["operation"] for item in optimized["decisions"]], ["CLICK"])
+        self.assertEqual(optimized["verified"], False)
+
+        # Paired fixture metrics required by issue #25 (unit/fixture proof).
+        self.assertLess(optimized["jev_request_count"], baseline["jev_request_count"])
+        self.assertLess(optimized["jev_total_latency_ms"], baseline["jev_total_latency_ms"])
+        self.assertEqual(optimized["jev_total_latency_ms"], 11.0)
+        self.assertEqual(baseline["jev_total_latency_ms"], 22.0)
+        self.assertGreater(baseline["elapsed_ms"], 0)
+        self.assertGreater(optimized["elapsed_ms"], 0)
+        self.assertEqual(baseline["url"], engine)
+        self.assertEqual(optimized["url"], engine)
+        # Failure rate on this fixture: both succeed as completion_candidate.
+        self.assertNotIn(baseline["status"], {"provider_failure", "partial_failure", "blocked", "budget_exhausted"})
+        self.assertNotIn(optimized["status"], {"provider_failure", "partial_failure", "blocked", "budget_exhausted"})
+
+    def test_derived_quoted_url_equals_stops_after_click_without_done(self):
+        ada = "https://en.wikipedia.org/wiki/Ada_Lovelace"
+        engine = "https://en.wikipedia.org/wiki/Analytical_Engine"
+        session = FakeSession(
+            {
+                ada: {
+                    "title": "Ada Lovelace",
+                    "text": "Ada Lovelace was an English mathematician.",
+                    "elements": [{"id": "1", "role": "link", "label": "Analytical Engine", "href": engine}],
+                },
+                engine: {
+                    "title": "Analytical Engine",
+                    "text": "The Analytical Engine was a proposed mechanical computer.",
+                    "elements": [],
+                },
+            }
+        )
+        client = ScriptedClient(
+            [
+                {
+                    "operation": _choice("CLICK", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b"}),
+                    "click_target": _choice("1", {"1": "Analytical Engine"}),
+                }
+            ]
+        )
+        result = run_browser_goal(
+            goal=f'Open Analytical Engine and stop when url equals "{engine}"',
+            session=session,
+            client=client,
+            max_steps=5,
+            min_actions_before_done=1,
+        )
+        self.assertEqual(result["status"], "completion_candidate")
+        self.assertEqual(result["completion_source"], "local_predicate")
+        self.assertEqual(
+            result["completion_predicate"],
+            {"source": "derived_goal_url", "url_equals": engine},
+        )
+        self.assertEqual(result["jev_request_count"], 1)
+        self.assertEqual(client.calls, client.calls[:1])
+        self.assertEqual(len(client.calls), 1)
+
+    def test_unquoted_url_in_goal_does_not_invent_a_predicate(self):
+        """Free-form URLs fall back to provider DONE; derivation stays quote-only."""
+        engine = "https://en.wikipedia.org/wiki/Analytical_Engine"
+        session = StaticSession(
+            {
+                "url": engine,
+                "title": "Analytical Engine",
+                "text": "The Analytical Engine was a proposed mechanical computer.",
+                "elements": [],
+            }
+        )
+        client = ScriptedClient(
+            [
+                {
+                    "operation": _choice(
+                        "DONE",
+                        {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b", "DONE": "d"},
+                    ),
+                }
+            ]
+        )
+        result = run_browser_goal(
+            goal=f"Read {engine}",
+            session=session,
+            client=client,
+            max_steps=3,
+        )
+        self.assertNotIn("completion_predicate", result)
+        self.assertEqual(result["completion_source"], "provider_decision")
+        self.assertEqual(result["jev_request_count"], 1)
+
     def test_invalid_completion_condition_is_refused_locally(self):
         session = StaticSession({"url": "https://example.org/", "title": "Home", "text": "Home", "elements": []})
         for condition in ({"url_equals": "http://localhost/"}, {"unknown_field": "x"}, {"title_contains": ""}, {}):

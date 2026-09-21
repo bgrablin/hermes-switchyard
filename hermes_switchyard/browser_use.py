@@ -64,6 +64,13 @@ DOM_CAPABILITIES = {
 }
 _COMPLETION_FIELDS = ("url_equals", "url_contains", "title_contains", "text_contains", "element_label")
 _QUOTED_TITLE_DERIVATION = re.compile(r'title\s+(?:contains|equals|is)\s+"([^"]{3,120})"', re.I)
+# Narrow quoted URL forms only. Free-form goal text is never mined for a URL, so a
+# start_url mentioned elsewhere cannot silently become a completion predicate.
+_QUOTED_URL_EQUALS_DERIVATION = re.compile(
+    r'url\s+(?:equals|is)\s+"(https://[^"]{8,200})"',
+    re.I,
+)
+_QUOTED_URL_CONTAINS_DERIVATION = re.compile(r'url\s+contains\s+"([^"]{3,120})"', re.I)
 # Each family carries the wording variants that mean the same unsupported
 # requirement: a base form, its -ing/-ion inflections, and the phrasal forms a
 # caller may write instead ("log into" as well as "log in"). Typing is handled
@@ -477,14 +484,35 @@ def _normalize_completion_condition(explicit: Any, goal: Any) -> dict[str, Any] 
         if len(condition) == 1:
             raise ValueError("completion_condition requires at least one condition field")
         return condition
+    return _derive_completion_condition(goal)
+
+
+def _derive_completion_condition(goal: Any) -> dict[str, Any] | None:
+    """Derive one safe predicate from quoted goal text only.
+
+    Order is fixed: title quote, then exact public https URL quote, then URL
+    substring quote. Unquoted URLs and free-form wording never become a
+    predicate, so the loop falls back to a provider DONE decision.
+    """
     text_goal = goal if isinstance(goal, str) else ""
-    derived = _QUOTED_TITLE_DERIVATION.search(text_goal)
-    if derived is None:
+    if not text_goal:
         return None
-    expected = derived.group(1).strip()
-    if not expected:
-        return None
-    return {"source": "derived_goal_title", "title_contains": expected}
+    title = _QUOTED_TITLE_DERIVATION.search(text_goal)
+    if title is not None:
+        expected = title.group(1).strip()
+        if expected:
+            return {"source": "derived_goal_title", "title_contains": expected}
+    url_equals = _QUOTED_URL_EQUALS_DERIVATION.search(text_goal)
+    if url_equals is not None:
+        expected = url_equals.group(1).strip()
+        if expected and _public_http_url(expected):
+            return {"source": "derived_goal_url", "url_equals": expected}
+    url_contains = _QUOTED_URL_CONTAINS_DERIVATION.search(text_goal)
+    if url_contains is not None:
+        expected = url_contains.group(1).strip()
+        if expected and not _UNSAFE_URI.search(expected):
+            return {"source": "derived_goal_url", "url_contains": expected}
+    return None
 
 
 def _completion_status(condition: dict[str, Any] | None, page: dict[str, Any]) -> dict[str, Any] | None:
