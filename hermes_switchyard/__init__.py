@@ -14,6 +14,7 @@ from typing import Any
 from . import receipt_state, schemas
 from .automatic import _config_float, build_pre_llm_call_hook, discover_mandatory_skills
 from .client import (
+    DEFAULT_AUTOMATIC_ROUTING_DEADLINE_SECONDS,
     DEFAULT_ENDPOINT,
     DEFAULT_OPERATION_DEADLINE_SECONDS,
     MAX_DECISION_REQUESTS,
@@ -841,6 +842,16 @@ def register(ctx):
             30.0,
             minimum=0.0,
             maximum=300.0,
+        ),
+        deadline_seconds=_config_float(
+            ctx_get_config(
+                ctx,
+                "automatic_skill_deadline_seconds",
+                default=DEFAULT_AUTOMATIC_ROUTING_DEADLINE_SECONDS,
+            ),
+            DEFAULT_AUTOMATIC_ROUTING_DEADLINE_SECONDS,
+            minimum=0.5,
+            maximum=DEFAULT_OPERATION_DEADLINE_SECONDS,
         ),
         consumer_mode=ctx_get_config(ctx, 
             "automatic_skill_consumer_mode", default="advisory"

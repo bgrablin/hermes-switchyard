@@ -37,6 +37,9 @@ HOSTED_ERROR_CODES = frozenset(
         "validation_failure",
         "typed_response_failure",
         "request_budget_exhausted",
+        "deadline_exceeded",
+        "host_cancelled",
+        "late_result_discarded",
         "plugin_error",
     }
 )
