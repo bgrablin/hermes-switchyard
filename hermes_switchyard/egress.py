@@ -1,9 +1,9 @@
-"""Optional per-turn envelope validation for automatic hosted decisions.
+"""Per-turn envelope validation for automatic hosted decisions.
 
-The plugin owns the standing acknowledgement and local bounded scan. A host
-envelope can strengthen that decision with a narrower sanitized payload, but a
-missing envelope is valid when the local scan accepts the task. The plugin is
-not Hermes-owned DLP or authorization.
+The plugin owns the standing acknowledgement and local bounded scan. Hosted
+construction requires an explicit host allow envelope (``turn_egress_policy``);
+a clean local scan without one is ``unknown`` / ``local_scan_unclassified`` and
+does not authorize hosting. The plugin is not Hermes-owned DLP or authorization.
 """
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ _ALLOWED_PAYLOAD_CONTROL_CHARS = frozenset({"\n", "\r", "\t"})
 
 @dataclass(frozen=True)
 class TurnEgressEvaluation:
-    """A redacted result of evaluating one optional host turn envelope.
+    """A redacted result of evaluating one host turn envelope.
 
     ``allowed_payload`` is retained only for the immediate allowed call.  It is
     never included in :meth:`metadata` and callers must not persist it in a
@@ -112,11 +112,13 @@ def _valid_payload(value: Any) -> bool:
 
 
 def evaluate_turn_egress_policy(policy: Any) -> TurnEgressEvaluation:
-    """Evaluate an optional host per-turn envelope without performing I/O.
+    """Evaluate a host per-turn envelope without performing I/O.
 
-    This helper validates only the envelope. Automatic routing may also use the
-    plugin's local scan when no envelope is supplied; explicit deny, unknown,
-    malformed, and restricted envelopes remain fail-closed.
+    This helper validates only the envelope. Automatic hosted routing requires
+    an allow envelope at the call site; when none is supplied, the recommender
+    fail-closes as ``local_scan_unclassified`` after its local restricted-pattern
+    scan. Explicit deny, unknown, malformed, and restricted envelopes remain
+    fail-closed here.
     """
     if policy is None:
         return TurnEgressEvaluation(

@@ -585,6 +585,11 @@ class AutomaticRecommendationTests(unittest.TestCase):
         self.assertEqual(result.get("policy_status"), "unknown")
         self.assertEqual(result.get("policy_reason"), "local_scan_unclassified")
         self.assertEqual(result.get("hosted_skipped"), "local_scan_unclassified")
+        self.assertIsNotNone(recommender.last_receipt)
+        self.assertEqual(
+            recommender.last_receipt.get("hosted_skip_reason"),
+            "local_scan_unclassified",
+        )
 
     def test_ack_false_blocks_hosted_call_without_envelope(self):
         constructed = []

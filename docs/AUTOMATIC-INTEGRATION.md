@@ -199,7 +199,7 @@ hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_rou
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_jev_mode always
 ```
 
-Use only a task and configured metadata that are public or already sanitized. Start a fresh process. A plain `hermes chat` smoke without a host-forwarded `turn_egress_policy` exercises local matching only: with `hosted_sanitized` and acknowledgement true but no envelope, the receipt reports `hosted_skipped=local_scan_unclassified` and no hosted client is constructed. To exercise hosted construction, the host must forward an allowed envelope such as:
+Use only a task and configured metadata that are public or already sanitized. Start a fresh process. A plain `hermes chat` smoke without a host-forwarded `turn_egress_policy` exercises local matching only: with `hosted_sanitized` and acknowledgement true but no envelope, the routing receipt reports `hosted_skip_reason=local_scan_unclassified` (transient result uses `hosted_skipped`) and no hosted client is constructed. To exercise hosted construction, the host must forward an allowed envelope such as:
 
 ```json
 {"version":1,"decision":"allow","data_class":"sanitized","reason_code":"host_policy_allowed","allowed_payload":"Diagnose an exiting Docker Compose container"}
