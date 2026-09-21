@@ -3,15 +3,19 @@
 The hook defaults to advisory mode. Its opt-in typed consumer can load one
 accepted skill through Hermes' normal ``skill_view`` loader without changing a
 toolset or rewriting the cached system prompt. Local matching supplies a
-deterministic fallback. Automatic routing defaults to local-only matching.
-Hosted Jev is available only when ``hosted_sanitized`` mode is explicitly
-selected *and* the consumer can adopt (``load`` mode). Advisory recommendations
-never authorize hosted work: delivery alone is not adoption. Standing
-acknowledgement is retained for explicit hosted opt-in; it does not authorize
-hosted automatic routing by itself. A host envelope is optional strengthening
-and may provide a narrower sanitized payload. The automatic hosted payload then
-contains only the accepted task and exact candidate identifiers. Conversation
-history, candidate descriptions, and full skill bodies stay local.
+deterministic fallback and a measured prefilter for hosted fan-out. Automatic
+routing defaults to local-only matching. Hosted Jev is available only when
+``hosted_sanitized`` mode is explicitly selected *and* the consumer can adopt
+(``load`` mode). Advisory recommendations never authorize hosted work: delivery
+alone is not adoption. Standing acknowledgement is retained for explicit hosted
+opt-in; it does not authorize hosted automatic routing by itself. A host envelope
+is optional strengthening and may provide a narrower sanitized payload. The
+automatic hosted payload then contains only the accepted task and exact
+candidate identifiers. Conversation history, candidate descriptions, and full
+skill bodies stay local. Before hosted partition fan-out, a confidence-bounded shortlist may reduce
+the candidate set, and ``uncertain_only`` may apply a cheap local no-skill
+gate; insufficient margin fails closed to the full catalog. Receipts record whether
+``local_no_skill_gate``, ``local_prefilter_shortlist``, or full recall ran.
 
 Every automatic turn records delivery, adoption, and outcome separately.
 Outcome stays ``unverified`` at the plugin boundary so delivery is never claimed
@@ -60,8 +64,21 @@ DEFAULT_LOCAL_MARGIN = 0.05
 DEFAULT_CACHE_SECONDS = 30.0
 MAX_CACHE_SECONDS = 300.0
 DEFAULT_CACHE_SIZE = 32
+# Hosted prefilter (issue #20): fail closed to full catalog when margin is weak.
+DEFAULT_PREFILTER_SHORTLIST_SIZE = 32
+DEFAULT_PREFILTER_NO_SKILL_THRESHOLD = 0.05
+DEFAULT_PREFILTER_MIN_SCORE = 0.15
+DEFAULT_PREFILTER_CUTOFF_MARGIN = 0.03
+_CATALOG_FEATURE_CACHE_SIZE = 16
+SHORTLIST_POLICY_NO_SKILL_GATE = "local_no_skill_gate"
+SHORTLIST_POLICY_PREFILTER = "local_prefilter_shortlist"
+SHORTLIST_POLICY_FULL_FAN_OUT = "full_partition_fan_out"
 # Re-export for callers; kept below the typical Hermes ~30s callback budget.
 DEFAULT_AUTOMATIC_DEADLINE_SECONDS = DEFAULT_AUTOMATIC_ROUTING_DEADLINE_SECONDS
+
+# Catalog token-feature cache keyed by catalog hash (names + descriptions).
+_CATALOG_FEATURE_CACHE: OrderedDict[str, tuple[frozenset[str], ...]] = OrderedDict()
+_CATALOG_FEATURE_LOCK = threading.Lock()
 
 # Stable, privacy-safe terminal states for the routing-receipt surface. These
 # names identify every automatic-routing outcome without carrying task text,
@@ -286,11 +303,46 @@ def discover_available_skill_candidates() -> tuple[dict[str, str], ...]:
         return ()
 
 
+def _catalog_identity(candidates: tuple[dict[str, str], ...]) -> str:
+    """Return a stable hash for catalog names and descriptions."""
+    material = [(item["name"], item["description"]) for item in candidates]
+    try:
+        encoded = json.dumps(
+            material,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError):
+        encoded = repr(material).encode("utf-8", "backslashreplace")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _cached_candidate_tokens(candidates: tuple[dict[str, str], ...]) -> tuple[frozenset[str], ...]:
+    """Cache tokenized catalog features by catalog hash to avoid repeat work."""
+    key = _catalog_identity(candidates)
+    with _CATALOG_FEATURE_LOCK:
+        hit = _CATALOG_FEATURE_CACHE.get(key)
+        if hit is not None:
+            _CATALOG_FEATURE_CACHE.move_to_end(key)
+            return hit
+    features = tuple(
+        frozenset(_tokens(f"{candidate['name']} {candidate['description']}"))
+        for candidate in candidates
+    )
+    with _CATALOG_FEATURE_LOCK:
+        _CATALOG_FEATURE_CACHE[key] = features
+        _CATALOG_FEATURE_CACHE.move_to_end(key)
+        while len(_CATALOG_FEATURE_CACHE) > _CATALOG_FEATURE_CACHE_SIZE:
+            _CATALOG_FEATURE_CACHE.popitem(last=False)
+    return features
+
+
 def _rank_candidates(task: str, candidates: tuple[dict[str, str], ...]) -> list[tuple[float, int, dict[str, str]]]:
     task_tokens = _tokens(task)
+    candidate_token_sets = _cached_candidate_tokens(candidates)
     ranked: list[tuple[float, int, dict[str, str]]] = []
-    for position, candidate in enumerate(candidates):
-        candidate_tokens = _tokens(f"{candidate['name']} {candidate['description']}")
+    for position, (candidate, candidate_tokens) in enumerate(zip(candidates, candidate_token_sets)):
         overlap = task_tokens & candidate_tokens
         if not task_tokens or not candidate_tokens:
             score = 0.0
@@ -316,6 +368,60 @@ def _local_decision(
     return ranked[0][2]["name"], "local_match", ranked[0][0]
 
 
+def plan_hosted_prefilter(
+    ranked: list[tuple[float, int, dict[str, str]]],
+    *,
+    catalog_size: int,
+    no_skill_threshold: float = DEFAULT_PREFILTER_NO_SKILL_THRESHOLD,
+    shortlist_size: int = DEFAULT_PREFILTER_SHORTLIST_SIZE,
+    min_score: float = DEFAULT_PREFILTER_MIN_SCORE,
+    cutoff_margin: float = DEFAULT_PREFILTER_CUTOFF_MARGIN,
+) -> tuple[str, tuple[dict[str, str], ...] | None]:
+    """Plan a fail-closed hosted candidate subset.
+
+    Returns ``(policy, subset)``:
+
+    - ``local_no_skill_gate`` with an empty subset: skip hosted work.
+    - ``local_prefilter_shortlist`` with a non-empty subset: host only the subset.
+    - ``full_partition_fan_out`` with ``None``: host the complete catalog.
+
+    The shortlist path requires a clear score cutoff so recall is preserved when
+    local evidence is weak or ambiguous. Catalogs that already fit the shortlist
+    bound pass through to full recall without rewriting policy.
+    """
+    if catalog_size < 0:
+        raise ValueError("catalog_size must be non-negative")
+    if shortlist_size < 1:
+        raise ValueError("shortlist_size must be positive")
+    no_skill_threshold = _config_float(
+        no_skill_threshold, DEFAULT_PREFILTER_NO_SKILL_THRESHOLD, minimum=0.0, maximum=1.0
+    )
+    min_score = _config_float(min_score, DEFAULT_PREFILTER_MIN_SCORE, minimum=0.0, maximum=1.0)
+    cutoff_margin = _config_float(
+        cutoff_margin, DEFAULT_PREFILTER_CUTOFF_MARGIN, minimum=0.0, maximum=1.0
+    )
+    if not ranked:
+        return SHORTLIST_POLICY_NO_SKILL_GATE, ()
+    top_score = ranked[0][0]
+    if top_score < no_skill_threshold:
+        return SHORTLIST_POLICY_NO_SKILL_GATE, ()
+    if catalog_size <= shortlist_size:
+        # Already within the cheap bound; leave select_skill's policy untouched.
+        return SHORTLIST_POLICY_FULL_FAN_OUT, None
+    if top_score < min_score:
+        return SHORTLIST_POLICY_FULL_FAN_OUT, None
+    eligible = [item for item in ranked if item[0] >= min_score][:shortlist_size]
+    if not eligible:
+        return SHORTLIST_POLICY_FULL_FAN_OUT, None
+    if len(ranked) > len(eligible):
+        floor = eligible[-1][0]
+        next_score = ranked[len(eligible)][0]
+        if next_score > 0.0 and floor - next_score < cutoff_margin:
+            return SHORTLIST_POLICY_FULL_FAN_OUT, None
+    shortlist = tuple(item[2] for item in eligible)
+    return SHORTLIST_POLICY_PREFILTER, shortlist
+
+
 class AutomaticSkillRecommender:
     """Bounded recommender with explicit local/hosted routing and safe caching."""
 
@@ -336,6 +442,10 @@ class AutomaticSkillRecommender:
         cache_size: int = DEFAULT_CACHE_SIZE,
         deadline_seconds: float = DEFAULT_AUTOMATIC_DEADLINE_SECONDS,
         adoption_capable: bool | None = None,
+        prefilter_shortlist_size: int = DEFAULT_PREFILTER_SHORTLIST_SIZE,
+        prefilter_no_skill_threshold: float = DEFAULT_PREFILTER_NO_SKILL_THRESHOLD,
+        prefilter_min_score: float = DEFAULT_PREFILTER_MIN_SCORE,
+        prefilter_cutoff_margin: float = DEFAULT_PREFILTER_CUTOFF_MARGIN,
     ) -> None:
         self.configured_candidates = (
             _validate_candidates(configured_candidates, limit=None)
@@ -368,6 +478,10 @@ class AutomaticSkillRecommender:
         # The pre_llm_call hook sets False for advisory mode so hosted work
         # abstains when the consumer cannot adopt the recommendation.
         self.adoption_capable = None if adoption_capable is None else bool(adoption_capable)
+        self.prefilter_shortlist_size = max(1, min(int(prefilter_shortlist_size), 255))
+        self.prefilter_no_skill_threshold = max(0.0, min(float(prefilter_no_skill_threshold), 1.0))
+        self.prefilter_min_score = max(0.0, min(float(prefilter_min_score), 1.0))
+        self.prefilter_cutoff_margin = max(0.0, min(float(prefilter_cutoff_margin), 1.0))
         self._cache: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
         self._lock = threading.RLock()
         self._client: Any | None = None
@@ -633,6 +747,28 @@ class AutomaticSkillRecommender:
 
         should_host = self.hosted_mode == "always" or local_selected is None
         hosted_candidates = [{"name": item["name"]} for item in candidate_set]
+        prefilter_policy = SHORTLIST_POLICY_FULL_FAN_OUT
+        if should_host and self.routing_mode == "hosted_sanitized":
+            prefilter_policy, prefilter_subset = plan_hosted_prefilter(
+                ranked,
+                catalog_size=len(candidate_set),
+                no_skill_threshold=self.prefilter_no_skill_threshold,
+                shortlist_size=self.prefilter_shortlist_size,
+                min_score=self.prefilter_min_score,
+                cutoff_margin=self.prefilter_cutoff_margin,
+            )
+            # ``always`` still evaluates hosted fit even when local overlap is
+            # near zero (opaque identifiers / weak lexical signal). The cheap
+            # no-skill gate applies only for ``uncertain_only``, where local
+            # abstention would otherwise pay full fan-out for an obvious miss.
+            if (
+                prefilter_policy == SHORTLIST_POLICY_NO_SKILL_GATE
+                and self.hosted_mode == "always"
+            ):
+                prefilter_policy = SHORTLIST_POLICY_FULL_FAN_OUT
+                prefilter_subset = None
+            if prefilter_policy == SHORTLIST_POLICY_PREFILTER and prefilter_subset is not None:
+                hosted_candidates = [{"name": item["name"]} for item in prefilter_subset]
         outbound_scan_reason = (
             _hosted_payload_scan_reason(
                 evaluation.allowed_payload if evaluation is not None and evaluation.allowed_payload is not None else "",
@@ -666,6 +802,21 @@ class AutomaticSkillRecommender:
             result["hosted_skipped"] = outbound_scan_reason
             result["routing_status"] = "hosted_skipped"
             result["routing_reason"] = outbound_scan_reason
+        elif prefilter_policy == SHORTLIST_POLICY_NO_SKILL_GATE:
+            # Cheap local gate (uncertain_only only): near-zero lexical overlap
+            # skips hosted fan-out after outbound identifier scanning.
+            result["hosted_skipped"] = SHORTLIST_POLICY_NO_SKILL_GATE
+            result["shortlist_policy"] = SHORTLIST_POLICY_NO_SKILL_GATE
+            result["routing_status"] = "hosted_skipped"
+            result["routing_reason"] = SHORTLIST_POLICY_NO_SKILL_GATE
+            result["offered_count"] = 0
+            result["excluded_count"] = len(candidate_set)
+            result["request_count"] = 0
+            if local_selected is None:
+                result["status"] = "abstained"
+                result["selected"] = None
+                result["source"] = "none"
+                result["abstention_reason"] = SHORTLIST_POLICY_NO_SKILL_GATE
         elif self.client_factory is None:
             result["hosted_skipped"] = "client_unavailable"
             result["routing_status"] = "hosted_skipped"
@@ -699,6 +850,15 @@ class AutomaticSkillRecommender:
                 hosted = None
             if isinstance(hosted, dict):
                 _copy_redacted_jev_metadata(result, hosted)
+            if prefilter_policy == SHORTLIST_POLICY_PREFILTER:
+                offered = len(hosted_candidates)
+                excluded = len(candidate_set) - offered
+                result["shortlist_policy"] = SHORTLIST_POLICY_PREFILTER
+                result["jev_shortlist_policy"] = SHORTLIST_POLICY_PREFILTER
+                result["offered_count"] = offered
+                result["excluded_count"] = excluded
+                result["jev_offered_count"] = offered
+                result["jev_excluded_count"] = excluded
             offered_names = {item["name"] for item in hosted_candidates}
             if isinstance(hosted, dict) and hosted.get("selected") in offered_names:
                 result.update(
