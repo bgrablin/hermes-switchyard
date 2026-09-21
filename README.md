@@ -20,7 +20,7 @@ Three wins on the frozen public benchmark (24 tasks, real Jev calls):
 
 - **Cheap:** about **$0.000055** per decision (~**$0.055** per 1,000)
 - **Fast:** about **0.20 s** typical; **0.325 s** at p95
-- **Honest gap:** still one skill at a time — multi-skill required sets are **0 of 5**
+- **Honest gap:** this bench is top-1 routing — multi-skill required sets scored **0 of 5**
 
 This shows better single-skill routing. It is not a claim that every Hermes task improves.
 
