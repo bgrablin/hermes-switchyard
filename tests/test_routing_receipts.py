@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -521,6 +522,81 @@ class ReceiptEndToEndTests(unittest.TestCase):
         self.assertNotIn("ORIGINAL_TASK_MARKER", wire)
         self.assertNotIn("PRIVATE_DESCRIPTION_MARKER", wire)
         self.assertNotIn("fixture-key", wire)
+
+
+class PluginStateCleanlinessTests(unittest.TestCase):
+    """Normal plugin use must never write state into the source checkout."""
+
+    _REPO_ROOT = Path(__file__).resolve().parent.parent
+
+    def _porcelain(self, root: Path) -> str:
+        try:
+            completed = subprocess.run(
+                ["git", "status", "--porcelain", "-uall"],
+                cwd=str(root),
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            self.skipTest("git is unavailable or the checkout is not a repository")
+        if completed.returncode != 0:
+            self.skipTest("git status could not be read for the cleanliness check")
+        return completed.stdout
+
+    def _assert_porcelain_unchanged(self, root: Path, before: str) -> None:
+        after = self._porcelain(root)
+        self.assertEqual(after, before, "plugin use wrote state into the source checkout")
+
+    def test_store_and_migrate_leave_git_porcelain_unchanged(self):
+        if not (self._REPO_ROOT / ".git").exists():
+            self.skipTest("tests are not inside a source checkout")
+        before = self._porcelain(self._REPO_ROOT)
+        receipt = build_routing_receipt(_skipped_result())
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.dict(os.environ, {"HERMES_HOME": directory}, clear=False):
+                self.assertTrue(receipt_state.store_latest_receipt(receipt))
+                # Migration path must also stay out of the checkout tree.
+                legacy = Path(directory) / "plugins" / receipt_state.PLUGIN_NAME / "receipt.json"
+                legacy.parent.mkdir(parents=True)
+                legacy.write_text(json.dumps(receipt), encoding="utf-8")
+                self.assertEqual(receipt_state.read_latest_receipt(), receipt_state.canonicalize_receipt(receipt))
+        self._assert_porcelain_unchanged(self._REPO_ROOT, before)
+
+    def test_receipt_readback_never_recreates_legacy_in_the_checkout(self):
+        before = self._porcelain(self._REPO_ROOT)
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.dict(os.environ, {"HERMES_HOME": directory}, clear=False):
+                self.assertIsNone(receipt_state.read_latest_receipt())
+                state = receipt_state._receipt_state_file()
+                self.assertIsNotNone(state)
+                assert state is not None
+                # The profile-owned path must live under the injected HERMES_HOME,
+                # not under the source checkout.
+                self.assertEqual(
+                    state,
+                    Path(directory) / "plugin-data" / receipt_state.PLUGIN_NAME / "receipt.json",
+                )
+        self._assert_porcelain_unchanged(self._REPO_ROOT, before)
+
+    def test_receipt_state_is_isolated_per_profile_home(self):
+        receipt = build_routing_receipt(_skipped_result())
+        altered = dict(receipt)
+        altered["terminal_state"] = "local_selection"
+        altered["selected"] = "docker-management"
+        altered["source"] = "local"
+        altered["candidate_count"] = 1
+        altered["hosted_skip_reason"] = "disabled"
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            with mock.patch.dict(os.environ, {"HERMES_HOME": first}, clear=False):
+                self.assertTrue(receipt_state.store_latest_receipt(receipt))
+            with mock.patch.dict(os.environ, {"HERMES_HOME": second}, clear=False):
+                self.assertTrue(receipt_state.store_latest_receipt(altered))
+            with mock.patch.dict(os.environ, {"HERMES_HOME": first}, clear=False):
+                self.assertEqual(receipt_state.read_latest_receipt(), receipt_state.canonicalize_receipt(receipt))
+            with mock.patch.dict(os.environ, {"HERMES_HOME": second}, clear=False):
+                self.assertEqual(receipt_state.read_latest_receipt(), receipt_state.canonicalize_receipt(altered))
 
 
 if __name__ == "__main__":
