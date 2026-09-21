@@ -2,7 +2,7 @@
 
 This guide enables the implemented automatic skill recommendation hook for the `hermes-switchyard` plugin.
 
-The configuration default is `local_only`. Hosted routing is an explicit opt-in using the plugin-owned standalone contract: persistent acknowledgement plus a strict local per-turn scan before client construction. A compatible Hermes host may optionally provide a narrower typed envelope. This guide does not claim that a recommendation certifies model quality or GUI completion.
+The configuration default is `local_only`. Hosted routing is an explicit opt-in using the plugin-owned standalone contract: persistent acknowledgement, a strict local per-turn scan, and a required host allow envelope (`turn_egress_policy`) before client construction. This guide does not claim that a recommendation certifies model quality or GUI completion.
 
 ## 1. Install the pinned plugin
 
@@ -99,13 +99,13 @@ To skip hosted automatic routing explicitly:
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode local_only
 ```
 
-An optional host envelope may narrow the payload. It is not required. If supplied, it must be a versioned envelope such as:
+Hosted construction also requires a host-provided per-turn allow envelope. Without it, a clean local scan is classified `unknown` / `local_scan_unclassified` and no hosted client is constructed. The envelope must be a versioned allow object such as:
 
 ```json
 {"version":1,"decision":"allow","data_class":"sanitized","reason_code":"host_policy_allowed","allowed_payload":"sanitized public task"}
 ```
 
-The plugin scans the bounded task locally before construction. Only the accepted bounded task (or the narrower `allowed_payload`) and candidate identifiers are sent to Jev. Candidate descriptions, history, and full skill bodies stay local. False acknowledgement, restricted content, or an explicit denied/unknown/malformed envelope fails closed before client construction. `always` calls Jev even for a confident local match. Use `uncertain_only` only as an explicit latency-saving override. A valid hosted abstention stays abstained; only an unavailable transport may preserve a local recommendation.
+The plugin scans the bounded task locally before construction. Only the envelope's `allowed_payload` and candidate identifiers are sent to Jev. Candidate descriptions, history, and full skill bodies stay local. False acknowledgement, restricted content, a missing envelope, or an explicit denied/unknown/malformed envelope fails closed before client construction. `always` calls Jev even for a confident local match when an allow envelope is present. Use `uncertain_only` only as an explicit latency-saving override. A valid hosted abstention stays abstained; only an unavailable transport may preserve a local recommendation.
 
 ## 6. Disable or roll back
 
@@ -162,7 +162,7 @@ Keep the previous 40-character SHA as the rollback target. Verify the installed 
 - If `hermes-switchyard` is absent, enable it or inspect the install result.
 - If the plugin is enabled but no recommendation appears, check that the current process is fresh and that the request matches an available skill or configured candidate.
 - If the local path abstains, inspect the threshold and margin settings. Lowering them increases selection frequency; these are uncalibrated local policies, not quality probabilities.
-- If hosted Jev is not attempted, inspect the redacted routing reason. `ack_required` means standing acknowledgement is false; `local_scan_*` means the plugin rejected the bounded task; `per_turn_policy_unknown`, `per_turn_policy_invalid`, `per_turn_policy_denied`, and `restricted_data_class` mean the optional host envelope failed closed. `client_unavailable` means no configured route was available. To replace the profile-scoped credential without exposing it, use Switchyard's masked provider setup:
+- If hosted Jev is not attempted, inspect the redacted routing reason. `ack_required` means standing acknowledgement is false; `local_scan_unclassified` means no allow envelope was supplied (a clean local scan is not sanitized); other `local_scan_*` codes mean the plugin rejected the bounded task; `per_turn_policy_unknown`, `per_turn_policy_invalid`, `per_turn_policy_denied`, and `restricted_data_class` mean the host envelope failed closed. `client_unavailable` means no configured route was available. To replace the profile-scoped credential without exposing it, use Switchyard's masked provider setup:
 
 ```text
 hermes switchyard setup --provider typesafe

@@ -8,14 +8,17 @@ routing defaults to local-only matching. Hosted Jev is available only when
 ``hosted_sanitized`` mode is explicitly selected *and* the consumer can adopt
 (``load`` mode). Advisory recommendations never authorize hosted work: delivery
 alone is not adoption. Standing acknowledgement is retained for explicit hosted
-opt-in; it does not authorize hosted automatic routing by itself. A host envelope
-is optional strengthening and may provide a narrower sanitized payload. The
-automatic hosted payload then contains only the accepted task and exact
-candidate identifiers. Conversation history, candidate descriptions, and full
-skill bodies stay local. Before hosted partition fan-out, a confidence-bounded shortlist may reduce
-the candidate set, and ``uncertain_only`` may apply a cheap local no-skill
-gate; insufficient margin fails closed to the full catalog. Receipts record whether
-``local_no_skill_gate``, ``local_prefilter_shortlist``, or full recall ran.
+opt-in; it does not authorize hosted automatic routing by itself. Hosted
+construction also requires an explicit host per-turn allow envelope
+(``turn_egress_policy``); a clean local scan is ``unknown`` /
+``local_scan_unclassified`` and fails closed. The automatic hosted payload then
+contains only the envelope's bounded ``allowed_payload`` and exact candidate
+identifiers. Conversation history, candidate descriptions, and full skill bodies
+stay local. Before hosted partition fan-out, a confidence-bounded shortlist may
+reduce the candidate set, and ``uncertain_only`` may apply a cheap local
+no-skill gate; insufficient margin fails closed to the full catalog. Receipts
+record whether ``local_no_skill_gate``, ``local_prefilter_shortlist``, or full
+recall ran.
 
 Every automatic turn records delivery, adoption, and outcome separately.
 Outcome stays ``unverified`` at the plugin boundary so delivery is never claimed

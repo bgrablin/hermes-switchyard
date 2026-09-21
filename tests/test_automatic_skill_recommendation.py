@@ -581,8 +581,10 @@ class AutomaticRecommendationTests(unittest.TestCase):
         result = recommender.recommend("Diagnose an ordinary Docker container issue")
         self.assertFalse(result["hosted_attempted"])
         self.assertEqual(constructed, [])
-        self.assertNotEqual(result.get("policy_data_class"), "sanitized")
-        self.assertNotEqual(result.get("policy_reason_code"), "local_scan_allowed")
+        self.assertEqual(result.get("policy_data_class"), "unknown")
+        self.assertEqual(result.get("policy_status"), "unknown")
+        self.assertEqual(result.get("policy_reason"), "local_scan_unclassified")
+        self.assertEqual(result.get("hosted_skipped"), "local_scan_unclassified")
 
     def test_ack_false_blocks_hosted_call_without_envelope(self):
         constructed = []
