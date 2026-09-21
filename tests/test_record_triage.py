@@ -621,6 +621,7 @@ class InputValidationTests(TriageCase):
         del record["data_class"]
         self.assert_rejected_before_provider([record])
         self.assert_rejected_before_provider([_record("rec-001", data_class="private")])
+        self.assert_rejected_before_provider([_record("rec-001", data_class=["public"])])
 
     def test_unknown_fields_oversize_and_count_are_rejected(self):
         self.assert_rejected_before_provider([_record("rec-001", secret_field="x")])

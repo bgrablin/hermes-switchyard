@@ -230,7 +230,10 @@ def safe_usage(value: Any) -> dict[str, float | None]:
 
 def merge_usage(total: dict[str, float | None], usage: Any) -> None:
     """Add allowlisted usage fields. A missing cost stays unknown, never zero."""
-    for key, value in safe_usage(usage).items():
+    parsed = safe_usage(usage)
+    if "cost" not in parsed:
+        total["cost"] = None
+    for key, value in parsed.items():
         if value is None:
             total[key] = None
             continue
