@@ -128,10 +128,26 @@ CONSUMPTION_CONTRACT_FIELDS = frozenset({
 DELIVERY_STATUSES = frozenset({"delivered", "not_delivered", "skipped"})
 ADOPTION_STATUSES = frozenset({"adopted", "not_adopted", "suppressed", "not_applicable"})
 OUTCOME_STATUSES = frozenset({"unverified"})
+# Exact valid (delivery_status, adoption_status) pairs. Contradictory mixes
+# such as skipped+not_adopted are rejected in normalize and validate.
+VALID_DELIVERY_ADOPTION_PAIRS = frozenset({
+    ("delivered", "adopted"),
+    ("delivered", "not_adopted"),
+    ("skipped", "suppressed"),
+    ("not_delivered", "not_applicable"),
+})
 # `advisory_only` means "no skill was loaded in this operation." A terminal
 # consumer receipt records the load outcome instead, so `advisory_only` may
 # be False only when the receipt carries a valid consumer record.
 _CONSUMER_STATUSES = frozenset({"loaded", "load_failed", "explicit_override", "mandatory_conflict"})
+# When both a consumer record and a consumption contract are present, the
+# pair must match the consumer outcome exactly.
+_CONSUMER_CONTRACT_EXPECTATIONS = {
+    "loaded": ("delivered", "adopted"),
+    "load_failed": ("delivered", "not_adopted"),
+    "explicit_override": ("skipped", "suppressed"),
+    "mandatory_conflict": ("skipped", "suppressed"),
+}
 
 
 def _plugin_root(repo_dir: Path | str | None = None) -> Path:
@@ -474,12 +490,13 @@ def normalize_receipt(receipt: Any) -> dict[str, Any] | None:
             or outcome_status not in OUTCOME_STATUSES
         ):
             return None
-        # Invariants: adopted requires delivery; suppressed requires skipped delivery;
-        # the plugin never claims a verified outcome from delivery alone.
-        if adoption_status == "adopted" and delivery_status != "delivered":
+        # Exact valid pairs only; contradictory mixes are dropped.
+        if (delivery_status, adoption_status) not in VALID_DELIVERY_ADOPTION_PAIRS:
             return None
-        if adoption_status == "suppressed" and delivery_status != "skipped":
-            return None
+        if consumer_status is not None:
+            expected = _CONSUMER_CONTRACT_EXPECTATIONS.get(consumer_status)
+            if expected is None or (delivery_status, adoption_status) != expected:
+                return None
         receipt["delivery_status"] = delivery_status
         receipt["adoption_status"] = adoption_status
         receipt["outcome_status"] = "unverified"
@@ -511,9 +528,10 @@ def validate_receipt(receipt: Any) -> bool:
             or receipt.get("outcome_status") not in OUTCOME_STATUSES
         ):
             return False
-        if receipt["adoption_status"] == "adopted" and receipt["delivery_status"] != "delivered":
-            return False
-        if receipt["adoption_status"] == "suppressed" and receipt["delivery_status"] != "skipped":
+        if (
+            receipt["delivery_status"],
+            receipt["adoption_status"],
+        ) not in VALID_DELIVERY_ADOPTION_PAIRS:
             return False
         # Never accept a claimed outcome improvement on a plugin receipt.
         if receipt["outcome_status"] != "unverified":
@@ -534,6 +552,13 @@ def validate_receipt(receipt: Any) -> bool:
             if receipt.get("loaded_skill") is not None or receipt.get("loaded_source") is not None:
                 return False
             if status == "load_failed" and receipt.get("skill_load_verified") is not False:
+                return False
+        if contract_present:
+            expected = _CONSUMER_CONTRACT_EXPECTATIONS.get(status)
+            if expected is None or (
+                receipt["delivery_status"],
+                receipt["adoption_status"],
+            ) != expected:
                 return False
     if receipt["terminal_state"] not in RECEIPT_TERMINAL_STATES:
         return False
