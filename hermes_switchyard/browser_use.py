@@ -34,7 +34,7 @@ from .client import (
     operation_remaining_deadline,
     request_budget_scope,
 )
-from .destination_policy import DestinationGuard, DestinationPolicyError, redact_url
+from .destination_policy import DestinationGuard, DestinationPolicyError, ValidatingProxy, redact_url
 
 
 MAX_PAGE_ELEMENTS = 48
@@ -1490,7 +1490,18 @@ class _ChromeWebSocket:
 class ChromiumSession:
     """Chrome DevTools session over a local Chromium-family browser."""
 
-    def __init__(self, start_url: str, *, headed: bool = False):
+    def __init__(
+        self,
+        start_url: str,
+        *,
+        headed: bool = False,
+        # Test seams. Production callers use the defaults: pinning on, system resolver.
+        _pin_connections: bool = True,
+        _guard_resolver: Any = None,
+        _proxy_resolver: Any = None,
+        _extra_args: list[str] | None = None,
+        _profile_overrides: dict[str, Any] | None = None,
+    ):
         # The start URL is decided, including host resolution, before a browser
         # process exists. A refusal here costs no launch and no provider request.
         decision = destination_policy.check_destination(start_url, resolve=True)
@@ -1516,6 +1527,11 @@ class ChromiumSession:
         self._reader_stopped = False
         self._pool: ThreadPoolExecutor | None = None
         self._guard: DestinationGuard | None = None
+        self._proxy: ValidatingProxy | None = None
+        self._early_refusals: list[tuple[str, str]] = []
+        self._early_lock = threading.Lock()
+        self._pinned = bool(_pin_connections)
+        self._guard_resolver = _guard_resolver
         self._target_id = ""
         self._port = _free_localhost_port()
         port = self._port
@@ -1526,10 +1542,36 @@ class ChromiumSession:
         except OSError:
             pass
         try:
-            _write_profile_preferences(profile)
+            _write_profile_preferences(profile, _profile_overrides)
         except OSError as exc:
             self._tmpdir.cleanup()
             raise BrowserStartupError("browser_profile_not_writable") from exc
+        proxy_args: list[str] = []
+        if self._pinned:
+            # Every browser connection goes through a loopback proxy that resolves a
+            # host once, validates every address, and dials the validated literal, so
+            # Chrome never resolves the name a second time. <-loopback> removes the
+            # implicit proxy bypass so even loopback targets reach the proxy and are
+            # refused there. QUIC would otherwise skip an HTTP proxy, and the profile
+            # preferences stop non-proxied WebRTC UDP. Background networking is off so
+            # the browser's own plain-HTTP housekeeping is not sent to the proxy.
+            self._proxy = ValidatingProxy(
+                resolver=_proxy_resolver,
+                on_refusal=self._on_proxy_refusal,
+            )
+            try:
+                proxy_port = self._proxy.start()
+            except OSError as exc:
+                self._tmpdir.cleanup()
+                raise DestinationPolicyError("pinning_unavailable") from exc
+            proxy_args = [
+                f"--proxy-server=http://127.0.0.1:{proxy_port}",
+                "--proxy-bypass-list=<-loopback>",
+                "--disable-quic",
+                "--disable-background-networking",
+                # Chrome's own time query is plain HTTP and would be refused at the proxy.
+                "--disable-features=NetworkTimeServiceQuerying",
+            ]
         # The browser starts on about:blank. Starting it on the start URL would
         # load that page, and follow its redirects, before interception exists.
         command = [
@@ -1541,6 +1583,8 @@ class ChromiumSession:
             "--no-default-browser-check",
             "--block-new-web-contents",
             f"--remote-allow-origins=http://127.0.0.1:{port}",
+            *proxy_args,
+            *(_extra_args or []),
             "about:blank",
         ]
         if os.name != "nt":
@@ -1551,19 +1595,33 @@ class ChromiumSession:
             command.extend(["--window-position=40,40", "--window-size=1400,1000"])
         log_path = Path(self._tmpdir.name) / "browser.log"
         log_file = open(log_path, "w", encoding="utf-8")
-        self._proc = subprocess.Popen(
-            command,
-            stdout=log_file,
-            stderr=log_file,
-            text=True,
-        )
+        try:
+            self._proc = subprocess.Popen(
+                command,
+                stdout=log_file,
+                stderr=log_file,
+                text=True,
+            )
+        except Exception:
+            log_file.close()
+            self.close()  # stops the proxy and removes the profile this call created
+            raise
         try:
             ws_url = _wait_debugger_url(port, proc=self._proc, log_path=log_path)
             self._target_id = urlsplit(ws_url).path.rsplit("/", 1)[-1]
             self._ws = _ChromeWebSocket(ws_url)
             self._ws.set_blocking()
             self._pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="switchyard-destination")
-            self._guard = DestinationGuard(self._transmit, executor=self._pool)
+            self._guard = DestinationGuard(
+                self._transmit,
+                executor=self._pool,
+                resolver=self._guard_resolver,
+                pinned=self._pinned,
+            )
+            with self._early_lock:
+                backlog, self._early_refusals = self._early_refusals, []
+            for code, host in backlog:
+                self._guard.record_proxy_refusal(code, host)
             self._reader = threading.Thread(target=self._read_loop, name="switchyard-cdp-reader", daemon=True)
             self._reader.start()
             self._install_interception()
@@ -1574,7 +1632,7 @@ class ChromiumSession:
         except Exception as exc:
             log_file.close()
             if isinstance(exc, DestinationPolicyError) and self._guard is not None:
-                exc.report = self._guard.report()  # type: ignore[attr-defined]
+                exc.report = self._policy_report()  # type: ignore[attr-defined]
             try:
                 self.close()
             except Exception:
@@ -1592,6 +1650,7 @@ class ChromiumSession:
             "confinement": self.confinement,
             "setup_ms": self.setup_ms,
             "destination_enforcement": destination_policy.ENFORCEMENT,
+            "connection_pinning": self._pinned,
         }
 
     def observe(self) -> dict[str, Any]:
@@ -1655,6 +1714,9 @@ class ChromiumSession:
                 except subprocess.TimeoutExpired:
                     pass
             self._proc = None
+        if self._proxy is not None:
+            self._proxy.stop()
+            self._proxy = None
         # Snap Chromium's helper processes can hold the profile briefly after
         # the main process exits. Retry bounded cleanup so the per-run
         # directory is removed exactly instead of being silently left behind.
@@ -1775,10 +1837,30 @@ class ChromiumSession:
 
     def destination_report(self) -> dict[str, Any]:
         guard = self._guard
+        if guard is not None:
+            guard.wait_idle(0.5)
+        return self._policy_report()
+
+    def _policy_report(self) -> dict[str, Any]:
+        """Guard evidence plus proxy tunnel counts, captured before the proxy stops."""
+        guard = self._guard
         if guard is None:
-            return destination_policy.static_report("interception_not_installed")
-        guard.wait_idle(0.5)
-        return guard.report()
+            report = destination_policy.static_report("interception_not_installed")
+        else:
+            report = guard.report()
+        proxy = self._proxy
+        if proxy is not None:
+            report.update(proxy.stats())
+        return report
+
+    def _on_proxy_refusal(self, code: str, host: str) -> None:
+        with self._early_lock:
+            guard = self._guard
+            if guard is None:
+                # A refusal before the guard exists is kept, not dropped, and flushed below.
+                self._early_refusals.append((code, host))
+                return
+        guard.record_proxy_refusal(code, host)
 
     def extra_page_targets(self) -> int:
         """Count page targets other than this session's; a popup would be one."""
@@ -1944,16 +2026,26 @@ def _browser_profile_dir(binary: Path | str | None = None) -> tempfile.Temporary
 # navigation. The per-run profile turns network prediction off, which removes
 # that connect. This was verified against the installed Chromium by the
 # real-browser tests; it is a browser-version-dependent setting, not a promise.
+# The webrtc keys stop non-proxied UDP: a page-created RTCPeerConnection with a
+# STUN server on loopback sent datagrams there even under the proxy, and the
+# --force-webrtc-ip-handling-policy launch switch did not prevent it. The profile
+# preferences did.
 _PROFILE_PREFERENCES = {
     "net": {"network_prediction_options": 2},
     "dns_prefetching": {"enabled": False},
+    "webrtc": {
+        "ip_handling_policy": "disable_non_proxied_udp",
+        "multiple_routes_enabled": False,
+        "nonproxied_udp_enabled": False,
+    },
 }
 
 
-def _write_profile_preferences(profile: Path) -> None:
+def _write_profile_preferences(profile: Path, overrides: dict[str, Any] | None = None) -> None:
     default = profile / "Default"
     default.mkdir(mode=0o700, parents=True, exist_ok=True)
-    (default / "Preferences").write_text(json.dumps(_PROFILE_PREFERENCES), encoding="utf-8")
+    preferences = {**_PROFILE_PREFERENCES, **(overrides or {})}
+    (default / "Preferences").write_text(json.dumps(preferences), encoding="utf-8")
 
 
     if os.name == "nt":
