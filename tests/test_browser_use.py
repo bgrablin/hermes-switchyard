@@ -1156,7 +1156,16 @@ class BrowserReliabilityTests(unittest.TestCase):
             ({"goal": "upload the report as an attachment"}, "dom_file_upload_unsupported"),
             ({"goal": "use the browser I have open to check the cart"}, "dom_existing_session_unsupported"),
             ({"goal": "open the article", "allowed_hotkeys": ["SUBMIT"]}, "dom_hotkey_unsupported"),
-        ]
+            ({"goal": "authenticate at https://example.org/"}, "dom_authentication_unsupported"),
+            ({"goal": "sign up for an account"}, "dom_authentication_unsupported"),
+            ({"goal": "register for the site"}, "dom_authentication_unsupported"),
+            ({"goal": "log into the site"}, "dom_authentication_unsupported"),
+            ({"goal": "typing into the search field"}, "dom_text_input_unsupported"),
+            ({"goal": "uploading the report as an attachment"}, "dom_file_upload_unsupported"),
+            ({"goal": "download the attachments"}, "dom_file_upload_unsupported"),
+            ({"goal": "use my session to check the cart"}, "dom_existing_session_unsupported"),
+            ({"goal": "already authenticated, open the page"}, "dom_existing_session_unsupported"),
+            ]
         for args, expected in cases:
             with self.subTest(args=args):
                 client = ScriptedClient([])
@@ -1183,11 +1192,11 @@ class BrowserReliabilityTests(unittest.TestCase):
         class IdentifiedSession(StaticSession):
             def backend_info(self):
                 return {
-                    "backend": "chromium_dom",
-                    "session_mode": "ephemeral_fresh_profile",
-                    "browser": "chromium",
-                    "confinement": "snap",
-                    "setup_ms": 412.5,
+                "backend": "chromium_dom",
+                "session_mode": "headless_ephemeral",
+                "browser": "chromium",
+                "confinement": "snap",
+                "setup_ms": 412.5,
                 }
 
         session = IdentifiedSession(
@@ -1207,7 +1216,7 @@ class BrowserReliabilityTests(unittest.TestCase):
         )
         result = run_browser_goal(goal="Confirm the page", session=session, client=client, max_steps=2)
         self.assertEqual(result["backend"], "chromium_dom")
-        self.assertEqual(result["session_mode"], "ephemeral_fresh_profile")
+        self.assertEqual(result["session_mode"], "headless_ephemeral")
         self.assertEqual(result["browser"], "chromium")
         self.assertEqual(result["browser_confinement"], "snap")
         self.assertEqual(result["session_setup_ms"], 412.5)
@@ -1225,11 +1234,102 @@ class BrowserReliabilityTests(unittest.TestCase):
                 client=client,
                 max_steps=3,
             )
-        self.assertEqual(result["status"], "blocked")
-        self.assertEqual(result["failure_phase"], "browser_startup")
-        self.assertEqual(result["failure_reason"], "browser_profile_not_writable")
-        self.assertEqual(result["attempted_request_count"], 0)
-        self.assertEqual(client.calls, [])
+            self.assertEqual(result["status"], "blocked")
+            self.assertEqual(result["failure_phase"], "browser_startup")
+            self.assertEqual(result["failure_reason"], "browser_profile_not_writable")
+            self.assertEqual(result["attempted_request_count"], 0)
+            self.assertEqual(client.calls, [])
+
+    def test_low_confidence_or_ambiguous_decision_abstains_before_dispatch(self):
+        page = {
+            "url": "https://example.org/",
+            "title": "Start",
+            "text": "one link",
+            "elements": [{"id": "1", "label": "Next page", "href": "https://example.org/next", "role": "link"}],
+        }
+        low_confidence = {
+            "operation": {"choice": "CLICK", "probabilities": {"CLICK": 0.2, "DONE": 0.2, "SCROLL_DOWN": 0.2, "SCROLL_UP": 0.2, "WAIT": 0.2}, "confidence": 0.01},
+            "click_target": {"choice": "1", "probabilities": {"1": 1.0}, "confidence": 0.9},
+        }
+        ambiguous = {
+            "operation": {"choice": "CLICK", "probabilities": {"CLICK": 0.51, "DONE": 0.49}, "confidence": 0.9},
+            "click_target": {"choice": "1", "probabilities": {"1": 1.0}, "confidence": 0.9},
+        }
+        for answers, expected_phase in ((low_confidence, "low_confidence"), (ambiguous, "ambiguous_decision")):
+            with self.subTest(expected_phase=expected_phase):
+                session = StaticSession(page)
+                client = ScriptedClient([answers])
+                result = run_browser_goal(goal="Open the next page", session=session, client=client, max_steps=4)
+                self.assertEqual(result["status"], "abstained")
+                self.assertEqual(result["failure_phase"], expected_phase)
+                self.assertEqual(session.clicks, [])
+                self.assertEqual(result["action_dispatched_count"], 0)
+                self.assertEqual(result["attempted_request_count"], 1)
+
+    def test_disconnect_after_dispatch_preserves_action_evidence(self):
+        class DisconnectingSession(StaticSession):
+            def __init__(self, page):
+                super().__init__(page)
+                self.disconnected = False
+
+            def observe(self):
+                if self.disconnected:
+                    raise OSError("browser transport closed")
+                return dict(self.page)
+
+            def click(self, element_id, label="", href=""):
+                self.clicks.append(element_id)
+                self.disconnected = True
+
+        session = DisconnectingSession({
+            "url": "https://example.org/",
+            "title": "Start",
+            "text": "one link",
+            "elements": [{"id": "1", "label": "Next page", "href": "https://example.org/next", "role": "link"}],
+        })
+        client = ScriptedClient([{
+            "operation": _choice("CLICK", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "DONE": "d", "BLOCKED": "b"}),
+            "click_target": _choice("1", {"1": "Next page"}),
+        }])
+        result = run_browser_goal(goal="Open the next page", session=session, client=client, max_steps=4)
+        self.assertEqual(result["status"], "partial_failure")
+        self.assertEqual(result["failure_phase"], "action")
+        self.assertEqual(result["action_dispatched_count"], 1)
+        self.assertTrue(result["reconcile_before_retry"])
+        action = result["actions"][0]
+        self.assertIs(action["action_dispatched"], True)
+        self.assertIsNone(action["effect_observed"])
+
+    def test_receipt_state_hash_matches_the_reported_page_after_an_action(self):
+        session = FakeSession({
+            "https://en.wikipedia.org/wiki/Cat": {
+                "title": "Cat",
+                "text": "Cat article body",
+                "elements": [{"id": "1", "label": "Felidae", "href": "https://en.wikipedia.org/wiki/Felidae", "role": "link"}],
+            },
+            "https://en.wikipedia.org/wiki/Felidae": {
+                "title": "Felidae",
+                "text": "Felidae article body",
+                "elements": [],
+            },
+        })
+        client = ScriptedClient([{
+            "operation": _choice("CLICK", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "DONE": "d", "BLOCKED": "b"}),
+            "click_target": _choice("1", {"1": "Felidae"}),
+        }])
+        result = run_browser_goal(goal="Reach Felidae", session=session, client=client, max_steps=1)
+        self.assertEqual(result["status"], "budget_exhausted")
+        final_page = session.observe()
+        self.assertEqual(result["last_state_hash"], browser_use._observation_signature(final_page))
+
+    def test_snap_profile_dir_unwritable_raises_structured_error(self):
+        with tempfile.TemporaryDirectory() as raw:
+            blocker = Path(raw) / "not-a-directory"
+            blocker.write_text("x", encoding="utf-8")
+            with mock.patch.object(Path, "home", classmethod(lambda cls: blocker)):
+                with self.assertRaises(browser_use.BrowserStartupError) as ctx:
+                    browser_use._browser_profile_dir("snap")
+                self.assertEqual(ctx.exception.code, "snap_profile_unavailable")
 
     def test_wrapper_script_is_detected_as_snap_confinement(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -1370,34 +1470,35 @@ class SnapshotRecallTests(unittest.TestCase):
             labels = [item["label"] for item in offered]
 
             expected = self.BODY_LINKS + self.OTHER_LINKS
-            self.assertGreaterEqual(
-                total,
-                expected - 5,
-                f"the snapshot considered only {total} targets; the article-body "
-                f"selector replaced the broader candidate set instead of extending it",
-            )
+            # The scan is viewport-windowed, so one snapshot considers only a
+            # bounded prefix of the page, while the article-body selector
+            # extends the candidate set instead of replacing it.
+            self.assertLess(total, expected)
             self.assertLessEqual(len(offered), browser_use.MAX_PAGE_ELEMENTS)
+            self.assertTrue(any(label.startswith("Body link") for label in labels))
+            self.assertTrue(any(label.startswith("Other link") for label in labels))
 
-            for _ in range(6):
+            seen = set(labels)
+            for _ in range(14):
                 session.scroll("down")
+                observed = session.observe()
+                seen.update(item["label"] for item in observed.get("elements") or [])
+            tail_labels = {label for label in seen if label.startswith("Other link")}
+            self.assertTrue(
+                any(int(label.rsplit(" ", 1)[1]) > 48 for label in tail_labels),
+                "no target beyond the first 48 ever became reachable after scrolling",
+            )
+            self.assertIn(
+                f"Other link {self.OTHER_LINKS}",
+                tail_labels,
+                "the candidate tail never became reachable",
+            )
+
             second = session.observe()
             second_ids = [item["id"] for item in second.get("elements") or []]
-            second_labels = [item["label"] for item in second.get("elements") or []]
-
-            advanced = set(second_labels).difference(labels)
-            self.assertTrue(
-                advanced,
-                "scrolling did not advance the offered window beyond the article body",
-            )
-            self.assertTrue(
-                any(label.startswith("Other link") for label in advanced),
-                f"targets outside the article body never became reachable: {sorted(advanced)[:6]}",
-            )
-
             third = session.observe()
             third_ids = [item["id"] for item in third.get("elements") or []]
             self.assertEqual(set(third_ids), set(second_ids))
-
 
 if __name__ == "__main__":
     unittest.main()

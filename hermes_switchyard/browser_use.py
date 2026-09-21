@@ -37,17 +37,41 @@ from .client import (
 MAX_PAGE_ELEMENTS = 48
 MAX_PAGE_TEXT = 4000
 MAX_SCANNED_CANDIDATES = 600
+MAX_SCAN_WINDOW_VIEWPORTS = 3
 NO_PROGRESS_LIMIT = 2
 LOCAL_SCROLL_RECOVERY_LIMIT = 3
+MIN_ACTION_CONFIDENCE = 0.6
+MIN_ACTION_MARGIN = 0.1
 DOM_BACKEND = "chromium_dom"
-DOM_SESSION_MODE = "ephemeral_fresh_profile"
+# The session-mode vocabulary is explicit so a caller can tell a fresh
+# headless session apart from the modes this backend deliberately does not
+# provide (managed_persistent, attached_existing_user_browser).
+DOM_SESSION_MODES = ("headless_ephemeral", "managed_persistent", "attached_existing_user_browser")
+DOM_SESSION_MODE = "headless_ephemeral"
+DOM_CAPABILITIES = {
+    "click": True,
+    "scroll": True,
+    "wait": True,
+    "done": True,
+    "typing": False,
+    "upload": False,
+    "authentication": False,
+    "existing_session": False,
+    "hotkeys": False,
+}
 _COMPLETION_FIELDS = ("url_equals", "url_contains", "title_contains", "text_contains", "element_label")
 _QUOTED_TITLE_DERIVATION = re.compile(r'title\s+(?:contains|equals|is)\s+"([^"]{3,120})"', re.I)
+# Each family carries the wording variants that mean the same unsupported
+# requirement: a base form, its -ing/-ion inflections, and the phrasal forms a
+# caller may write instead ("log into" as well as "log in"). A narrow list lets a
+# goal that needs one of these capabilities reach the provider and spend a
+# request only to discover the mismatch, which is the cost this preflight exists
+# to avoid.
 _CAPABILITY_SIGNALS = (
-    ("dom_text_input_unsupported", re.compile(r"(?i)\b(?:type|enter|fill|write)\b.{0,40}\b(?:field|box|input|form|search|url bar)\b")),
-    ("dom_file_upload_unsupported", re.compile(r"(?i)\b(?:upload|attach(?:ment)?|choose file|file picker)\b")),
-    ("dom_authentication_unsupported", re.compile(r"(?i)\b(?:log ?in|sign ?in|log ?out|sign ?out|password|credentials?|2fa|verification code)\b")),
-    ("dom_existing_session_unsupported", re.compile(r"(?i)\b(?:my (?:account|inbox|browser)|already (?:open|signed in|logged in)|existing (?:session|browser|profile)|the browser i have open)\b")),
+    ("dom_text_input_unsupported", re.compile(r"(?i)\b(?:typ(?:e|es|ed|ing)|enter(?:s|ed|ing)?|fill(?:s|ed|ing)?|writ(?:e|es|ing|ten))\b[^.]{0,40}\b(?:field|box|input|form|search|url bar|textbox)\b")),
+    ("dom_file_upload_unsupported", re.compile(r"(?i)\b(?:upload(?:s|ed|ing)?|attach(?:es|ed|ing|ment|ments)?|choose file|file picker)\b")),
+    ("dom_authentication_unsupported", re.compile(r"(?i)\b(?:log ?in|log ?into|log ?out|sign ?in|sign ?into|sign ?up|sign ?out|log ?on|authenticat\w*|authoriz\w*|register(?:s|ed|ing|ation)?|credentials?)\b|\bpassword\b|\b2fa\b|verification code")),
+    ("dom_existing_session_unsupported", re.compile(r"(?i)\b(?:my (?:account|inbox|browser|session)|already (?:open|signed in|logged in|authenticated)|existing (?:session|browser|profile)|the browser i have open|current (?:session|browser|profile))\b")),
 )
 _URL_IN_TEXT = re.compile(r"https?://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+", re.I)
 _UNSAFE_URI = re.compile(r"(?i)\b(?:file|javascript|data|about|vbscript|blob):")
@@ -124,6 +148,11 @@ _SNAPSHOT_JS = """(() => {
   function collect(selector) {
     const found = [];
     const skipLabel = /^(toggle|hide|move to sidebar|\\d+(\\.\\d+)*\\s)/i;
+    // Only candidates inside a bounded window around the current viewport are
+    // considered, so a target beyond the DOM-order prefix becomes eligible as
+    // the page scrolls toward it instead of being stranded behind the bound.
+    const windowTop = scrollY - viewportHeight * __SWITCHYARD_SCAN_WINDOW__;
+    const windowBottom = scrollY + viewportHeight * (1 + __SWITCHYARD_SCAN_WINDOW__);
     for (const el of root.querySelectorAll(selector)) {
       if (found.length >= __SWITCHYARD_SCAN_BOUND__) break;
       if (el.closest("#toc, .toc, nav, [role=navigation], .vector-toc, .mw-cite-backlink, .interlanguage-link, .mw-portlet, .navbox, .vector-dropdown, .reference")) continue;
@@ -136,7 +165,9 @@ _SNAPSHOT_JS = """(() => {
       let article = "";
       try { article = new URL(href, location.href).pathname.replace(/^\\/wiki\\//, ""); } catch (e) { article = hrefAttr; }
       if (article.includes(":")) continue;
-      found.push({ el, role: (el.getAttribute("role") || (el.tagName === "A" ? "link" : "button")).toLowerCase(), label, href, placement: placementOf(el) });
+      const placement = placementOf(el);
+    if (placement.top < windowTop || placement.top > windowBottom) continue;
+    found.push({ el, role: (el.getAttribute("role") || (el.tagName === "A" ? "link" : "button")).toLowerCase(), label, href, placement });
     }
     return found;
   }
@@ -192,8 +223,9 @@ _SNAPSHOT_JS = """(() => {
 # The scan bound and the offered window are single-sourced here so the JS
 # cannot drift from the constants the rest of the module reasons about.
 _SNAPSHOT_JS = (
-    _SNAPSHOT_JS.replace("__SWITCHYARD_SCAN_BOUND__", str(MAX_SCANNED_CANDIDATES))
-    .replace("__SWITCHYARD_PAGE_ELEMENTS__", str(MAX_PAGE_ELEMENTS))
+_SNAPSHOT_JS.replace("__SWITCHYARD_SCAN_BOUND__", str(MAX_SCANNED_CANDIDATES))
+.replace("__SWITCHYARD_PAGE_ELEMENTS__", str(MAX_PAGE_ELEMENTS))
+.replace("__SWITCHYARD_SCAN_WINDOW__", str(MAX_SCAN_WINDOW_VIEWPORTS))
 )
 
 
@@ -397,6 +429,49 @@ def _failure_reason(exc: BaseException) -> str:
     return "unexpected_failure"
 
 
+def _decision_quality(answer: Any) -> tuple[float | None, float | None]:
+    """Read a choice's confidence and its margin over the runner-up.
+
+    Both are defensive: a missing or non-numeric field yields None, which the
+    gate treats as no signal rather than a reason to dispatch.
+    """
+    if not isinstance(answer, dict):
+        return None, None
+    confidence = answer.get("confidence")
+    if not isinstance(confidence, (int, float)) or isinstance(confidence, bool):
+        confidence = None
+    probabilities = answer.get("probabilities")
+    margin = None
+    if isinstance(probabilities, dict):
+        values = sorted(
+            (
+                float(value)
+                for value in probabilities.values()
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+            ),
+            reverse=True,
+        )
+        if len(values) >= 2:
+            margin = values[0] - values[1]
+    return confidence, margin
+
+
+def _gate_decision(answer: Any) -> str | None:
+    """Return the abstain phase for a low-confidence or ambiguous choice.
+
+    An action that mutates the page is dispatched only when the choice's own
+    confidence and its margin over the runner-up clear the configured floors.
+    The floors are conservative for the public-navigation risk class and are
+    single-sourced constants, not values copied from another task.
+    """
+    confidence, margin = _decision_quality(answer)
+    if confidence is not None and confidence < MIN_ACTION_CONFIDENCE:
+        return "low_confidence"
+    if margin is not None and margin < MIN_ACTION_MARGIN:
+        return "ambiguous_decision"
+    return None
+
+
 def _startup_failure_reason(exc: BaseException) -> str:
     """Map one browser startup failure to a bounded local diagnostic code."""
     if isinstance(exc, BrowserStartupError):
@@ -574,6 +649,7 @@ def run_browser_goal(
                 condition=condition,
             )
     except TimeoutError:
+        progress["last_state_hash"] = _observation_signature(page)
         return _browser_receipt(
             operation_id=operation_id,
             goal=goal,
@@ -587,7 +663,8 @@ def run_browser_goal(
             condition=condition,
             reconcile_before_retry=True,
         )
-    except Exception as exc:  # noqa: BLE001 -- every terminal path must keep action evidence
+    except Exception as exc: # noqa: BLE001 -- every terminal path must keep action evidence
+        progress["last_state_hash"] = _observation_signature(page)
         return _browser_receipt(
             operation_id=operation_id,
             goal=goal,
@@ -646,10 +723,14 @@ def _run_browser_loop(
     """
 
     def finish(**fields: Any) -> dict[str, Any]:
+        reported = fields.pop("page", page)
+        # Every receipt hashes the page it reports, so a terminal path can
+        # never pair a stale state hash with a newer observation.
+        progress["last_state_hash"] = _observation_signature(reported)
         return _browser_receipt(
             operation_id=operation_id,
             goal=goal,
-            page=fields.pop("page", page),
+            page=reported,
             actions=actions,
             decisions=decisions,
             started=started,
@@ -814,6 +895,15 @@ def _run_browser_loop(
         label = operation
         target_id = None
         operation_remaining_deadline()
+        gate = _gate_decision(operation_answer)
+        if gate is None and operation == "CLICK":
+            gate = _gate_decision(answers.get("click_target"))
+        if gate is not None:
+            return finish(
+                page=page,
+                status="abstained",
+                failure_phase=gate,
+            )
         action_dispatched: bool | None = None
         try:
             if operation == "CLICK":
@@ -943,7 +1033,9 @@ def _run_browser_loop(
                 progressed = True
                 actions[-1]["local_scroll_recovery"] = True
         stalled = 0 if progressed else stalled + 1
-        page = after
+        page.clear()
+        page.update(after)
+        progress["last_state_hash"] = _observation_signature(page)
         completion = _completion_status(condition, page)
         if completion is not None and completion["satisfied"] and len(actions) >= min_actions_before_done:
             return finish(
@@ -1051,6 +1143,13 @@ def _browser_receipt(
         "executor": "browser_dom",
         "backend": DOM_BACKEND,
         "session_mode": DOM_SESSION_MODE,
+        "capabilities": dict(DOM_CAPABILITIES),
+        "session_identity": {
+            "mode": DOM_SESSION_MODE,
+            "profile": "fresh_ephemeral",
+            "context_generation": 1,
+            "tab": "single_tab",
+        },
         "browser": state.get("browser"),
         "browser_confinement": state.get("confinement"),
         "computer_use_dispatches": 0,
