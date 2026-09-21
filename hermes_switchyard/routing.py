@@ -10,6 +10,7 @@ import json
 import math
 from typing import Any
 
+from . import receipt_state
 from .client import (
     DEFAULT_OPERATION_DEADLINE_SECONDS,
     EXPECTED_MODEL,
@@ -142,14 +143,18 @@ def _decision_metadata(result: Any) -> dict[str, Any]:
     usage = result.get("usage") or {}
     if not isinstance(usage, dict):
         raise TypeError("Jev response usage must be an object")
+    bounded_usage = receipt_state.safe_usage(usage)
+    total_usage = result.get("total_usage", usage)
+    if not isinstance(total_usage, dict):
+        raise TypeError("Jev response total_usage must be an object")
     return {
         "model": result.get("model"),
         "request_id": result.get("request_id"),
         "latency_ms": result.get("latency_ms"),
-        "usage": usage,
+        "usage": bounded_usage,
         "request_count": int(result.get("request_count") or 1),
         "total_latency_ms": result.get("total_latency_ms", result.get("latency_ms")),
-        "total_usage": result.get("total_usage", usage),
+        "total_usage": receipt_state.safe_usage(total_usage),
     }
 
 
@@ -162,11 +167,7 @@ def _aggregate_metadata(calls: list[dict[str, Any]]) -> dict[str, Any]:
         if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0:
             latency += float(value)
         request_count += int(call.get("request_count") or 1)
-        for key, item in (call.get("usage") or {}).items():
-            if isinstance(item, (int, float)) and not isinstance(item, bool) and math.isfinite(item):
-                usage[key] = float(usage.get(key, 0.0)) + float(item)
-            elif key not in usage:
-                usage[key] = item
+        receipt_state.merge_usage(usage, call.get("usage") or {})
     return {"total_latency_ms": latency, "total_usage": usage, "request_count": request_count}
 
 
