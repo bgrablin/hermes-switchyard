@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import hashlib
 import os
+import re
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from . import receipt_state, schemas
@@ -36,11 +38,31 @@ _UNREGISTERED_RUNTIME_STATUS = {
 }
 _RUNTIME_STATUS = dict(_UNREGISTERED_RUNTIME_STATUS)
 
+# A session exposes a tool only when the toolset it is registered under is selected for that
+# session. jev_computer_use rides Hermes' computer_use toolset; every other tool lives on the
+# plugin's own toolset. A toolset pin that omits either one drops that group of tools.
+COMPUTER_USE_TOOLSET = "computer_use"
+PLUGIN_TOOLSET = "hermes_switchyard"
+TOOL_TOOLSETS = {
+    "jev_assess": PLUGIN_TOOLSET,
+    "jev_computer_use": COMPUTER_USE_TOOLSET,
+    "jev_skill_select": PLUGIN_TOOLSET,
+    "jev_skill_select_many": PLUGIN_TOOLSET,
+    "jev_model_route": PLUGIN_TOOLSET,
+}
+
+# Handlers this process passed to ctx.register_tool, by tool name. Comparing them with the
+# Hermes registry separates "this plugin called register_tool" from "Hermes holds this
+# plugin's registration": the registry rejects a name another registration already owns
+# under a different toolset without raising.
+_REGISTERED_HANDLERS: dict[str, Any] = {}
+
 
 def reset_runtime_status() -> None:
     """Clear register-time status. Tests use this to model a fresh process."""
     _RUNTIME_STATUS.clear()
     _RUNTIME_STATUS.update(_UNREGISTERED_RUNTIME_STATUS)
+    _REGISTERED_HANDLERS.clear()
 
 
 def _publish_runtime_status(
@@ -81,6 +103,258 @@ def _after_install_text() -> str:
     )
 
 
+def _plugin_version() -> str | None:
+    """Return the version this copy of the plugin declares, or None when unreadable."""
+    path = Path(__file__).resolve().parent.parent / "plugin.yaml"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = re.search(r"^version:\s*([^\s#]+)", text, flags=re.MULTILINE)
+    return match.group(1).strip("\"'") if match else None
+
+
+def _load_hermes_seams() -> SimpleNamespace:
+    """Load the Hermes entry points the exposure report reads.
+
+    Each seam loads on its own, so a Hermes that moved one of them still yields whatever
+    evidence the others provide. A missing seam is reported, never guessed.
+    """
+    seams = SimpleNamespace(
+        registry=None,
+        get_tool_definitions=None,
+        resolve_toolset=None,
+        validate_toolset=None,
+        default_selection=None,
+    )
+    try:
+        from tools.registry import registry
+
+        seams.registry = registry
+    except Exception:  # noqa: BLE001 -- absent or incompatible Hermes runtime
+        pass
+    try:
+        import model_tools
+
+        seams.get_tool_definitions = model_tools.get_tool_definitions
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        import toolsets
+
+        seams.resolve_toolset = toolsets.resolve_toolset
+        seams.validate_toolset = toolsets.validate_toolset
+    except Exception:  # noqa: BLE001
+        pass
+
+    def default_selection():
+        """Return the toolsets Hermes' CLI gives a session started without --toolsets."""
+        from hermes_cli.config import load_config
+
+        config = load_config()
+        try:
+            from agent.coding_context import coding_selection
+
+            posture = coding_selection(platform="cli", config=config)
+        except Exception:  # noqa: BLE001 -- the coding posture is optional in Hermes
+            posture = None
+        if posture:
+            return "coding_posture", [str(name) for name in posture]
+        from hermes_cli.tools_config import _get_platform_tools
+
+        return "platform_default", sorted(str(name) for name in _get_platform_tools(config, "cli"))
+
+    seams.default_selection = default_selection
+    return seams
+
+
+def _resolve_selection(seams: SimpleNamespace, requested: Any) -> dict[str, Any]:
+    """Return the toolset selection to evaluate: an explicit pin, else Hermes' CLI default."""
+    text = str(requested).strip() if requested is not None else ""
+    if text:
+        source = "explicit_toolsets"
+        enabled = [part.strip() for part in text.split(",") if part.strip()]
+    else:
+        source, enabled = seams.default_selection()
+    unknown: list[str] = []
+    if seams.validate_toolset is not None:
+        unknown = [name for name in enabled if not seams.validate_toolset(name)]
+    return {"source": source, "enabled_toolsets": enabled, "unknown_toolsets": unknown}
+
+
+def _catalog_names(seams: SimpleNamespace, enabled_toolsets: list[str]) -> set[str]:
+    """Return the tool names in the catalog Hermes builds for a session with these toolsets.
+
+    This is the un-deferred catalog that Tool Search's tool_describe and tool_call check
+    against, so a name missing here is "not found in the session's callable catalog".
+    """
+    arguments = {"enabled_toolsets": list(enabled_toolsets), "disabled_toolsets": None, "quiet_mode": True}
+    try:
+        definitions = seams.get_tool_definitions(skip_tool_search_assembly=True, **arguments)
+    except TypeError:  # a Hermes without Tool Search has no deferred catalog to skip
+        definitions = seams.get_tool_definitions(**arguments)
+    names: set[str] = set()
+    for definition in definitions or []:
+        function = definition.get("function") if isinstance(definition, dict) else None
+        name = function.get("name") if isinstance(function, dict) else None
+        if isinstance(name, str):
+            names.add(name)
+    return names
+
+
+def _selection_reaches(seams: SimpleNamespace, enabled_toolsets: list[str], tool_name: str) -> bool | None:
+    """Return whether a selected toolset resolves to the tool; None when Hermes cannot say."""
+    if seams.resolve_toolset is None:
+        return None
+    for toolset in enabled_toolsets:
+        try:
+            if tool_name in seams.resolve_toolset(toolset):
+                return True
+        except Exception:  # noqa: BLE001 -- a name Hermes cannot resolve reaches nothing
+            continue
+    return False
+
+
+def _blank_tool_state(expected_toolset: str) -> dict[str, Any]:
+    return {
+        "expected_toolset": expected_toolset,
+        "registered": None,
+        "registry_toolset": None,
+        "callable": None,
+        "reason": None,
+    }
+
+
+def _unavailable_exposure(reason: str) -> dict[str, Any]:
+    return {
+        "evidence": "unavailable",
+        "unavailable_reason": reason,
+        "selection": None,
+        "tools": {name: _blank_tool_state(toolset) for name, toolset in TOOL_TOOLSETS.items()},
+    }
+
+
+def _exposure_failure_reason(
+    seams: SimpleNamespace, entry: Any, enabled_toolsets: list[str], tool_name: str
+) -> str:
+    """Explain why a tool this plugin registered is absent from the session catalog."""
+    if _selection_reaches(seams, enabled_toolsets, tool_name) is False:
+        return "toolset_not_selected"
+    check = getattr(entry, "check_fn", None)
+    if check is not None:
+        try:
+            available = bool(check())
+        except Exception:  # noqa: BLE001 -- Hermes hides a tool whose check raises
+            available = False
+        if not available:
+            return "availability_check_failed"
+    return "not_in_catalog"
+
+
+def _tool_exposure_report(requested_toolsets: Any = None, *, seams: SimpleNamespace | None = None) -> dict[str, Any]:
+    """Compare what this plugin registered with what a session would expose.
+
+    "registered" means the Hermes registry holds this plugin's own handler under the tool's
+    name. "callable" means the name is in the catalog Hermes builds for the selected toolsets.
+    The two fail independently and each failure carries its own reason. A value that could not
+    be determined is None; nothing is assumed available.
+    """
+    seams = _load_hermes_seams() if seams is None else seams
+    report = _unavailable_exposure("hermes_registry_unavailable")
+    tools = report["tools"]
+    if seams.registry is None:
+        return report
+    try:
+        entries = {name: seams.registry.get_entry(name) for name in TOOL_TOOLSETS}
+    except Exception:  # noqa: BLE001 -- a registry API this plugin does not understand
+        return _unavailable_exposure("hermes_registry_unreadable")
+    report["evidence"] = "registry_only"
+    report["unavailable_reason"] = None
+
+    selection = None
+    catalog = None
+    try:
+        selection = _resolve_selection(seams, requested_toolsets)
+    except Exception:  # noqa: BLE001 -- the default selection could not be resolved
+        report["unavailable_reason"] = "selection_unresolved"
+    if selection is not None:
+        report["selection"] = selection
+        if seams.get_tool_definitions is None:
+            report["unavailable_reason"] = "hermes_catalog_unavailable"
+        else:
+            try:
+                catalog = _catalog_names(seams, selection["enabled_toolsets"])
+            except Exception:  # noqa: BLE001
+                report["unavailable_reason"] = "catalog_query_failed"
+    if catalog is not None:
+        report["evidence"] = "hermes_tool_definitions"
+
+    for name, tool in tools.items():
+        entry = entries[name]
+        own_handler = _REGISTERED_HANDLERS.get(name)
+        if entry is None:
+            tool.update(registered=False, reason="not_registered")
+        else:
+            tool["registry_toolset"] = getattr(entry, "toolset", None)
+            if own_handler is None or getattr(entry, "handler", None) is not own_handler:
+                tool.update(registered=False, reason="owned_by_another_registration")
+            else:
+                tool["registered"] = True
+        if catalog is not None:
+            tool["callable"] = name in catalog
+            if tool["registered"] is True and tool["callable"] is False:
+                tool["reason"] = _exposure_failure_reason(seams, entry, selection["enabled_toolsets"], name)
+    return report
+
+
+def _overall_status(credential_presence: dict[str, bool], exposure: dict[str, Any]) -> str:
+    """Collapse tool exposure and credentials into one readiness word, worst problem first."""
+    states = list(exposure["tools"].values())
+    if any(state["registered"] is False for state in states):
+        return "tools_not_registered"
+    if any(state["callable"] is False for state in states):
+        return "tools_not_callable"
+    if not any(credential_presence.values()):
+        return "credential_required"
+    if any(state["registered"] is None or state["callable"] is None for state in states):
+        return "exposure_unverified"
+    return "ready"
+
+
+_EXPOSURE_ADVICE = {
+    "not_registered": "Hermes holds no entry for it; enable the plugin and start a fresh session.",
+    "owned_by_another_registration": (
+        "the registry entry belongs to another registration (toolset {registry_toolset}); remove any "
+        "duplicate or legacy copy of the plugin and start a fresh session."
+    ),
+    "toolset_not_selected": (
+        "toolset {registry_toolset} is not selected; add it to --toolsets or enable it in `hermes tools`."
+    ),
+    "availability_check_failed": "its availability check returned false.",
+    "not_in_catalog": "its toolset is selected and its check passes, but Hermes still left it out.",
+}
+
+
+def _exposure_lines(exposure: dict[str, Any]) -> list[str]:
+    """Render the failing parts of an exposure report for a terminal."""
+    lines = []
+    selection = exposure["selection"]
+    if selection is not None:
+        names = ", ".join(selection["enabled_toolsets"]) or "(none)"
+        lines.append(f"Session toolsets ({selection['source']}): {names}")
+        if selection["unknown_toolsets"]:
+            lines.append("Unknown toolsets Hermes ignores: " + ", ".join(selection["unknown_toolsets"]))
+    if exposure["evidence"] != "hermes_tool_definitions":
+        lines.append(f"Callable catalog not verified: {exposure['unavailable_reason']}")
+    for name, tool in exposure["tools"].items():
+        advice = _EXPOSURE_ADVICE.get(tool["reason"], "").format(**tool)
+        if tool["registered"] is False:
+            lines.append(f"  {name}: NOT registered by this plugin ({tool['reason']}); {advice}")
+        elif tool["callable"] is False:
+            lines.append(f"  {name}: registered but NOT in the session's callable catalog ({tool['reason']}); {advice}")
+    return lines
+
+
 def _cli_handler(args):
     command = getattr(args, "switchyard_command", None) or getattr(args, "jev_command", None)
     if command == "status":
@@ -90,9 +364,15 @@ def _cli_handler(args):
                 credential_presence[provider] = bool(_secret(provider))
             except Exception:  # local secret-store status can be unavailable or locked
                 credential_presence[provider] = False
+        try:
+            exposure = _tool_exposure_report(getattr(args, "toolsets", None))
+        except Exception:  # noqa: BLE001 -- a fault in the report must not hide the rest of status
+            exposure = _unavailable_exposure("exposure_report_failed")
+        status = _overall_status(credential_presence, exposure)
         payload = {
             "plugin": "hermes-switchyard",
-            "status": "ready" if any(credential_presence.values()) else "credential_required",
+            "plugin_version": _plugin_version(),
+            "status": status,
             "network": False,
             "credential_presence": credential_presence,
             "plugin_loaded": _RUNTIME_STATUS["plugin_loaded"],
@@ -101,16 +381,20 @@ def _cli_handler(args):
             "public_or_sanitized_data_ack": _RUNTIME_STATUS["public_or_sanitized_data_ack"],
             "automatic_skill_jev_mode": _RUNTIME_STATUS["automatic_skill_jev_mode"],
             "hosted_construction_allowed": _RUNTIME_STATUS["hosted_construction_allowed"],
+            "tool_exposure": exposure,
         }
         if getattr(args, "json_output", False):
             print(json.dumps(payload, sort_keys=True))
-        elif payload["status"] == "credential_required":
-            print(
-                "Hermes Switchyard: credential_required (local status only). "
-                "Run: hermes switchyard setup --provider typesafe"
-            )
+            return 0
+        setup_hint = "Run: hermes switchyard setup --provider typesafe"
+        if status == "credential_required":
+            print(f"Hermes Switchyard: credential_required (local status only). {setup_hint}")
         else:
-            print(f"Hermes Switchyard: {payload['status']} (local status only)")
+            print(f"Hermes Switchyard: {status} (local status only)")
+        for line in _exposure_lines(exposure):
+            print(line)
+        if status != "credential_required" and not any(credential_presence.values()):
+            print(f"Credential: credential_required. {setup_hint}")
         return 0
     if command == "guide":
         print(_after_install_text())
@@ -189,7 +473,17 @@ def _setup_cli(parser):
     setup.add_argument("--provider", required=True, choices=("typesafe", "openrouter"))
     receipt = commands.add_parser("receipt", help="Show the latest automatic-routing receipt")
     receipt.add_argument("--json", action="store_true", dest="json_output", help="Emit compact JSON")
-    commands.add_parser("status", help="Show local readiness without network access").add_argument("--json", action="store_true", dest="json_output")
+    status = commands.add_parser("status", help="Show local readiness without network access")
+    status.add_argument("--json", action="store_true", dest="json_output")
+    status.add_argument(
+        "--toolsets",
+        default=None,
+        metavar="NAMES",
+        help=(
+            "Comma-separated toolsets to evaluate, as passed to `hermes chat --toolsets`; "
+            "default is the selection Hermes' CLI uses when --toolsets is not given"
+        ),
+    )
     commands.add_parser("guide", help="Show local usage guidance")
     test = commands.add_parser("test", help="Run the explicitly billed live provider test")
     test.add_argument("--live", action="store_true", help="Confirm that this may make a billed request")
@@ -564,46 +858,24 @@ def register(ctx):
         except Exception as exc:  # noqa: BLE001 -- tool handlers return structured errors
             return _error(exc)
 
-    ctx.register_tool(
-        name="jev_assess",
-        toolset="hermes_switchyard",
-        schema=schemas.ASSESS,
-        handler=assess_handler,
-        check_fn=decision_tools_available,
-        emoji="⚡",
+    def register_tool(name, schema, handler, check_fn):
+        _REGISTERED_HANDLERS[name] = handler
+        ctx.register_tool(
+            name=name,
+            toolset=TOOL_TOOLSETS[name],
+            schema=schema,
+            handler=handler,
+            check_fn=check_fn,
+            emoji="⚡",
+        )
+
+    register_tool("jev_assess", schemas.ASSESS, assess_handler, decision_tools_available)
+    register_tool("jev_computer_use", schemas.COMPUTER_USE, computer_handler, computer_route_available)
+    register_tool("jev_skill_select", schemas.SKILL_SELECT, skill_handler, decision_tools_available)
+    register_tool(
+        "jev_skill_select_many", schemas.MULTI_SKILL_SELECT, multi_skill_handler, decision_tools_available
     )
-    ctx.register_tool(
-        name="jev_computer_use",
-        toolset="computer_use",
-        schema=schemas.COMPUTER_USE,
-        handler=computer_handler,
-        check_fn=computer_route_available,
-        emoji="⚡",
-    )
-    ctx.register_tool(
-        name="jev_skill_select",
-        toolset="hermes_switchyard",
-        schema=schemas.SKILL_SELECT,
-        handler=skill_handler,
-        check_fn=decision_tools_available,
-        emoji="⚡",
-    )
-    ctx.register_tool(
-        name="jev_skill_select_many",
-        toolset="hermes_switchyard",
-        schema=schemas.MULTI_SKILL_SELECT,
-        handler=multi_skill_handler,
-        check_fn=decision_tools_available,
-        emoji="⚡",
-    )
-    ctx.register_tool(
-        name="jev_model_route",
-        toolset="hermes_switchyard",
-        schema=schemas.MODEL_ROUTE,
-        handler=route_handler,
-        check_fn=decision_tools_available,
-        emoji="⚡",
-    )
+    register_tool("jev_model_route", schemas.MODEL_ROUTE, route_handler, decision_tools_available)
     if hasattr(ctx, "register_skill"):
         ctx.register_skill(
             "hermes-switchyard-operations",

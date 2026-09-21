@@ -54,7 +54,7 @@ Use the secure setup steps in [docs/SETUP.md](docs/SETUP.md). Never pass an API 
 - **Skill selection:** `jev_skill_select` recommends one skill from the candidate list supplied by Hermes. Catalogs larger than Jev's per-Choice limit are searched with partition fan-out and recursive reduction; no tail is silently discarded. It never loads the skill.
 - **Multi-skill selection:** `jev_skill_select_many` independently scores the complete bounded catalog and returns a typed list of exact skill identifiers. It is a separate advisory contract and never loads or mutates skills.
 - **Model routing:** `jev_model_route` is the documented Hermes routing point. It filters candidates using explicit code-owned metadata and requirements, then recommends the lowest-cost qualified candidate. `route_model_from_registry` supplies a real approved candidate registry at that point. It never changes the active Hermes model and does not try another provider when Jev fails. Stale registry generations abstain as `stale_registry`; an empty registry abstains as `empty_registry`.
-- **Cua Driver computer use:** `jev_computer_use` is registered by default in the `computer_use` toolset on Windows, macOS, and Linux. Public web goals (`start_url` or an https URL in the goal) run a DOM browser loop: one Jev request per step, page clicks, no Hermes `computer_use` between actions. Desktop apps without a URL still use Cua Driver. Standing `public_or_sanitized_data_ack` is on after install, so callers may omit it. A live Jev route is still required.
+- **Cua Driver computer use:** `jev_computer_use` is registered by default in the `computer_use` toolset on Windows, macOS, and Linux. Public web goals (`start_url` or an https URL in the goal) run a DOM browser loop: one Jev request per step, page clicks, no Hermes `computer_use` between actions. Desktop apps without a URL still use Cua Driver. Standing `public_or_sanitized_data_ack` is on after install, so callers may omit it. A live Jev route is still required. A session only exposes the tool when the `computer_use` toolset is selected; see [Toolsets and session exposure](#toolsets-and-session-exposure).
 
 ## Automatic skill recommendations
 
@@ -129,6 +129,34 @@ hermes -t computer_use chat
 ```
 
 Cua Driver supports background desktop actions on Windows, macOS, and Linux. Switchyard adds the Jev decision layer, application-owned candidate IDs, partitioned target choices, fresh identity checks, and independent-completion semantics. It does not bypass Hermes approval or Cua Driver safety controls.
+
+## Toolsets and session exposure
+
+Hermes puts a tool in a session's callable catalog only when the toolset the tool is registered under is selected for that session. Switchyard registers its five tools under two toolsets:
+
+| Toolset | Tools | Notes |
+| --- | --- | --- |
+| `computer_use` | `jev_computer_use` | Hermes' own low-level `computer_use` tool is in the same toolset. |
+| `hermes_switchyard` | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route` | The plugin's own toolset; nothing else is registered in it. |
+
+Selecting one of the two toolsets does not select the other, and Switchyard adds no tool to any other core toolset.
+
+- **No pin.** A session started without `--toolsets` uses Hermes' default selection for the CLI. With Hermes' default configuration that selection includes both toolsets. A toolset list saved by `hermes tools` that leaves Computer Use off keeps `jev_computer_use` out of sessions while the four decision tools stay callable. Enable Computer Use in `hermes tools`, or pin the toolset for the session.
+- **Explicit pin.** `--toolsets` (`-t`) replaces the default selection and does not add plugin toolsets. `hermes -t computer_use chat` exposes `jev_computer_use` and no decision tool. `hermes -t hermes_switchyard chat` exposes the four decision tools and no computer-use tool. A pin such as `terminal`, or the `hermes-cli` composite alone, exposes none of the five tools even though all five stay registered. To expose all five, name both toolsets. In PowerShell, quote the list, because an unquoted comma is PowerShell's array operator.
+- **Outside the selection means unreachable.** Hermes' Tool Search bridge (`tool_search`, `tool_describe`, `tool_call`) is scoped to the same selection, so `tool_describe` reports a tool outside it as not found. That is a toolset-selection or registration problem, not a Jev outage.
+
+```text
+hermes -t computer_use,hermes_switchyard chat
+```
+
+**Registered** and **callable** are different facts. Registered means Hermes' registry holds this plugin's own registration for the tool. Callable means the tool is in the catalog Hermes builds for a session with a given toolset selection. `hermes switchyard status --json` reports both for each tool, so an operator can tell which one failed. With no `--toolsets` it evaluates the selection Hermes' CLI would use for a new session; with `--toolsets` it evaluates that pin, as `hermes chat --toolsets` would:
+
+```text
+hermes switchyard status --json
+hermes switchyard status --json --toolsets computer_use,terminal
+```
+
+`status` never reports `ready` while a registered tool is missing from the evaluated catalog. Its values are `ready`, `credential_required`, `tools_not_registered`, `tools_not_callable`, and `exposure_unverified`; [docs/SETUP.md](docs/SETUP.md#confirm-what-a-session-exposes) explains each field and reason. `status` evaluates a fresh session. It does not read the catalog of a session that is already running, so start a fresh session after changing the plugin, its configuration, or the toolsets.
 
 ## Configuration
 
