@@ -10,6 +10,7 @@ from evaluation.automatic_e2e import harness
 from evaluation.automatic_e2e.harness import (
     HarnessInvalid,
     _forbidden_tool_calls,
+    _parse_shebang_reexec_argv,
     _skill_load_metrics,
     build_skill_alias_map,
     canonicalize_skill_identifier,
@@ -167,10 +168,78 @@ class AutomaticEvaluationHarnessTests(unittest.TestCase):
 
     def test_ensure_hermes_runtime_fails_closed_without_interpreter(self):
         with mock.patch.object(harness, "_hermes_imports_available", return_value=(False, "ImportError: hermes_state")):
-            with mock.patch.object(harness, "resolve_hermes_python", return_value=None):
+            with mock.patch.object(harness, "resolve_hermes_reexec_argv", return_value=None):
                 with self.assertRaises(HarnessInvalid) as ctx:
                     harness.ensure_hermes_runtime()
         self.assertIn("Hermes runtime imports unavailable", str(ctx.exception))
+
+    def test_unknown_qualified_skill_does_not_match_bare_leaf(self):
+        """Wrong namespace must not fall through to bare-leaf scoring (Copilot on #43)."""
+        aliases = build_skill_alias_map(
+            [
+                {
+                    "name": "network-printer-operations",
+                    "description": "Printers",
+                    "category": "devops",
+                }
+            ]
+        )
+        self.assertEqual(
+            canonicalize_skill_identifier("wrong:network-printer-operations", aliases),
+            "wrong:network-printer-operations",
+        )
+        self.assertEqual(
+            canonicalize_skill_identifier("wrong/network-printer-operations", aliases),
+            "wrong/network-printer-operations",
+        )
+        correct_colon, irrelevant_colon, loaded_colon, _ = _skill_load_metrics(
+            ["wrong:network-printer-operations"],
+            "network-printer-operations",
+            aliases,
+        )
+        self.assertFalse(correct_colon)
+        self.assertEqual(irrelevant_colon, ["wrong:network-printer-operations"])
+        self.assertEqual(loaded_colon, ["wrong:network-printer-operations"])
+
+        correct_slash, irrelevant_slash, _, _ = _skill_load_metrics(
+            ["wrong/network-printer-operations"],
+            "network-printer-operations",
+            aliases,
+        )
+        self.assertFalse(correct_slash)
+        self.assertEqual(irrelevant_slash, ["wrong/network-printer-operations"])
+
+        # Registry-reported qualified forms still match.
+        self.assertEqual(
+            canonicalize_skill_identifier("devops:network-printer-operations", aliases),
+            "network-printer-operations",
+        )
+
+    def test_env_shebang_parses_into_reexec_argv(self):
+        argv = _parse_shebang_reexec_argv("#!/usr/bin/env python3")
+        self.assertEqual(argv[0], "/usr/bin/env")
+        self.assertEqual(argv[1:], ["python3"])
+
+        argv_s = _parse_shebang_reexec_argv("#!/usr/bin/env -S python3 -u")
+        self.assertEqual(argv_s[0], "/usr/bin/env")
+        self.assertIn("python3", argv_s)
+
+    def test_direct_python_shebang_parses_into_reexec_argv(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fake_python = Path(directory) / "python3"
+            fake_python.write_text("#!/bin/sh\n", encoding="utf-8")
+            fake_python.chmod(0o755)
+            argv = _parse_shebang_reexec_argv(f"#!{fake_python}")
+            self.assertEqual(argv, [str(fake_python)])
+
+    def test_unsupported_shebang_wrapper_raises_harness_invalid(self):
+        with self.assertRaises(HarnessInvalid) as ctx:
+            _parse_shebang_reexec_argv("#!/bin/sh")
+        self.assertIn("unsupported wrapper", str(ctx.exception))
+
+        with self.assertRaises(HarnessInvalid) as ctx_env:
+            _parse_shebang_reexec_argv("#!/usr/bin/env bash")
+        self.assertIn("env shebang", str(ctx_env.exception))
 
 
 if __name__ == "__main__":
