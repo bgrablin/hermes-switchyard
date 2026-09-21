@@ -637,6 +637,8 @@ def _error(exc):
         code, reason = "invalid_request", "request validation failed"
     elif isinstance(exc, TypeError):
         code, reason = "invalid_response", "structured response validation failed"
+    elif isinstance(exc, browser_use.BrowserStartupError) and exc.code == "snap_profile_unavailable":
+        code, reason = "snap_profile_unavailable", "the Snap browser profile directory is unavailable"
     elif isinstance(exc, RuntimeError):
         code, reason = "execution_failed", "the bounded operation was not accepted"
     else:

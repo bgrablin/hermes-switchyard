@@ -564,6 +564,78 @@ class PluginStateCleanlinessTests(unittest.TestCase):
                 self.assertEqual(receipt_state.read_latest_receipt(), receipt_state.canonicalize_receipt(receipt))
         self._assert_porcelain_unchanged(self._REPO_ROOT, before)
 
+    def _init_git_checkout(self, root: Path) -> None:
+        try:
+            init = subprocess.run(
+                ["git", "init"],
+                cwd=str(root),
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            self.skipTest("git is unavailable")
+        if init.returncode != 0:
+            self.skipTest("git init could not create the modeled checkout")
+        (root / "plugin.yaml").write_text("name: hermes-switchyard\n", encoding="utf-8")
+        for command in (
+            ["git", "add", "plugin.yaml"],
+            ["git", "-c", "user.name=switchyard-test", "-c", "user.email=switchyard-test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-m", "init"],
+        ):
+            completed = subprocess.run(
+                command,
+                cwd=str(root),
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            if completed.returncode != 0:
+                self.skipTest("git could not commit the modeled checkout")
+
+    def test_git_installed_legacy_checkout_stays_clean(self):
+        receipt = build_routing_receipt(_skipped_result())
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            checkout = home / "plugins" / receipt_state.PLUGIN_NAME
+            checkout.mkdir(parents=True)
+            self._init_git_checkout(checkout)
+            with mock.patch.dict(os.environ, {"HERMES_HOME": str(home)}, clear=False):
+                self.assertTrue(receipt_state.store_latest_receipt(receipt))
+                legacy = checkout / "receipt.json"
+                self.assertFalse(legacy.exists(), "store wrote a receipt into the git-installed checkout")
+                state = receipt_state._receipt_state_file()
+                self.assertIsNotNone(state)
+                assert state is not None
+                self.assertTrue(state.is_file())
+                self.assertEqual(state, home / "plugin-data" / receipt_state.PLUGIN_NAME / "receipt.json")
+                self._assert_porcelain_unchanged(checkout, "")
+                legacy.write_text(json.dumps(receipt), encoding="utf-8")
+                add = subprocess.run(
+                    ["git", "add", "receipt.json"],
+                    cwd=str(checkout),
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                )
+                if add.returncode != 0:
+                    self.skipTest("git could not add the modeled legacy receipt")
+                committed = subprocess.run(
+                    ["git", "-c", "user.name=switchyard-test", "-c", "user.email=switchyard-test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-m", "legacy"],
+                    cwd=str(checkout),
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                )
+                if committed.returncode != 0:
+                    self.skipTest("git could not commit the modeled legacy receipt")
+                before_migrate = self._porcelain(checkout)
+                self.assertEqual(receipt_state.read_latest_receipt(), receipt_state.canonicalize_receipt(receipt))
+                self._assert_porcelain_unchanged(checkout, before_migrate)
+
     def test_receipt_readback_never_recreates_legacy_in_the_checkout(self):
         before = self._porcelain(self._REPO_ROOT)
         with tempfile.TemporaryDirectory() as directory:

@@ -971,16 +971,16 @@ def _browser_profile_dir(binary: Path | None = None) -> tempfile.TemporaryDirect
         common = Path.home() / "snap" / "chromium" / "common"
         try:
             common.mkdir(parents=True, exist_ok=True)
+            return tempfile.TemporaryDirectory(
+                prefix="switchyard-browser-",
+                dir=str(common),
+                ignore_cleanup_errors=True,
+            )
         except OSError as exc:
             raise BrowserStartupError(
                 "snap_profile_unavailable",
                 "Snap Chromium requires an accessible ~/snap/chromium/common directory",
             ) from exc
-        return tempfile.TemporaryDirectory(
-            prefix="switchyard-browser-",
-            dir=str(common),
-            ignore_cleanup_errors=True,
-        )
     if os.name == "nt":
         base = Path(os.environ.get("TEMP") or os.environ.get("LOCALAPPDATA") or ".")
         cache = base / "hermes-switchyard"
