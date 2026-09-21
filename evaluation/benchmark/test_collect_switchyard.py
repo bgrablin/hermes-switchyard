@@ -49,6 +49,83 @@ class SwitchyardCollectorTests(unittest.TestCase):
             collect_switchyard._reset_runtime_secret_scope()
         self.assertEqual(events[-1], "reset")
 
+    def test_hydrate_helper_optional_when_scope_has_key(self):
+        """Hermes 0.19 has secret_scope but no hydrate_profile_secret_sources."""
+        events: list[str] = []
+        agent = types.ModuleType("agent")
+        agent.__path__ = []
+        scope = types.ModuleType("agent.secret_scope")
+        scope.build_profile_secret_scope = lambda home: events.append("build") or {
+            "OPENROUTER_API_KEY": "fixture"
+        }
+        scope.set_secret_scope = lambda value: events.append("set") or object()
+        scope.reset_secret_scope = lambda token: events.append("reset")
+        hermes_cli = types.ModuleType("hermes_cli")
+        hermes_cli.__path__ = []
+        # Module exists but lacks hydrate_profile_secret_sources (ImportError path uses try/except ImportError
+        # on from-import; AttributeError is also tolerated by our except Exception → but we raise
+        # hermes_secret_scope_unavailable for generic Exception. So model missing attr via ImportError:
+        # omit hermes_cli.env_loader entirely so `from hermes_cli.env_loader import ...` raises ImportError.
+        constants = types.ModuleType("hermes_constants")
+        constants.get_hermes_home = lambda: Path(tempfile.gettempdir())
+        with mock.patch.dict(
+            sys.modules,
+            {
+                "agent": agent,
+                "agent.secret_scope": scope,
+                "hermes_cli": hermes_cli,
+                "hermes_constants": constants,
+            },
+            clear=False,
+        ):
+            # Ensure env_loader is not present
+            sys.modules.pop("hermes_cli.env_loader", None)
+            collect_switchyard._SECRET_SCOPE_TOKEN = None
+            collect_switchyard._hydrate_runtime_secret_scope()
+            self.assertIsNotNone(collect_switchyard._SECRET_SCOPE_TOKEN)
+            self.assertEqual(events, ["build", "set"])
+            collect_switchyard._reset_runtime_secret_scope()
+        self.assertEqual(events[-1], "reset")
+
+    def test_env_fallback_when_scope_lacks_openrouter_key(self):
+        events: list[str] = []
+        captured: dict = {}
+        agent = types.ModuleType("agent")
+        agent.__path__ = []
+        scope = types.ModuleType("agent.secret_scope")
+        scope.build_profile_secret_scope = lambda home: events.append("build") or {}
+        def fake_set(value):
+            events.append("set")
+            captured.update(value)
+            return object()
+        scope.set_secret_scope = fake_set
+        scope.reset_secret_scope = lambda token: events.append("reset")
+        hermes_cli = types.ModuleType("hermes_cli")
+        hermes_cli.__path__ = []
+        constants = types.ModuleType("hermes_constants")
+        constants.get_hermes_home = lambda: Path(tempfile.gettempdir())
+        with mock.patch.dict(
+            sys.modules,
+            {
+                "agent": agent,
+                "agent.secret_scope": scope,
+                "hermes_cli": hermes_cli,
+                "hermes_constants": constants,
+            },
+            clear=False,
+        ), mock.patch.dict(
+            os.environ,
+            {"OPENROUTER_API_KEY": "env-fallback-key"},
+            clear=False,
+        ):
+            sys.modules.pop("hermes_cli.env_loader", None)
+            collect_switchyard._SECRET_SCOPE_TOKEN = None
+            collect_switchyard._hydrate_runtime_secret_scope()
+            self.assertEqual(captured.get("OPENROUTER_API_KEY"), "env-fallback-key")
+            collect_switchyard._reset_runtime_secret_scope()
+        self.assertEqual(events, ["build", "set", "reset"])
+
+
     def test_collect_writes_24_actual_rows_and_honors_source_identity(self):
         book, meta = benchmark.load_book()
         source = benchmark.source_hashes(ROOT)

@@ -177,11 +177,24 @@ def _load_hermes_seams() -> SimpleNamespace:
 
     def disabled_toolsets():
         """Return agent.disabled_toolsets, which Hermes' CLI applies to every session it starts."""
-        from agent.skill_utils import parse_config_string_list
         from hermes_cli.config import load_config
 
         agent_config = (load_config() or {}).get("agent") or {}
-        names = parse_config_string_list(agent_config.get("disabled_toolsets"))
+        raw = agent_config.get("disabled_toolsets")
+        try:
+            from agent.skill_utils import parse_config_string_list
+
+            names = parse_config_string_list(raw)
+        except Exception:
+            # Hermes 0.19.0 (and hosts without parse_config_string_list): accept list or CSV.
+            if raw is None:
+                names = []
+            elif isinstance(raw, str):
+                names = [part.strip() for part in raw.split(",") if part.strip()]
+            elif isinstance(raw, (list, tuple, set)):
+                names = [str(item).strip() for item in raw if str(item).strip()]
+            else:
+                names = []
         return [str(name).strip() for name in names if str(name).strip()]
 
     seams.default_selection = default_selection
