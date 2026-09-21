@@ -77,10 +77,11 @@ Use the secure setup steps in [docs/SETUP.md](docs/SETUP.md). Never pass an API 
 
 ## Automatic skill recommendations
 
-When the plugin is enabled, the `pre_llm_call` lifecycle hook is on by default. It discovers the **full** active profile skill registry through Hermes' supported `skills_list` API and performs a fast local match. `local_only` is the safe install default, so ordinary turns do not construct a hosted Jev client. Select `hosted_sanitized` explicitly, together with the standing acknowledgement, when a profile intentionally opts into hosted automatic routing. Set `automatic_skill_jev_mode` to `uncertain_only` only when latency matters more than Jev coverage.
+When the plugin is enabled, the `pre_llm_call` lifecycle hook is on by default. It discovers the **full** active profile skill registry through Hermes' supported `skills_list` API and performs a fast local match. `local_only` is the safe install default, so ordinary turns do not construct a hosted Jev client. Select `hosted_sanitized` explicitly and set `automatic_skill_public_or_sanitized_data_ack` to `true` (the attestation default is `false`) when a profile intentionally opts into hosted automatic routing. Set `automatic_skill_jev_mode` to `uncertain_only` only when latency matters more than Jev coverage.
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode hosted_sanitized
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack true
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_jev_mode always
 ```
 
@@ -93,7 +94,7 @@ The default `automatic_skill_consumer_mode: advisory` adds model-visible context
 Inspect the active profile's redacted routing mode and provider readiness without displaying a credential:
 
 ```text
-hermes jev-decision status
+hermes switchyard status --json
 ```
 
 ## Privacy and data handling

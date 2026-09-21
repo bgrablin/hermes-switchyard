@@ -54,7 +54,7 @@ The automatic path has three explicit routing modes:
 | `local_only` | enabled | never |
 | `hosted_sanitized` | not enabled by default | explicit opt-in; set acknowledgement false to skip; an envelope is optional |
 
-`local_only` is the product default. Ordinary turns do not construct hosted Jev. Set `automatic_skill_routing_mode` to `hosted_sanitized` and keep `automatic_skill_public_or_sanitized_data_ack` true to explicitly opt in. The value is not Hermes-owned DLP.
+`local_only` is the product default. Ordinary turns do not construct hosted Jev. Set `automatic_skill_routing_mode` to `hosted_sanitized` and set `automatic_skill_public_or_sanitized_data_ack` to `true` to explicitly opt in; the attestation default is `false`, so hosted automatic routing never runs without an explicit operator decision. The value is not Hermes-owned DLP.
 
 The hosted request uses the selected fixed Jev endpoint with OpenRouter fallbacks disabled. A transport failure is reported as `hosted_failure` when there is no local winner, or `hosted_failure_local_fallback` when a local winner is preserved; a valid hosted abstention remains abstention and does not fall back locally. Hosted metadata is retained only in the typed routing receipt and callback state; it is not a user-facing completion claim.
 
@@ -122,7 +122,7 @@ All settings are profile-scoped under `plugins.entries.hermes-switchyard.setting
 | `automatic_skill_routing_mode` | `local_only` | `off`, `local_only`, or `hosted_sanitized`. Hosted mode requires explicit opt-in. An allowed host envelope is optional strengthening. |
 | `automatic_skill_jev` | `true` | Deprecated compatibility switch retained for configuration compatibility. It never authorizes hosted egress; set `automatic_skill_routing_mode` to `hosted_sanitized` for explicit opt-in. |
 | `automatic_skill_jev_mode` | `always` | Evaluate the full catalog on every allowed turn. `uncertain_only` is an explicit latency-saving override. |
-| `automatic_skill_public_or_sanitized_data_ack` | `true` | Standing consent for explicit hosted automatic routing. The `local_only` default never constructs hosted Jev. Set `false` to refuse hosted automatic Jev. This is not DLP; private, employer, regulated, credential, payment, or verification content remains prohibited. |
+| `automatic_skill_public_or_sanitized_data_ack` | `false` | Explicit operator attestation required before hosted automatic routing sends bounded task and candidate identifiers to Jev. The `local_only` default never constructs hosted Jev; hosted routing additionally requires `hosted_sanitized` routing mode. Set `true` to attest and enable. This is not DLP; private, employer, regulated, credential, payment, or verification content remains prohibited. |
 | `automatic_skill_mandatory_skills` | `[]` | Exact skill identifiers treated as mandatory. In `load` mode, a different recommendation is not auto-loaded and is recorded as `mandatory_conflict`. |
 
 Configuration is read when the plugin registers. Start a fresh Hermes process after changing these settings; an existing process may retain the previous hook and values.

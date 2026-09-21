@@ -129,5 +129,87 @@ class ApprovedModelPolicyTests(unittest.TestCase):
         self.assertEqual(len(client.calls), 1)
 
 
+    def test_bad_registry_field_types_fail_closed_as_invalid_registry(self):
+        for overrides in (
+            {"tool_capabilities": "terminal"},
+            {"context_limit": 0},
+            {"context_limit": "900k"},
+            {"cost": float("nan")},
+            {"cost": float("inf")},
+            {"data_classes_allowed": ["public", "public"]},
+        ):
+            registry = [{**REGISTRY[0], **overrides}]
+            client = FakeClient()
+            result = recommend_approved_model(
+                task="public task",
+                requirements={},
+                registry=registry,
+                registry_version="2026-09",
+                valid_until="2026-12-31T00:00:00+00:00",
+                client=client,
+                public_or_sanitized_data_ack=True,
+                now=datetime(2026, 9, 19, tzinfo=timezone.utc),
+            )
+            self.assertEqual(result["status"], "invalid_registry", overrides)
+            self.assertEqual(result["abstention_reason"], "registry_validation_failed")
+            self.assertEqual(client.calls, [])
+
+    def test_malformed_jev_response_is_provider_unavailable_not_generic_error(self):
+        class MalformedClient:
+            def decide(self, state, questions, *, public_or_sanitized_data_ack=False):
+                return {"unexpected": True}
+
+        result = recommend_approved_model(
+            task="public task",
+            requirements={},
+            registry=REGISTRY,
+            registry_version="2026-09",
+            valid_until="2026-12-31T00:00:00+00:00",
+            client=MalformedClient(),
+            public_or_sanitized_data_ack=True,
+            now=datetime(2026, 9, 19, tzinfo=timezone.utc),
+        )
+        self.assertEqual(result["status"], "provider_unavailable")
+        self.assertEqual(result["abstention_reason"], "invalid_response")
+
+    def test_fit_miss_keeps_abstained_even_when_others_were_over_budget(self):
+        over_budget = [
+            {**REGISTRY[0], "id": "over-budget", "cost": 10.0},
+            {**REGISTRY[1], "id": "over-budget-2", "cost": 20.0},
+        ]
+
+        class FailingFitClient(FakeClient):
+            def __init__(self):
+                super().__init__(score=0.05)
+
+        # Over-budget-only registry: budget_exhausted is correct.
+        client_a = FailingFitClient()
+        result_a = recommend_approved_model(
+            task="public terminal task",
+            requirements={"data_classes": ["public"], "tool_capabilities": ["terminal"], "budget": 0.001},
+            registry=over_budget,
+            registry_version="2026-09",
+            valid_until="2026-12-31T00:00:00+00:00",
+            client=client_a,
+            public_or_sanitized_data_ack=True,
+            now=datetime(2026, 9, 19, tzinfo=timezone.utc),
+        )
+        self.assertEqual(result_a["status"], "budget_exhausted")
+
+        # Mixed registry: an eligible candidate was evaluated and missed fit; abstained, not budget_exhausted.
+        client_b = FailingFitClient()
+        result_b = recommend_approved_model(
+            task="public terminal task",
+            requirements={"data_classes": ["public"], "tool_capabilities": ["terminal"], "budget": 0.001},
+            registry=REGISTRY + over_budget,
+            registry_version="2026-09",
+            valid_until="2026-12-31T00:00:00+00:00",
+            client=client_b,
+            public_or_sanitized_data_ack=True,
+            now=datetime(2026, 9, 19, tzinfo=timezone.utc),
+        )
+        self.assertEqual(result_b["status"], "abstained")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -98,6 +98,22 @@ class ValueReportTests(unittest.TestCase):
                 max_requests=24,
             )
 
+    def test_value_report_refuses_rows_from_a_different_plugin_source(self):
+        payload = self._live_switchyard_payload()
+        imported = "/different/plugin/source"
+        for row in payload["records"]:
+            row["source_hash"] = imported
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as temp_dir:
+            path = Path(temp_dir) / "switchyard.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                value_report.build_report(
+                    plugin_path=PLUGIN,
+                    switchyard_input=path,
+                    public_synthetic_ack=True,
+                    max_requests=24,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

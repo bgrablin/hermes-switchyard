@@ -1,6 +1,7 @@
 """Profile-owned approved model registry for explicit Jev recommendations."""
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 from typing import Any
 
@@ -72,9 +73,21 @@ def _validate_registry(registry: Any) -> tuple[list[dict[str, Any]], dict[str, d
             "approved": approved,
             "cost": float(cost),
         }
-        for key in ("data_classes_allowed", "tool_capabilities", "context_limit"):
+        for key in ("data_classes_allowed", "tool_capabilities"):
             if key in item:
-                candidate[key] = item[key]
+                values = item[key]
+                if not isinstance(values, list) or any(type(v) is not str or not v for v in values):
+                    raise ValueError(f"registry {key} must be a list of non-empty strings")
+                if len(set(values)) != len(values):
+                    raise ValueError(f"registry {key} must not contain duplicate values")
+                candidate[key] = list(values)
+        if "context_limit" in item:
+            context_limit = item["context_limit"]
+            if type(context_limit) is not int or context_limit <= 0 or isinstance(context_limit, bool):
+                raise ValueError("registry context_limit must be a positive integer")
+            candidate["context_limit"] = context_limit
+        if not math.isfinite(float(candidate["cost"])):
+            raise ValueError("registry cost must be finite")
         projected.append(candidate)
         metadata[identifier] = {
             "provider": str(provider),
@@ -123,17 +136,23 @@ def recommend_approved_model(
         )
     except RuntimeError:
         return _base("provider_unavailable", version, "jev_provider_unavailable")
+    except (TypeError, ValueError):
+        # A syntactically valid but malformed Jev response is a provider-response
+        # failure, not a caller request error. Fail closed to the typed contract.
+        return _base("provider_unavailable", version, "invalid_response")
     if routed.get("status") != "selected":
+        eligible = routed.get("eligible_candidates") or []
         excluded = routed.get("excluded_candidates") or []
         reasons = {
             reason
             for entry in excluded if isinstance(entry, dict)
             for reason in entry.get("reasons", []) if isinstance(reason, str)
         }
-        status = "budget_exhausted" if reasons and reasons <= {"over_budget"} else "abstained"
+        only_over_budget = bool(eligible) is False and reasons == {"over_budget"}
+        status = "budget_exhausted" if only_over_budget else "abstained"
         result = _base(status, version, routed.get("abstention_reason") or "no_approved_route")
         result["candidate_count"] = len(candidates)
-        result["eligible_count"] = len(routed.get("eligible_candidates") or [])
+        result["eligible_count"] = len(eligible)
         return result
     selected = routed.get("selected")
     if selected not in metadata:

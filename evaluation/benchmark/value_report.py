@@ -129,6 +129,10 @@ def build_report(
         live=True,
         max_requests=max_requests,
     )
+    require(
+        all(row.get("source_hash") == source["plugin"] for row in switchyard.values()),
+        "switchyard_rows_from_other_plugin_source",
+    )
     lexical = {
         case["id"]: benchmark.run_lexical_case(case, meta, source)
         for case in cases
