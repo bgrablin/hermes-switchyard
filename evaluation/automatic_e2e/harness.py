@@ -70,7 +70,6 @@ _HERMES_IMPORT_MODULES = (
     "hermes_constants",
     "hermes_state",
     "hermes_cli.plugins",
-    "hermes_cli.env_loader",
     "hermes_cli.runtime_provider",
     "run_agent",
     "tools.skills_tool",
@@ -320,22 +319,39 @@ def ensure_hermes_runtime() -> None:
     os.execv(str(hermes_python), [str(hermes_python), *sys.argv])
 
 
-def _registry_alias_map() -> dict[str, str]:
-    """Build the alias map from Hermes' live skills registry."""
+def _skills_from_public_registry() -> list[dict[str, Any]]:
+    """Load skill metadata from Hermes' public ``skills_list`` registry."""
     try:
-        from tools.skills_tool import _find_all_skills
+        from tools.skills_tool import skills_list
     except Exception as exc:
         raise HarnessInvalid(
             f"skills registry import failed: {type(exc).__name__}: {exc}"
         ) from exc
     try:
-        skills = _find_all_skills()
+        payload = skills_list()
     except Exception as exc:
         raise HarnessInvalid(
             f"skills registry scan failed: {type(exc).__name__}: {exc}"
         ) from exc
+    try:
+        parsed = json.loads(payload) if isinstance(payload, str) else payload
+    except (TypeError, ValueError) as exc:
+        raise HarnessInvalid(
+            f"skills registry returned non-JSON payload: {type(exc).__name__}: {exc}"
+        ) from exc
+    if not isinstance(parsed, dict) or not parsed.get("success"):
+        raise HarnessInvalid("skills registry did not report success")
+    skills = parsed.get("skills")
     if not isinstance(skills, list) or not skills:
         raise HarnessInvalid("skills registry returned no skills for the evaluation home")
+    if not all(isinstance(item, dict) for item in skills):
+        raise HarnessInvalid("skills registry entries must be objects")
+    return skills
+
+
+def _registry_alias_map() -> dict[str, str]:
+    """Build the alias map from Hermes' public skills registry."""
+    skills = _skills_from_public_registry()
     aliases = build_skill_alias_map(skills)
     for _, name in _FIXTURE_SKILLS:
         if name not in aliases:
