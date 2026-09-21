@@ -18,6 +18,7 @@ import time
 import unittest
 from contextlib import contextmanager
 from unittest import mock
+from urllib.parse import urlsplit
 
 from hermes_switchyard import browser_use, destination_policy
 from hermes_switchyard.destination_policy import (
@@ -28,6 +29,17 @@ from hermes_switchyard.destination_policy import (
     redact_url,
 )
 from hermes_switchyard.browser_use import run_browser_goal
+
+
+def _assert_example_origin(case: unittest.TestCase, url: str) -> None:
+    """Assert *url* is exactly the example.com https origin.
+
+    Substring checks (``startswith``) would also accept ``example.com.evil``
+    or a credentialed redirect form, so the parsed components are compared.
+    """
+    parts = urlsplit(url)
+    case.assertEqual(parts.scheme, "https", url)
+    case.assertEqual(parts.hostname, "example.com", url)
 
 
 def _public_resolver(_host: str) -> list[str]:
@@ -995,13 +1007,13 @@ class RealBrowserDestinationTests(unittest.TestCase):
         self.assertEqual(action["effect_status"], "destination_blocked")
         policy = result["destination_policy"]
         self.assertEqual(policy["navigation_blocks"], 1)
-        self.assertTrue(result["url"].startswith("https://example.com"))
+        _assert_example_origin(self, result["url"])
         self.assertNotIn(str(self.trap.port), json.dumps(result))
 
     def test_allowed_public_control_navigates_without_a_violation(self):
         with browser_use.ChromiumSession("https://example.com") as session:
             page = session.observe()
-            self.assertTrue(page["url"].startswith("https://example.com"))
+            _assert_example_origin(self, page["url"])
             self._settle(session, 0.5)
             self.assertEqual(session.destination_violations(), [])
 
