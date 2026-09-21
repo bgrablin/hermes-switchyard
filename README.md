@@ -16,13 +16,14 @@ Measured with/without Switchyard on tip **0.5.0** (`c8e6008`). Human-readable be
 | --- | --- | ---: | ---: |
 | Skill pick | Choosing the one right specialist skill for a task | 7/12 correct | **12/12** correct |
 | Multi-skill pick | Completing a task that needs several skills together | 0/5 sets complete (one-skill pick only) | **5/5** sets complete |
+| Model route | Switchyard `jev_model_route`: recommend a model for the task and leave a receipt | No Switchyard recommendation | **Ships in 0.5.0** — 3/3 agree with a local filter + receipt; does **not** switch Hermes’ active model yet (`applied: false`) |
 | Assess | Answering a small typed multiple-choice check | 2/3 correct | **3/3** correct |
 | Automatic skill routing | Quietly suggesting a skill before the model acts (local match) | Off → always silent | 1/2 needed skills caught; no false suggest |
 | Computer use | Driving the browser/desktop toward a goal | Stock Hermes A/B not run here | 1-click DOM race; goal still unverified by the tool |
 
 - **Cheap:** about **$0.000055** per skill-select decision (~**$0.055** per 1,000)
 - **Fast:** about **0.19 s** typical; **0.30 s** at p95 on the frozen 24-task skill bench
-- **Also true, not table rows:** Switchyard does not invent a skill when none fits (0/6 on both arms). Model routing can leave an auditable recommendation, but it does **not** change Hermes’ active model yet (`applied: false`), so it is not on the install pitch.
+- **Also true, not table rows:** Switchyard does not invent a skill when none fits (0/6 on both arms).
 - **Honest gaps:** Automatic routing is not yet a counterbalanced Hermes-session win. Computer-use success is not `goal_verified` inside the tool.
 
 This shows better single-skill routing and a working multi-skill API. It is not a claim that every Hermes task improves.

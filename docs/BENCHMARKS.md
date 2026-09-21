@@ -8,11 +8,12 @@ Repository-owned with/without evidence for **0.5.0** tip `c8e6008`. Human-readab
 | --- | --- | ---: | ---: | --- | --- |
 | Skill pick | One right specialist skill for a task (`jev_skill_select`) | 7/12 | **12/12** | p50 **185 ms**, p95 **303 ms**; **~$0.000055**/decision | Yes — frozen 24-task lexical vs live Jev |
 | Multi-skill pick | Finish a task that needs several skills (`jev_skill_select_many`) | 0/5 sets (one-skill pick) | **5/5** sets (mean coverage 1.0) | p50 **253 ms**, p95 **352 ms**; **$0.000347** for 5 | Yes — same 5 frozen multi-skill tasks |
+| Model route | Recommend a model + auditable receipt (`jev_model_route`); ships in 0.5.0 | no Switchyard recommendation | **3/3** recommend; `applied: false` (Hermes does not switch yet) | p50 **164 ms**; **$0.000067** for 3 | Partial — agrees with code-owned local filter; not a Hermes auto-picker |
 | Assess | Small typed multiple-choice check (`jev_assess`) | 2/3 | **3/3** | p50 **212 ms**; **$0.000040** for 3 | Weak baseline only (n=3 smoke) |
 | Automatic skill routing | Pre-model skill hint, local match on vs off | silent when off | 1/2 needed; no-fit stays silent | ~1–2 ms local | Yes for hook on/off; not whole-agent |
 | Computer use | Browser/desktop goal progress (`jev_computer_use` DOM) | stock A/B **not run** | Felidae: 1 click, Jev **249 ms**, ~**$0.000213**, `goal_verified: false` | Switchyard-only labeled | No fair stock A/B on this pass |
 
-Rows dropped from the install scorecard (still evidenced below where relevant): **needed-skill failures 11→5** double-counts the five multi-skill tasks under one-skill pick (single-skill is already 12/12); **false skill suggestions 0→0** is a no-delta safety check; **model pick / apply** is an advisory receipt that does not change Hermes’ active model (`applied: false`).
+Rows kept off the install scorecard: **needed-skill failures 11→5** double-counts the five multi-skill tasks under one-skill pick (single-skill is already 12/12); **false skill suggestions 0→0** is a no-delta safety check. **Model route** stays on the scorecard as a shipped 0.5.0 feature (`jev_model_route`); Hermes does not apply the recommendation yet (`applied: false`).
 
 ## Skill select (frozen 24-task live value bench)
 
