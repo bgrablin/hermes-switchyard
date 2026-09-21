@@ -84,9 +84,7 @@ def main() -> int:
     raw = (config.get("agent") or {}).get("disabled_toolsets")
     try:
         from agent.skill_utils import parse_config_string_list
-
-        disabled = list(parse_config_string_list(raw))
-    except Exception:
+    except ImportError:
         if raw is None:
             disabled = []
         elif isinstance(raw, str):
@@ -95,6 +93,9 @@ def main() -> int:
             disabled = [str(item).strip() for item in raw if str(item).strip()]
         else:
             disabled = []
+    else:
+        # Parser is present: let failures propagate so the probe stays fail-closed.
+        disabled = list(parse_config_string_list(raw))
     catalogs = {}
     for label, toolsets in scenario.get("catalog_selections", {}).items():
         catalogs[label] = {"toolsets": list(toolsets), "tools": _catalog(model_tools, toolsets, disabled)}

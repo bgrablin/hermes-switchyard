@@ -40,13 +40,16 @@ def _hydrate_runtime_secret_scope() -> None:
         scope = build_profile_secret_scope(home)
         if not isinstance(scope, dict):
             scope = {}
-        if not scope.get("OPENROUTER_API_KEY"):
+        scoped_key = scope.get("OPENROUTER_API_KEY")
+        # Match _runtime_key(): whitespace-only / non-string scoped values are unusable.
+        if not isinstance(scoped_key, str) or not scoped_key.strip():
             # Compatible last resort on hosts that already exported the key into the process.
             env_key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
             if env_key:
                 scope = dict(scope)
                 scope["OPENROUTER_API_KEY"] = env_key
-        if not scope.get("OPENROUTER_API_KEY"):
+        scoped_key = scope.get("OPENROUTER_API_KEY")
+        if not isinstance(scoped_key, str) or not scoped_key.strip():
             raise RuntimeError("openrouter_key_unavailable_in_supported_scope")
         _SECRET_SCOPE_TOKEN = set_secret_scope(scope)
     except RuntimeError:

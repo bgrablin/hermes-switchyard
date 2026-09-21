@@ -59,5 +59,31 @@ class DisabledToolsetsCompatTests(unittest.TestCase):
         self.assertEqual(selection["disabled_toolsets"], [])
 
 
+    def test_parser_errors_propagate_when_helper_present(self):
+        """Installed parser failures must not be swallowed into an empty disabled list."""
+        seams = hermes_switchyard._load_hermes_seams()
+
+        def boom(_raw):
+            raise ValueError("malformed disabled_toolsets")
+
+        hermes_cli = ModuleType("hermes_cli")
+        config = ModuleType("hermes_cli.config")
+        config.load_config = lambda: {"agent": {"disabled_toolsets": "computer_use"}}  # type: ignore[attr-defined]
+        hermes_cli.config = config  # type: ignore[attr-defined]
+        skill_utils = ModuleType("agent.skill_utils")
+        skill_utils.parse_config_string_list = boom  # type: ignore[attr-defined]
+        with mock.patch.dict(
+            sys.modules,
+            {
+                "hermes_cli": hermes_cli,
+                "hermes_cli.config": config,
+                "agent.skill_utils": skill_utils,
+            },
+        ):
+            with self.assertRaises(ValueError):
+                seams.disabled_toolsets()
+
+
+
 if __name__ == "__main__":
     unittest.main()
