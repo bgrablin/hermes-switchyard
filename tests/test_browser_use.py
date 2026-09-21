@@ -636,6 +636,63 @@ class SnapConfinementDetectionTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "snap_profile_unavailable")
         self.assertIn("snap/chromium/common", str(caught.exception))
 
+    @unittest.skipUnless(os.name != "nt" and hasattr(os, "geteuid") and os.geteuid() != 0, "POSIX non-root permissions")
+    def test_unwritable_snap_common_directory_returns_typed_error(self):
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root)
+            common = home / "snap" / "chromium" / "common"
+            common.mkdir(parents=True)
+            common.chmod(0o555)
+            try:
+                with mock.patch("pathlib.Path.home", return_value=home):
+                    with self.assertRaises(BrowserStartupError) as caught:
+                        _browser_profile_dir(Path("/snap/bin/chromium"))
+            finally:
+                common.chmod(0o755)
+        self.assertEqual(caught.exception.code, "snap_profile_unavailable")
+
+    def test_handler_preserves_snap_profile_unavailable(self):
+        class Context:
+            def __init__(self):
+                self.tools = {}
+
+            def get_config(self, _key, default=None):
+                return default
+
+            def register_auxiliary_task(self, *_args, **_kwargs):
+                pass
+
+            def register_tool(self, *, name, handler, **_kwargs):
+                self.tools[name] = handler
+
+            def register_skill(self, *_args, **_kwargs):
+                pass
+
+            def register_hook(self, *_args, **_kwargs):
+                pass
+
+        context = Context()
+        with mock.patch.object(hermes_switchyard, "_secret", return_value="fixture-key"):
+            hermes_switchyard.register(context)
+            with mock.patch.object(
+                hermes_switchyard.browser_use,
+                "run_browser_goal",
+                side_effect=BrowserStartupError(
+                    "snap_profile_unavailable",
+                    "Snap Chromium requires an accessible ~/snap/chromium/common directory",
+                ),
+            ):
+                result = json.loads(
+                    context.tools["jev_computer_use"](
+                        {
+                            "goal": "Public Wikipedia race starting on Cat",
+                            "app": "Chrome",
+                        }
+                    )
+                )
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["error"]["code"], "snap_profile_unavailable")
+
 
 class SnapBrowserLaunchIntegrationTests(unittest.TestCase):
     """The confined profile directory is proven by launching the real browser."""
@@ -651,11 +708,14 @@ class SnapBrowserLaunchIntegrationTests(unittest.TestCase):
         launcher.write_text(
             "import sys\n"
             "from pathlib import Path\n"
-            "from hermes_switchyard.browser_use import ChromiumSession\n"
-            "session = ChromiumSession('https://example.org/', headed=False)\n"
-            f"marker = Path({str(marker)!r})\n"
-            "marker.write_text(session._tmpdir.name, encoding='utf-8')\n"
-            "session.close()\n"
+            "from unittest import mock\n"
+            "from hermes_switchyard import browser_use\n"
+            f"wrapper = Path({str(executable)!r})\n"
+            "with mock.patch.object(browser_use, '_browser_binary', return_value=wrapper):\n"
+            "    session = browser_use.ChromiumSession('https://example.org/', headed=False)\n"
+            f"    marker = Path({str(marker)!r})\n"
+            "    marker.write_text(session._tmpdir.name, encoding='utf-8')\n"
+            "    session.close()\n"
             "sys.exit(0)\n",
             encoding="utf-8",
         )
