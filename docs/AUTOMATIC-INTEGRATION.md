@@ -56,7 +56,8 @@ The automatic path has three explicit routing modes:
 
 `local_only` is the product default. Ordinary turns do not construct hosted Jev. Set `automatic_skill_routing_mode` to `hosted_sanitized` and set `automatic_skill_public_or_sanitized_data_ack` to `true` to explicitly opt in; the attestation default is `false`, so hosted automatic routing never runs without an explicit operator decision. The value is not Hermes-owned DLP.
 
-The hosted request uses the selected fixed Jev endpoint with OpenRouter fallbacks disabled. A transport failure is reported as `hosted_failure` when there is no local winner, or `hosted_failure_local_fallback` when a local winner is preserved; a valid hosted abstention remains abstention and does not fall back locally. Hosted metadata is retained only in the typed routing receipt and callback state; it is not a user-facing completion claim.
+The hosted request uses the selected fixed Jev endpoint with OpenRouter fallbacks disabled. Automatic hosted routing uses a separate intervention deadline (default 20 seconds via `automatic_skill_deadline_seconds`) that stays below the typical Hermes plugin callback timeout (~30 seconds) and is distinct from the 60-second explicit decision / computer-use deadline and from the per-request provider I/O timeout (~25 seconds). Remaining budget is checked before every partition request and final reduction. When the host cannot cancel the callback, further requests are prevented and late provider results are discarded. Receipts record `deadline_exceeded`, `host_cancelled`, and `late_result_discarded` distinctly from generic transport failures.
+ A transport failure is reported as `hosted_failure` when there is no local winner, or `hosted_failure_local_fallback` when a local winner is preserved; a valid hosted abstention remains abstention and does not fall back locally. Hosted metadata is retained only in the typed routing receipt and callback state; it is not a user-facing completion claim.
 
 The standalone envelope contract is:
 
@@ -119,6 +120,7 @@ All settings are profile-scoped under `plugins.entries.hermes-switchyard.setting
 | `automatic_skill_local_threshold` | `0.20` | Minimum local token-overlap score. Clamped to `[0, 1]`. |
 | `automatic_skill_local_margin` | `0.05` | Minimum gap between the top two local candidates. Clamped to `[0, 1]`. |
 | `automatic_skill_cache_seconds` | `30.0` | Per-process recommendation cache lifetime. Clamped to `[0, 300]`. |
+| `automatic_skill_deadline_seconds` | `20.0` | End-to-end automatic hosted routing deadline. Kept below the typical Hermes ~30s callback timeout; separate from explicit tool deadlines. |
 | `automatic_skill_routing_mode` | `local_only` | `off`, `local_only`, or `hosted_sanitized`. Hosted mode requires explicit opt-in. An allowed host envelope is optional strengthening. |
 | `automatic_skill_jev` | `true` | Deprecated compatibility switch retained for configuration compatibility. It never authorizes hosted egress; set `automatic_skill_routing_mode` to `hosted_sanitized` for explicit opt-in. |
 | `automatic_skill_jev_mode` | `always` | Evaluate the full catalog on every allowed turn. `uncertain_only` is an explicit latency-saving override. |
