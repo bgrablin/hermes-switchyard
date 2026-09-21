@@ -21,6 +21,15 @@ Automatic skill routing is local-only by default. To opt into hosted automatic r
 Optional extras:
 
 - `jev_computer_use` uses a local Chromium-family browser for public web goals. Desktop GUI still needs Hermes computer_use (Cua Driver).
+- Plugin Doctor reports registration only. Per-session callable exposure is different: run
+  `hermes switchyard status --json`
+  and, for an explicit pin,
+  `hermes switchyard status --json --toolsets computer_use,terminal`.
+- `jev_computer_use` is callable only when the `computer_use` toolset is selected. Decision tools need `hermes_switchyard`. Ensure both without widening unrelated tools:
+  `hermes switchyard ensure-toolsets`
+  Setup also runs that ensure after saving a key. On Windows PowerShell, quote pins:
+  `hermes -t "computer_use,hermes_switchyard" chat`
+- Native `computer_use` fallback is not a Jev success. If `jev_computer_use` is missing from the session catalog, fix toolsets before treating the turn as Switchyard computer use.
 
 Re-read this list anytime:
 
