@@ -226,5 +226,16 @@ class AutomaticRoutingDeadlineTests(unittest.TestCase):
         self.assertNotIn("context", response)
 
 
+    def test_typed_deadline_exceeded_is_distinct_from_provider_timeout(self):
+        from hermes_switchyard.client import DeadlineExceeded
+        from hermes_switchyard.automatic import _hosted_error_code
+
+        self.assertEqual(_hosted_error_code(DeadlineExceeded("budget")), "deadline_exceeded")
+        self.assertEqual(
+            _hosted_error_code(TimeoutError("provider socket timeout")),
+            "transport_or_execution_failure",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
