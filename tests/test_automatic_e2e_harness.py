@@ -135,6 +135,36 @@ class AutomaticEvaluationHarnessTests(unittest.TestCase):
         self.assertGreaterEqual(len(set(ids)), 3)
         self.assertEqual(len(ids), len(set(ids)))
 
+
+    def test_skills_from_public_registry_parses_skills_list_payload(self):
+        payload = {
+            "success": True,
+            "skills": [
+                {"name": "network-printer-operations", "category": "devops", "description": "Printers"},
+                {"name": "plugin:helper", "description": "Plugin skill"},
+            ],
+        }
+        fake_module = mock.Mock()
+        fake_module.skills_list = mock.Mock(return_value=__import__("json").dumps(payload))
+        with mock.patch.dict("sys.modules", {"tools.skills_tool": fake_module}):
+            skills = harness._skills_from_public_registry()
+        self.assertEqual(
+            [item["name"] for item in skills],
+            ["network-printer-operations", "plugin:helper"],
+        )
+        aliases = build_skill_alias_map(skills)
+        self.assertEqual(aliases["devops:network-printer-operations"], "network-printer-operations")
+        self.assertEqual(aliases["helper"], "plugin:helper")
+
+    def test_skills_from_public_registry_fails_closed_on_empty(self):
+        fake_module = mock.Mock()
+        fake_module.skills_list = mock.Mock(
+            return_value=__import__("json").dumps({"success": True, "skills": []})
+        )
+        with mock.patch.dict("sys.modules", {"tools.skills_tool": fake_module}):
+            with self.assertRaises(HarnessInvalid):
+                harness._skills_from_public_registry()
+
     def test_ensure_hermes_runtime_fails_closed_without_interpreter(self):
         with mock.patch.object(harness, "_hermes_imports_available", return_value=(False, "ImportError: hermes_state")):
             with mock.patch.object(harness, "resolve_hermes_python", return_value=None):
