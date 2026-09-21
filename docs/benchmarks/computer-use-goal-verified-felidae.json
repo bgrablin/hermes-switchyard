@@ -1,0 +1,62 @@
+{
+  "label": "Cat\u2192Felidae DOM race after goal_verified local-predicate fix",
+  "tip_ref": "fix/goal-verified-local-predicate (PR #57)",
+  "summary": {
+    "elapsed_s": 2.423,
+    "status": "completion_candidate",
+    "goal_verified": true,
+    "verified": true,
+    "verification_owner": "local_completion_predicate",
+    "completion_source": "local_predicate",
+    "completion": {
+      "source": "caller",
+      "satisfied": true,
+      "checks": {
+        "url_contains": true
+      }
+    },
+    "url": "https://en.wikipedia.org/wiki/Felidae",
+    "title": "Felidae - Wikipedia",
+    "click_count": 1,
+    "jev_request_count": 1,
+    "jev_total_latency_ms": 322.3,
+    "elapsed_ms": 2231.3,
+    "failure_phase": null
+  },
+  "receipt": {
+    "status": "completion_candidate",
+    "goal_verified": true,
+    "verified": true,
+    "verification_owner": "local_completion_predicate",
+    "completion_source": "local_predicate",
+    "completion": {
+      "source": "caller",
+      "satisfied": true,
+      "checks": {
+        "url_contains": true
+      }
+    },
+    "url": "https://en.wikipedia.org/wiki/Felidae",
+    "title": "Felidae - Wikipedia",
+    "click_count": 1,
+    "jev_request_count": 1,
+    "jev_total_latency_ms": 322.3,
+    "elapsed_ms": 2231.3,
+    "computer_use_dispatches": 0,
+    "executor": "browser_dom",
+    "backend": "chromium_dom",
+    "failure_phase": null,
+    "decisions": [
+      {
+        "operation": "CLICK",
+        "latency_ms": 322.3,
+        "model": "typesafe/jev-1.13-20260917",
+        "usage": {
+          "input_tokens": 5046.0,
+          "output_tokens": 424.0,
+          "cost": 0.000211932
+        }
+      }
+    ]
+  }
+}

@@ -11,7 +11,7 @@ Repository-owned with/without evidence for **0.5.0** tip `c8e6008`. Human-readab
 | Model route | Recommend a model + auditable receipt (`jev_model_route`); ships in 0.5.0 | no Switchyard recommendation | **3/3** recommend; `applied: false` (Hermes does not switch yet) | p50 **164 ms**; **$0.000067** for 3 | Partial — agrees with code-owned local filter; not a Hermes auto-picker |
 | Assess | Small typed multiple-choice check (`jev_assess`) | 2/3 | **3/3** | p50 **212 ms**; **$0.000040** for 3 | Weak baseline only (n=3 smoke) |
 | Automatic skill routing | Pre-model skill hint, local match on vs off | silent when off | 1/2 needed; no-fit stays silent | ~1–2 ms local | Yes for hook on/off; not whole-agent |
-| Computer use | Browser/desktop goal progress (`jev_computer_use` DOM) | stock A/B **not run** | Felidae: 1 click, Jev **249 ms**, ~**$0.000213**, `goal_verified: false` | Switchyard-only labeled | No fair stock A/B on this pass |
+| Computer use | Browser/desktop goal progress (`jev_computer_use` DOM) | stock A/B **pending** Session-1 GUI | Felidae: 1 click, Jev **322 ms**, ~**$0.00021**, **`goal_verified: true`** | Yes for Switchyard local predicate ([PR #57](https://github.com/bgrablin/hermes-switchyard/pull/57)); stock arm pending | Partial — Switchyard verified; stock not yet |
 
 Rows kept off the install scorecard: **needed-skill failures 11→5** double-counts the five multi-skill tasks under one-skill pick (single-skill is already 12/12); **false skill suggestions 0→0** is a no-delta safety check. **Model route** stays on the scorecard as a shipped 0.5.0 feature (`jev_model_route`); Hermes does not apply the recommendation yet (`applied: false`).
 
@@ -92,22 +92,25 @@ Public Cat → Felidae Wikipedia race via `run_browser_goal` on tip-main:
 
 | Field | Value |
 | --- | --- |
+| tip | `fix/goal-verified-local-predicate` ([PR #57](https://github.com/bgrablin/hermes-switchyard/pull/57)) on top of #54 |
 | status | `completion_candidate` |
 | clicks / Jev requests | 1 / 1 |
-| Jev latency | **249.2 ms** |
-| operation elapsed | **2231.8 ms** (incl. ~1.4 s session setup) |
-| Jev cost | ~**$0.000213** |
+| Jev latency | **322.3 ms** |
+| operation elapsed | **2231.3 ms** |
+| Jev cost | ~**$0.00021** |
 | `computer_use_dispatches` | **0** (DOM path; no Hermes `computer_use` between clicks) |
-| `goal_verified` / `verified` | **false** / **false** (coordinator owns verification) |
-| completion predicate | `url_contains: /wiki/Felidae` satisfied locally |
+| `goal_verified` / `verified` | **true** / **true** |
+| `verification_owner` | `local_completion_predicate` |
+| `completion_source` | `local_predicate` |
+| completion predicate | `url_contains: Felidae` satisfied locally |
 
 ### Stock Hermes `computer_use` A/B
 
-**Not run** on this pass. A fair without arm needs the same task, same model, and stock GUI/browser tool budget. Do not invent a latency/cost delta.
+**Pending** a fair Session-1 interactive GUI run of stock Hermes `computer_use` on the same Cat→Felidae public goal. Do not invent a latency/cost delta. Switchyard DOM arm above is measured and **`goal_verified: true`**.
 
 ### Windows headed operator notes (qualitative + short-race receipt)
 
-A concurrent Windows validation (Hermes 0.21.x) showed `jev_computer_use` callable when toolsets are pinned. Short Cat → Felidae race: **1 click**, final URL Felidae, status `completion_candidate`, **`goal_verified: false`**. Pinning only `computer_use` without `hermes_switchyard` produced `Unknown toolsets: hermes_switchyard`. A longer scenic Pizza → United Nations race was operator-observed to run many clicks then stall before UN; that long-race receipt was **not** retained on this metrics box, so it is **not** hash-bound here.
+A concurrent Windows validation (Hermes 0.21.x) showed `jev_computer_use` callable when toolsets are pinned. Short Cat → Felidae race on the verification tip: **1 click**, final URL Felidae, status `completion_candidate`, **`goal_verified: true`** / **`verified: true`** / `verification_owner: local_completion_predicate`. Pinning only `computer_use` without `hermes_switchyard` produced `Unknown toolsets: hermes_switchyard`. A longer scenic Pizza → United Nations race was operator-observed to run many clicks then stall before UN; that long-race receipt was **not** retained on this metrics box, so it is **not** hash-bound here.
 
 ## Proof
 
@@ -157,5 +160,5 @@ The report refuses partial case sets, missing acknowledgement, dataset/catalog/s
 - The lexical / first-option / local-filter arms are deterministic local baselines, not competing hosted models (except where noted).
 - Strict top-1, multi-skill, no-fit, ambiguity, model-route, assess, automatic, and computer-use metrics stay separate. No aggregate “awesomeness score.”
 - Provider confidence is uncalibrated and is not correctness probability.
-- `goal_verified` / `verified` remain false inside `jev_computer_use` until the coordinator checks.
+- `goal_verified` / `verified` are **true** when a caller `completion_condition` matches via `completion_source: local_predicate` (`verification_owner: local_completion_predicate`). Jev `DONE` without a local predicate stays unverified (`verification_owner: coordinator`).
 - Results bind to the hashes above. Re-run when plugin source hash drifts.
