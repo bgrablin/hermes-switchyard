@@ -309,6 +309,83 @@ class ReceiptContractTests(unittest.TestCase):
         })
         self.assertFalse(receipt_state.validate_receipt(receipt))
 
+
+    def test_consumption_contract_rejects_contradictory_delivery_adoption_pairs(self):
+        receipt = _base_advisory()
+        receipt.update({
+            "delivery_status": "skipped",
+            "adoption_status": "not_adopted",
+            "outcome_status": "unverified",
+        })
+        self.assertFalse(receipt_state.validate_receipt(receipt))
+        self.assertIsNone(receipt_state.canonicalize_receipt(receipt))
+
+        receipt = _base_advisory()
+        receipt.update({
+            "delivery_status": "delivered",
+            "adoption_status": "suppressed",
+            "outcome_status": "unverified",
+        })
+        self.assertFalse(receipt_state.validate_receipt(receipt))
+
+        receipt = _base_advisory()
+        receipt.update({
+            "delivery_status": "not_delivered",
+            "adoption_status": "adopted",
+            "outcome_status": "unverified",
+        })
+        self.assertFalse(receipt_state.validate_receipt(receipt))
+
+    def test_consumption_contract_accepts_exact_valid_pairs(self):
+        for delivery, adoption in receipt_state.VALID_DELIVERY_ADOPTION_PAIRS:
+            receipt = _base_advisory()
+            receipt.update({
+                "delivery_status": delivery,
+                "adoption_status": adoption,
+                "outcome_status": "unverified",
+            })
+            self.assertTrue(
+                receipt_state.validate_receipt(receipt),
+                msg=f"expected valid pair {(delivery, adoption)}",
+            )
+
+    def test_loaded_consumer_cannot_claim_not_adopted(self):
+        receipt = _base_advisory()
+        receipt.update({
+            "consumer_status": "loaded",
+            "loaded_skill": "docker-management",
+            "loaded_source": "local",
+            "skill_load_verified": True,
+            "advisory_only": False,
+            "delivery_status": "delivered",
+            "adoption_status": "not_adopted",
+            "outcome_status": "unverified",
+        })
+        self.assertFalse(receipt_state.validate_receipt(receipt))
+        self.assertIsNone(receipt_state.canonicalize_receipt(receipt))
+
+        receipt["adoption_status"] = "adopted"
+        self.assertTrue(receipt_state.validate_receipt(receipt))
+
+    def test_mandatory_conflict_consumer_requires_skipped_suppressed(self):
+        receipt = _base_advisory()
+        receipt.update({
+            "consumer_status": "mandatory_conflict",
+            "loaded_skill": None,
+            "loaded_source": None,
+            "skill_load_verified": False,
+            "advisory_only": True,
+            "delivery_status": "delivered",
+            "adoption_status": "not_adopted",
+            "outcome_status": "unverified",
+        })
+        self.assertFalse(receipt_state.validate_receipt(receipt))
+        receipt.update({
+            "delivery_status": "skipped",
+            "adoption_status": "suppressed",
+        })
+        self.assertTrue(receipt_state.validate_receipt(receipt))
+
     def test_unknown_cost_none_survives_round_trip(self):
         harness = _MemoryFileHarness()
         try:
