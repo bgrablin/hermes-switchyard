@@ -12,6 +12,25 @@ Jev supplies decision scores. Switchyard applies its eligibility and confidence 
 
 Switchyard gives Hermes another way to choose among a defined set of options. It does not modify Hermes core, silently change the active model, or claim that a recommendation or GUI action is correct. Automatic skill loading is opt-in; the default remains advisory.
 
+## Measured value
+
+**Bottom line: when one specialist skill was the right answer, Jev chose it correctly in all 12 tests. The local word-matching fallback chose correctly in only 7.**
+
+On the repository's frozen 24-task public benchmark, Switchyard made 24 real Jev calls with zero errors:
+
+| What a user would notice | Local word matching | Switchyard with Jev |
+| --- | ---: | ---: |
+| Chose the correct skill when exactly one skill was needed | 7 of 12 | **12 of 12** |
+| Failed to return an acceptable answer on tasks that needed a skill | 11 of 18 | **5 of 18** |
+| Incorrectly recommended a skill when none was needed | **0 of 6** | **0 of 6** |
+
+In plain terms, Jev caught **5 correct skill routes that local matching missed** and eliminated **6 of the local fallback's 11 failures**, without adding a false recommendation on no-skill tasks.
+
+- **Cost:** about **$0.000055 per decision**, or **$0.055 per 1,000 decisions** at the observed rate.
+- **Speed:** about **0.20 seconds for a typical decision**; 95% completed within **0.325 seconds**.
+
+This is evidence for **single-skill routing**, not a claim that every Hermes task improves. Switchyard still selects one skill at a time and completed 0 of 5 tests that required multiple skills. See the [method, complete results, hashes, and limitations](docs/BENCHMARKS.md) and the [machine-readable report](docs/benchmarks/live-selector-c6d9b28.json).
+
 ## Install
 
 ### Quick install
@@ -30,7 +49,7 @@ hermes plugins list
 hermes plugins enable hermes-switchyard
 ```
 
-The repository command requires no GitHub login or token. Catalog installation is not available until a human admits the plugin to the Hermes catalog; use the repository command above.
+The repository command requires no GitHub login or token. Do not put a GitHub token in a clone URL, command, issue report, or repository file. Catalog installation is not available until a human admits the plugin to the Hermes catalog; use the repository command above.
 
 After installing or updating, start a fresh Hermes session so it loads the new plugin. Restart only the Hermes process that needs to load the change.
 
@@ -53,15 +72,16 @@ Use the secure setup steps in [docs/SETUP.md](docs/SETUP.md). Never pass an API 
 - **General assessment:** `jev_assess` exposes Choice, Score, and Noul through validated bounded requests. Large independent question sets are batched without dropping questions; the plugin never turns a probability into an unreviewed side effect.
 - **Skill selection:** `jev_skill_select` recommends one skill from the candidate list supplied by Hermes. Catalogs larger than Jev's per-Choice limit are searched with partition fan-out and recursive reduction; no tail is silently discarded. It never loads the skill.
 - **Multi-skill selection:** `jev_skill_select_many` independently scores the complete bounded catalog and returns a typed list of exact skill identifiers. It is a separate advisory contract and never loads or mutates skills.
-- **Model routing:** `jev_model_route` is the documented Hermes routing point. It filters candidates using explicit code-owned metadata and requirements, then recommends the lowest-cost qualified candidate. `route_model_from_registry` supplies a real approved candidate registry at that point. It never changes the active Hermes model and does not try another provider when Jev fails. Stale registry generations abstain as `stale_registry`; an empty registry abstains as `empty_registry`.
+- **Model routing:** `jev_model_route` is the documented Hermes routing point. It filters candidates using explicit code-owned metadata and requirements, then recommends the lowest-cost qualified candidate. `route_model_from_registry` supplies a real approved candidate registry at that point. `jev_model_route_approved` instead reads a profile-owned approved registry with policy validated locally, including operator-managed version and expiry fields. Neither tool changes the active Hermes model or tries another provider when Jev fails. Stale registry generations abstain as `stale_registry`; an empty registry abstains as `empty_registry`.
 - **Cua Driver computer use:** `jev_computer_use` is registered by default in the `computer_use` toolset on Windows, macOS, and Linux. Public web goals (`start_url` or an https URL in the goal) run a DOM browser loop: one Jev request per step, page clicks, no Hermes `computer_use` between actions. Desktop apps without a URL still use Cua Driver. Standing `public_or_sanitized_data_ack` is on after install, so callers may omit it. A live Jev route is still required. A session only exposes the tool when the `computer_use` toolset is selected; see [Toolsets and session exposure](#toolsets-and-session-exposure).
 
 ## Automatic skill recommendations
 
-When the plugin is enabled, the `pre_llm_call` lifecycle hook is on by default. It discovers the **full** active profile skill registry through Hermes' supported `skills_list` API and performs a fast local match. `local_only` is the safe install default, so ordinary turns do not construct a hosted Jev client. Select `hosted_sanitized` explicitly, together with the standing acknowledgement, when a profile intentionally opts into hosted automatic routing. Set `automatic_skill_jev_mode` to `uncertain_only` only when latency matters more than Jev coverage.
+When the plugin is enabled, the `pre_llm_call` lifecycle hook is on by default. It discovers the **full** active profile skill registry through Hermes' supported `skills_list` API and performs a fast local match. `local_only` is the safe install default, so ordinary turns do not construct a hosted Jev client. Select `hosted_sanitized` explicitly and set `automatic_skill_public_or_sanitized_data_ack` to `true` (the attestation default is `false`) when a profile intentionally opts into hosted automatic routing. Set `automatic_skill_jev_mode` to `uncertain_only` only when latency matters more than Jev coverage.
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode hosted_sanitized
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack true
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_jev_mode always
 ```
 
@@ -70,6 +90,12 @@ The local scan rejects high-confidence secrets and payment or verification value
 Automatic hosted Jev receives only the accepted bounded task and exact candidate identifiers. Candidate descriptions, conversation history, and full skill bodies remain local. A valid Jev abstention is preserved; a transport failure may preserve a local winner. The hook exposes only redacted routing status/reason metadata.
 
 The default `automatic_skill_consumer_mode: advisory` adds model-visible context without loading anything. Set it to `load` to pass one accepted exact identifier to Hermes' normal `skill_view` loader once per turn. Explicit skill instructions, abstention, invalid results, conflicts with configured mandatory skills, and loader errors do not trigger an automatic load. Typed callback metadata and the local receipt report the selected identifier, source, consumer status, and whether the load occurred.
+
+Inspect the active profile's redacted routing mode and provider readiness without displaying a credential:
+
+```text
+hermes switchyard status --json
+```
 
 ## Privacy and data handling
 
@@ -99,7 +125,7 @@ The tools are advisory and bounded:
 - Skill selection and model routing work wherever Hermes can expose the plugin toolset. `jev_computer_use` is available on Windows, macOS, and Linux when Hermes' Cua Driver-backed `computer_use` tool is available.
 - The repository's offline tests use synthetic transports and do not call OpenRouter or drive a real GUI.
 
-Future work includes a reviewed catalog admission, independent real-GUI coverage, and comparative evaluation. Those are not provided by this release.
+Future work includes reviewed catalog admission, independent real-GUI coverage, multi-skill planning, and a counterbalanced whole-agent benchmark. Those are not provided by this release.
 
 ## Safe credential setup
 
@@ -215,6 +241,8 @@ Release archives use an exact Git source commit, include `SOURCE-MANIFEST.json` 
 - [Setup](docs/SETUP.md)
 - [Release instructions](docs/RELEASE.md)
 - [Feature and test matrix](docs/TEST-MATRIX.md)
+- [Benchmark methods and live results](docs/BENCHMARKS.md)
+- [Approved model-routing policy](docs/MODEL-ROUTING.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security reporting](SECURITY.md)
 - [Third-party references](THIRD_PARTY.md)
