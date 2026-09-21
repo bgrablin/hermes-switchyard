@@ -1508,9 +1508,14 @@ class ChromiumSession:
         if not decision.allowed:
             raise DestinationPolicyError(decision.code)
         started = time.perf_counter()
-        binary, family, confinement = _browser_binary_details()
+        binary = _browser_binary()
         if binary is None:
             raise RuntimeError("no Chromium-family browser is installed")
+        _selected, family, confinement = _browser_binary_details()
+        if _is_snap_confined(binary):
+            confinement = "snap"
+        elif binary != _selected:
+            confinement = "none"
         self.browser_family = family
         self.confinement = confinement
         self.setup_ms: float | None = None
@@ -1956,7 +1961,8 @@ def _is_snap_chromium(binary: Path | None) -> bool:
     for candidate in (binary, resolved):
         if candidate == _SNAP_ENTRY_POINT:
             return True
-        if str(candidate).startswith("/snap/bin/"):
+        parts = candidate.parts
+        if any(parts[i:i + 2] == ("snap", "bin") for i in range(len(parts) - 1)):
             return True
     try:
         if not binary.is_file():
@@ -2021,6 +2027,21 @@ def _browser_profile_dir(binary: Path | str | None = None) -> tempfile.Temporary
                 "snap_profile_unavailable",
                 "Snap Chromium requires an accessible ~/snap/chromium/common directory",
             ) from exc
+    if os.name == "nt":
+        base = Path(os.environ.get("TEMP") or os.environ.get("LOCALAPPDATA") or ".")
+        cache = base / "hermes-switchyard"
+        cache.mkdir(parents=True, exist_ok=True)
+        return tempfile.TemporaryDirectory(prefix="switchyard-browser-", dir=str(cache), ignore_cleanup_errors=True)
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime:
+        runtime_path = Path(runtime)
+        if runtime_path.is_dir() and os.access(runtime_path, os.W_OK):
+            return tempfile.TemporaryDirectory(prefix="switchyard-browser-", dir=str(runtime_path), ignore_cleanup_errors=True)
+    cache = Path.home() / ".cache" / "hermes-switchyard"
+    cache.mkdir(parents=True, exist_ok=True)
+    return tempfile.TemporaryDirectory(prefix="switchyard-browser-", dir=str(cache), ignore_cleanup_errors=True)
+
+
 # Chrome preconnects to a navigation target before request interception can
 # refuse it: six TCP connections reached a loopback listener on a refused
 # navigation. The per-run profile turns network prediction off, which removes
@@ -2048,19 +2069,6 @@ def _write_profile_preferences(profile: Path, overrides: dict[str, Any] | None =
     (default / "Preferences").write_text(json.dumps(preferences), encoding="utf-8")
 
 
-    if os.name == "nt":
-        base = Path(os.environ.get("TEMP") or os.environ.get("LOCALAPPDATA") or ".")
-        cache = base / "hermes-switchyard"
-        cache.mkdir(parents=True, exist_ok=True)
-        return tempfile.TemporaryDirectory(prefix="switchyard-browser-", dir=str(cache), ignore_cleanup_errors=True)
-    runtime = os.environ.get("XDG_RUNTIME_DIR")
-    if runtime:
-        runtime_path = Path(runtime)
-        if runtime_path.is_dir() and os.access(runtime_path, os.W_OK):
-            return tempfile.TemporaryDirectory(prefix="switchyard-browser-", dir=str(runtime_path), ignore_cleanup_errors=True)
-    cache = Path.home() / ".cache" / "hermes-switchyard"
-    cache.mkdir(parents=True, exist_ok=True)
-    return tempfile.TemporaryDirectory(prefix="switchyard-browser-", dir=str(cache), ignore_cleanup_errors=True)
 
 
 def _browser_binary_details() -> tuple[Path | None, str | None, str]:
