@@ -48,6 +48,16 @@ class _Context:
 
 
 class AutomaticRecommendationTests(unittest.TestCase):
+    def test_recommender_defaults_to_local_only_without_legacy_opt_in(self):
+        recommender = AutomaticSkillRecommender(
+            configured_candidates=[{"name": "docker-management", "description": "Docker containers"}],
+            client_factory=lambda: (_ for _ in ()).throw(AssertionError("local-only routing must not build a client")),
+        )
+        result = recommender.recommend("Diagnose a Docker container")
+        self.assertEqual(recommender.routing_mode, "local_only")
+        self.assertFalse(result["hosted_attempted"])
+        self.assertEqual(result["hosted_skipped"], "routing_mode_local_only")
+
     def test_multimodal_text_is_bounded_while_blocks_are_read(self):
         value = [
             {"type": "text", "text": "a" * 3_000},

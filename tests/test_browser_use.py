@@ -3,11 +3,20 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from contextlib import contextmanager
+from pathlib import Path
 from unittest import mock
 
-from hermes_switchyard.browser_use import infer_start_url, requested_web_start, run_browser_goal
+from hermes_switchyard.browser_use import (
+    _browser_profile_dir,
+    _is_snap_chromium,
+    _resolve_browser_binary,
+    infer_start_url,
+    requested_web_start,
+    run_browser_goal,
+)
 import hermes_switchyard
 
 
@@ -78,6 +87,27 @@ def _choice(choice: str, criteria: dict) -> dict:
 
 
 class BrowserUseTests(unittest.TestCase):
+    def test_snap_wrapper_resolves_to_confined_binary(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = Path(root)
+            wrapper = root_path / "chromium-browser"
+            snap = root_path / "chromium"
+            wrapper.write_text('#!/bin/sh\nexec /snap/bin/chromium "$@"\n', encoding="utf-8")
+            snap.write_text("binary", encoding="utf-8")
+            self.assertEqual(_resolve_browser_binary(wrapper, snap_binary=snap), snap)
+            self.assertFalse(_is_snap_chromium(wrapper))
+
+    def test_snap_profile_is_created_under_confined_common_directory(self):
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root)
+            with mock.patch("pathlib.Path.home", return_value=home):
+                temporary = _browser_profile_dir(Path("/snap/bin/chromium"))
+            profile = Path(temporary.name)
+            self.assertEqual(profile.parent, home / "snap" / "chromium" / "common")
+            self.assertTrue(profile.is_dir())
+            temporary.cleanup()
+            self.assertFalse(profile.exists())
+
     def test_infers_wikipedia_start_url_from_goal(self):
         url = infer_start_url(None, "Public Wikipedia race starting on Cat. Reach Lion.")
         self.assertEqual(url, "https://en.wikipedia.org/wiki/Cat")

@@ -788,13 +788,9 @@ def register(ctx):
 
     configured_routing_mode = ctx.get_config("automatic_skill_routing_mode", default=None)
     if configured_routing_mode is None:
-        # The plugin owns its standalone scan and standing acknowledgement. A
-        # future Hermes envelope can narrow the payload, but is not required.
-        configured_routing_mode = (
-            "hosted_sanitized"
-            if setting_bool("automatic_skill_jev", True)
-            else "local_only"
-        )
+        # Automatic routing is local-only unless the operator explicitly opts
+        # into hosted_sanitized mode. The legacy boolean never authorizes egress.
+        configured_routing_mode = "local_only"
     automatic_hook = build_pre_llm_call_hook(
         enabled=setting_bool("automatic_skill_recommendation", True),
         configured_candidates=ctx.get_config("automatic_skill_candidates", default=[]),

@@ -3,9 +3,10 @@
 The hook defaults to advisory mode. Its opt-in typed consumer can load one
 accepted skill through Hermes' normal skill loader without changing a toolset or
 rewriting the cached system prompt. Local matching supplies a deterministic
-fallback. Hosted Jev is preferred when hosted_sanitized mode is enabled (the
-install default). Standing acknowledgement is on after install; set it false to
-skip hosted automatic routing. A host envelope is optional strengthening and may
+fallback. Automatic routing defaults to local-only matching. Hosted Jev is
+available only when hosted_sanitized mode is explicitly selected. Standing
+acknowledgement is retained for explicit hosted opt-in; it does not authorize
+hosted automatic routing by itself. A host envelope is optional strengthening and may
 provide a narrower sanitized payload. The automatic hosted payload then contains only the accepted task and
 exact candidate identifiers. Conversation history, candidate descriptions, and
 full skill bodies stay local.
@@ -320,11 +321,11 @@ class AutomaticSkillRecommender:
             _validate_candidates(configured_candidates, limit=None)
             if configured_candidates else ()
         )
-        # ``hosted_enabled`` is retained only as a compatibility input. An
-        # explicit routing mode always wins. With no explicit mode, the product
-        # default is hosted_sanitized; an old explicit false maps to local_only.
+        # ``hosted_enabled`` is retained only for callers using the legacy
+        # constructor API. The plugin registration path always supplies an
+        # explicit mode, whose unset configuration fallback is local-only.
         if routing_mode is None:
-            routing_mode = "local_only" if hosted_enabled is False else "hosted_sanitized"
+            routing_mode = "hosted_sanitized" if hosted_enabled is True else "local_only"
         if not is_routing_mode(routing_mode):
             raise ValueError(f"routing_mode must be one of {sorted(ROUTING_MODES)!r}")
         self.routing_mode = routing_mode

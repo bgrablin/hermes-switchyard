@@ -10,6 +10,7 @@ import json
 import os
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import hermes_switchyard
@@ -317,6 +318,50 @@ class ReceiptContractTests(unittest.TestCase):
             self.assertIsNone(on_disk["total_usage"]["cost"])
             self.assertIsNone(readback["total_usage"]["cost"])
         finally:
+            harness.close()
+
+    def test_receipt_uses_profile_data_and_migrates_legacy_once(self):
+        harness = _MemoryFileHarness()
+        try:
+            os.environ["HERMES_HOME"] = harness._tmp.name
+            legacy = Path(harness._tmp.name) / "plugins" / receipt_state.PLUGIN_NAME / "receipt.json"
+            legacy.parent.mkdir(parents=True)
+            receipt = _base_advisory()
+            legacy.write_text(json.dumps(receipt), encoding="utf-8")
+
+            migrated = receipt_state.read_latest_receipt()
+            new_path = receipt_state._receipt_state_file()
+            self.assertIsNotNone(new_path)
+            assert new_path is not None
+            self.assertEqual(
+                new_path,
+                Path(harness._tmp.name) / "plugin-data" / receipt_state.PLUGIN_NAME / "receipt.json",
+            )
+            self.assertEqual(migrated, receipt_state.canonicalize_receipt(receipt))
+            self.assertTrue(new_path.is_file())
+            self.assertTrue(legacy.is_file())
+            self.assertNotEqual(new_path.parent, legacy.parent)
+        finally:
+            os.environ.pop("HERMES_HOME", None)
+            harness.close()
+
+    def test_receipt_does_not_overwrite_existing_new_state(self):
+        harness = _MemoryFileHarness()
+        try:
+            os.environ["HERMES_HOME"] = harness._tmp.name
+            new_path = receipt_state._receipt_state_file()
+            self.assertIsNotNone(new_path)
+            assert new_path is not None
+            new_path.parent.mkdir(parents=True, exist_ok=True)
+            new_path.write_text('{"unrelated": true}\n', encoding="utf-8")
+            legacy = Path(harness._tmp.name) / "plugins" / receipt_state.PLUGIN_NAME / "receipt.json"
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text(json.dumps(_base_advisory()), encoding="utf-8")
+
+            self.assertIsNone(receipt_state.read_latest_receipt())
+            self.assertEqual(new_path.read_text(encoding="utf-8"), '{"unrelated": true}\n')
+        finally:
+            os.environ.pop("HERMES_HOME", None)
             harness.close()
 
 
