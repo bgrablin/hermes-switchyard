@@ -73,7 +73,7 @@ Narrow quoted derivation is allowed only for these explicit goal phrases:
 
 - `title contains|equals|is "…"` → `source: derived_goal_title`, `title_contains`
 - `url equals|is "https://…"` → `source: derived_goal_url`, `url_equals` (public https only)
-- `url contains "…"` → `source: derived_goal_url`, `url_contains` (unsafe schemes refused)
+- `url contains "…"` → `source: derived_goal_url`, `url_contains` (unsafe schemes refused; matching is case-insensitive like title/text contains)
 
 Unquoted URLs and free-form wording are never mined. When no safe predicate is
 supplied or derived, the loop falls back to a provider `DONE` decision.
@@ -104,9 +104,10 @@ Progress is measured locally by an observation signature over URL, title, text, 
 the offered targets. Scroll offset and focus are excluded, because they describe the
 view rather than the content. When a scroll changes nothing, the loop retries the
 scroll locally up to the configured bound before spending another decision. When a
-bounded number of consecutive actions produce no progress, the loop stops with
+bounded number of consecutive actions produce no progress **and** at least `min_actions_before_done` actions have already been dispatched, the loop stops with
 `failure_phase: no_progress` and `reconcile_before_retry: true` instead of paying for
-another provider decision over unchanged state.
+another provider decision over unchanged state. Early stalls below that floor keep
+running so scenic multi-hop races are not aborted prematurely.
 
 ## Destination boundary
 

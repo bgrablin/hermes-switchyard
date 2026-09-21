@@ -16,8 +16,10 @@ from hermes_switchyard import browser_use
 from hermes_switchyard.browser_use import (
     BrowserStartupError,
     _browser_profile_dir,
+    _completion_status,
     _is_snap_chromium,
     _resolve_browser_binary,
+    _url_contains_match,
     infer_start_url,
     requested_web_start,
     run_browser_goal,
@@ -1356,6 +1358,76 @@ class BrowserReliabilityTests(unittest.TestCase):
                         completion_condition=condition,
                     )
 
+    def test_url_contains_match_is_case_insensitive(self):
+        """Needle casing must not false-negative a correct Wikipedia final URL."""
+        url = "https://en.wikipedia.org/wiki/United_Nations"
+        self.assertTrue(_url_contains_match("United_Nations", url))
+        self.assertTrue(_url_contains_match("united_nations", url))
+        self.assertTrue(_url_contains_match("UNITED_NATIONS", url))
+        self.assertFalse(_url_contains_match("United Nations", url))  # space != underscore
+        self.assertFalse(_url_contains_match("Not_The_Article", url))
+
+    def test_url_contains_predicate_matches_wikipedia_url_case_insensitively(self):
+        """Regression: url_contains United_Nations vs .../wiki/United_Nations."""
+        page = {
+            "url": "https://en.wikipedia.org/wiki/United_Nations",
+            "title": "United Nations",
+            "text": "The United Nations is an intergovernmental organization.",
+            "elements": [],
+        }
+        for needle in ("United_Nations", "united_nations", "UNITED_NATIONS"):
+            with self.subTest(needle=needle):
+                status = _completion_status({"url_contains": needle}, page)
+                self.assertIsNotNone(status)
+                self.assertTrue(status["satisfied"])
+                self.assertEqual(status["checks"], {"url_contains": True})
+
+    def test_url_contains_casefold_stops_without_another_decision(self):
+        """Caller needle casing differs from the live Wikipedia path; still stop."""
+        quokka = "https://en.wikipedia.org/wiki/Quokka"
+        un = "https://en.wikipedia.org/wiki/United_Nations"
+        session = FakeSession(
+            {
+                quokka: {
+                    "title": "Quokka",
+                    "text": "The quokka is a small macropod.",
+                    "elements": [{"id": "1", "role": "link", "label": "United Nations", "href": un}],
+                },
+                un: {
+                    "title": "United Nations",
+                    "text": "The United Nations is an intergovernmental organization.",
+                    "elements": [],
+                },
+            }
+        )
+        client = ScriptedClient(
+            [
+                {
+                    "operation": _choice(
+                        "CLICK",
+                        {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b"},
+                    ),
+                    "click_target": _choice("1", {"1": "United Nations"}),
+                }
+            ]
+        )
+        result = run_browser_goal(
+            goal="Open the United Nations article",
+            session=session,
+            client=client,
+            max_steps=5,
+            min_actions_before_done=1,
+            completion_condition={"url_contains": "united_nations"},
+        )
+        self.assertEqual(result["status"], "completion_candidate")
+        self.assertEqual(result["completion_source"], "local_predicate")
+        self.assertTrue(result["completion"]["satisfied"])
+        self.assertEqual(result["completion"]["checks"], {"url_contains": True})
+        self.assertEqual(result["url"], un)
+        self.assertEqual(len(client.calls), 1)
+        self.assertFalse(result["goal_verified"])
+        self.assertEqual(result["verified"], False)
+
     def test_provider_timeout_after_a_click_keeps_partial_evidence(self):
         cat = "https://en.wikipedia.org/wiki/Cat"
         felidae = "https://en.wikipedia.org/wiki/Felidae"
@@ -1468,6 +1540,34 @@ class BrowserReliabilityTests(unittest.TestCase):
         self.assertEqual(len(client.calls), 2)
         self.assertEqual(result["attempted_action_count"], 2)
         self.assertTrue(result["reconcile_before_retry"])
+
+    def test_no_progress_waits_for_min_actions_before_done(self):
+        """Scenic races set a high min_actions; early stalls must not abort first."""
+        session = StaticSession(
+            {
+                "url": "https://example.org/",
+                "title": "Home",
+                "text": "Home page body",
+                "elements": [{"id": "1", "role": "link", "label": "Next page", "href": "https://example.org/next"}],
+            }
+        )
+        click = {
+            "operation": _choice("CLICK", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b"}),
+            "click_target": _choice("1", {"1": "Next page"}),
+        }
+        # Enough scripted clicks to pass the deferred no_progress gate at min=5.
+        client = ScriptedClient([click] * 8)
+        result = run_browser_goal(
+            goal="Reach the next page",
+            session=session,
+            client=client,
+            max_steps=12,
+            min_actions_before_done=5,
+        )
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["failure_phase"], "no_progress")
+        self.assertGreaterEqual(result["attempted_action_count"], 5)
+        self.assertGreaterEqual(len(client.calls), 5)
 
     def test_ineffective_scroll_recovers_locally_then_stops(self):
         session = StaticSession(
