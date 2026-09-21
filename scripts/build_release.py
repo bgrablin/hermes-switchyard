@@ -54,6 +54,7 @@ RELEASE_FILES = (
     "hermes_switchyard/receipt_state.py",
     "hermes_switchyard/client.py",
     "hermes_switchyard/computer_use.py",
+    "hermes_switchyard/destination_policy.py",
     "hermes_switchyard/model_registry.py",
     "hermes_switchyard/routing.py",
     "hermes_switchyard/schemas.py",

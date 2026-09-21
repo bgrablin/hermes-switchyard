@@ -99,6 +99,83 @@ bounded number of consecutive actions produce no progress, the loop stops with
 `failure_phase: no_progress` and `reconcile_before_retry: true` instead of paying for
 another provider decision over unchanged state.
 
+## Destination boundary
+
+The approved destination class is a public https origin without credentials. The
+policy is code (`hermes_switchyard/destination_policy.py`), not model judgment, and
+it runs before provider work and at every request boundary the browser exposes.
+
+| Layer | What it decides | When |
+| --- | --- | --- |
+| Start URL | scheme, credentials, host spelling, and host resolution | before a browser process exists and before any provider request |
+| Offered targets | the same lexical policy over every `href` | when a snapshot is filtered |
+| Request interception | every request from the page, its frames, and its workers: navigations, redirect hops, subresources | before the request is sent, through request-stage `Fetch` interception |
+| Response address | the address a response actually came from | after the response arrives; a private address is recorded as a fatal violation |
+| Landing URL | the URL observed after each action | after every action |
+
+Refused by the policy: any scheme other than https (`file`, `data`, `javascript`,
+`about`, `blob`, `ftp`, `chrome`, `http`, `ws`) for a navigation; credentialed URLs;
+loopback, private, link-local, shared, multicast, and other non-global addresses,
+including IPv6 forms that embed a private IPv4 address; numeric host spellings
+(`0x7f.0.0.1`, octal, decimal, short forms); percent-encoded or non-ASCII hosts that
+normalize to an address; local-only names (`localhost`, `.local`, `.internal`,
+`.lan`, `.home.arpa`, single-label hosts); control characters and backslashes; and
+any host whose resolution fails, returns nothing, or includes one non-public
+address. A non-document subresource may also be `data` or `blob`, which carry no
+network destination. A redirect chain is bounded at 10 hops and each hop is decided
+on its own, so a chain that starts public and drifts to a private or credentialed
+hop is refused at the hop that drifts.
+
+The browser starts on `about:blank` and loads the start URL only after interception
+is installed, so the first load and its redirects are covered. Interception that
+cannot be proven (the protocol call fails, the connection ends, a frame cannot be
+attached, a handler cannot answer) is recorded as `interception_unavailable` and
+stops the run. New windows are blocked, so the session stays a single tab.
+
+A refused **navigation** (including a frame navigation), a refused address seen
+after the fact, and any integrity failure stop the run:
+
+```text
+status: blocked
+failure_phase: destination_blocked
+failure_reason: non_public_address    # bounded code, never provider or page text
+reconcile_before_retry: true          # the click was dispatched; its effect is uncertain
+```
+
+A refused **subresource** is blocked at the request and recorded in
+`destination_policy`, and the run continues, because a public page that references a
+private image or script has not moved the session there. A caller who wants a
+stricter posture can read `destination_policy.subresource_blocks` from the receipt.
+
+Every receipt carries `destination_policy`: policy name and version, whether
+interception was active, requests checked and blocked, redirect hops and
+cross-origin redirects, the refusal records, and the named residual risks. A refused
+URL appears in receipts only as scheme and host; credentials, path, query, and port
+are dropped everywhere, including the recent-action history sent to the provider.
+
+### What this boundary does not claim
+
+- **DNS answers can change between the check and the connect.** The policy resolves
+  a host before the request is released, and Chrome resolves it again to connect. A
+  rebinding server can answer differently the second time. The response-address
+  check detects that after the request was sent; it does not prevent it. Closing it
+  needs a validating proxy that connects to the address it validated.
+- **WebSocket handshakes are detected, not intercepted.** `Fetch` does not pause
+  them, so a private WebSocket target is recorded as fatal after the attempt starts.
+- **Interception covers the page target, its frames, and dedicated workers.** A
+  dedicated worker rejects `Fetch.enable`, and its requests are paused on the parent
+  session, which was verified against the installed Chromium. Other worker types
+  that reject interception fail closed.
+- **The preconnect fix is a browser setting.** It was verified against the Chromium
+  the tests ran on (a listener saw six connections without it and none with it). A
+  different browser version may behave differently.
+- **A resolver that answers non-public addresses for public names is refused.** A
+  fake-IP VPN mode, a split-horizon resolver, or a transparent proxy on a private
+  address makes public hosts look private. The backend fails closed there rather
+  than trusting the answer.
+- The policy decides where a request may go. It does not decide whether the page
+  content is trustworthy, and it does not verify the goal.
+
 ## Sandboxed browsers
 
 Some Linux distributions ship Chromium only as a Snap. The distribution wrapper
@@ -158,6 +235,13 @@ confined Snap Chromium, using a real headless browser over CDP:
 - A live public article page recorded a scroll-relative offered window (47 targets,
   one target shared with the first snapshot), no identifier ever reassigned to a
   different element, and a confined profile under `snap/chromium/common`.
+- Destination-boundary behavior is covered by `tests/test_browser_destination.py`:
+  policy and resolution checks with a stub resolver, the interception guard driven
+  with synthetic protocol events, the loop with scripted providers, and a real
+  headless browser against a local listener that must record zero connections. The
+  listener is test-local and nothing private is browsed. The real-browser tests
+  need a Chromium-family browser and DNS for `example.com` and `example.org`, and
+  skip when either is missing.
 - A live public goal with a caller-supplied predicate clicked one target, observed
   the URL change, satisfied the predicate on the live page, and stopped with one
   provider decision instead of the two decisions the pre-fix loop required.
