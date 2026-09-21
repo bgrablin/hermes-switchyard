@@ -581,8 +581,15 @@ class AutomaticRecommendationTests(unittest.TestCase):
         result = recommender.recommend("Diagnose an ordinary Docker container issue")
         self.assertFalse(result["hosted_attempted"])
         self.assertEqual(constructed, [])
-        self.assertNotEqual(result.get("policy_data_class"), "sanitized")
-        self.assertNotEqual(result.get("policy_reason_code"), "local_scan_allowed")
+        self.assertEqual(result.get("policy_data_class"), "unknown")
+        self.assertEqual(result.get("policy_status"), "unknown")
+        self.assertEqual(result.get("policy_reason"), "local_scan_unclassified")
+        self.assertEqual(result.get("hosted_skipped"), "local_scan_unclassified")
+        self.assertIsNotNone(recommender.last_receipt)
+        self.assertEqual(
+            recommender.last_receipt.get("hosted_skip_reason"),
+            "local_scan_unclassified",
+        )
 
     def test_ack_false_blocks_hosted_call_without_envelope(self):
         constructed = []
@@ -832,13 +839,34 @@ class AutomaticRecommendationTests(unittest.TestCase):
                 "reason_code": "synthetic_restricted",
                 "allowed_payload": "SYNTHETIC_RESTRICTED_PAYLOAD",
             },
+            {
+                "version": 1,
+                "decision": "allow",
+                "data_class": "sanitized",
+                # missing allowed_payload -> invalid
+            },
+            {
+                "version": 1,
+                "decision": "deny",
+                "data_class": "public",
+                "reason_code": "synthetic_denied",
+                "allowed_payload": "SYNTHETIC_DENIED_PAYLOAD",
+            },
         ]
-        reasons = ["per_turn_policy_unknown", "restricted_data_class"]
+        reasons = [
+            "per_turn_policy_unknown",
+            "restricted_data_class",
+            "per_turn_policy_invalid",
+            "per_turn_policy_denied",
+        ]
         for policy, reason in zip(policies, reasons):
             with self.subTest(reason=reason):
                 result = recommender.recommend("Docker maintenance", turn_egress_policy=policy)
                 self.assertEqual(result["routing_reason"], reason)
                 self.assertEqual(result["hosted_attempted"], False)
+                self.assertEqual(result.get("hosted_skipped"), reason)
+                self.assertIsNotNone(recommender.last_receipt)
+                self.assertEqual(recommender.last_receipt.get("hosted_skip_reason"), reason)
         self.assertEqual(constructed, [])
 
     def test_cache_hit_preserves_original_routing_outcome_and_reason(self):

@@ -4,7 +4,7 @@ Picks the right specialist skill for Hermes more often — cheap, fast, and care
 
 Version: 0.5.0
 
-Hermes Switchyard is a plugin that helps Hermes choose skills, models, and computer-use actions. Under the hood it uses [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) for structured decisions; Switchyard applies local policy and keeps actions bounded. Defaults are **advisory**: Switchyard recommends, Hermes verifies. It does not modify Hermes core or silently change your active model. Automatic skill loading stays opt-in.
+Hermes Switchyard is a plugin that helps Hermes choose skills, models, and computer-use actions. Under the hood it uses [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) for structured decisions; Switchyard applies local policy and keeps actions bounded. Defaults are **advisory**: Switchyard recommends, Hermes verifies. It does not modify Hermes core or silently change your active model. Automatic skill loading stays opt-in. Hosted automatic routing additionally requires load mode, acknowledgement, and an explicit host per-turn allow envelope.
 
 ![Hermes Switchyard flow from Jev decisions through Switchyard validation to Hermes execution and verification](docs/assets/hermes-switchyard-overview.png)
 
@@ -70,19 +70,20 @@ Use the secure setup steps in [docs/SETUP.md](docs/SETUP.md). Never pass an API 
 
 ## Automatic skill recommendations
 
-When the plugin is enabled, the `pre_llm_call` lifecycle hook is on by default. It discovers the **full** active profile skill registry through Hermes' supported `skills_list` API and performs a fast local match. `local_only` is the safe install default, so ordinary turns do not construct a hosted Jev client. Select `hosted_sanitized` explicitly and set `automatic_skill_public_or_sanitized_data_ack` to `true` (the attestation default is `false`) when a profile intentionally opts into hosted automatic routing. Set `automatic_skill_jev_mode` to `uncertain_only` only when latency matters more than Jev coverage.
+When the plugin is enabled, the `pre_llm_call` lifecycle hook is on by default. It discovers the **full** active profile skill registry through Hermes' supported `skills_list` API and performs a fast local match. `local_only` is the safe install default, so ordinary turns do not construct a hosted Jev client. Select `hosted_sanitized` explicitly, set `automatic_skill_consumer_mode` to `load`, and set `automatic_skill_public_or_sanitized_data_ack` to `true` (the attestation default is `false`) when a profile intentionally opts into hosted automatic routing. Advisory mode cannot authorize hosted work (`consumer_contract_unmet`). Set `automatic_skill_jev_mode` to `uncertain_only` only when latency matters more than Jev coverage.
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode hosted_sanitized
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_consumer_mode load
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack true
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_jev_mode always
 ```
 
-The local scan rejects high-confidence secrets and payment or verification values before the hosted client is constructed. Topic words such as "private" or "verification" do not skip Jev. A host envelope, when supplied, must contain `version: 1`, `decision: "allow"`, `data_class: "public"` or `"sanitized"`, and bounded `allowed_payload`; explicit denied, unknown, restricted, or malformed envelopes fail closed. Without an envelope, the accepted bounded task is the hosted payload. Hosted automatic routing is never constructed while the routing mode remains `local_only`, regardless of the acknowledgement setting.
+The local scan rejects high-confidence secrets and payment or verification values before the hosted client is constructed. Topic words such as "private" or "verification" do not skip Jev. Hosted construction additionally requires `load` consumer mode and a host-provided `turn_egress_policy` envelope with `version: 1`, `decision: "allow"`, `data_class: "public"` or `"sanitized"`, and bounded `allowed_payload`. Explicit denied, unknown, restricted, or malformed envelopes fail closed. In load mode without an envelope, a clean local scan is `unknown` / `local_scan_unclassified` and does not construct a hosted client—only the host may assert `public` or `sanitized`. Hosted automatic routing is never constructed while the routing mode remains `local_only`, regardless of the acknowledgement setting.
 
-Automatic hosted Jev receives only the accepted bounded task and exact candidate identifiers. Candidate descriptions, conversation history, and full skill bodies remain local. A valid Jev abstention is preserved; a transport failure may preserve a local winner. The hook exposes only redacted routing status/reason metadata.
+Automatic hosted Jev receives only the envelope's bounded `allowed_payload` and exact candidate identifiers. Candidate descriptions, conversation history, and full skill bodies remain local. A valid Jev abstention is preserved; a transport failure may preserve a local winner. The hook exposes only redacted routing status/reason metadata.
 
-The default `automatic_skill_consumer_mode: advisory` adds model-visible context without loading anything. Set it to `load` to pass one accepted exact identifier to Hermes' normal `skill_view` loader once per turn. Explicit skill instructions, abstention, invalid results, conflicts with configured mandatory skills, and loader errors do not trigger an automatic load. Typed callback metadata and the local receipt report the selected identifier, source, consumer status, and whether the load occurred.
+The default `automatic_skill_consumer_mode: advisory` adds model-visible context without loading anything and cannot authorize hosted construction. Set it to `load` to pass one accepted exact identifier to Hermes' normal `skill_view` loader once per turn and to unlock hosted Jev when the other gates pass. Explicit skill instructions, abstention, invalid results, conflicts with configured mandatory skills, and loader errors do not trigger an automatic load. Typed callback metadata and the local receipt report the selected identifier, source, consumer status, and whether the load occurred.
 
 Inspect the active profile's redacted routing mode and provider readiness without displaying a credential:
 
