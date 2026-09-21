@@ -550,19 +550,52 @@ class PluginStateCleanlinessTests(unittest.TestCase):
         self.assertEqual(after, before, "plugin use wrote state into the source checkout")
 
     def test_store_and_migrate_leave_git_porcelain_unchanged(self):
-        if not (self._REPO_ROOT / ".git").exists():
-            self.skipTest("tests are not inside a source checkout")
-        before = self._porcelain(self._REPO_ROOT)
+        """Legacy plugin path is a Git checkout; store and migrate must not dirty it."""
         receipt = build_routing_receipt(_skipped_result())
         with tempfile.TemporaryDirectory() as directory:
-            with mock.patch.dict(os.environ, {"HERMES_HOME": directory}, clear=False):
+            home = Path(directory)
+            checkout = home / "plugins" / receipt_state.PLUGIN_NAME
+            checkout.mkdir(parents=True)
+            self._init_git_checkout(checkout)
+            with mock.patch.dict(os.environ, {"HERMES_HOME": str(home)}, clear=False):
+                before_store = self._porcelain(checkout)
                 self.assertTrue(receipt_state.store_latest_receipt(receipt))
-                # Migration path must also stay out of the checkout tree.
-                legacy = Path(directory) / "plugins" / receipt_state.PLUGIN_NAME / "receipt.json"
-                legacy.parent.mkdir(parents=True)
+                legacy = checkout / "receipt.json"
+                self.assertFalse(legacy.exists(), "store wrote a receipt into the git-installed checkout")
+                state = receipt_state._receipt_state_file()
+                self.assertEqual(state, home / "plugin-data" / receipt_state.PLUGIN_NAME / "receipt.json")
+                self._assert_porcelain_unchanged(checkout, before_store)
                 legacy.write_text(json.dumps(receipt), encoding="utf-8")
-                self.assertEqual(receipt_state.read_latest_receipt(), receipt_state.canonicalize_receipt(receipt))
-        self._assert_porcelain_unchanged(self._REPO_ROOT, before)
+                add = subprocess.run(
+                    ["git", "add", "receipt.json"],
+                    cwd=str(checkout),
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                )
+                if add.returncode != 0:
+                    self.skipTest("git could not add the modeled legacy receipt")
+                committed = subprocess.run(
+                    [
+                        "git", "-c", "user.name=switchyard-test",
+                        "-c", "user.email=switchyard-test@example.invalid",
+                        "-c", "commit.gpgsign=false", "commit", "-m", "legacy",
+                    ],
+                    cwd=str(checkout),
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                )
+                if committed.returncode != 0:
+                    self.skipTest("git could not commit the modeled legacy receipt")
+                before_migrate = self._porcelain(checkout)
+                self.assertEqual(
+                    receipt_state.read_latest_receipt(),
+                    receipt_state.canonicalize_receipt(receipt),
+                )
+                self._assert_porcelain_unchanged(checkout, before_migrate)
 
     def _init_git_checkout(self, root: Path) -> None:
         try:
@@ -593,48 +626,6 @@ class PluginStateCleanlinessTests(unittest.TestCase):
             )
             if completed.returncode != 0:
                 self.skipTest("git could not commit the modeled checkout")
-
-    def test_git_installed_legacy_checkout_stays_clean(self):
-        receipt = build_routing_receipt(_skipped_result())
-        with tempfile.TemporaryDirectory() as directory:
-            home = Path(directory)
-            checkout = home / "plugins" / receipt_state.PLUGIN_NAME
-            checkout.mkdir(parents=True)
-            self._init_git_checkout(checkout)
-            with mock.patch.dict(os.environ, {"HERMES_HOME": str(home)}, clear=False):
-                self.assertTrue(receipt_state.store_latest_receipt(receipt))
-                legacy = checkout / "receipt.json"
-                self.assertFalse(legacy.exists(), "store wrote a receipt into the git-installed checkout")
-                state = receipt_state._receipt_state_file()
-                self.assertIsNotNone(state)
-                assert state is not None
-                self.assertTrue(state.is_file())
-                self.assertEqual(state, home / "plugin-data" / receipt_state.PLUGIN_NAME / "receipt.json")
-                self._assert_porcelain_unchanged(checkout, "")
-                legacy.write_text(json.dumps(receipt), encoding="utf-8")
-                add = subprocess.run(
-                    ["git", "add", "receipt.json"],
-                    cwd=str(checkout),
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                    check=False,
-                )
-                if add.returncode != 0:
-                    self.skipTest("git could not add the modeled legacy receipt")
-                committed = subprocess.run(
-                    ["git", "-c", "user.name=switchyard-test", "-c", "user.email=switchyard-test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-m", "legacy"],
-                    cwd=str(checkout),
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                    check=False,
-                )
-                if committed.returncode != 0:
-                    self.skipTest("git could not commit the modeled legacy receipt")
-                before_migrate = self._porcelain(checkout)
-                self.assertEqual(receipt_state.read_latest_receipt(), receipt_state.canonicalize_receipt(receipt))
-                self._assert_porcelain_unchanged(checkout, before_migrate)
 
     def test_receipt_readback_never_recreates_legacy_in_the_checkout(self):
         before = self._porcelain(self._REPO_ROOT)
