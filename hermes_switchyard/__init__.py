@@ -25,7 +25,10 @@ from .client import (
 from . import browser_use
 from .computer_use import StaleTargetError, run_computer_goal
 from .egress import is_routing_mode
+from .model_policy import recommend_approved_model
 from .routing import route_model, select_skill, select_skills
+
+from .host_compat import ctx_get_config, register_auxiliary_task as register_host_auxiliary_task
 
 
 _UNREGISTERED_RUNTIME_STATUS = {
@@ -49,6 +52,7 @@ TOOL_TOOLSETS = {
     "jev_skill_select": PLUGIN_TOOLSET,
     "jev_skill_select_many": PLUGIN_TOOLSET,
     "jev_model_route": PLUGIN_TOOLSET,
+    "jev_model_route_approved": PLUGIN_TOOLSET,
 }
 
 # Handlers this process passed to ctx.register_tool, by tool name. Comparing them with the
@@ -175,11 +179,25 @@ def _load_hermes_seams() -> SimpleNamespace:
 
     def disabled_toolsets():
         """Return agent.disabled_toolsets, which Hermes' CLI applies to every session it starts."""
-        from agent.skill_utils import parse_config_string_list
         from hermes_cli.config import load_config
 
         agent_config = (load_config() or {}).get("agent") or {}
-        names = parse_config_string_list(agent_config.get("disabled_toolsets"))
+        raw = agent_config.get("disabled_toolsets")
+        try:
+            from agent.skill_utils import parse_config_string_list
+        except ImportError:
+            # Hermes 0.19.0 (and hosts without parse_config_string_list): accept list or CSV.
+            if raw is None:
+                names = []
+            elif isinstance(raw, str):
+                names = [part.strip() for part in raw.split(",") if part.strip()]
+            elif isinstance(raw, (list, tuple, set)):
+                names = [str(item).strip() for item in raw if str(item).strip()]
+            else:
+                names = []
+        else:
+            # Parser is present: let failures propagate so selection stays fail-closed.
+            names = parse_config_string_list(raw)
         return [str(name).strip() for name in names if str(name).strip()]
 
     seams.default_selection = default_selection
@@ -689,7 +707,10 @@ def _load_skill_context(name: str, *, task_id: str | None = None) -> str:
 
 
 def register(ctx):
-    default_steps = int(ctx.get_config("computer_max_steps", default=100))
+    default_steps = int(ctx_get_config(ctx, "computer_max_steps", default=100))
+    approved_registry = ctx_get_config(ctx, "approved_model_registry", default=[])
+    approved_registry_version = ctx_get_config(ctx, "approved_model_registry_version", default="")
+    approved_registry_valid_until = ctx_get_config(ctx, "approved_model_registry_valid_until", default="")
     if hasattr(ctx, "register_cli_command"):
         ctx.register_cli_command(
             name="switchyard",
@@ -697,23 +718,23 @@ def register(ctx):
             setup_fn=_setup_cli,
             handler_fn=_cli_handler,
         )
-    if hasattr(ctx, "register_auxiliary_task"):
-        ctx.register_auxiliary_task(
-            "hermes_switchyard_writer",
-            display_name="Jev Text Writer",
-            description="Compose field text for Jev computer use from public or sanitized state only.",
-            defaults={"timeout": 30},
-        )
+    register_host_auxiliary_task(
+        ctx,
+        "hermes_switchyard_writer",
+        display_name="Jev Text Writer",
+        description="Compose field text for Jev computer use from public or sanitized state only.",
+        defaults={"timeout": 30},
+    )
 
     def _route() -> tuple[str, str, str]:
         missing = object()
-        configured_provider = ctx.get_config("jev_provider", default=missing)
-        configured_endpoint_value = ctx.get_config("api_endpoint", default=missing)
+        configured_provider = ctx_get_config(ctx, "jev_provider", default=missing)
+        configured_endpoint_value = ctx_get_config(ctx, "api_endpoint", default=missing)
         provider_explicit = configured_provider is not missing
         endpoint_explicit = configured_endpoint_value is not missing
         provider = "auto" if not provider_explicit else configured_provider
         configured_endpoint = DEFAULT_ENDPOINT if not endpoint_explicit else configured_endpoint_value
-        configured_model = ctx.get_config("jev_model", default=None)
+        configured_model = ctx_get_config(ctx, "jev_model", default=None)
         if provider not in {"auto", "typesafe", "openrouter"}:
             raise ValueError("jev_provider must be auto, typesafe, or openrouter")
         if configured_endpoint not in {DEFAULT_ENDPOINT, TYPESAFE_ENDPOINT}:
@@ -783,59 +804,59 @@ def register(ctx):
         }
 
     def setting_bool(key, default):
-        value = ctx.get_config(key, default=default)
+        value = ctx_get_config(ctx, key, default=default)
         return value if type(value) is bool else default
 
     standing_ack = setting_bool("public_or_sanitized_data_ack", True)
 
-    configured_routing_mode = ctx.get_config("automatic_skill_routing_mode", default=None)
+    configured_routing_mode = ctx_get_config(ctx, "automatic_skill_routing_mode", default=None)
     if configured_routing_mode is None:
         # Automatic routing is local-only unless the operator explicitly opts
         # into hosted_sanitized mode. The legacy boolean never authorizes egress.
         configured_routing_mode = "local_only"
     automatic_hook = build_pre_llm_call_hook(
         enabled=setting_bool("automatic_skill_recommendation", True),
-        configured_candidates=ctx.get_config("automatic_skill_candidates", default=[]),
+        configured_candidates=ctx_get_config(ctx, "automatic_skill_candidates", default=[]),
         routing_mode=configured_routing_mode,
-        hosted_mode=ctx.get_config("automatic_skill_jev_mode", default="always"),
+        hosted_mode=ctx_get_config(ctx, "automatic_skill_jev_mode", default="always"),
         public_or_sanitized_data_ack=setting_bool(
-            "automatic_skill_public_or_sanitized_data_ack", True
+            "automatic_skill_public_or_sanitized_data_ack", False
         ),
         client_factory=client,
         cache_identity=cache_identity,
         local_threshold=_config_float(
-            ctx.get_config("automatic_skill_local_threshold", default=0.20),
+            ctx_get_config(ctx, "automatic_skill_local_threshold", default=0.20),
             0.20,
             minimum=0.0,
             maximum=1.0,
         ),
         local_margin=_config_float(
-            ctx.get_config("automatic_skill_local_margin", default=0.05),
+            ctx_get_config(ctx, "automatic_skill_local_margin", default=0.05),
             0.05,
             minimum=0.0,
             maximum=1.0,
         ),
         cache_seconds=_config_float(
-            ctx.get_config("automatic_skill_cache_seconds", default=30.0),
+            ctx_get_config(ctx, "automatic_skill_cache_seconds", default=30.0),
             30.0,
             minimum=0.0,
             maximum=300.0,
         ),
-        consumer_mode=ctx.get_config(
+        consumer_mode=ctx_get_config(ctx, 
             "automatic_skill_consumer_mode", default="advisory"
         ),
         skill_loader=_load_skill_context,
         mandatory_skills=discover_mandatory_skills(
-            ctx.get_config("automatic_skill_mandatory_skills", default=[])
+            ctx_get_config(ctx, "automatic_skill_mandatory_skills", default=[])
         ),
     )
     _publish_runtime_status(
         routing_mode=configured_routing_mode,
-        consumer_mode=ctx.get_config("automatic_skill_consumer_mode", default="advisory"),
+        consumer_mode=ctx_get_config(ctx, "automatic_skill_consumer_mode", default="advisory"),
         public_or_sanitized_data_ack=setting_bool(
-            "automatic_skill_public_or_sanitized_data_ack", True
+            "automatic_skill_public_or_sanitized_data_ack", False
         ),
-        automatic_skill_jev_mode=ctx.get_config("automatic_skill_jev_mode", default="always"),
+        automatic_skill_jev_mode=ctx_get_config(ctx, "automatic_skill_jev_mode", default="always"),
     )
     if automatic_hook is not None and hasattr(ctx, "register_hook"):
         ctx.register_hook("pre_llm_call", automatic_hook)
@@ -946,6 +967,25 @@ def register(ctx):
         except Exception as exc:  # noqa: BLE001 -- tool handlers return structured errors
             return _error(exc)
 
+    def approved_route_handler(args, **kwargs):
+        try:
+            _require_public_data_ack(args, standing=standing_ack)
+            result = recommend_approved_model(
+                task=str(args.get("task") or ""),
+                requirements=dict(args.get("requirements") or {}),
+                registry=approved_registry,
+                registry_version=approved_registry_version,
+                valid_until=approved_registry_valid_until,
+                client=client(),
+                capability_fit_threshold=args.get(
+                    "capability_fit_threshold", schemas.DEFAULT_MODEL_CAPABILITY_FIT_THRESHOLD
+                ),
+                public_or_sanitized_data_ack=_resolved_public_data_ack(args, standing_ack),
+            )
+            return json.dumps(result)
+        except Exception as exc:  # noqa: BLE001 -- tool handlers return structured errors
+            return _error(exc)
+
     def register_tool(name, schema, handler, check_fn):
         _REGISTERED_HANDLERS[name] = handler
         ctx.register_tool(
@@ -964,6 +1004,9 @@ def register(ctx):
         "jev_skill_select_many", schemas.MULTI_SKILL_SELECT, multi_skill_handler, decision_tools_available
     )
     register_tool("jev_model_route", schemas.MODEL_ROUTE, route_handler, decision_tools_available)
+    register_tool(
+        "jev_model_route_approved", schemas.MODEL_ROUTE_APPROVED, approved_route_handler, decision_tools_available
+    )
     if hasattr(ctx, "register_skill"):
         ctx.register_skill(
             "hermes-switchyard-operations",

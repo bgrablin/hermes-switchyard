@@ -18,6 +18,7 @@ EXPECTED_TOOLS = frozenset({
     "jev_assess",
     "jev_computer_use",
     "jev_model_route",
+    "jev_model_route_approved",
     "jev_skill_select",
     "jev_skill_select_many",
 })
@@ -25,6 +26,7 @@ EXPECTED_REQUIRED_FIELDS = {
     "jev_assess": {"state", "questions"},
     "jev_computer_use": {"goal", "app"},
     "jev_model_route": {"task", "candidates"},
+    "jev_model_route_approved": {"task"},
     "jev_skill_select": {"task", "candidates"},
     "jev_skill_select_many": {"task", "candidates"},
 }

@@ -248,6 +248,63 @@ class AutomaticRecommendationTests(unittest.TestCase):
             },
         )
 
+    def test_plugin_registration_defaults_stay_local_until_explicit_attestation(self):
+        import hermes_switchyard as switchyard
+
+        calls = []
+
+        def transport(payload):
+            calls.append(payload)
+            return {
+                "model": "typesafe/jev-1.13",
+                "answers": {
+                    "skill": {
+                        "choice": "docker-management",
+                        "confidence": 0.99,
+                        "probabilities": {"docker-management": 1.0},
+                    },
+                    "needs_skill": {"noul": 0.99},
+                },
+                "usage": {},
+            }
+
+        def build_context(settings=None):
+            return _Context({
+                "automatic_skill_candidates": [
+                    {"name": "docker-management", "description": "Manage Docker containers"},
+                ],
+                **(settings or {}),
+            })
+
+        patcher_key = mock.patch.object(switchyard, "_secret", return_value="fixture-key")
+        patcher_client = mock.patch.object(
+            switchyard,
+            "DecisionClient",
+            side_effect=lambda **_kwargs: DecisionClient(api_key="fixture-key", transport=transport),
+        )
+        with patcher_key, patcher_client:
+            # Without an explicit attestation the default must never host a call.
+            default_context = build_context()
+            switchyard.register(default_context)
+            hook = default_context.hooks["pre_llm_call"]
+            result = hook(user_message="public Docker maintenance request", conversation_history=[])
+            self.assertIsNotNone(result)
+            self.assertEqual(len(calls), 0)
+            self.assertFalse(hook.last_result["hosted_attempted"])
+
+            # With the explicit operator attestation the hosted call fires.
+            attested_context = build_context({
+                "automatic_skill_routing_mode": "hosted_sanitized",
+                "automatic_skill_public_or_sanitized_data_ack": True,
+            })
+            switchyard.register(attested_context)
+            hook = attested_context.hooks["pre_llm_call"]
+            result = hook(user_message="public Docker maintenance request", conversation_history=[])
+            self.assertIsNotNone(result)
+            self.assertEqual(len(calls), 1)
+            self.assertTrue(hook.last_result["hosted_attempted"])
+            self.assertEqual(hook.last_result["source"], "jev")
+
     def test_skill_registry_discovery_uses_public_response_schema(self):
         payload = {
             "success": True,

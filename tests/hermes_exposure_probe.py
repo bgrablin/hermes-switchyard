@@ -78,11 +78,24 @@ def main() -> int:
         except SystemExit as exc:
             exit_code = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)
 
-    from agent.skill_utils import parse_config_string_list
     from hermes_cli.config import load_config
 
     config = load_config()
-    disabled = list(parse_config_string_list((config.get("agent") or {}).get("disabled_toolsets")))
+    raw = (config.get("agent") or {}).get("disabled_toolsets")
+    try:
+        from agent.skill_utils import parse_config_string_list
+    except ImportError:
+        if raw is None:
+            disabled = []
+        elif isinstance(raw, str):
+            disabled = [part.strip() for part in raw.split(",") if part.strip()]
+        elif isinstance(raw, (list, tuple, set)):
+            disabled = [str(item).strip() for item in raw if str(item).strip()]
+        else:
+            disabled = []
+    else:
+        # Parser is present: let failures propagate so the probe stays fail-closed.
+        disabled = list(parse_config_string_list(raw))
     catalogs = {}
     for label, toolsets in scenario.get("catalog_selections", {}).items():
         catalogs[label] = {"toolsets": list(toolsets), "tools": _catalog(model_tools, toolsets, disabled)}
