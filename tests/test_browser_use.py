@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
+from hermes_switchyard import browser_use
 from hermes_switchyard.browser_use import (
     BrowserStartupError,
     _browser_profile_dir,
@@ -935,7 +936,917 @@ class SnapBrowserLaunchIntegrationTests(unittest.TestCase):
                 Path(os.path.realpath(Path.home() / "snap" / "chromium" / "common")),
             )
             self.assertFalse(profile_dir.exists(), "the temporary profile was not cleaned up")
+class ScriptedClient:
+    """A client whose script entries are either answers or a raised failure."""
 
+    def __init__(self, script: list):
+        self.script = script
+        self.calls: list[dict] = []
+
+    @contextmanager
+    def request_budget(self, max_requests: int = 256, *, deadline_seconds=None):
+        yield
+
+    def decide(self, state, questions, **kwargs):
+        self.calls.append({"state": state, "questions": dict(questions)})
+        entry = self.script[len(self.calls) - 1]
+        if isinstance(entry, BaseException):
+            raise entry
+        return {
+            "answers": entry,
+            "latency_ms": 11,
+            "model": "jev-latest",
+            "usage": {"input_tokens": 8, "output_tokens": 2},
+        }
+
+
+class StaticSession:
+    """One page that never changes: models actions with no observable effect."""
+
+    def __init__(self, page: dict):
+        self.page = page
+        self.clicks: list[str] = []
+        self.scrolls: list[str] = []
+
+    def observe(self) -> dict:
+        return dict(self.page)
+
+    def click(self, element_id: str, label: str = "", href: str = "") -> None:
+        self.clicks.append(element_id)
+
+    def scroll(self, direction: str) -> None:
+        self.scrolls.append(direction)
+
+    def wait(self, seconds: float = 0.2) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+
+class WindowedSession:
+    """A long page whose snapshot offers one viewport-sized window of targets.
+
+    The windowed offering models the shipped snapshot contract: only targets
+    near the current viewport are offered, and scrolling advances the window.
+    """
+
+    def __init__(self, total: int = 60, window: int = 48):
+        self.total = total
+        self.window = window
+        self.offset = 0
+        self.clicks: list[str] = []
+        self.scrolls: list[str] = []
+        self.url = "https://example.org/list"
+
+    def _element(self, index: int) -> dict:
+        return {
+            "id": str(index),
+            "role": "link",
+            "label": f"Article item {index}",
+            "href": f"https://example.org/item/{index}",
+            "in_viewport": index - self.offset <= 10,
+        }
+
+    def observe(self) -> dict:
+        if self.url != "https://example.org/list":
+            return {"url": self.url, "title": self.url.rsplit("/", 1)[-1], "text": "Article", "elements": []}
+        indexes = range(self.offset + 1, min(self.offset + self.window, self.total) + 1)
+        return {
+            "url": self.url,
+            "title": "Article list",
+            "text": f"Listing {self.total} articles",
+            "elements": [self._element(index) for index in indexes],
+        }
+
+    def click(self, element_id: str, label: str = "", href: str = "") -> None:
+        self.clicks.append(element_id)
+        self.url = f"https://example.org/item/{element_id}"
+
+    def scroll(self, direction: str) -> None:
+        self.scrolls.append(direction)
+        if direction == "down":
+            self.offset = min(self.offset + 12, self.total - self.window)
+        else:
+            self.offset = max(self.offset - 12, 0)
+
+    def wait(self, seconds: float = 0.2) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+
+class BrowserReliabilityTests(unittest.TestCase):
+    """Regression coverage for the DOM observation, evidence, and startup defects."""
+
+    def test_completion_predicate_stops_without_another_decision(self):
+        cat = "https://en.wikipedia.org/wiki/Cat"
+        felidae = "https://en.wikipedia.org/wiki/Felidae"
+        session = FakeSession(
+            {
+                cat: {
+                    "title": "Cat",
+                    "text": "The cat is a domestic species.",
+                    "elements": [{"id": "1", "role": "link", "label": "Felidae", "href": felidae}],
+                },
+                felidae: {"title": "Felidae", "text": "The cat family.", "elements": []},
+            }
+        )
+        client = ScriptedClient(
+            [
+                {
+                    "operation": _choice("CLICK", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b"}),
+                    "click_target": _choice("1", {"1": "Felidae"}),
+                }
+            ]
+        )
+        result = run_browser_goal(
+            goal="Open the Felidae article",
+            session=session,
+            client=client,
+            max_steps=5,
+            completion_condition={"title_contains": "Felidae"},
+        )
+        self.assertEqual(result["status"], "completion_candidate")
+        self.assertEqual(result["completion_source"], "local_predicate")
+        self.assertTrue(result["completion"]["satisfied"])
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(result["jev_request_count"], 1)
+        self.assertEqual(result["verified"], False)
+        self.assertEqual(result["verification_owner"], "coordinator")
+
+    def test_completion_predicate_is_never_sent_to_the_provider(self):
+        session = StaticSession(
+            {
+                "url": "https://en.wikipedia.org/wiki/Ada_Lovelace",
+                "title": "Ada Lovelace",
+                "text": "Ada Lovelace was an English mathematician.",
+                "elements": [{"id": "1", "role": "link", "label": "Analytical Engine", "href": "https://en.wikipedia.org/wiki/Analytical_Engine"}],
+            }
+        )
+        client = ScriptedClient(
+            [
+                {
+                    "operation": _choice("DONE", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b", "DONE": "d"}),
+                    "click_target": _choice("1", {"1": "Analytical Engine"}),
+                }
+            ]
+        )
+        result = run_browser_goal(
+            goal="Read the Ada Lovelace article",
+            session=session,
+            client=client,
+            max_steps=3,
+            completion_condition={"title_contains": "Never Mentioned Target"},
+        )
+        # A provider DONE cannot satisfy, relax, or even see the local predicate.
+        self.assertEqual(result["status"], "completion_candidate")
+        self.assertEqual(result["completion_source"], "provider_decision")
+        self.assertFalse(result["completion"]["satisfied"])
+        payload = json.dumps(client.calls[0]["state"]) + json.dumps(client.calls[0]["questions"])
+        self.assertNotIn("Never Mentioned Target", payload)
+        self.assertNotIn("completion", payload)
+
+    def test_derived_quoted_title_predicate_stops_before_any_request(self):
+        session = StaticSession(
+            {
+                "url": "https://en.wikipedia.org/wiki/Analytical_Engine",
+                "title": "Analytical Engine",
+                "text": "The Analytical Engine was a proposed mechanical computer.",
+                "elements": [],
+            }
+        )
+        client = ScriptedClient([])
+        result = run_browser_goal(
+            goal='Open the article and stop when title contains "Analytical Engine"',
+            session=session,
+            client=client,
+            max_steps=3,
+        )
+        self.assertEqual(result["status"], "completion_candidate")
+        self.assertEqual(result["completion_predicate"], {"source": "derived_goal_title", "title_contains": "Analytical Engine"})
+        self.assertEqual(result["attempted_request_count"], 0)
+        self.assertEqual(client.calls, [])
+
+    def test_invalid_completion_condition_is_refused_locally(self):
+        session = StaticSession({"url": "https://example.org/", "title": "Home", "text": "Home", "elements": []})
+        for condition in ({"url_equals": "http://localhost/"}, {"unknown_field": "x"}, {"title_contains": ""}, {}):
+            with self.subTest(condition=condition):
+                with self.assertRaises(ValueError):
+                    run_browser_goal(
+                        goal="Read the page",
+                        session=session,
+                        client=ScriptedClient([]),
+                        max_steps=2,
+                        completion_condition=condition,
+                    )
+
+    def test_provider_timeout_after_a_click_keeps_partial_evidence(self):
+        cat = "https://en.wikipedia.org/wiki/Cat"
+        felidae = "https://en.wikipedia.org/wiki/Felidae"
+        session = FakeSession(
+            {
+                cat: {
+                    "title": "Cat",
+                    "text": "The cat is a domestic species.",
+                    "elements": [{"id": "1", "role": "link", "label": "Felidae", "href": felidae}],
+                },
+                felidae: {"title": "Felidae", "text": "The cat family.", "elements": []},
+            }
+        )
+        client = ScriptedClient(
+            [
+                {
+                    "operation": _choice("CLICK", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b"}),
+                    "click_target": _choice("1", {"1": "Felidae"}),
+                },
+                TimeoutError("provider request timed out"),
+            ]
+        )
+        result = run_browser_goal(goal="Open Felidae", session=session, client=client, max_steps=5)
+        self.assertEqual(result["status"], "partial_failure")
+        self.assertEqual(result["failure_phase"], "operation_deadline")
+        self.assertTrue(result["reconcile_before_retry"])
+        self.assertEqual(result["attempted_action_count"], 1)
+        self.assertEqual(result["jev_request_count"], 2)
+        self.assertTrue(any(item.get("failed") is True for item in result["decisions"]))
+        self.assertEqual(result["actions"][0]["action_dispatched"], True)
+        self.assertEqual(len(result["last_state_hash"]), 64)
+        self.assertTrue(result["reconcile_before_retry"])
+
+    def test_malformed_response_keeps_partial_evidence(self):
+        cat = "https://en.wikipedia.org/wiki/Cat"
+        felidae = "https://en.wikipedia.org/wiki/Felidae"
+        session = FakeSession(
+            {
+                cat: {
+                    "title": "Cat",
+                    "text": "The cat is a domestic species.",
+                    "elements": [{"id": "1", "role": "link", "label": "Felidae", "href": felidae}],
+                },
+                felidae: {"title": "Felidae", "text": "The cat family.", "elements": []},
+            }
+        )
+        client = ScriptedClient(
+            [
+                {
+                    "operation": _choice("CLICK", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b"}),
+                    "click_target": _choice("1", {"1": "Felidae"}),
+                },
+                {"operation": {"choice": "CLICK"}, "unexpected": {"choice": "1"}},
+            ]
+        )
+        result = run_browser_goal(goal="Open Felidae", session=session, client=client, max_steps=5)
+        self.assertEqual(result["status"], "provider_failure")
+        self.assertEqual(result["failure_reason"], "validation_failure")
+        self.assertEqual(result["click_count"], 1)
+        self.assertEqual(result["attempted_request_count"], 2)
+
+    def test_noop_click_does_not_claim_a_confirmed_effect(self):
+        session = StaticSession(
+            {
+                "url": "https://example.org/",
+                "title": "Home",
+                "text": "Home page body",
+                "elements": [{"id": "1", "role": "link", "label": "Next page", "href": "https://example.org/next"}],
+            }
+        )
+        client = ScriptedClient(
+            [
+                {
+                    "operation": _choice("CLICK", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b"}),
+                    "click_target": _choice("1", {"1": "Next page"}),
+                },
+                {
+                    "operation": _choice("DONE", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b", "DONE": "d"}),
+                    "click_target": _choice("1", {"1": "Next page"}),
+                },
+            ]
+        )
+        result = run_browser_goal(goal="Reach the next page", session=session, client=client, max_steps=5)
+        action = result["actions"][0]
+        self.assertEqual(action["action_dispatched"], True)
+        self.assertIs(action["effect_observed"], False)
+        self.assertIs(action["effect_confirmed"], False)
+        self.assertEqual(action["effect_status"], "unchanged")
+        self.assertIs(action["goal_verified"], False)
+        self.assertEqual(result["effect_observed_count"], 0)
+
+    def test_repeated_unchanged_state_stops_without_another_decision(self):
+        session = StaticSession(
+            {
+                "url": "https://example.org/",
+                "title": "Home",
+                "text": "Home page body",
+                "elements": [{"id": "1", "role": "link", "label": "Next page", "href": "https://example.org/next"}],
+            }
+        )
+        click = {
+            "operation": _choice("CLICK", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b"}),
+            "click_target": _choice("1", {"1": "Next page"}),
+        }
+        client = ScriptedClient([click, click, click])
+        result = run_browser_goal(goal="Reach the next page", session=session, client=client, max_steps=10)
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["failure_phase"], "no_progress")
+        self.assertEqual(result["stalled_observations"], 2)
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual(result["attempted_action_count"], 2)
+        self.assertTrue(result["reconcile_before_retry"])
+
+    def test_ineffective_scroll_recovers_locally_then_stops(self):
+        session = StaticSession(
+            {
+                "url": "https://example.org/",
+                "title": "Home",
+                "text": "Home page body",
+                "elements": [{"id": "1", "role": "link", "label": "Next page", "href": "https://example.org/next"}],
+            }
+        )
+        scroll = {
+            "operation": _choice("SCROLL_DOWN", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b"}),
+            "click_target": _choice("1", {"1": "Next page"}),
+        }
+        client = ScriptedClient([scroll, scroll, scroll, scroll])
+        result = run_browser_goal(goal="Find a later target", session=session, client=client, max_steps=10)
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["failure_phase"], "no_progress")
+        # Two paid decisions; recovery scrolls stay local inside each step.
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual(session.scrolls.count("down"), 2 + 2 * browser_use.LOCAL_SCROLL_RECOVERY_LIMIT)
+        self.assertNotIn("local_scroll_recovery", result["actions"][0])
+        recovery = [item for item in result["actions"] if str(item.get("label") or "").startswith("local_scroll_recovery_")]
+        self.assertEqual(len(recovery), 2 * browser_use.LOCAL_SCROLL_RECOVERY_LIMIT)
+        self.assertTrue(all(item["action_dispatched"] for item in recovery))
+
+    def test_targets_beyond_the_first_snapshot_become_reachable(self):
+        session = WindowedSession(total=60, window=48)
+        client = ScriptedClient(
+            [
+                {
+                    "operation": _choice("SCROLL_DOWN", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b"}),
+                    "click_target": _choice("1", {"1": "Article item 1"}),
+                },
+                {
+                    "operation": _choice("CLICK", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b"}),
+                    "click_target": _choice("58", {"58": "Article item 58"}),
+                },
+                {
+                    "operation": _choice("DONE", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b", "DONE": "d"}),
+                },
+            ]
+        )
+        result = run_browser_goal(goal="Open article 58", session=session, client=client, max_steps=6)
+        first_offered = json.dumps(client.calls[0]["state"]["elements"])
+        second_offered = json.dumps(client.calls[1]["state"]["elements"])
+        self.assertNotIn("Article item 58", first_offered)
+        self.assertIn("Article item 58", second_offered)
+        self.assertEqual(result["click_count"], 1)
+        self.assertEqual(session.clicks, ["58"])
+        self.assertEqual(result["url"], "https://example.org/item/58")
+        self.assertEqual(result["status"], "completion_candidate")
+
+    def test_unsupported_dom_capabilities_refuse_before_any_request(self):
+        cases = [
+            ({"goal": "type my account name into the search box", "text_inputs": [{"field_label": "Search", "value": "x"}]}, "dom_text_input_unsupported"),
+            ({"goal": "log in and open the settings page"}, "dom_authentication_unsupported"),
+            ({"goal": "upload the report as an attachment"}, "dom_file_upload_unsupported"),
+            ({"goal": "use the browser I have open to check the cart"}, "dom_existing_session_unsupported"),
+            ({"goal": "open the article", "allowed_hotkeys": ["SUBMIT"]}, "dom_hotkey_unsupported"),
+            ({"goal": "authenticate at https://example.org/"}, "dom_authentication_unsupported"),
+            ({"goal": "sign up for an account"}, "dom_authentication_unsupported"),
+            ({"goal": "register for the site"}, "dom_authentication_unsupported"),
+            ({"goal": "log into the site"}, "dom_authentication_unsupported"),
+            ({"goal": "typing into the search field"}, "dom_text_input_unsupported"),
+            ({"goal": "uploading the report as an attachment"}, "dom_file_upload_unsupported"),
+            ({"goal": "download the attachments"}, "dom_file_upload_unsupported"),
+            ({"goal": "use my session to check the cart"}, "dom_existing_session_unsupported"),
+            ({"goal": "already authenticated, open the page"}, "dom_existing_session_unsupported"),
+            ]
+        for args, expected in cases:
+            with self.subTest(args=args):
+                client = ScriptedClient([])
+                with mock.patch.object(
+                    browser_use,
+                    "open_browser_session",
+                    side_effect=AssertionError("no browser may start for an unsupported capability"),
+                ):
+                    result = run_browser_goal(
+                        goal=args["goal"],
+                        start_url="https://example.org/",
+                        client=client,
+                        max_steps=4,
+                        text_inputs=args.get("text_inputs"),
+                        allowed_hotkeys=args.get("allowed_hotkeys"),
+                    )
+                self.assertEqual(result["status"], "unsupported_capability")
+                self.assertEqual(result["failure_phase"], "capability")
+                self.assertIn(expected, result["unsupported_capabilities"])
+                self.assertEqual(result["attempted_request_count"], 0)
+                self.assertEqual(client.calls, [])
+
+    def test_backend_and_session_identity_are_reported(self):
+        class IdentifiedSession(StaticSession):
+            def backend_info(self):
+                return {
+                "backend": "chromium_dom",
+                "session_mode": "headless_ephemeral",
+                "browser": "chromium",
+                "confinement": "snap",
+                "setup_ms": 412.5,
+                }
+
+        session = IdentifiedSession(
+            {
+                "url": "https://example.org/",
+                "title": "Home",
+                "text": "Home page body",
+                "elements": [],
+            }
+        )
+        client = ScriptedClient(
+            [
+                {
+                    "operation": _choice("DONE", {"SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b", "DONE": "d"}),
+                }
+            ]
+        )
+        result = run_browser_goal(goal="Confirm the page", session=session, client=client, max_steps=2)
+        self.assertEqual(result["backend"], "chromium_dom")
+        self.assertEqual(result["session_mode"], "headless_ephemeral")
+        self.assertEqual(result["browser"], "chromium")
+        self.assertEqual(result["browser_confinement"], "snap")
+        self.assertEqual(result["session_setup_ms"], 412.5)
+
+    def test_browser_startup_failure_returns_a_bounded_local_diagnostic(self):
+        client = ScriptedClient([])
+        with mock.patch.object(
+            browser_use,
+            "open_browser_session",
+            side_effect=RuntimeError("browser exited before debugger listen 1 SingletonLock: Permission denied"),
+        ):
+            result = run_browser_goal(
+                goal="Read the article",
+                start_url="https://example.org/",
+                client=client,
+                max_steps=3,
+            )
+            self.assertEqual(result["status"], "blocked")
+            self.assertEqual(result["failure_phase"], "browser_startup")
+            self.assertEqual(result["failure_reason"], "browser_profile_not_writable")
+            self.assertEqual(result["attempted_request_count"], 0)
+            self.assertEqual(client.calls, [])
+
+    def test_low_confidence_or_ambiguous_decision_abstains_before_dispatch(self):
+        page = {
+            "url": "https://example.org/",
+            "title": "Start",
+            "text": "one link",
+            "elements": [{"id": "1", "label": "Next page", "href": "https://example.org/next", "role": "link"}],
+        }
+        low_confidence = {
+            "operation": {"choice": "CLICK", "probabilities": {"CLICK": 0.2, "DONE": 0.2, "SCROLL_DOWN": 0.2, "SCROLL_UP": 0.2, "WAIT": 0.2}, "confidence": 0.01},
+            "click_target": {"choice": "1", "probabilities": {"1": 1.0}, "confidence": 0.9},
+        }
+        ambiguous = {
+            "operation": {"choice": "CLICK", "probabilities": {"CLICK": 0.51, "DONE": 0.49}, "confidence": 0.9},
+            "click_target": {"choice": "1", "probabilities": {"1": 1.0}, "confidence": 0.9},
+        }
+        for answers, expected_phase in ((low_confidence, "low_confidence"), (ambiguous, "ambiguous_decision")):
+            with self.subTest(expected_phase=expected_phase):
+                session = StaticSession(page)
+                client = ScriptedClient([answers])
+                result = run_browser_goal(goal="Open the next page", session=session, client=client, max_steps=4)
+                self.assertEqual(result["status"], "abstained")
+                self.assertEqual(result["failure_phase"], expected_phase)
+                self.assertEqual(session.clicks, [])
+                self.assertEqual(result["action_dispatched_count"], 0)
+                self.assertEqual(result["attempted_request_count"], 1)
+
+    def test_disconnect_after_dispatch_preserves_action_evidence(self):
+        class DisconnectingSession(StaticSession):
+            def __init__(self, page):
+                super().__init__(page)
+                self.disconnected = False
+
+            def observe(self):
+                if self.disconnected:
+                    raise OSError("browser transport closed")
+                return dict(self.page)
+
+            def click(self, element_id, label="", href=""):
+                self.clicks.append(element_id)
+                self.disconnected = True
+
+        session = DisconnectingSession({
+            "url": "https://example.org/",
+            "title": "Start",
+            "text": "one link",
+            "elements": [{"id": "1", "label": "Next page", "href": "https://example.org/next", "role": "link"}],
+        })
+        client = ScriptedClient([{
+            "operation": _choice("CLICK", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "DONE": "d", "BLOCKED": "b"}),
+            "click_target": _choice("1", {"1": "Next page"}),
+        }])
+        result = run_browser_goal(goal="Open the next page", session=session, client=client, max_steps=4)
+        self.assertEqual(result["status"], "partial_failure")
+        self.assertEqual(result["failure_phase"], "action")
+        self.assertEqual(result["failure_reason"], "transport_failure")
+        self.assertEqual(result["action_dispatched_count"], 1)
+        self.assertTrue(result["reconcile_before_retry"])
+        action = result["actions"][0]
+        self.assertIs(action["action_dispatched"], True)
+        self.assertIsNone(action["effect_observed"])
+
+    def test_receipt_state_hash_matches_the_reported_page_after_an_action(self):
+        session = FakeSession({
+            "https://en.wikipedia.org/wiki/Cat": {
+                "title": "Cat",
+                "text": "Cat article body",
+                "elements": [{"id": "1", "label": "Felidae", "href": "https://en.wikipedia.org/wiki/Felidae", "role": "link"}],
+            },
+            "https://en.wikipedia.org/wiki/Felidae": {
+                "title": "Felidae",
+                "text": "Felidae article body",
+                "elements": [],
+            },
+        })
+        client = ScriptedClient([{
+            "operation": _choice("CLICK", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "DONE": "d", "BLOCKED": "b"}),
+            "click_target": _choice("1", {"1": "Felidae"}),
+        }])
+        result = run_browser_goal(goal="Reach Felidae", session=session, client=client, max_steps=1)
+        self.assertEqual(result["status"], "budget_exhausted")
+        final_page = session.observe()
+        self.assertEqual(result["last_state_hash"], browser_use._observation_signature(final_page))
+
+    def test_snap_profile_dir_unwritable_raises_structured_error(self):
+        if os.name == "nt":
+            raise unittest.SkipTest("snap confinement profiles are a Unix path")
+        with tempfile.TemporaryDirectory() as raw:
+            blocker = Path(raw) / "not-a-directory"
+            blocker.write_text("x", encoding="utf-8")
+            with mock.patch.object(Path, "home", classmethod(lambda cls: blocker)):
+                with self.assertRaises(browser_use.BrowserStartupError) as ctx:
+                    browser_use._browser_profile_dir("snap")
+                self.assertEqual(ctx.exception.code, "snap_profile_unavailable")
+
+    def test_wrapper_script_is_detected_as_snap_confinement(self):
+        with tempfile.TemporaryDirectory() as raw:
+            base = Path(raw)
+            wrapper = base / "chromium-browser"
+            wrapper.write_text("#!/bin/sh\nexec snap run chromium \"$@\"\n", encoding="utf-8")
+            self.assertTrue(browser_use._is_snap_confined(wrapper))
+            plain = base / "chromium"
+            plain.write_bytes(b"\x7fELF\x02\x01\x01\x00binary")
+            self.assertFalse(browser_use._is_snap_confined(plain))
+            direct = base / "snap" / "bin" / "chromium"
+            direct.parent.mkdir(parents=True, exist_ok=True)
+            direct.write_text("", encoding="utf-8")
+            self.assertTrue(browser_use._is_snap_confined(direct))
+
+    def test_unsandboxed_browser_is_preferred_over_a_snap_wrapper(self):
+        with tempfile.TemporaryDirectory() as raw:
+            base = Path(raw)
+            wrapper = base / "chromium-browser"
+            wrapper.write_text("#!/bin/sh\nexec snap run chromium \"$@\"\n", encoding="utf-8")
+            native = base / "chromium"
+            native.write_bytes(b"\x7fELF\x02\x01\x01\x00binary")
+
+            def which(name):
+                return {"chromium-browser": str(wrapper), "chromium": str(native)}.get(name)
+
+            hidden = {"PROGRAMFILES": "", "PROGRAMFILES(X86)": "", "LOCALAPPDATA": ""}
+            with mock.patch.dict(os.environ, hidden, clear=False), mock.patch.object(browser_use.shutil, "which", side_effect=which):
+                path, family, confinement = browser_use._browser_binary_details()
+            self.assertEqual(path, native)
+            self.assertEqual(family, "chromium")
+            self.assertEqual(confinement, "none")
+
+            only_wrapper = lambda name: str(wrapper) if name == "chromium-browser" else None
+            with mock.patch.dict(os.environ, hidden, clear=False), mock.patch.object(browser_use.shutil, "which", side_effect=only_wrapper):
+                path, family, confinement = browser_use._browser_binary_details()
+            self.assertEqual(path, wrapper)
+            self.assertEqual(confinement, "snap")
+
+    def test_snap_confined_profile_lives_in_the_snap_area_and_cleans_up_exactly(self):
+        if os.name == "nt":
+            raise unittest.SkipTest("snap confinement profiles are a Unix path")
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            with mock.patch.object(Path, "home", classmethod(lambda cls: home)):
+                with browser_use._browser_profile_dir("snap") as directory:
+                    created = Path(directory)
+                    self.assertEqual(created.parent, home / "snap" / "chromium" / "common")
+                    (created / "marker.txt").write_text("x", encoding="utf-8")
+                self.assertFalse(created.exists())
+            base = home / "snap" / "chromium" / "common"
+            self.assertTrue(base.is_dir())
+            self.assertEqual(list(base.iterdir()), [])
+
+    def test_ephemeral_profile_is_used_by_default(self):
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            runtime = home / "runtime"
+            runtime.mkdir()
+            if os.name == "nt":
+                with mock.patch.dict(os.environ, {"TEMP": str(home), "LOCALAPPDATA": str(home)}, clear=False):
+                    with browser_use._browser_profile_dir("none") as directory:
+                        self.assertEqual(Path(directory).parent, home / "hermes-switchyard")
+                return
+            with mock.patch.object(Path, "home", classmethod(lambda cls: home)):
+                with mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": str(runtime)}, clear=False):
+                    with browser_use._browser_profile_dir("none") as directory:
+                        self.assertEqual(Path(directory).parent, runtime)
+
+
+    def test_inconsistent_choice_probability_abstains_instead_of_using_top_gap(self):
+        # choice=CLICK is only 0.1 while DONE is 0.9; the old top-two gap was 0.8
+        # and would have dispatched. Margin must be P(choice)-max(other).
+        page = {
+            "url": "https://example.org/",
+            "title": "Start",
+            "text": "one link",
+            "elements": [{"id": "1", "label": "Next page", "href": "https://example.org/next", "role": "link"}],
+        }
+        answers = {
+            "operation": {
+                "choice": "CLICK",
+                "probabilities": {"DONE": 0.9, "CLICK": 0.1},
+                "confidence": 0.9,
+            },
+            "click_target": {"choice": "1", "probabilities": {"1": 1.0}, "confidence": 0.9},
+        }
+        session = StaticSession(page)
+        client = ScriptedClient([answers])
+        result = run_browser_goal(goal="Open the next page", session=session, client=client, max_steps=4)
+        self.assertEqual(result["status"], "abstained")
+        self.assertEqual(result["failure_phase"], "ambiguous_decision")
+        self.assertEqual(session.clicks, [])
+        confidence, margin = browser_use._decision_quality(answers["operation"])
+        self.assertEqual(confidence, 0.9)
+        self.assertAlmostEqual(margin, -0.8)
+
+    def test_deadline_before_any_action_does_not_require_reconciliation(self):
+        session = StaticSession(
+            {
+                "url": "https://example.org/",
+                "title": "Home",
+                "text": "Home page body",
+                "elements": [{"id": "1", "role": "link", "label": "Next page", "href": "https://example.org/next"}],
+            }
+        )
+
+        class ImmediateDeadlineClient(ScriptedClient):
+            @contextmanager
+            def request_budget(self, max_requests: int = 256, *, deadline_seconds=None):
+                raise TimeoutError("deadline before any action")
+                yield  # pragma: no cover
+
+        client = ImmediateDeadlineClient([])
+        result = run_browser_goal(goal="Reach the next page", session=session, client=client, max_steps=3)
+        self.assertEqual(result["status"], "deadline_exceeded")
+        self.assertEqual(result["failure_phase"], "deadline")
+        self.assertFalse(result["reconcile_before_retry"])
+        self.assertEqual(result["attempted_action_count"], 0)
+
+    def test_nonconsecutive_observation_cycle_stops_before_another_decision(self):
+        class AlternatingSession(StaticSession):
+            def __init__(self):
+                self.phase = 0
+                self.clicks = []
+                self.scrolls = []
+                self.pages = [
+                    {
+                        "url": "https://example.org/a",
+                        "title": "A",
+                        "text": "page A",
+                        "elements": [{"id": "1", "role": "link", "label": "Go", "href": "https://example.org/b"}],
+                    },
+                    {
+                        "url": "https://example.org/b",
+                        "title": "B",
+                        "text": "page B",
+                        "elements": [{"id": "1", "role": "link", "label": "Go", "href": "https://example.org/a"}],
+                    },
+                ]
+
+            def observe(self):
+                return dict(self.pages[self.phase % 2])
+
+            def click(self, element_id, label="", href=""):
+                self.clicks.append(element_id)
+                self.phase += 1
+
+        session = AlternatingSession()
+        click = {
+            "operation": _choice("CLICK", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b"}),
+            "click_target": _choice("1", {"1": "Go"}),
+        }
+        client = ScriptedClient([click, click, click, click])
+        result = run_browser_goal(goal="Keep moving", session=session, client=client, max_steps=10)
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["failure_phase"], "no_progress")
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual(len(session.clicks), 2)
+
+    def test_scroll_recovery_records_dispatches_and_keeps_unsafe_observation(self):
+        class RecoveringUnsafeSession(StaticSession):
+            def __init__(self):
+                super().__init__(
+                    {
+                        "url": "https://example.org/",
+                        "title": "Home",
+                        "text": "Home page body",
+                        "elements": [{"id": "1", "role": "link", "label": "Next page", "href": "https://example.org/next"}],
+                    }
+                )
+                self.scrolls = []
+
+            def scroll(self, direction):
+                self.scrolls.append(direction)
+                if len(self.scrolls) >= 2:
+                    self.page = {
+                        "url": "http://127.0.0.1/private",
+                        "title": "Private",
+                        "text": "should not complete",
+                        "elements": [],
+                    }
+
+            def observe(self):
+                return dict(self.page)
+
+        session = RecoveringUnsafeSession()
+        scroll = {
+            "operation": _choice("SCROLL_DOWN", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b"}),
+            "click_target": _choice("1", {"1": "Next page"}),
+        }
+        client = ScriptedClient([scroll])
+        result = run_browser_goal(goal="Find a later target", session=session, client=client, max_steps=4)
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["failure_phase"], "unsafe_url")
+        self.assertGreaterEqual(result["action_dispatched_count"], 2)
+        self.assertTrue(any(item.get("label", "").startswith("local_scroll_recovery_") for item in result["actions"]))
+        self.assertNotEqual(result["status"], "completion_candidate")
+
+    def test_successful_scroll_recovery_updates_parent_effect_and_counts(self):
+        class RecoveringSession(StaticSession):
+            def __init__(self):
+                super().__init__(
+                    {
+                        "url": "https://example.org/",
+                        "title": "Home",
+                        "text": "Home page body",
+                        "elements": [{"id": "1", "role": "link", "label": "Next page", "href": "https://example.org/next"}],
+                    }
+                )
+                self.scrolls = []
+
+            def scroll(self, direction):
+                self.scrolls.append(direction)
+                if len(self.scrolls) >= 2:
+                    self.page = {
+                        "url": "https://example.org/",
+                        "title": "Home",
+                        "text": "Home page body with more content revealed",
+                        "elements": [{"id": "1", "role": "link", "label": "Later", "href": "https://example.org/later"}],
+                    }
+
+            def observe(self):
+                return dict(self.page)
+
+        session = RecoveringSession()
+        scroll = {
+            "operation": _choice("SCROLL_DOWN", {"CLICK": "c", "SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b"}),
+            "click_target": _choice("1", {"1": "Next page"}),
+        }
+        done = {
+            "operation": _choice("DONE", {"SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b", "DONE": "d"}),
+        }
+        client = ScriptedClient([scroll, done])
+        result = run_browser_goal(goal="Reveal more", session=session, client=client, max_steps=4)
+        self.assertTrue(result["actions"][0].get("local_scroll_recovery"))
+        self.assertTrue(result["actions"][0]["effect_observed"])
+        recovery = [item for item in result["actions"] if str(item.get("label") or "").startswith("local_scroll_recovery_")]
+        self.assertGreaterEqual(len(recovery), 1)
+        self.assertTrue(all(item["action_dispatched"] for item in recovery))
+        self.assertGreaterEqual(result["action_dispatched_count"], 2)
+
+
+
+class SnapshotRecallTests(unittest.TestCase):
+    """Real-browser checks that the snapshot never drops the candidate tail.
+
+    The article-body selector must *extend* the candidate set, not replace it. A
+    page whose body has many paragraph links and a large number of other
+    interactive targets must still offer those others as the viewport moves.
+    """
+
+    BODY_LINKS = 10
+    OTHER_LINKS = 60
+
+    @classmethod
+    def setUpClass(cls):
+        if os.environ.get("SWITCHYARD_LIVE_BROWSER_TESTS") != "1":
+            raise unittest.SkipTest(
+                "set SWITCHYARD_LIVE_BROWSER_TESTS=1 to run live Chromium snapshot recall tests"
+            )
+        binary, _, _ = browser_use._browser_binary_details()
+        if binary is None:
+            raise unittest.SkipTest("no Chromium-family browser is available")
+
+    def _fixture_spec(self) -> dict:
+        return {
+            "body": [
+                {"href": f"https://example.com/body-{n}", "label": f"Body link {n}"}
+                for n in range(1, self.BODY_LINKS + 1)
+            ],
+            "other": [
+                {"href": f"https://example.com/other-{n}", "label": f"Other link {n}"}
+                for n in range(1, self.OTHER_LINKS + 1)
+            ],
+        }
+
+    def _load_fixture(self, session) -> None:
+        # The fixture is built with explicit DOM calls against a test-local
+        # structure; no markup is injected and nothing leaves the browser instance.
+        # about:blank is ready synchronously, so the public-URL readiness gate does
+        # not apply here.
+        session._cdp("Page.navigate", url="about:blank")
+        session.wait(0.2)
+        session._evaluate(
+            """(() => {
+              const spec = %s;
+              const anchor = item => {
+                const a = document.createElement("a");
+                a.setAttribute("href", item.href);
+                a.textContent = item.label;
+                return a;
+              };
+              const main = document.createElement("main");
+              const parser = document.createElement("div");
+              parser.className = "mw-parser-output";
+              for (const item of spec.body) {
+                const p = document.createElement("p");
+                p.appendChild(anchor(item));
+                parser.appendChild(p);
+              }
+              main.appendChild(parser);
+              const other = document.createElement("div");
+              other.id = "other";
+              for (const item of spec.other) {
+                const row = document.createElement("div");
+                row.style.height = "120px";
+                row.appendChild(anchor(item));
+                other.appendChild(row);
+              }
+              main.appendChild(other);
+              document.body.replaceChildren(main);
+              return true;
+            })()"""
+            % json.dumps(self._fixture_spec())
+        )
+        session.wait(0.2)
+
+    def test_candidate_tail_survives_a_populated_article_body(self):
+        with browser_use.ChromiumSession("https://example.com") as session:
+            self._load_fixture(session)
+            first = session.observe()
+            total = int(first.get("candidates_total") or 0)
+            offered = first.get("elements") or []
+            labels = [item["label"] for item in offered]
+
+            expected = self.BODY_LINKS + self.OTHER_LINKS
+            # The scan is viewport-windowed, so one snapshot considers only a
+            # bounded prefix of the page, while the article-body selector
+            # extends the candidate set instead of replacing it.
+            self.assertLess(total, expected)
+            self.assertLessEqual(len(offered), browser_use.MAX_PAGE_ELEMENTS)
+            self.assertTrue(any(label.startswith("Body link") for label in labels))
+            self.assertTrue(any(label.startswith("Other link") for label in labels))
+
+            seen = set(labels)
+            for _ in range(14):
+                session.scroll("down")
+                observed = session.observe()
+                seen.update(item["label"] for item in observed.get("elements") or [])
+            tail_labels = {label for label in seen if label.startswith("Other link")}
+            self.assertTrue(
+                any(int(label.rsplit(" ", 1)[1]) > 48 for label in tail_labels),
+                "no target beyond the first 48 ever became reachable after scrolling",
+            )
+            self.assertIn(
+                f"Other link {self.OTHER_LINKS}",
+                tail_labels,
+                "the candidate tail never became reachable",
+            )
+
+            second = session.observe()
+            second_ids = [item["id"] for item in second.get("elements") or []]
+            third = session.observe()
+            third_ids = [item["id"] for item in third.get("elements") or []]
+            self.assertEqual(set(third_ids), set(second_ids))
 
 if __name__ == "__main__":
     unittest.main()
