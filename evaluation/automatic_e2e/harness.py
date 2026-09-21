@@ -202,24 +202,18 @@ def build_skill_alias_map(skills: list[dict[str, Any]]) -> dict[str, str]:
 
 
 def canonicalize_skill_identifier(identifier: str, aliases: dict[str, str]) -> str:
-    """Resolve one identifier through the runtime alias map when possible."""
+    """Resolve one identifier through the runtime alias map when possible.
+
+    Unknown qualified forms (``wrong:name`` / ``wrong/name``) stay raw so they
+    cannot score as the bare leaf. ``build_skill_alias_map`` already records
+    every registry-reported qualified form; bare-leaf fallthrough would let a
+    wrong ``skill_view`` pass.
+    """
     raw = (identifier or "").strip()
     if not raw:
         return raw
     if raw in aliases:
         return aliases[raw]
-    # Last-resort structural fallthrough when registry omitted a category alias:
-    # prefer the bare leaf so devops:network-printer-operations matches the
-    # expected bare name when that bare name is itself a known canonical.
-    if ":" in raw:
-        _, bare = raw.split(":", 1)
-        bare = bare.strip()
-        if bare and bare in aliases:
-            return aliases[bare]
-    if "/" in raw:
-        bare = raw.rsplit("/", 1)[-1].strip()
-        if bare and bare in aliases:
-            return aliases[bare]
     return raw
 
 
@@ -262,7 +256,97 @@ def _hermes_imports_available() -> tuple[bool, str | None]:
     return True, None
 
 
-def _python_from_hermes_cli() -> Path | None:
+def _looks_like_python_executable(name: str) -> bool:
+    base = Path(name).name
+    return base == "python" or base.startswith("python3") or base.startswith("python2")
+
+
+def _shebang_interpreter_and_optional(shebang_line: str) -> tuple[str, str | None]:
+    """Split a shebang the way the kernel does: interpreter + one optional arg.
+
+    Everything after the interpreter path is a single argument (not
+    whitespace-tokenized). ``env -S`` may re-parse that argument later.
+    """
+    line = shebang_line.strip()
+    if not line.startswith("#!"):
+        raise HarnessInvalid("hermes CLI wrapper has no shebang")
+    rest = line[2:].lstrip()
+    if not rest:
+        raise HarnessInvalid("hermes CLI shebang is empty")
+    parts = rest.split(None, 1)
+    optional = parts[1] if len(parts) > 1 else None
+    return parts[0], optional
+
+
+def _env_optional_command_for_validation(optional: str) -> list[str]:
+    """Whitespace-parse env's optional-arg only to validate the Python target.
+
+    The returned tokens must not be used as the re-exec argv; quoting/escaping
+    in ``env -S`` payloads must stay intact in the raw optional string.
+    """
+    tokens = optional.split()
+    if not tokens:
+        return []
+    if tokens[0] == "-S" and len(tokens) >= 2:
+        return tokens[1].split() + list(tokens[2:])
+    if tokens[0].startswith("-S") and len(tokens[0]) > 2:
+        return tokens[0][2:].lstrip().split() + list(tokens[1:])
+    index = 0
+    while index < len(tokens) and tokens[index].startswith("-"):
+        opt = tokens[index]
+        if opt in ("-u", "-C", "-P"):
+            index += 2
+        else:
+            index += 1
+    return list(tokens[index:])
+
+
+def _parse_shebang_reexec_argv(shebang_line: str) -> list[str]:
+    """Parse a ``#!`` line into an argv prefix for re-exec under Hermes Python.
+
+    Supports a direct Python interpreter path and ``#!/usr/bin/env python3``
+    (including ``env -S``). The optional shebang argument is preserved as one
+    argv element (kernel semantics); a whitespace parse of a copy is used only
+    to validate that an ``env`` launcher targets Python. Shell trampolines and
+    other non-Python wrappers raise ``HarnessInvalid`` so the harness writes
+    harness_invalid evidence instead of failing with a cryptic exec error.
+    """
+    program, optional = _shebang_interpreter_and_optional(shebang_line)
+    prog_path = Path(program)
+    line = shebang_line.strip()
+
+    if prog_path.name == "env":
+        command = _env_optional_command_for_validation(optional) if optional else []
+        if not command or not _looks_like_python_executable(command[0]):
+            raise HarnessInvalid(
+                "hermes CLI env shebang does not target a Python interpreter "
+                f"({line!r}); set HERMES_PYTHON to the Hermes interpreter"
+            )
+        if prog_path.is_file() and os.access(prog_path, os.X_OK):
+            exe = str(prog_path)
+        else:
+            env_resolved = shutil.which("env")
+            if not env_resolved:
+                raise HarnessInvalid(
+                    "hermes CLI uses an env shebang but env was not found on PATH; "
+                    "set HERMES_PYTHON to the Hermes interpreter"
+                )
+            exe = env_resolved
+        return [exe] if optional is None else [exe, optional]
+
+    if not _looks_like_python_executable(prog_path.name):
+        raise HarnessInvalid(
+            f"hermes CLI shebang uses unsupported wrapper {program!r}; "
+            "set HERMES_PYTHON to the Hermes interpreter"
+        )
+    if not prog_path.is_file() or not os.access(prog_path, os.X_OK):
+        raise HarnessInvalid(
+            f"hermes CLI shebang interpreter is not an executable file: {program}"
+        )
+    return [str(prog_path)] if optional is None else [str(prog_path), optional]
+
+
+def _reexec_argv_from_hermes_cli() -> list[str] | None:
     hermes = shutil.which("hermes")
     if not hermes:
         return None
@@ -270,10 +354,48 @@ def _python_from_hermes_cli() -> Path | None:
         first = Path(hermes).read_text(encoding="utf-8", errors="replace").splitlines()[0]
     except OSError:
         return None
-    if first.startswith("#!"):
-        candidate = Path(first[2:].strip().split()[0])
+    if not first.startswith("#!"):
+        return None
+    return _parse_shebang_reexec_argv(first)
+
+
+def _reexec_interpreter_path(argv_prefix: list[str]) -> Path:
+    """Best-effort path of the Python interpreter an argv prefix would launch."""
+    if not argv_prefix:
+        raise HarnessInvalid("Hermes re-exec argv is empty")
+    if Path(argv_prefix[0]).name == "env":
+        optional = argv_prefix[1] if len(argv_prefix) > 1 else ""
+        command = _env_optional_command_for_validation(optional) if optional else []
+        if not command:
+            raise HarnessInvalid("hermes CLI env shebang missing Python command")
+        resolved = shutil.which(command[0])
+        if not resolved:
+            raise HarnessInvalid(
+                f"could not resolve Hermes interpreter {command[0]!r} from env shebang; "
+                "set HERMES_PYTHON to the Hermes interpreter"
+            )
+        return Path(resolved)
+    return Path(argv_prefix[0])
+
+
+def resolve_hermes_reexec_argv() -> list[str] | None:
+    """Locate argv used to re-exec under the Hermes runtime interpreter.
+
+    Prefer ``HERMES_PYTHON``, then the Hermes CLI shebang (including ``env``
+    launchers), then the current interpreter when imports already work.
+    """
+    env = (os.environ.get("HERMES_PYTHON") or "").strip()
+    if env:
+        candidate = Path(env).expanduser()
         if candidate.is_file() and os.access(candidate, os.X_OK):
-            return candidate
+            return [str(candidate)]
+        raise HarnessInvalid(f"HERMES_PYTHON is not an executable file: {env}")
+    via_cli = _reexec_argv_from_hermes_cli()
+    if via_cli is not None:
+        return via_cli
+    ok, _ = _hermes_imports_available()
+    if ok:
+        return [sys.executable]
     return None
 
 
@@ -283,18 +405,10 @@ def resolve_hermes_python() -> Path | None:
     Prefer the Hermes CLI wrapper path (not its symlink target) so re-exec
     preserves the Hermes ``site-packages`` layout.
     """
-    env = (os.environ.get("HERMES_PYTHON") or "").strip()
-    if env:
-        candidate = Path(env).expanduser()
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            return candidate
-    via_cli = _python_from_hermes_cli()
-    if via_cli is not None:
-        return via_cli
-    ok, _ = _hermes_imports_available()
-    if ok:
-        return Path(sys.executable)
-    return None
+    argv = resolve_hermes_reexec_argv()
+    if argv is None:
+        return None
+    return _reexec_interpreter_path(argv)
 
 
 def ensure_hermes_runtime() -> None:
@@ -302,12 +416,13 @@ def ensure_hermes_runtime() -> None:
     ok, detail = _hermes_imports_available()
     if ok:
         return
-    hermes_python = resolve_hermes_python()
-    if hermes_python is None:
+    argv_prefix = resolve_hermes_reexec_argv()
+    if argv_prefix is None:
         raise HarnessInvalid(
             "Hermes runtime imports unavailable and no Hermes interpreter found "
             f"via HERMES_PYTHON or hermes CLI ({detail})"
         )
+    hermes_python = _reexec_interpreter_path(argv_prefix)
     current = Path(sys.executable)
     # Compare textual paths (not resolve()) so a venv symlink wrapper is kept
     # distinct from the system interpreter it points at.
@@ -316,7 +431,7 @@ def ensure_hermes_runtime() -> None:
             f"Hermes interpreter {hermes_python} cannot import runtime modules ({detail})"
         )
     # Native entry: same interpreter the hermes CLI uses. Do not invent PYTHONPATH.
-    os.execv(str(hermes_python), [str(hermes_python), *sys.argv])
+    os.execv(argv_prefix[0], [*argv_prefix, *sys.argv])
 
 
 def _skills_from_public_registry() -> list[dict[str, Any]]:
