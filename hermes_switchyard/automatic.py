@@ -548,15 +548,19 @@ class AutomaticSkillRecommender:
                     version=1,
                 )
             else:
+                # The local scan is a bounded restricted-pattern blocklist,
+                # not a positive classifier. Finding no restricted pattern
+                # means the data class is unknown, not "sanitized" -- only an
+                # explicit host per-turn policy may assert "sanitized". Fail
+                # closed here the same way an explicit unknown policy does.
                 scan_reason = _local_scan_reason(task, task_text)
                 if scan_reason is None:
                     evaluation = TurnEgressEvaluation(
-                        allowed=True,
-                        decision="allow",
-                        data_class="sanitized",
-                        status="allowed",
-                        reason_code="local_scan_allowed",
-                        allowed_payload=task_text,
+                        allowed=False,
+                        decision="unknown",
+                        data_class="unknown",
+                        status="unknown",
+                        reason_code="local_scan_unclassified",
                         version=1,
                     )
                 else:

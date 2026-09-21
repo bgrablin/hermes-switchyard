@@ -292,14 +292,20 @@ class AutomaticRecommendationTests(unittest.TestCase):
             self.assertEqual(len(calls), 0)
             self.assertFalse(hook.last_result["hosted_attempted"])
 
-            # With the explicit operator attestation the hosted call fires.
+            # Attestation alone is not enough: the host must also supply an
+            # explicit per-turn allow envelope. A clean local scan is unknown,
+            # not sanitized.
             attested_context = build_context({
                 "automatic_skill_routing_mode": "hosted_sanitized",
                 "automatic_skill_public_or_sanitized_data_ack": True,
             })
             switchyard.register(attested_context)
             hook = attested_context.hooks["pre_llm_call"]
-            result = hook(user_message="public Docker maintenance request", conversation_history=[])
+            result = hook(
+                user_message="public Docker maintenance request",
+                conversation_history=[],
+                turn_egress_policy=self._allowed_policy("SANITIZED_DOCKER_MAINTENANCE"),
+            )
             self.assertIsNotNone(result)
             self.assertEqual(len(calls), 1)
             self.assertTrue(hook.last_result["hosted_attempted"])
@@ -536,10 +542,32 @@ class AutomaticRecommendationTests(unittest.TestCase):
             public_or_sanitized_data_ack=True,
             client_factory=lambda: DecisionClient(api_key="fixture-key", transport=transport),
         )
-        result = recommender.recommend("Diagnose a Docker container")
+        result = recommender.recommend(
+            "Diagnose a Docker container",
+            turn_egress_policy=self._allowed_policy("SANITIZED_DOCKER_CONFIDENT_TASK"),
+        )
         self.assertEqual(len(calls), 1)
         self.assertTrue(result["hosted_attempted"])
         self.assertEqual(result["source"], "jev")
+
+    def test_clean_local_scan_without_supplied_policy_stays_unknown(self):
+        constructed = []
+
+        def forbidden_client():
+            constructed.append(True)
+            raise AssertionError("unclassified local-only scan must not construct a hosted client")
+
+        recommender = AutomaticSkillRecommender(
+            configured_candidates=[{"name": "docker-management", "description": "Docker"}],
+            hosted_enabled=True,
+            public_or_sanitized_data_ack=True,
+            client_factory=forbidden_client,
+        )
+        result = recommender.recommend("Diagnose an ordinary Docker container issue")
+        self.assertFalse(result["hosted_attempted"])
+        self.assertEqual(constructed, [])
+        self.assertNotEqual(result.get("policy_data_class"), "sanitized")
+        self.assertNotEqual(result.get("policy_reason_code"), "local_scan_allowed")
 
     def test_ack_false_blocks_hosted_call_without_envelope(self):
         constructed = []
@@ -617,7 +645,10 @@ class AutomaticRecommendationTests(unittest.TestCase):
                 public_or_sanitized_data_ack=True,
                 client_factory=lambda: DecisionClient(api_key="fixture-key", transport=transport),
             )
-            result = recommender.recommend(task)
+            result = recommender.recommend(
+                task,
+                turn_egress_policy=self._allowed_policy(f"SANITIZED::{task}"),
+            )
             self.assertTrue(result["hosted_attempted"], task)
             self.assertGreaterEqual(len(calls), 1, task)
 
