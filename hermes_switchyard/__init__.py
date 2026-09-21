@@ -27,6 +27,7 @@ from . import browser_use
 from .computer_use import StaleTargetError, run_computer_goal
 from .egress import is_routing_mode
 from .model_policy import recommend_approved_model
+from .model_route_adapter import register_model_route_adapter
 from .routing import route_model, select_skill, select_skills
 
 from .host_compat import ctx_get_config, register_auxiliary_task as register_host_auxiliary_task
@@ -39,6 +40,7 @@ _UNREGISTERED_RUNTIME_STATUS = {
     "public_or_sanitized_data_ack": None,
     "automatic_skill_jev_mode": None,
     "hosted_construction_allowed": False,
+    "model_route_adapter": None,
 }
 _RUNTIME_STATUS = dict(_UNREGISTERED_RUNTIME_STATUS)
 
@@ -101,6 +103,7 @@ def _publish_runtime_status(
                 automatic_skill_jev_mode if automatic_skill_jev_mode in {"always", "uncertain_only"} else None
             ),
             "hosted_construction_allowed": bool(mode == "hosted_sanitized" and ack),
+            "model_route_adapter": _RUNTIME_STATUS.get("model_route_adapter"),
         }
     )
 
@@ -961,6 +964,7 @@ def _cli_handler(args):
             "public_or_sanitized_data_ack": _RUNTIME_STATUS["public_or_sanitized_data_ack"],
             "automatic_skill_jev_mode": _RUNTIME_STATUS["automatic_skill_jev_mode"],
             "hosted_construction_allowed": _RUNTIME_STATUS["hosted_construction_allowed"],
+            "model_route_adapter": _RUNTIME_STATUS.get("model_route_adapter"),
             "tool_exposure": exposure,
             "toolset_composition": _toolset_composition(),
         }
@@ -1447,6 +1451,12 @@ def register(ctx):
     )
     if automatic_hook is not None and hasattr(ctx, "register_hook"):
         ctx.register_hook("pre_llm_call", automatic_hook)
+
+
+    # Hermes 0.19 has no model-selection apply seam. Register a safe no-op (or
+    # bind a future seam) without changing the active model. Coordinators use
+    # recommend_model_route / jev_model_route_approved for typed receipts.
+    _RUNTIME_STATUS["model_route_adapter"] = register_model_route_adapter(ctx)
 
     def assess_handler(args, **kwargs):
         try:
