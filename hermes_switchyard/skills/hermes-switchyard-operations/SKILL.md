@@ -29,11 +29,13 @@ fallback. The coordinator owns those decisions.
 
 `public_or_sanitized_data_ack` (tool calls) is on after install. Callers may
 omit it. Pass `false` to refuse one call. Automatic hosted routing is separate:
-`automatic_skill_public_or_sanitized_data_ack` defaults to false, and hosted
-construction also requires `hosted_sanitized`, `automatic_skill_consumer_mode=load`,
-and a host allow envelope. Advisory mode yields `consumer_contract_unmet`.
-Hermes owns data classification; this is not DLP or authorization. Send no
-credential, payment, or verification UI/data. Regex redaction is not authorization.
+`automatic_skill_public_or_sanitized_data_ack` defaults to false and must be set
+to true; hosted construction also requires `hosted_sanitized`,
+`automatic_skill_consumer_mode=load`, and a host allow envelope. Leaving the
+automatic acknowledgement false yields `ack_required`. Advisory mode yields
+`consumer_contract_unmet`. Hermes owns data classification; this is not DLP or
+authorization. Send no credential, payment, or verification UI/data. Regex
+redaction is not authorization.
 
 ## Fixed client contract
 
