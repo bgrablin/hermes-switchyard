@@ -12,7 +12,7 @@ The feature is advisory by default, with an opt-in typed loader consumer:
 - the product default is `local_only`; hosted construction requires an explicit `hosted_sanitized` opt-in, persistent acknowledgement, and the plugin-owned strict local per-turn scan; an allowed host envelope may optionally provide a narrower sanitized payload;
 - persistent acknowledgement is required for standalone hosted mode, but local per-turn scanning remains mandatory and the acknowledgement never overrides restricted content or other controls.
 
-The current plugin manifest is version `0.4.2` and declares `pre_llm_call` in `provides_hooks`.
+The current plugin manifest is version `0.5.0` and declares `pre_llm_call` in `provides_hooks`.
 
 ## Runtime flow
 
@@ -133,7 +133,7 @@ Configuration is read when the plugin registers. Start a fresh Hermes process af
 
 `jev_model_route` is the documented Hermes routing point for model recommendations. Call it with an approved candidate registry whose `approved`, cost, data-class, tool, context, and `registry_generation` fields are code-owned. Descriptions never confer approval.
 
-`hermes_switchyard.model_registry.route_model_from_registry` is the explicit adapter for that registry. The shipped registry is empty. Coordinators pass a real approved list at the routing point. A selected route remains an auditable recommendation: the adapter does not change the Hermes runtime model, provider, credentials, or fallback policy. Distinct outcomes:
+`hermes_switchyard.model_registry.route_model_from_registry` and `hermes_switchyard.model_route_adapter.recommend_model_route` are the explicit adapters for that registry (see [MODEL-ROUTING.md](MODEL-ROUTING.md)). The shipped registry is empty. Coordinators pass a real approved list at the routing point. A selected route remains an auditable recommendation: the adapter does not change the Hermes runtime model, provider, credentials, or fallback policy. Distinct outcomes:
 
 - `empty_registry` when no candidates are configured
 - `stale_registry` when every candidate fails the required `registry_generation`
