@@ -899,11 +899,11 @@ class ChromiumSession:
 
 
 def _browser_profile_dir(binary: Path | None = None) -> tempfile.TemporaryDirectory[str]:
-    if os.name == "nt":
-        base = Path(os.environ.get("TEMP") or os.environ.get("LOCALAPPDATA") or ".")
-        cache = base / "hermes-switchyard"
-        cache.mkdir(parents=True, exist_ok=True)
-        return tempfile.TemporaryDirectory(prefix="switchyard-browser-", dir=str(cache), ignore_cleanup_errors=True)
+    # The explicit Snap confinement rule is evaluated before the Windows
+    # default so it holds on every platform. A real Windows browser path is
+    # never Snap Chromium, so Windows behavior is unchanged for real inputs;
+    # ordering it first keeps one code path for the rule instead of letting the
+    # platform default silently mask an explicit confinement requirement.
     if binary is not None and _is_snap_chromium(binary):
         # Strictly confined Chromium can access its per-user common directory,
         # but not every runtime/cache directory. Keep each run isolated and
@@ -918,6 +918,11 @@ def _browser_profile_dir(binary: Path | None = None) -> tempfile.TemporaryDirect
             dir=str(common),
             ignore_cleanup_errors=True,
         )
+    if os.name == "nt":
+        base = Path(os.environ.get("TEMP") or os.environ.get("LOCALAPPDATA") or ".")
+        cache = base / "hermes-switchyard"
+        cache.mkdir(parents=True, exist_ok=True)
+        return tempfile.TemporaryDirectory(prefix="switchyard-browser-", dir=str(cache), ignore_cleanup_errors=True)
     runtime = os.environ.get("XDG_RUNTIME_DIR")
     if runtime:
         runtime_path = Path(runtime)
