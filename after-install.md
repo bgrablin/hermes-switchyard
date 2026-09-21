@@ -14,8 +14,9 @@ The plugin is installed. Jev tool calls are on. Hermes owns data classification;
 `public_or_sanitized_data_ack` is on by default. Callers may omit it. Turn it off with:
 `hermes config set plugins.entries.hermes-switchyard.settings.public_or_sanitized_data_ack false`
 
-Hosted automatic skill routing is on by default. Turn it off with:
-`hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack false`
+Automatic skill routing is local-only by default. To opt into hosted automatic routing, set the mode explicitly and acknowledge the bounded public/sanitized-data contract:
+`hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode hosted_sanitized`
+`hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack true`
 
 Optional extras:
 

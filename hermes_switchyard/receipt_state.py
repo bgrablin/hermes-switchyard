@@ -242,8 +242,34 @@ def _hermes_home() -> Path | None:
         return None
 
 
+def _plugin_data_dir() -> Path | None:
+    """Return Hermes' profile-scoped mutable directory for this plugin.
+
+    Recent Hermes versions expose ``plugins.plugin_storage.plugin_data_dir``
+    specifically so runtime state is not mixed with an installed plugin
+    checkout. The fallback keeps the standalone plugin usable with older
+    Hermes hosts without ever falling back to the install directory.
+    """
+    try:
+        from plugins.plugin_storage import plugin_data_dir
+    except (ImportError, AttributeError):
+        home = _hermes_home()
+        return home / "plugin-data" / PLUGIN_NAME if home is not None else None
+    try:
+        return Path(plugin_data_dir(PLUGIN_NAME))
+    except (ImportError, AttributeError, OSError, TypeError, ValueError):
+        home = _hermes_home()
+        return home / "plugin-data" / PLUGIN_NAME if home is not None else None
+
+
 def _receipt_state_file() -> Path | None:
-    """Return the plugin-owned state path when a Hermes home is available."""
+    """Return the profile-owned receipt path, never the installed source tree."""
+    data_dir = _plugin_data_dir()
+    return data_dir / "receipt.json" if data_dir is not None else None
+
+
+def _legacy_receipt_state_file() -> Path | None:
+    """Return the pre-0.4.3 install-tree path for one-way migration/readback."""
     home = _hermes_home()
     if home is None:
         return None
@@ -290,15 +316,51 @@ def store_latest_receipt(receipt: dict[str, Any]) -> bool:
 
 
 def read_latest_receipt() -> dict[str, Any] | None:
-    """Read the latest persisted receipt only when it matches the contract."""
+    """Read the profile-owned receipt and migrate one valid legacy record."""
     path = _receipt_state_file()
-    if path is None:
+    if path is not None:
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, TypeError, ValueError):
+            record = None
+        canonical = canonicalize_receipt(record)
+        if canonical is not None:
+            return canonical
+
+    legacy_path = _legacy_receipt_state_file()
+    if legacy_path is None or (path is not None and path.exists()):
         return None
     try:
-        record = json.loads(path.read_text(encoding="utf-8"))
+        record = json.loads(legacy_path.read_text(encoding="utf-8"))
     except (OSError, TypeError, ValueError):
         return None
     canonical = canonicalize_receipt(record)
+    if canonical is None:
+        return None
+
+    # Do not replace an unrelated or malformed new file. A successful first
+    # read creates the new profile-owned copy; the legacy file remains intact
+    # as a rollback aid and is no longer consulted on later reads.
+    temporary: Path | None = None
+    try:
+        if path is not None and not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fd, raw_path = tempfile.mkstemp(prefix=".receipt-", suffix=".tmp", dir=path.parent)
+            temporary = Path(raw_path)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(canonical, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+    except (OSError, TypeError, ValueError):
+        pass
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
     return canonical
 
 

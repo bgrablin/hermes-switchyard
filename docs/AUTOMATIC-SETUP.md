@@ -2,7 +2,7 @@
 
 This guide enables the implemented automatic skill recommendation hook for the `hermes-switchyard` plugin.
 
-The configuration default is `hosted_sanitized`. Hosted routing uses the plugin-owned standalone contract: persistent acknowledgement plus a strict local per-turn scan before client construction. A compatible Hermes host may optionally provide a narrower typed envelope. This guide does not claim that a recommendation certifies model quality or GUI completion.
+The configuration default is `local_only`. Hosted routing is an explicit opt-in using the plugin-owned standalone contract: persistent acknowledgement plus a strict local per-turn scan before client construction. A compatible Hermes host may optionally provide a narrower typed envelope. This guide does not claim that a recommendation certifies model quality or GUI completion.
 
 ## 1. Install the pinned plugin
 
@@ -82,14 +82,21 @@ hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_con
 
 Start a fresh Hermes process after changing the mode. In `load` mode, Switchyard passes one accepted exact identifier to Hermes' normal `skill_view` loader once per identified turn. Explicit skill instructions, abstention, invalid output, and loader rejection do not trigger an automatic load. Keep `advisory` unless the active profile intentionally delegates this bounded load decision.
 
-## 5. Hosted Jev is on after install
+## 5. Explicitly opt into hosted automatic Jev
 
 Hosted Jev requires either a TypeSafe account/key or an OpenRouter account/key, plus available allowance. `jev_provider: auto` prefers direct TypeSafe. Codex or ChatGPT subscription billing does not pay for either route.
 
-Install defaults are `hosted_sanitized`, `always`, and standing acknowledgement true. Ordinary turns can call Jev. To skip hosted automatic routing:
+Install defaults are `local_only`, `always`, and standing acknowledgement true. Ordinary turns do not call hosted Jev. To opt into hosted automatic routing for this profile:
 
 ```text
-hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack false
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode hosted_sanitized
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack true
+```
+
+To skip hosted automatic routing explicitly:
+
+```text
+hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode local_only
 ```
 
 An optional host envelope may narrow the payload. It is not required. If supplied, it must be a versioned envelope such as:

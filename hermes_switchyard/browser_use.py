@@ -748,7 +748,7 @@ class ChromiumSession:
         binary = _browser_binary()
         if binary is None:
             raise RuntimeError("no Chromium-family browser is installed")
-        self._tmpdir = _browser_profile_dir()
+        self._tmpdir = _browser_profile_dir(binary)
         self._proc: subprocess.Popen[str] | None = None
         self._ws: _ChromeWebSocket | None = None
         self._next_id = 0
@@ -898,12 +898,26 @@ class ChromiumSession:
         raise TimeoutError(f"page did not become ready ready={ready!r} href={href!r}")
 
 
-def _browser_profile_dir() -> tempfile.TemporaryDirectory[str]:
+def _browser_profile_dir(binary: Path | None = None) -> tempfile.TemporaryDirectory[str]:
     if os.name == "nt":
         base = Path(os.environ.get("TEMP") or os.environ.get("LOCALAPPDATA") or ".")
         cache = base / "hermes-switchyard"
         cache.mkdir(parents=True, exist_ok=True)
         return tempfile.TemporaryDirectory(prefix="switchyard-browser-", dir=str(cache), ignore_cleanup_errors=True)
+    if binary is not None and _is_snap_chromium(binary):
+        # Strictly confined Chromium can access its per-user common directory,
+        # but not every runtime/cache directory. Keep each run isolated and
+        # let TemporaryDirectory remove only the exact profile it created.
+        common = Path.home() / "snap" / "chromium" / "common"
+        try:
+            common.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise RuntimeError("Snap Chromium requires an accessible ~/snap/chromium/common directory") from exc
+        return tempfile.TemporaryDirectory(
+            prefix="switchyard-browser-",
+            dir=str(common),
+            ignore_cleanup_errors=True,
+        )
     runtime = os.environ.get("XDG_RUNTIME_DIR")
     if runtime:
         runtime_path = Path(runtime)
@@ -912,6 +926,26 @@ def _browser_profile_dir() -> tempfile.TemporaryDirectory[str]:
     cache = Path.home() / ".cache" / "hermes-switchyard"
     cache.mkdir(parents=True, exist_ok=True)
     return tempfile.TemporaryDirectory(prefix="switchyard-browser-", dir=str(cache), ignore_cleanup_errors=True)
+
+
+def _is_snap_chromium(binary: Path) -> bool:
+    """Return whether *binary* is the strict-confined Chromium entry point."""
+    return binary == Path("/snap/bin/chromium")
+
+
+def _resolve_browser_binary(candidate: Path, *, snap_binary: Path | None = None) -> Path | None:
+    """Resolve the Ubuntu Chromium wrapper without trusting its temporary path."""
+    if not candidate.is_file():
+        return None
+    try:
+        wrapper = candidate.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        wrapper = ""
+    target = snap_binary or Path("/snap/bin/chromium")
+    if re.search(r'(?m)^\s*exec\s+/snap/bin/chromium\s+"\$@"\s*$', wrapper):
+        if target.is_file():
+            return target
+    return candidate
 
 
 def _browser_binary() -> Path | None:
@@ -925,8 +959,10 @@ def _browser_binary() -> Path | None:
     )
     for name in names:
         found = shutil.which(name)
-        if found and "/snap/" not in found:
-            return Path(found)
+        if found:
+            resolved = _resolve_browser_binary(Path(found))
+            if resolved is not None:
+                return resolved
     roots = [
         os.environ.get("PROGRAMFILES", ""),
         os.environ.get("PROGRAMFILES(X86)", ""),
@@ -943,8 +979,9 @@ def _browser_binary() -> Path | None:
         base = Path(root)
         for relative in relatives:
             candidate = base / relative
-            if candidate.is_file():
-                return candidate
+            resolved = _resolve_browser_binary(candidate)
+            if resolved is not None:
+                return resolved
     return None
 
 
