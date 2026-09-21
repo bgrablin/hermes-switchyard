@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Tolerates Hermes 0.19.0 PluginContext hosts that omit `get_config`: `register()` falls back to `plugins.entries.<plugin_id>` (or install defaults) so tools, hooks, and `hermes switchyard` still register when the plugin is enabled.
 - Makes automatic skill routing `local_only` by default. Hosted automatic routing now requires an explicit `hosted_sanitized` profile setting; the legacy boolean remains compatibility-only and never authorizes hosted egress.
 - Resolves Ubuntu's `chromium-browser` Snap wrapper to `/snap/bin/chromium` and places each temporary browser profile under the Snap-accessible `~/snap/chromium/common` directory with exact per-run cleanup. Snap confinement is detected from the resolved executable and from a bounded wrapper-script prefix (quoted, unquoted, or `--`-separated exec targets; compiled binaries are never inspected as scripts). Directory preparation and per-run profile creation both raise a typed `snap_profile_unavailable` diagnostic, and `jev_computer_use` returns that code instead of a generic execution failure.
 - Stores routing receipts under Hermes' profile-scoped `plugin-data/hermes-switchyard/` directory and migrates one valid legacy receipt without overwriting unrelated state. Receipt files are atomically published with owner-private permissions: `0600` on POSIX; on Windows a protected DACL granting only the current user, SYSTEM, and Administrators, applied to the published file on both the normal replace and legacy migration paths and failing closed when the descriptor cannot be enforced.
