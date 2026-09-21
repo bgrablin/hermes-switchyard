@@ -462,11 +462,27 @@ def _run_browser_loop(
                     for item in actions[-8:]
                 ],
             }
-            decision = client.decide(
-                state,
-                questions,
-                public_or_sanitized_data_ack=public_or_sanitized_data_ack,
-            )
+            try:
+                decision = client.decide(
+                    state,
+                    questions,
+                    public_or_sanitized_data_ack=public_or_sanitized_data_ack,
+                )
+            except Exception:
+                # Count the attempted provider call even when it fails, so a
+                # later partial_failure receipt preserves request accounting.
+                decisions.append(
+                    {
+                        "phase": "step",
+                        "operation": None,
+                        "latency_ms": None,
+                        "model": None,
+                        "usage": {},
+                        "questions": sorted(questions),
+                        "failed": True,
+                    }
+                )
+                raise
             if not isinstance(decision, dict) or not isinstance(decision.get("answers"), dict):
                 raise TypeError("Jev browser decision has no answers object")
             answers = decision["answers"]
@@ -521,6 +537,7 @@ def _run_browser_loop(
                 )
             label = operation
             target_id = None
+            action_dispatched = False
             operation_remaining_deadline()
             try:
                 if operation == "CLICK":
@@ -588,10 +605,13 @@ def _run_browser_loop(
                         )
                     target_id = matched["id"]
                     session.click(target_id, label=matched["label"], href=matched["href"])
+                    action_dispatched = True
                 elif operation in {"SCROLL_DOWN", "SCROLL_UP"}:
                     session.scroll("down" if operation == "SCROLL_DOWN" else "up")
+                    action_dispatched = True
                 else:
                     session.wait(0.2)
+                    action_dispatched = True
                 after = session.observe()
             except Exception:
                 actions.append(
@@ -604,7 +624,7 @@ def _run_browser_loop(
                         "title": str(page.get("title") or "")[:240],
                         "executor": "browser_dom",
                         "verdict": None,
-                        "action_dispatched": True,
+                        "action_dispatched": action_dispatched,
                         "effect_observed": False,
                         "effect_confirmed": False,
                         "effect_status": "unknown",
