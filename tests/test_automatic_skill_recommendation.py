@@ -1073,6 +1073,12 @@ class ProcessRestartAndMandatorySkillTests(unittest.TestCase):
         self.assertTrue(hook.last_receipt["advisory_only"])
         self.assertEqual(result["metadata"]["skill_recommendation"]["status"], "mandatory_conflict")
         self.assertFalse(result["metadata"]["skill_recommendation"]["loaded_once"])
+        # skipped/suppressed must not deliver advisory recommendation context
+        self.assertNotIn("context", result)
+        self.assertEqual(result["metadata"]["skill_recommendation"]["delivery_status"], "skipped")
+        self.assertEqual(result["metadata"]["skill_recommendation"]["adoption_status"], "suppressed")
+        self.assertEqual(hook.last_receipt["delivery_status"], "skipped")
+        self.assertEqual(hook.last_receipt["adoption_status"], "suppressed")
 
     def test_typed_consumer_loads_when_selected_is_mandatory(self):
         loader_calls = {"n": 0}
@@ -1224,6 +1230,130 @@ class AutomaticAdoptionContractTests(unittest.TestCase):
         self.assertEqual(on.last_receipt["outcome_status"], "unverified")
         self.assertFalse(on.last_receipt["verified"])
 
+
+
+
+class CopilotAdoptionContractFollowupTests(unittest.TestCase):
+    """PR #44 Copilot threads: registry override, mandatory preflight, receipt pairs."""
+
+    def test_explicit_override_consults_full_registry_not_routing_subset(self):
+        """Use network-printer-operations zero-requests even if only docker is configured."""
+        constructed = []
+        payloads = []
+
+        def transport(payload):
+            payloads.append(payload)
+            raise AssertionError("explicit override must not call the provider")
+
+        def client_factory():
+            constructed.append(True)
+            return DecisionClient(api_key="fixture-key", transport=transport)
+
+        full_registry = (
+            {"name": "docker-management", "description": "Manage Docker containers."},
+            {
+                "name": "network-printer-operations",
+                "description": "Operate network printers and scanners.",
+            },
+        )
+        hook = build_pre_llm_call_hook(
+            configured_candidates=[
+                {"name": "docker-management", "description": "Manage Docker containers."},
+            ],
+            routing_mode="hosted_sanitized",
+            public_or_sanitized_data_ack=True,
+            client_factory=client_factory,
+            consumer_mode="load",
+            skill_loader=lambda name, task_id=None: name,
+        )
+        assert hook is not None
+        with mock.patch(
+            "hermes_switchyard.automatic.discover_available_skill_candidates",
+            return_value=full_registry,
+        ):
+            result = hook(
+                user_message="Use network-printer-operations. Diagnose a Docker Compose container.",
+                session_id="session-registry-override",
+                turn_id="turn-1",
+                turn_egress_policy={
+                    "version": 1,
+                    "decision": "allow",
+                    "data_class": "sanitized",
+                    "allowed_payload": "SANITIZED_DOCKER_TASK",
+                },
+            )
+        recommendation = result["metadata"]["skill_recommendation"]
+        self.assertEqual(constructed, [])
+        self.assertEqual(payloads, [])
+        self.assertEqual(recommendation["status"], "explicit_override")
+        self.assertEqual(recommendation["explicit_skill"], "network-printer-operations")
+        self.assertFalse(hook.last_result["hosted_attempted"])
+        self.assertEqual(hook.last_receipt["request_count"], 0)
+        self.assertEqual(recommendation["delivery_status"], "skipped")
+        self.assertEqual(recommendation["adoption_status"], "suppressed")
+
+    def test_load_mode_mandatory_excluding_all_candidates_skips_hosted(self):
+        """adoption_capable must preflight mandatory policy before hosted work."""
+        constructed = []
+
+        def client_factory():
+            constructed.append(True)
+            raise AssertionError("mandatory-excluding candidates must not host")
+
+        hook = build_pre_llm_call_hook(
+            configured_candidates=[
+                {"name": "docker-management", "description": "Manage Docker containers and Compose services."},
+            ],
+            routing_mode="hosted_sanitized",
+            public_or_sanitized_data_ack=True,
+            client_factory=client_factory,
+            consumer_mode="load",
+            skill_loader=lambda name, task_id=None: name,
+            mandatory_skills=["xlsx"],
+        )
+        assert hook is not None
+        # Unrelated task so local abstains; without the preflight, hosted would run.
+        result = hook(
+            user_message="Please help schedule a team lunch next Tuesday",
+            session_id="sess-mandatory-hosted",
+            turn_id="turn-1",
+            turn_egress_policy={
+                "version": 1,
+                "decision": "allow",
+                "data_class": "sanitized",
+                "allowed_payload": "SANITIZED_SCHEDULE_TASK",
+            },
+        )
+        self.assertEqual(constructed, [])
+        self.assertFalse(hook.last_result["hosted_attempted"])
+        self.assertEqual(hook.last_result["hosted_skipped"], "consumer_contract_unmet")
+        self.assertNotIn("context", result)
+        recommendation = result["metadata"]["skill_recommendation"]
+        self.assertEqual(recommendation["delivery_status"], "not_delivered")
+        self.assertEqual(recommendation["adoption_status"], "not_applicable")
+
+    def test_mandatory_conflict_omits_recommendation_context(self):
+        hook = build_pre_llm_call_hook(
+            enabled=True,
+            consumer_mode="load",
+            skill_loader=lambda selected, task_id=None: "# skill\ncontent",
+            configured_candidates=[{"name": "docker-management", "description": "Docker"}],
+            routing_mode="local_only",
+            cache_seconds=0,
+            mandatory_skills=["xlsx"],
+        )
+        result = hook(
+            user_message="Diagnose a Docker container",
+            session_id="sess-mandatory-ctx",
+            turn_id="turn-mandatory-ctx",
+        )
+        self.assertNotIn("context", result)
+        rec = result["metadata"]["skill_recommendation"]
+        self.assertEqual(rec["status"], "mandatory_conflict")
+        self.assertEqual(rec["delivery_status"], "skipped")
+        self.assertEqual(rec["adoption_status"], "suppressed")
+        self.assertEqual(hook.last_receipt["delivery_status"], "skipped")
+        self.assertEqual(hook.last_receipt["adoption_status"], "suppressed")
 
 
 

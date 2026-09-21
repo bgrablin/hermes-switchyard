@@ -1048,10 +1048,8 @@ def build_consumption_contract(
         raise ValueError("delivery_status is invalid")
     if adoption_status not in receipt_state.ADOPTION_STATUSES:
         raise ValueError("adoption_status is invalid")
-    if adoption_status == "adopted" and delivery_status != "delivered":
-        raise ValueError("adopted requires delivered")
-    if adoption_status == "suppressed" and delivery_status != "skipped":
-        raise ValueError("suppressed requires skipped delivery")
+    if (delivery_status, adoption_status) not in receipt_state.VALID_DELIVERY_ADOPTION_PAIRS:
+        raise ValueError("delivery/adoption pair is invalid")
     return {
         "delivery_status": delivery_status,
         "adoption_status": adoption_status,
@@ -1088,6 +1086,40 @@ def _explicit_skill_override(task: Any, candidates: Any) -> str | None:
         ):
             return name
     return None
+
+
+def _candidate_name(candidate: Any) -> str | None:
+    name = candidate.get("name") if isinstance(candidate, Mapping) else candidate
+    return name if isinstance(name, str) and name else None
+
+
+def _merge_override_candidate_pools(*pools: Any) -> tuple[Any, ...]:
+    """Union candidate pools by exact name for explicit-override detection."""
+    merged: list[Any] = []
+    seen: set[str] = set()
+    for pool in pools:
+        for candidate in pool or ():
+            name = _candidate_name(candidate)
+            if name is None or name in seen:
+                continue
+            seen.add(name)
+            merged.append(candidate)
+    return tuple(merged)
+
+
+def _any_candidate_adoptable(candidates: Any, mandatory_skills: Any) -> bool:
+    """True when mandatory policy is empty or at least one candidate is allowed."""
+    mandatory = discover_mandatory_skills(
+        mandatory_skills if isinstance(mandatory_skills, (list, tuple)) else ()
+    )
+    if not mandatory:
+        return True
+    allowed = set(mandatory)
+    for candidate in candidates or ():
+        name = _candidate_name(candidate)
+        if name is not None and name in allowed:
+            return True
+    return False
 
 
 def discover_mandatory_skills(configured: Any = None) -> tuple[str, ...]:
@@ -1201,9 +1233,19 @@ def build_pre_llm_call_hook(
             else discover_available_skill_candidates()
         )
         candidates = recommender.configured_candidates if configured else catalog_candidates
+        # Explicit skill instructions are detected against the full active
+        # registry, not only the configured routing subset, so a user
+        # instruction like "Use network-printer-operations" still zero-requests
+        # even when routing is limited to docker-management.
+        registry_for_override = (
+            catalog_candidates
+            if catalog_candidates
+            else discover_available_skill_candidates()
+        )
+        override_pool = _merge_override_candidate_pools(candidates, registry_for_override)
         # Explicit skill instructions win before any local/hosted selection so a
         # determined turn never pays for a hosted Jev request.
-        override = _explicit_skill_override(user_message, candidates)
+        override = _explicit_skill_override(user_message, override_pool)
         if override is not None:
             result = {
                 "status": "abstained",
@@ -1257,6 +1299,13 @@ def build_pre_llm_call_hook(
                     consumed_turns.popitem(last=False)
             return response
 
+        # In load mode, authorize hosted work only when at least one routing
+        # candidate remains adoptable under mandatory-skill policy. Otherwise
+        # hosted would pay before the later mandatory_conflict suppress path.
+        if consumer_mode == "load":
+            recommender.adoption_capable = _any_candidate_adoptable(
+                candidates, mandatory_skills
+            )
         result = recommender.recommend(
             user_message,
             candidates=catalog_candidates,
@@ -1352,10 +1401,16 @@ def build_pre_llm_call_hook(
             recommender.last_receipt = receipt
             receipt_state.store_latest_receipt(receipt)
             setattr(on_pre_llm_call, "last_receipt", dict(receipt))
-            response = {
-                "context": loaded_context or _format_recommendation(selected),
-                "metadata": metadata,
-            }
+            # Receipt must match observable delivery: skipped/suppressed
+            # mandatory conflicts omit recommendation context (same as
+            # explicit_override). Advisory fallback is only for load_failed.
+            if status == "mandatory_conflict":
+                response = {"metadata": metadata}
+            else:
+                response = {
+                    "context": loaded_context or _format_recommendation(selected),
+                    "metadata": metadata,
+                }
         if turn_key is not None:
             consumed_turns[turn_key] = dict(response)
             while len(consumed_turns) > DEFAULT_CACHE_SIZE:
