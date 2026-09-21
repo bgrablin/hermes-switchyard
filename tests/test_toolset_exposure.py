@@ -996,6 +996,56 @@ class ToolsetCompositionTests(unittest.TestCase):
         self.assertEqual(holder["config"]["agent"]["disabled_toolsets"], ["web"])
         self.assertEqual(result["cleared_suppressions"], ["computer_use"])
 
+
+    def test_ensure_fails_on_broad_disabled_suppressor_without_clearing_it(self):
+        holder = {
+            "config": {
+                "platform_toolsets": {"cli": ["terminal", "computer_use", "hermes_switchyard"]},
+                "agent": {"disabled_toolsets": ["all"]},
+            }
+        }
+
+        def load_config():
+            return copy.deepcopy(holder["config"])
+
+        fake_config = mock.Mock()
+        fake_config.load_config = load_config
+        fake_config.save_config = mock.Mock()
+        with mock.patch.dict(
+            "sys.modules",
+            {"hermes_cli.config": fake_config, "hermes_cli": mock.Mock(config=fake_config)},
+        ):
+            result = hermes_switchyard.ensure_platform_toolsets()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "required_toolsets_suppressed")
+        self.assertEqual(result["broad_suppressors"], ["all"])
+        fake_config.save_config.assert_not_called()
+        self.assertEqual(holder["config"]["agent"]["disabled_toolsets"], ["all"])
+
+    def test_ensure_fails_when_save_strips_non_required_entries(self):
+        holder = {"config": {"platform_toolsets": {"cli": ["terminal", "file"]}}}
+
+        def load_config():
+            return copy.deepcopy(holder["config"])
+
+        def save_config(config):
+            # Managed install keeps required names but strips ordinary CLI capabilities.
+            holder["config"] = {
+                "platform_toolsets": {"cli": ["computer_use", "hermes_switchyard"]},
+            }
+
+        fake_config = mock.Mock()
+        fake_config.load_config = load_config
+        fake_config.save_config = save_config
+        with mock.patch.dict(
+            "sys.modules",
+            {"hermes_cli.config": fake_config, "hermes_cli": mock.Mock(config=fake_config)},
+        ):
+            result = hermes_switchyard.ensure_platform_toolsets()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "config_not_persisted")
+        self.assertIn("list_mismatch", result["detail"])
+
     def test_ensure_fails_when_required_suppression_cannot_be_cleared(self):
         holder = {
             "config": {
@@ -1026,23 +1076,25 @@ class ToolsetCompositionTests(unittest.TestCase):
         self.assertEqual(result["suppressed_required_toolsets"], ["computer_use"])
 
     def test_ensure_rejects_malformed_non_list_platform_toolsets(self):
-        holder = {"config": {"platform_toolsets": {"cli": "computer_use,terminal"}}}
+        for malformed in ("computer_use,terminal", None):
+            with self.subTest(malformed=malformed):
+                holder = {"config": {"platform_toolsets": {"cli": malformed}}}
 
-        def load_config():
-            return copy.deepcopy(holder["config"])
+                def load_config(holder=holder):
+                    return copy.deepcopy(holder["config"])
 
-        fake_config = mock.Mock()
-        fake_config.load_config = load_config
-        fake_config.save_config = mock.Mock()
-        with mock.patch.dict(
-            "sys.modules",
-            {"hermes_cli.config": fake_config, "hermes_cli": mock.Mock(config=fake_config)},
-        ):
-            result = hermes_switchyard.ensure_platform_toolsets()
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["reason"], "config_invalid")
-        self.assertEqual(result["detail"], "cli_toolsets_not_list")
-        fake_config.save_config.assert_not_called()
+                fake_config = mock.Mock()
+                fake_config.load_config = load_config
+                fake_config.save_config = mock.Mock()
+                with mock.patch.dict(
+                    "sys.modules",
+                    {"hermes_cli.config": fake_config, "hermes_cli": mock.Mock(config=fake_config)},
+                ):
+                    result = hermes_switchyard.ensure_platform_toolsets()
+                self.assertFalse(result["ok"])
+                self.assertEqual(result["reason"], "config_invalid")
+                self.assertEqual(result["detail"], "cli_toolsets_not_list")
+                fake_config.save_config.assert_not_called()
 
     def test_ensure_fails_when_save_does_not_persist_toolsets(self):
         holder = {"config": {"platform_toolsets": {"cli": ["terminal"]}}}
