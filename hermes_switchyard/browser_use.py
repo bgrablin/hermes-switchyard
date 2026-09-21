@@ -320,7 +320,7 @@ def _observation_signature(page: dict[str, Any]) -> str:
         sort_keys=True,
         separators=(",", ":"),
     )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _normalize_completion_condition(explicit: Any, goal: Any) -> dict[str, Any] | None:
@@ -909,10 +909,19 @@ def _run_browser_loop(
                 public_or_sanitized_data_ack=public_or_sanitized_data_ack,
             )
         except Exception as exc:  # noqa: BLE001 -- a provider failure keeps partial evidence
+            decisions.append(
+                {
+                    "phase": "step",
+                    "operation": None,
+                    "failed": True,
+                    "failure_reason": _failure_reason(exc),
+                }
+            )
+            timed_out = isinstance(exc, TimeoutError) or "timed out" in _failure_reason(exc).casefold()
             return finish(
                 page=page,
-                status="provider_failure",
-                failure_phase="decision",
+                status="partial_failure" if actions else "provider_failure",
+                failure_phase="operation_deadline" if (actions and timed_out) else "decision",
                 failure_reason=_failure_reason(exc),
                 reconcile_before_retry=bool(actions),
             )
@@ -1172,7 +1181,7 @@ def _run_browser_loop(
         elif content_changed or focus_changed:
             effect_status = "document_changed"
         else:
-            effect_status = "no_observed_effect"
+            effect_status = "unchanged"
         actions.append(
             _action_record(
                 step=step,
@@ -1311,7 +1320,7 @@ def _local_scroll_recovery(
                     if changed and _public_http_url(str(candidate.get("url") or ""))
                     else "left_public_https"
                     if not _public_http_url(str(candidate.get("url") or ""))
-                    else "no_observed_effect"
+                    else "unchanged"
                 ),
             )
         )
