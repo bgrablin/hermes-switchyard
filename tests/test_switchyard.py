@@ -1298,20 +1298,24 @@ class ComputerUseTests(unittest.TestCase):
 
 
 class PluginEntryPointTests(unittest.TestCase):
-    def test_cli_status_is_redacted_and_reports_default_readiness(self):
-        import jev_decision
+    def test_cli_status_is_redacted_and_reports_fail_closed_default_readiness(self):
+        import hermes_switchyard
         output = io.StringIO()
-        with mock.patch("hermes_cli.config.load_config", return_value={}), \
-             mock.patch.object(jev_decision, "_secret", return_value="synthetic-secret"), \
+        with mock.patch.object(hermes_switchyard, "_secret", return_value="synthetic-secret"), \
              redirect_stdout(output):
-            code = jev_decision._cli_handler(SimpleNamespace(jev_command="status"))
+            code = hermes_switchyard._cli_handler(
+                SimpleNamespace(switchyard_command="status", json_output=True, toolsets=None)
+            )
         result = json.loads(output.getvalue())
         self.assertEqual(code, 0)
-        self.assertTrue(result["hosted_enabled"])
-        self.assertEqual(result["hosted_mode"], "always")
-        self.assertTrue(result["public_or_sanitized_data_ack"])
-        self.assertTrue(result["hosted_ready"])
         self.assertNotIn("synthetic-secret", output.getvalue())
+        # Fail-closed defaults: no premature readiness claims.
+        self.assertIsNotNone(result.get("status"))
+        self.assertIs(result.get("public_or_sanitized_data_ack"), False)
+        self.assertIn(result["status"], {
+            "ready", "credential_required", "exposure_unverified",
+            "tools_not_registered", "tools_not_callable",
+        })
 
     def test_cli_setup_uses_masked_prompt_and_profile_secret_writer(self):
         import hermes_switchyard
