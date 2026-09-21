@@ -12,16 +12,16 @@ Hermes Switchyard is a plugin that helps Hermes choose skills, models, and compu
 
 Measured with/without Switchyard on tip **0.5.0** (`c8e6008`). Human-readable benefits first; verification hashes live under [Proof](#proof).
 
-| Feature | Without Switchyard | With Switchyard | What it means |
-| --- | ---: | ---: | --- |
-| **Skill pick** (`jev_skill_select`) | 7/12 single-skill correct | **12/12** | +5 specialist picks the local word matcher missed |
-| Failed to pick a needed skill | 11/18 | **5/18** | Fewer times Hermes needed a skill and got none or the wrong one |
-| No-skill false recs | **0/6** | **0/6** | Does not invent a skill when none fits |
-| **Multi-skill** (`jev_skill_select_many`) | one-skill pick completes **0/5** sets | **5/5** sets complete | When a task needs several skills together, use `select_many` — not one-skill pick |
-| **Model pick** (`jev_model_route`) | 3/3 cheapest-qualified local | **3/3** + auditable receipt | Agrees with complete metadata; `applied: false` until Hermes has an apply seam |
-| **Assess** (`jev_assess`) | 2/3 first-option baseline | **3/3** typed Choice | Small smoke (n=3), not a competing-model study |
-| **Automatic routing** (local_only hook) | always silent when off | 1/2 positives + clean no-fit | Install-default local match; not a whole-agent outcome claim |
-| **Computer use** (`jev_computer_use`) | stock `computer_use` A/B not run here | DOM Felidae race: 1 click, ~0.25 s Jev, ~$0.00021; `goal_verified` stays false | Coordinator owns verification; pin `-t computer_use,hermes_switchyard` |
+| Feature | What this row measures | Without Switchyard | With Switchyard |
+| --- | --- | ---: | ---: |
+| Skill pick | Choosing the one right specialist skill for a task | 7/12 correct | **12/12** correct |
+| Needed-skill failures | Tasks that needed a skill but got none or the wrong one | 11/18 failed | **5/18** failed |
+| False skill suggestions | Recommending a skill when the task needed none | **0/6** false | **0/6** false |
+| Multi-skill pick | Completing a task that needs several skills together | 0/5 sets complete (one-skill pick only) | **5/5** sets complete |
+| Model pick | Recommending a model and leaving an auditable receipt | 3/3 agree with local filter | **3/3** + receipt (`applied: false`) |
+| Assess | Answering a small typed multiple-choice check | 2/3 correct | **3/3** correct |
+| Automatic skill routing | Quietly suggesting a skill before the model acts (local match) | Off → always silent | 1/2 needed skills caught; no false suggest |
+| Computer use | Driving the browser/desktop toward a goal | Stock Hermes A/B not run here | 1-click DOM race; goal still unverified by the tool |
 
 - **Cheap:** about **$0.000055** per skill-select decision (~**$0.055** per 1,000)
 - **Fast:** about **0.19 s** typical; **0.30 s** at p95 on the frozen 24-task skill bench
