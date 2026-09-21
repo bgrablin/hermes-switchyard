@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Hermes 0.19 status and live collector: when `parse_config_string_list` is missing, fall back to list/CSV parsing so `hermes switchyard status` resolves platform selection and reports real `callable` values (parser errors still fail closed); tolerate missing `hydrate_profile_secret_sources` and fall back to a process `OPENROUTER_API_KEY` when the scoped value is missing or unusable.
 - Host config fallback for Hermes 0.19 reads `plugins.entries.<id>.settings` (legacy `.config` accepted); outer entry fields such as `allow_tool_override` are no longer mistaken for plugin settings.
 - Tolerates Hermes 0.19.0 PluginContext hosts that omit `get_config`: `register()` falls back to `plugins.entries.<plugin_id>` (or install defaults) so tools, hooks, and `hermes switchyard` still register when the plugin is enabled.
 - Makes automatic skill routing `local_only` by default. Hosted automatic routing now requires an explicit `hosted_sanitized` profile setting; the legacy boolean remains compatibility-only and never authorizes hosted egress.

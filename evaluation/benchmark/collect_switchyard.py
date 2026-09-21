@@ -28,12 +28,28 @@ def _hydrate_runtime_secret_scope() -> None:
         return
     try:
         from agent.secret_scope import build_profile_secret_scope, set_secret_scope
-        from hermes_cli.env_loader import hydrate_profile_secret_sources
         from hermes_constants import get_hermes_home
         home = Path(os.environ.get("HERMES_HOME") or get_hermes_home()).expanduser().resolve()
-        hydrate_profile_secret_sources(home)
+        try:
+            from hermes_cli.env_loader import hydrate_profile_secret_sources
+        except ImportError:
+            # Hermes 0.19.0 ships secret_scope without this hydrate helper.
+            hydrate_profile_secret_sources = None
+        if hydrate_profile_secret_sources is not None:
+            hydrate_profile_secret_sources(home)
         scope = build_profile_secret_scope(home)
-        if not isinstance(scope, dict) or not scope.get("OPENROUTER_API_KEY"):
+        if not isinstance(scope, dict):
+            scope = {}
+        scoped_key = scope.get("OPENROUTER_API_KEY")
+        # Match _runtime_key(): whitespace-only / non-string scoped values are unusable.
+        if not isinstance(scoped_key, str) or not scoped_key.strip():
+            # Compatible last resort on hosts that already exported the key into the process.
+            env_key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
+            if env_key:
+                scope = dict(scope)
+                scope["OPENROUTER_API_KEY"] = env_key
+        scoped_key = scope.get("OPENROUTER_API_KEY")
+        if not isinstance(scoped_key, str) or not scoped_key.strip():
             raise RuntimeError("openrouter_key_unavailable_in_supported_scope")
         _SECRET_SCOPE_TOKEN = set_secret_scope(scope)
     except RuntimeError:
