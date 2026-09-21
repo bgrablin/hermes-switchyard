@@ -1390,11 +1390,23 @@ class PluginEntryPointTests(unittest.TestCase):
             import hermes_cli.secret_prompt  # noqa: F401
         except ImportError as exc:
             self.skipTest(f"Hermes CLI secret prompt unavailable: {exc}")
+        ensure_result = {
+            "ok": True,
+            "reason": "unchanged",
+            "added": [],
+            "already_present": ["cli:computer_use", "cli:hermes_switchyard"],
+            "focus_override": {"active": False},
+            "cleared_suppressions": [],
+            "toolsets": ["computer_use", "hermes_switchyard"],
+            "platforms": ["cli"],
+        }
         with mock.patch("hermes_cli.secret_prompt.masked_secret_prompt", return_value="synthetic-key"), \
-             mock.patch("hermes_cli.config.save_env_value") as save:
+             mock.patch("hermes_cli.config.save_env_value") as save, \
+             mock.patch.object(hermes_switchyard, "ensure_platform_toolsets", return_value=ensure_result) as ensure:
             code = hermes_switchyard._cli_handler(SimpleNamespace(jev_command="setup", provider="typesafe"))
         self.assertEqual(code, 0)
         save.assert_called_once_with("TYPESAFE_API_KEY", "synthetic-key")
+        ensure.assert_called_once_with()
 
     def test_tool_availability_uses_the_configured_provider_secret(self):
         import hermes_switchyard
