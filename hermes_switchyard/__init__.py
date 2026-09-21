@@ -326,7 +326,81 @@ def _toolset_composition() -> dict[str, Any]:
         "windows_pin_example": (
             'powershell: hermes -t "computer_use,hermes_switchyard" chat'
         ),
+        "coding_focus_note": (
+            "When agent.coding_context is focus, no-pin CLI sessions use coding_selection "
+            "before platform_toolsets; pin --toolsets or leave focus mode after ensure-toolsets."
+        ),
     }
+
+
+def _coding_focus_override(config: dict[str, Any]) -> dict[str, Any]:
+    """Report when coding focus posture overrides platform_toolsets for no-pin CLI sessions."""
+    try:
+        from agent.coding_context import coding_selection
+
+        posture = coding_selection(platform="cli", config=config)
+    except Exception:  # noqa: BLE001 -- coding posture is optional in Hermes
+        posture = None
+    if not posture:
+        return {
+            "active": False,
+            "source": None,
+            "selected": [],
+            "note": None,
+        }
+    return {
+        "active": True,
+        "source": "coding_posture",
+        "selected": [str(name) for name in posture],
+        "note": (
+            "agent.coding_context focus selects toolsets before platform_toolsets for "
+            "no-pin CLI sessions; pin --toolsets or leave focus mode so "
+            "platform_toolsets.cli (including ensure-toolsets) applies."
+        ),
+    }
+
+
+def _platform_default_toolsets(config: dict[str, Any], platform: str) -> list[str] | None:
+    """Return Hermes' composite default toolsets for a platform, or None when unavailable."""
+    try:
+        from hermes_cli.tools_config import _get_platform_tools
+    except Exception:  # noqa: BLE001
+        return None
+    probe = dict(config)
+    existing = config.get("platform_toolsets")
+    if isinstance(existing, dict):
+        probe_platforms = dict(existing)
+        probe_platforms.pop(platform, None)
+        probe["platform_toolsets"] = probe_platforms
+    try:
+        names = _get_platform_tools(probe, platform)
+    except Exception:  # noqa: BLE001
+        return None
+    return [str(name) for name in names]
+
+
+def _ensure_failure(
+    reason: str,
+    *,
+    detail: str | None = None,
+    added: list[str] | None = None,
+    already_present: list[str] | None = None,
+    focus_override: dict[str, Any] | None = None,
+    platforms: tuple[str, ...] = ("cli",),
+    toolsets: tuple[str, ...] = REQUIRED_SESSION_TOOLSETS,
+) -> dict[str, Any]:
+    payload = {
+        "ok": False,
+        "reason": reason,
+        "detail": detail,
+        "added": list(added or []),
+        "already_present": list(already_present or []),
+        "platforms": list(platforms),
+        "toolsets": list(toolsets),
+    }
+    if focus_override is not None:
+        payload["focus_override"] = focus_override
+    return payload
 
 
 def ensure_platform_toolsets(
@@ -336,49 +410,64 @@ def ensure_platform_toolsets(
 ) -> dict[str, Any]:
     """Add required session toolsets to Hermes platform_toolsets without removing others.
 
-    Does not enable unrelated toolsets. Safe to call when Hermes config APIs are
-    available; returns a structured no-op result when they are not.
+    When a platform key is absent, seeds Hermes' platform-default composite first so
+    materializing the list does not drop terminal/file and similar CLI capabilities.
+    Malformed non-list values are rejected. After save, reloads and verifies persistence.
+    Reports coding-focus overrides that bypass platform_toolsets for no-pin sessions.
     """
     try:
         from hermes_cli.config import load_config, save_config
     except Exception as exc:  # noqa: BLE001 -- config may be unavailable offline
-        return {
-            "ok": False,
-            "reason": "config_unavailable",
-            "detail": type(exc).__name__,
-            "added": [],
-            "already_present": [],
-        }
+        return _ensure_failure("config_unavailable", detail=type(exc).__name__, platforms=platforms, toolsets=toolsets)
     try:
         config = load_config()
     except Exception as exc:  # noqa: BLE001
-        return {
-            "ok": False,
-            "reason": "config_unreadable",
-            "detail": type(exc).__name__,
-            "added": [],
-            "already_present": [],
-        }
+        return _ensure_failure("config_unreadable", detail=type(exc).__name__, platforms=platforms, toolsets=toolsets)
     if not isinstance(config, dict):
-        return {
-            "ok": False,
-            "reason": "config_invalid",
-            "detail": "config_not_object",
-            "added": [],
-            "already_present": [],
-        }
+        return _ensure_failure("config_invalid", detail="config_not_object", platforms=platforms, toolsets=toolsets)
+
+    focus_override = _coding_focus_override(config)
     platform_toolsets = config.get("platform_toolsets")
-    if not isinstance(platform_toolsets, dict):
+    if platform_toolsets is None:
         platform_toolsets = {}
         config["platform_toolsets"] = platform_toolsets
+    elif not isinstance(platform_toolsets, dict):
+        return _ensure_failure(
+            "config_invalid",
+            detail="platform_toolsets_not_object",
+            focus_override=focus_override,
+            platforms=platforms,
+            toolsets=toolsets,
+        )
+
     added: list[str] = []
     already_present: list[str] = []
+    seeded: list[str] = []
     changed = False
     for platform in platforms:
         current = platform_toolsets.get(platform)
-        if not isinstance(current, list):
-            current = []
+        if current is None:
+            defaults = _platform_default_toolsets(config, platform)
+            if defaults is None:
+                return _ensure_failure(
+                    "platform_default_unavailable",
+                    detail=platform,
+                    focus_override=focus_override,
+                    platforms=platforms,
+                    toolsets=toolsets,
+                )
+            current = list(defaults)
             platform_toolsets[platform] = current
+            seeded.append(platform)
+            changed = True
+        elif not isinstance(current, list):
+            return _ensure_failure(
+                "config_invalid",
+                detail=f"{platform}_toolsets_not_list",
+                focus_override=focus_override,
+                platforms=platforms,
+                toolsets=toolsets,
+            )
         normalized = [str(item) for item in current]
         platform_toolsets[platform] = normalized
         for toolset in toolsets:
@@ -389,23 +478,86 @@ def ensure_platform_toolsets(
                 normalized.append(toolset)
                 added.append(key)
                 changed = True
+
     if changed:
         try:
             save_config(config)
         except Exception as exc:  # noqa: BLE001
-            return {
-                "ok": False,
-                "reason": "config_unwritable",
-                "detail": type(exc).__name__,
-                "added": added,
-                "already_present": already_present,
-            }
+            return _ensure_failure(
+                "config_unwritable",
+                detail=type(exc).__name__,
+                added=added,
+                already_present=already_present,
+                focus_override=focus_override,
+                platforms=platforms,
+                toolsets=toolsets,
+            )
+        try:
+            reloaded = load_config()
+        except Exception as exc:  # noqa: BLE001
+            return _ensure_failure(
+                "config_not_persisted",
+                detail=type(exc).__name__,
+                added=added,
+                already_present=already_present,
+                focus_override=focus_override,
+                platforms=platforms,
+                toolsets=toolsets,
+            )
+        if not isinstance(reloaded, dict):
+            return _ensure_failure(
+                "config_not_persisted",
+                detail="reloaded_config_not_object",
+                added=added,
+                already_present=already_present,
+                focus_override=focus_override,
+                platforms=platforms,
+                toolsets=toolsets,
+            )
+        reloaded_platforms = reloaded.get("platform_toolsets")
+        if not isinstance(reloaded_platforms, dict):
+            return _ensure_failure(
+                "config_not_persisted",
+                detail="platform_toolsets_missing_after_save",
+                added=added,
+                already_present=already_present,
+                focus_override=focus_override,
+                platforms=platforms,
+                toolsets=toolsets,
+            )
+        for platform in platforms:
+            persisted = reloaded_platforms.get(platform)
+            if not isinstance(persisted, list):
+                return _ensure_failure(
+                    "config_not_persisted",
+                    detail=f"{platform}_missing_after_save",
+                    added=added,
+                    already_present=already_present,
+                    focus_override=focus_override,
+                    platforms=platforms,
+                    toolsets=toolsets,
+                )
+            persisted_names = {str(item) for item in persisted}
+            missing = [name for name in toolsets if name not in persisted_names]
+            if missing:
+                return _ensure_failure(
+                    "config_not_persisted",
+                    detail="missing:" + ",".join(missing),
+                    added=added,
+                    already_present=already_present,
+                    focus_override=focus_override,
+                    platforms=platforms,
+                    toolsets=toolsets,
+                )
+
     return {
         "ok": True,
         "reason": "updated" if changed else "unchanged",
         "detail": None,
         "added": added,
         "already_present": already_present,
+        "seeded_platforms": seeded,
+        "focus_override": focus_override,
         "platforms": list(platforms),
         "toolsets": list(toolsets),
     }
@@ -677,6 +829,15 @@ def _cli_handler(args):
                     + ", ".join(result["toolsets"])
                     + "."
                 )
+            if result.get("seeded_platforms"):
+                print(
+                    "Seeded platform-default composites for: "
+                    + ", ".join(result["seeded_platforms"])
+                    + " before adding required toolsets."
+                )
+            focus = result.get("focus_override") or {}
+            if focus.get("active"):
+                print(focus.get("note") or "Coding focus posture overrides platform_toolsets for no-pin sessions.")
         else:
             print(
                 f"Could not ensure toolsets ({result.get('reason')}). "
@@ -718,6 +879,9 @@ def _cli_handler(args):
             "Could not auto-ensure toolsets; enable Computer Use in `hermes tools` "
             'or pin: hermes -t "computer_use,hermes_switchyard" chat'
         )
+    focus = ensure_result.get("focus_override") or {}
+    if focus.get("active"):
+        print(focus.get("note") or "Coding focus posture overrides platform_toolsets for no-pin sessions.")
     print("Start a fresh session.")
     return 0
 

@@ -594,8 +594,9 @@ class RealHermesExposureTests(unittest.TestCase):
         cls.runner = outcome
 
     def run_hermes(self, *, pin=None, catalog_pins=(), catalog_default=False, credential=False,
-                   settings=None, extra_config="", shadows=()):
-        """Run `hermes switchyard status --json` for real and return the plugin's and Hermes' answers."""
+                   settings=None, extra_config="", shadows=(), command=None, expect_exit=0,
+                   parse_status=True):
+        """Run a hermes switchyard command for real and return plugin/Hermes answers."""
         python, extra_environment = self.runner
         with tempfile.TemporaryDirectory(prefix="switchyard-exposure-", ignore_cleanup_errors=True) as scratch:
             base = Path(scratch)
@@ -614,7 +615,12 @@ class RealHermesExposureTests(unittest.TestCase):
                 config += "  entries:\n    hermes-switchyard:\n      settings:\n"
                 config += "".join(f"        {key}: {value}\n" for key, value in settings.items())
             (home / "config.yaml").write_text(config + extra_config, encoding="utf-8")
-            argv = ["switchyard", "status", "--json"] + (["--toolsets", pin] if pin else [])
+            if command is None:
+                argv = ["switchyard", "status", "--json"] + (["--toolsets", pin] if pin else [])
+            else:
+                argv = ["switchyard", *command]
+                if pin is not None:
+                    argv.extend(["--toolsets", pin])
             scenario = {
                 "argv": argv,
                 "credential_present": credential,
@@ -636,14 +642,27 @@ class RealHermesExposureTests(unittest.TestCase):
             if completed.returncode != 0:
                 self.fail(f"probe failed with {completed.returncode}: {completed.stderr.strip()[-1500:]}")
             result = json.loads((base / "result.json").read_text(encoding="utf-8"))
-        self.assertEqual(result["exit_code"], 0, result["stdout"])
+        self.assertEqual(result["exit_code"], expect_exit, result["stdout"])
         lines = result["stdout"].strip().splitlines()
-        self.assertTrue(lines, "hermes switchyard status printed nothing")
+        status = None
+        payload = None
+        if parse_status:
+            self.assertTrue(lines, "hermes switchyard status printed nothing")
+            status = json.loads(lines[-1])
+        elif lines:
+            try:
+                payload = json.loads(lines[-1])
+            except json.JSONDecodeError:
+                payload = None
         return SimpleNamespace(
-            status=json.loads(lines[-1]),
+            status=status,
+            payload=payload,
+            stdout=result["stdout"],
             catalogs=result["catalogs"],
             registry=result["registry"],
             disabled=result["disabled_toolsets"],
+            platform_toolsets=result.get("platform_toolsets"),
+            exit_code=result["exit_code"],
         )
 
     def assert_status_agrees_with_hermes(self, status, catalog_tools):
@@ -796,6 +815,33 @@ class RealHermesExposureTests(unittest.TestCase):
         self.assertEqual(matched.status["status"], "ready")
 
 
+    def test_ensure_toolsets_cli_seeds_defaults_and_exposes_required_toolsets(self):
+        """Disposable HERMES_HOME: ensure-toolsets via real CLI, then default catalog."""
+        ensure = self.run_hermes(
+            command=("ensure-toolsets", "--json"),
+            catalog_default=True,
+            credential=True,
+            parse_status=False,
+            expect_exit=0,
+        )
+        self.assertIsInstance(ensure.payload, dict)
+        self.assertTrue(ensure.payload.get("ok"), ensure.payload)
+        cli = (ensure.platform_toolsets or {}).get("cli") or []
+        self.assertIn(COMPUTER_USE_TOOLSET, cli)
+        self.assertIn(PLUGIN_TOOLSET, cli)
+        # Seeded composite must keep ordinary CLI capabilities, not only the two required names.
+        self.assertGreaterEqual(len(cli), 3, cli)
+        default = ensure.catalogs["default"]["toolsets"]
+        self.assertIn(COMPUTER_USE_TOOLSET, default)
+        self.assertIn(PLUGIN_TOOLSET, default)
+        status = self.run_hermes(catalog_default=True, credential=True)
+        selection = status.status["tool_exposure"]["selection"]
+        self.assertEqual(selection["source"], "platform_default")
+        for name in TOOL_TOOLSETS:
+            self.assertIs(status.status["tool_exposure"]["tools"][name]["callable"], True, name)
+
+
+
 
 class ToolsetCompositionTests(unittest.TestCase):
     """Issue #21: composition diagnostics and ensure-toolsets without widening."""
@@ -847,6 +893,102 @@ class ToolsetCompositionTests(unittest.TestCase):
             ["terminal", "browser", "computer_use", "hermes_switchyard"],
         )
 
+    def test_ensure_seeds_platform_default_when_cli_key_absent(self):
+        holder = {"config": {}}
+
+        def load_config():
+            return copy.deepcopy(holder["config"])
+
+        def save_config(config):
+            holder["config"] = copy.deepcopy(config)
+
+        fake_config = mock.Mock()
+        fake_config.load_config = load_config
+        fake_config.save_config = save_config
+        fake_tools = mock.Mock()
+        fake_tools._get_platform_tools = lambda config, platform: ["terminal", "file", "web"]
+        with mock.patch.dict(
+            "sys.modules",
+            {
+                "hermes_cli.config": fake_config,
+                "hermes_cli": mock.Mock(config=fake_config, tools_config=fake_tools),
+                "hermes_cli.tools_config": fake_tools,
+            },
+        ):
+            result = hermes_switchyard.ensure_platform_toolsets()
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["seeded_platforms"], ["cli"])
+        self.assertEqual(
+            holder["config"]["platform_toolsets"]["cli"],
+            ["terminal", "file", "web", "computer_use", "hermes_switchyard"],
+        )
+
+    def test_ensure_rejects_malformed_non_list_platform_toolsets(self):
+        holder = {"config": {"platform_toolsets": {"cli": "computer_use,terminal"}}}
+
+        def load_config():
+            return copy.deepcopy(holder["config"])
+
+        fake_config = mock.Mock()
+        fake_config.load_config = load_config
+        fake_config.save_config = mock.Mock()
+        with mock.patch.dict(
+            "sys.modules",
+            {"hermes_cli.config": fake_config, "hermes_cli": mock.Mock(config=fake_config)},
+        ):
+            result = hermes_switchyard.ensure_platform_toolsets()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "config_invalid")
+        self.assertEqual(result["detail"], "cli_toolsets_not_list")
+        fake_config.save_config.assert_not_called()
+
+    def test_ensure_fails_when_save_does_not_persist_toolsets(self):
+        holder = {"config": {"platform_toolsets": {"cli": ["terminal"]}}}
+
+        def load_config():
+            return copy.deepcopy(holder["config"])
+
+        def save_config(config):
+            # Managed install: pretend save succeeded but stripped platform_toolsets.
+            holder["config"] = {"other": True}
+
+        fake_config = mock.Mock()
+        fake_config.load_config = load_config
+        fake_config.save_config = save_config
+        with mock.patch.dict(
+            "sys.modules",
+            {"hermes_cli.config": fake_config, "hermes_cli": mock.Mock(config=fake_config)},
+        ):
+            result = hermes_switchyard.ensure_platform_toolsets()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "config_not_persisted")
+
+    def test_ensure_reports_coding_focus_override(self):
+        holder = {"config": {"platform_toolsets": {"cli": ["terminal", "computer_use", "hermes_switchyard"]}}}
+
+        def load_config():
+            return copy.deepcopy(holder["config"])
+
+        fake_config = mock.Mock()
+        fake_config.load_config = load_config
+        fake_config.save_config = mock.Mock()
+        fake_coding = mock.Mock()
+        fake_coding.coding_selection = lambda platform, config: ["code_execution", "file"]
+        with mock.patch.dict(
+            "sys.modules",
+            {
+                "hermes_cli.config": fake_config,
+                "hermes_cli": mock.Mock(config=fake_config),
+                "agent": mock.Mock(coding_context=fake_coding),
+                "agent.coding_context": fake_coding,
+            },
+        ):
+            result = hermes_switchyard.ensure_platform_toolsets()
+        self.assertTrue(result["ok"], result)
+        self.assertTrue(result["focus_override"]["active"])
+        self.assertEqual(result["focus_override"]["source"], "coding_posture")
+        self.assertIn("focus", result["focus_override"]["note"].lower())
+
     def test_computer_use_pin_exposes_jev_computer_use_without_decision_tools(self):
         hermes_switchyard.reset_runtime_status()
         hermes = _StandInHermes()
@@ -869,6 +1011,38 @@ class ToolsetCompositionTests(unittest.TestCase):
             code = hermes_switchyard._cli_handler(args)
         self.assertEqual(code, 1)
         self.assertEqual(json.loads(stdout.getvalue()), result)
+
+    def test_setup_reports_ensure_failure_without_claiming_success(self):
+        args = SimpleNamespace(switchyard_command="setup", provider="typesafe", json_output=False)
+        ensure_result = {
+            "ok": False,
+            "reason": "config_not_persisted",
+            "added": ["cli:computer_use"],
+            "focus_override": {"active": False},
+        }
+        fake_config = mock.Mock()
+        fake_config.save_env_value = mock.Mock()
+        fake_prompt = mock.Mock()
+        fake_prompt.masked_secret_prompt = mock.Mock(return_value="offline-key")
+        with mock.patch.dict(
+            "sys.modules",
+            {
+                "hermes_cli": mock.Mock(config=fake_config, secret_prompt=fake_prompt),
+                "hermes_cli.config": fake_config,
+                "hermes_cli.secret_prompt": fake_prompt,
+            },
+        ), mock.patch.object(
+            hermes_switchyard, "ensure_platform_toolsets", return_value=ensure_result
+        ), mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            code = hermes_switchyard._cli_handler(args)
+        self.assertEqual(code, 0)
+        out = stdout.getvalue()
+        self.assertIn("Could not auto-ensure toolsets", out)
+        self.assertNotIn("Also ensured toolsets", out)
+        fake_config.save_env_value.assert_called_once()
+
+
+
 
 
 
