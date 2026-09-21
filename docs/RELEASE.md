@@ -54,7 +54,7 @@ The normal install command downloads the plugin from this public GitHub reposito
 hermes plugins install bgrablin/hermes-switchyard --enable
 ```
 
-The `--enable` form installs and enables in one step. To inspect first, use `--no-enable`, then run `hermes plugins list` and `hermes plugins enable hermes-switchyard`.
+The `--enable` form installs and enables in one step. Do not put a token in a URL, command, or issue report. To inspect first, use `--no-enable`, then run `hermes plugins list` and `hermes plugins enable hermes-switchyard`.
 
 For a reproducible install, first verify that the current checkout is the reviewed release commit, then use its exact SHA:
 

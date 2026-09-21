@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import json
 import math
+import io
 import unittest
+from contextlib import redirect_stdout
 from types import SimpleNamespace
 from unittest import mock
 
@@ -1296,6 +1298,21 @@ class ComputerUseTests(unittest.TestCase):
 
 
 class PluginEntryPointTests(unittest.TestCase):
+    def test_cli_status_is_redacted_and_reports_default_readiness(self):
+        import jev_decision
+        output = io.StringIO()
+        with mock.patch("hermes_cli.config.load_config", return_value={}), \
+             mock.patch.object(jev_decision, "_secret", return_value="synthetic-secret"), \
+             redirect_stdout(output):
+            code = jev_decision._cli_handler(SimpleNamespace(jev_command="status"))
+        result = json.loads(output.getvalue())
+        self.assertEqual(code, 0)
+        self.assertTrue(result["hosted_enabled"])
+        self.assertEqual(result["hosted_mode"], "always")
+        self.assertTrue(result["public_or_sanitized_data_ack"])
+        self.assertTrue(result["hosted_ready"])
+        self.assertNotIn("synthetic-secret", output.getvalue())
+
     def test_cli_setup_uses_masked_prompt_and_profile_secret_writer(self):
         import hermes_switchyard
         try:
@@ -1367,6 +1384,7 @@ class PluginEntryPointTests(unittest.TestCase):
                     "jev_skill_select",
                     "jev_skill_select_many",
                     "jev_model_route",
+                    "jev_model_route_approved",
                 ):
                     with self.subTest(name=name):
                         result = json.loads(context.tools[name]({"public_or_sanitized_data_ack": False}))

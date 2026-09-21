@@ -122,7 +122,7 @@ All settings are profile-scoped under `plugins.entries.hermes-switchyard.setting
 | `automatic_skill_routing_mode` | `local_only` | `off`, `local_only`, or `hosted_sanitized`. Hosted mode requires explicit opt-in. An allowed host envelope is optional strengthening. |
 | `automatic_skill_jev` | `true` | Deprecated compatibility switch retained for configuration compatibility. It never authorizes hosted egress; set `automatic_skill_routing_mode` to `hosted_sanitized` for explicit opt-in. |
 | `automatic_skill_jev_mode` | `always` | Evaluate the full catalog on every allowed turn. `uncertain_only` is an explicit latency-saving override. |
-| `automatic_skill_public_or_sanitized_data_ack` | `true` | Standing consent for explicit hosted automatic routing. The `local_only` default never constructs hosted Jev. Set `false` to refuse hosted automatic Jev. |
+| `automatic_skill_public_or_sanitized_data_ack` | `true` | Standing consent for explicit hosted automatic routing. The `local_only` default never constructs hosted Jev. Set `false` to refuse hosted automatic Jev. This is not DLP; private, employer, regulated, credential, payment, or verification content remains prohibited. |
 | `automatic_skill_mandatory_skills` | `[]` | Exact skill identifiers treated as mandatory. In `load` mode, a different recommendation is not auto-loaded and is recorded as `mandatory_conflict`. |
 
 Configuration is read when the plugin registers. Start a fresh Hermes process after changing these settings; an existing process may retain the previous hook and values.
