@@ -110,7 +110,7 @@ it runs before provider work and at every request boundary the browser exposes.
 | Start URL | scheme, credentials, host spelling, and host resolution | before a browser process exists and before any provider request |
 | Offered targets | the same lexical policy over every `href` | when a snapshot is filtered |
 | Request interception | every request from the page, its frames, and its workers: navigations, redirect hops, subresources | before the request is sent, through request-stage `Fetch` interception |
-| Response address | the address a response actually came from | after the response arrives; a private address is recorded as a fatal violation |
+| Connection | the address every tunnel is dialled to | the validating proxy resolves once, requires every answer to be public, and dials the validated address literal |
 | Landing URL | the URL observed after each action | after every action |
 
 Refused by the policy: any scheme other than https (`file`, `data`, `javascript`,
@@ -132,8 +132,8 @@ cannot be proven (the protocol call fails, the connection ends, a frame cannot b
 attached, a handler cannot answer) is recorded as `interception_unavailable` and
 stops the run. New windows are blocked, so the session stays a single tab.
 
-A refused **navigation** (including a frame navigation), a refused address seen
-after the fact, and any integrity failure stop the run:
+A refused **navigation** (including a frame navigation), an address refused at connect
+or seen after the fact, and any integrity failure stop the run:
 
 ```text
 status: blocked
@@ -153,22 +153,60 @@ cross-origin redirects, the refusal records, and the named residual risks. A ref
 URL appears in receipts only as scheme and host; credentials, path, query, and port
 are dropped everywhere, including the recent-action history sent to the provider.
 
+### Connection pinning
+
+The request check resolves a host, but Chrome resolves it again to connect, so a
+rebinding DNS server could answer with a public address to the check and a private
+one to the connect. The browser is therefore launched with `--proxy-server` pointing
+at a loopback validating proxy (`ValidatingProxy`), and every connection it makes
+goes through that proxy:
+
+- The proxy accepts only `CONNECT host:port`. Plain HTTP and malformed requests are
+  refused, and the head is size- and time-bounded.
+- It applies the lexical policy to the target, resolves the host once, requires
+  every returned address to be public, and dials one of those address literals. The
+  connector refuses a hostname, so nothing is resolved a second time, and each
+  tunnel is validated on its own answer.
+- `--proxy-bypass-list=<-loopback>` removes Chrome's implicit bypass, so a loopback
+  target reaches the proxy and is refused there.
+- A tunnel refused for an address is recorded as a fatal `proxy_connect` violation
+  (the request check had allowed the name and the connect saw something else). A
+  resolution failure or a plain-HTTP request is evidence only: no connection was
+  made, or it was browser housekeeping.
+- Because the proxy dials the connection, the response address Chrome reports is
+  the local proxy's, so the after-the-fact address check is off when pinning is on
+  and the receipt says so (`connection_pinning: true`,
+  `post_response_address_check: false`).
+- The profile disables non-proxied WebRTC UDP (a page-created connection with a STUN
+  server on loopback otherwise sent datagrams there even under the proxy), QUIC is
+  disabled, and Chrome's background time query is turned off so it does not hit the
+  proxy as plain HTTP. This also puts a WebSocket connection behind the same pin.
+
+Each control was checked natively against a loopback listener with a negative
+control that leaks without it, and against a mutation that removes it:
+`tests/test_destination_proxy.py`. Live pinning tests need
+`SWITCHYARD_LIVE_BROWSER_TESTS=1`.
+
 ### What this boundary does not claim
 
-- **DNS answers can change between the check and the connect.** The policy resolves
-  a host before the request is released, and Chrome resolves it again to connect. A
-  rebinding server can answer differently the second time. The response-address
-  check detects that after the request was sent; it does not prevent it. Closing it
-  needs a validating proxy that connects to the address it validated.
-- **WebSocket handshakes are detected, not intercepted.** `Fetch` does not pause
-  them, so a private WebSocket target is recorded as fatal after the attempt starts.
+- **The proxy dials directly.** An environment that requires an upstream proxy to
+  reach the internet is not supported; connections through it fail rather than
+  bypassing policy.
+- **Any local process can use the loopback proxy** to reach public https hosts. It
+  can reach nothing the policy refuses, and it cannot make the session fatal
+  through a malformed request.
+- **The browser settings are version-dependent.** Network prediction, WebRTC, QUIC,
+  and the background time query were verified against Chromium 152.0.7977.64
+  (Snap). The `--force-webrtc-ip-handling-policy` switch did not stop WebRTC UDP
+  there; the profile preferences did. A different version may behave differently,
+  and the real-browser tests are the check.
+- **A session without pinning** (only reachable through a private test seam) keeps
+  the earlier limits: the DNS answer may change between check and connect, and the
+  address check detects a private connection only after it was made.
 - **Interception covers the page target, its frames, and dedicated workers.** A
   dedicated worker rejects `Fetch.enable`, and its requests are paused on the parent
   session, which was verified against the installed Chromium. Other worker types
   that reject interception fail closed.
-- **The preconnect fix is a browser setting.** It was verified against the Chromium
-  the tests ran on (a listener saw six connections without it and none with it). A
-  different browser version may behave differently.
 - **A resolver that answers non-public addresses for public names is refused.** A
   fake-IP VPN mode, a split-horizon resolver, or a transparent proxy on a private
   address makes public hosts look private. The backend fails closed there rather

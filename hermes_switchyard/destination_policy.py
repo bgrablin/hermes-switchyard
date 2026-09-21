@@ -6,11 +6,16 @@ private, loopback, link-local and other non-global addresses, local-only names,
 credentialed URLs, and every scheme that is not https (file, data, javascript,
 about, blob, ftp, chrome, http, ws).
 
-Two layers use this policy:
+Three layers use this policy:
 
 * :func:`check_destination` is the pure decision. It is lexical by default and
   adds a host-resolution check when asked. Resolution that fails or returns an
   empty answer is a refusal, never a pass.
+* :class:`ValidatingProxy` pins the connection. Chrome resolves a host again to
+  connect, so a rebinding server can answer differently the second time. Chrome
+  is pointed at this loopback proxy instead: it resolves once, validates every
+  address, and connects to the validated address literal, so there is no second
+  resolution to rebind.
 * :class:`DestinationGuard` applies the decision at the browser request boundary
   through Chrome DevTools ``Fetch`` interception, so redirect hops, subresource
   requests, and requests from frames and workers are decided before they are
@@ -27,6 +32,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+import select
 import socket
 import threading
 import time
@@ -51,6 +57,15 @@ RESIDUAL_RISKS = (
     "websocket_handshake_is_detected_not_intercepted",
     "post_response_address_check_detects_after_the_request_was_sent",
 )
+# With connection pinning the DNS gap and the after-the-fact address check no
+# longer apply. What remains is traffic that does not use the HTTP proxy.
+RESIDUAL_RISKS_PINNED = ("non_proxied_udp_is_restricted_by_launch_flags_not_by_the_proxy",)
+MAX_PROXY_HEAD_BYTES = 8192
+_NON_FATAL_PROXY_REFUSALS = frozenset({"resolution_failed", "scheme_not_allowed"})
+_HTTP_VERSION = re.compile(r"HTTP/1\.[01]\Z")
+# CONNECT authority only: host:port or [ipv6]:port. A path, userinfo, or other
+# spelling is malformed, not a destination the policy should dial.
+_CONNECT_AUTHORITY = re.compile(r"\A(?:[A-Za-z0-9._-]+|\[[A-Fa-f0-9:.]+\])\:[0-9]{1,5}\Z")
 
 _LOCAL_SUFFIXES = (
     ".localhost",
@@ -315,6 +330,260 @@ def _origin(url: str) -> tuple[str, str, int | None]:
         return "", "", None
 
 
+def _connect_pinned(address: str, port: int, timeout: float) -> socket.socket:
+    """Dial an address literal. A hostname is refused so nothing is resolved here."""
+    ipaddress.ip_address(address)  # raises ValueError for anything but a literal
+    return socket.create_connection((address, port), timeout=timeout)
+
+
+class ValidatingProxy:
+    """A loopback HTTP CONNECT proxy that pins every tunnel to a validated address.
+
+    For each tunnel the proxy applies the lexical policy to the target, resolves
+    the host once, requires every returned address to be public, and connects to
+    one of those address literals. Plain HTTP and malformed requests are refused.
+    ``on_refusal(code, host)`` is called for a refused, well-formed request before
+    the refusal is sent, so evidence exists by the time the browser sees a failure.
+    """
+
+    def __init__(
+        self,
+        *,
+        resolver: Callable[[str], list[str]] | None = None,
+        connector: Callable[[str, int, float], socket.socket] | None = None,
+        on_refusal: Callable[[str, str], None] | None = None,
+        max_tunnels: int = 128,
+        idle_seconds: float = 120.0,
+        head_timeout: float = 10.0,
+        connect_timeout: float = 10.0,
+    ):
+        self._resolver = resolver
+        self._connector = connector
+        self._on_refusal = on_refusal
+        self._idle = idle_seconds
+        self._head_timeout = head_timeout
+        self._connect_timeout = connect_timeout
+        self._slots = threading.BoundedSemaphore(max_tunnels)
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._listener: socket.socket | None = None
+        self._thread: threading.Thread | None = None
+        self._active: set[socket.socket] = set()
+        self._stats = {"tunnels_opened": 0, "tunnels_refused": 0, "tunnels_failed": 0}
+        self.port = 0
+
+    def start(self) -> int:
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(128)
+        listener.settimeout(0.2)
+        self._listener = listener
+        self.port = int(listener.getsockname()[1])
+        self._thread = threading.Thread(target=self._accept_loop, name="switchyard-pin-proxy", daemon=True)
+        self._thread.start()
+        return self.port
+
+    def stop(self) -> None:
+        self._stop.set()
+        listener, self._listener = self._listener, None
+        if listener is not None:
+            try:
+                listener.close()
+            except OSError:
+                pass
+        if self._thread is not None:
+            self._thread.join(timeout=2)
+        with self._lock:
+            active = list(self._active)
+        for sock in active:
+            self._close(sock)
+
+    def stats(self) -> dict[str, int]:
+        with self._lock:
+            return dict(self._stats)
+
+    # -- serving -------------------------------------------------------------
+
+    def _accept_loop(self) -> None:
+        while not self._stop.is_set():
+            listener = self._listener
+            if listener is None:
+                return
+            try:
+                conn, _ = listener.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                return
+            # The slot is taken here so a flood cannot create unbounded threads; the
+            # serving thread owns it and releases it when the tunnel ends.
+            if not self._slots.acquire(blocking=False):
+                self._reply(conn, "503 Service Unavailable")
+                self._close(conn)
+                continue
+            threading.Thread(target=self._serve, args=(conn,), daemon=True).start()
+
+    @staticmethod
+    def _close(sock: socket.socket | None) -> None:
+        if sock is None:
+            return
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+    @staticmethod
+    def _reply(conn: socket.socket, status: str) -> None:
+        try:
+            conn.sendall(f"HTTP/1.1 {status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n".encode("ascii"))
+        except OSError:
+            pass
+
+    def _refuse(self, conn: socket.socket, status: str, code: str, host: str) -> None:
+        with self._lock:
+            self._stats["tunnels_refused"] += 1
+        if self._on_refusal is not None:
+            try:
+                self._on_refusal(code, host)
+            except Exception:  # noqa: BLE001 -- evidence reporting must not open the tunnel
+                pass
+        self._reply(conn, status)
+
+    def _read_head(self, conn: socket.socket) -> tuple[bytes, bytes] | None:
+        deadline = time.monotonic() + self._head_timeout
+        buffer = b""
+        while b"\r\n\r\n" not in buffer:
+            if len(buffer) > MAX_PROXY_HEAD_BYTES:
+                self._reply(conn, "431 Request Header Fields Too Large")
+                return None
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            conn.settimeout(remaining)
+            try:
+                chunk = conn.recv(4096)
+            except OSError:
+                return None
+            if not chunk:
+                return None
+            buffer += chunk
+        head, _, rest = buffer.partition(b"\r\n\r\n")
+        if len(head) > MAX_PROXY_HEAD_BYTES:
+            self._reply(conn, "431 Request Header Fields Too Large")
+            return None
+        return head, rest
+
+    def _serve(self, conn: socket.socket) -> None:
+        upstream: socket.socket | None = None
+        with self._lock:
+            self._active.add(conn)
+        try:
+            parsed = self._read_head(conn)
+            if parsed is None:
+                return
+            head, leftover = parsed
+            parts = head.split(b"\r\n", 1)[0].decode("latin-1").split(" ")
+            if len(parts) != 3 or _HTTP_VERSION.fullmatch(parts[2]) is None:
+                self._reply(conn, "400 Bad Request")
+                return
+            method, target = parts[0].upper(), parts[1]
+            if method != "CONNECT":
+                # Only https tunnels are approved; a plain HTTP request is a scheme refusal.
+                host = urlsplit(target).hostname or ""
+                self._refuse(conn, "403 Forbidden", "scheme_not_allowed", host if _HOST_CHARS.fullmatch(host) else "")
+                return
+            if _CONNECT_AUTHORITY.fullmatch(target) is None:
+                self._reply(conn, "400 Bad Request")
+                return
+            host_text, sep, port_text = target.rpartition(":")
+            if not sep or not port_text.isascii() or not port_text.isdigit() or not 1 <= int(port_text) <= 65535 or not host_text:
+                self._reply(conn, "400 Bad Request")
+                return
+            port = int(port_text)
+            decision = check_destination(f"https://{target}/")
+            if not decision.allowed:
+                if decision.code in {"invalid_url", "missing_host", "invalid_host_characters"}:
+                    self._reply(conn, "400 Bad Request")
+                    return
+                self._refuse(conn, "403 Forbidden", decision.code, decision.host)
+                return
+            addresses = self._validated_addresses(decision.host)
+            if isinstance(addresses, str):
+                status = "502 Bad Gateway" if addresses == "resolution_failed" else "403 Forbidden"
+                self._refuse(conn, status, addresses, decision.host)
+                return
+            upstream = self._dial(addresses, port)
+            if upstream is None:
+                with self._lock:
+                    self._stats["tunnels_failed"] += 1
+                self._reply(conn, "502 Bad Gateway")
+                return
+            with self._lock:
+                self._stats["tunnels_opened"] += 1
+                self._active.add(upstream)
+            conn.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+            if leftover:
+                upstream.sendall(leftover)
+            self._relay(conn, upstream)
+        except OSError:
+            pass
+        finally:
+            with self._lock:
+                self._active.discard(conn)
+                if upstream is not None:
+                    self._active.discard(upstream)
+            self._close(upstream)
+            self._close(conn)
+            self._slots.release()
+
+    def _validated_addresses(self, host: str) -> list[str] | str:
+        """Return the addresses to dial, or a refusal code. Resolves at most once."""
+        literal = _parse_address(host)
+        if literal is not None:
+            return [str(literal)]
+        lookup = self._resolver if self._resolver is not None else default_resolver
+        try:
+            answers = list(lookup(host))
+        except Exception:  # noqa: BLE001 -- unavailable evidence is a refusal
+            return "resolution_failed"
+        parsed = [_parse_address(str(item)) for item in answers]
+        if not parsed or any(item is None for item in parsed):
+            return "resolution_failed"
+        if not all(_is_public_ip(item) for item in parsed if item is not None):
+            return "resolved_non_public"
+        return list(dict.fromkeys(str(item) for item in parsed))
+
+    def _dial(self, addresses: list[str], port: int) -> socket.socket | None:
+        connector = self._connector if self._connector is not None else _connect_pinned
+        for address in addresses:
+            try:
+                return connector(address, port, self._connect_timeout)
+            except (OSError, ValueError):
+                continue
+        return None
+
+    def _relay(self, client: socket.socket, upstream: socket.socket) -> None:
+        client.settimeout(self._idle)
+        upstream.settimeout(self._idle)
+        while not self._stop.is_set():
+            try:
+                ready, _, _ = select.select([client, upstream], [], [], self._idle)
+            except (OSError, ValueError):
+                return
+            if not ready:
+                return
+            for sock in ready:
+                try:
+                    data = sock.recv(65536)
+                    if not data:
+                        return
+                    (upstream if sock is client else client).sendall(data)
+                except OSError:
+                    return
+
+
+
+
 class DestinationGuard:
     """Apply the destination policy to every request a browser target makes.
 
@@ -333,7 +602,11 @@ class DestinationGuard:
         executor: Any = None,
         cache_seconds: float = RESOLUTION_CACHE_SECONDS,
         clock: Callable[[], float] = time.monotonic,
+        pinned: bool = False,
     ):
+        # With pinning, the address a response came from is the local proxy's, so
+        # the proxy, not the response address, is what judges the connection.
+        self._pinned = pinned
         self._send = send
         self._resolver = resolver
         self._max_redirects = max_redirects
@@ -613,6 +886,8 @@ class DestinationGuard:
 
     def _on_response(self, params: dict[str, Any], session_id: str | None) -> None:
         response = params.get("response") if isinstance(params.get("response"), dict) else {}
+        if self._pinned:
+            return
         address = response.get("remoteIPAddress")
         if not isinstance(address, str) or not address:
             return  # cache, service worker, or data response: no remote address to judge
@@ -698,6 +973,25 @@ class DestinationGuard:
                 self.integrity_reasons.append(reason)
         self._record("interception_unavailable", fatal=True, detected="integrity")
 
+    def record_proxy_refusal(self, code: str, host: str) -> None:
+        """Record that the proxy refused a tunnel the request boundary had allowed.
+
+        A refused address is fatal: a name that the request check accepted resolved
+        somewhere else at connect time. A resolution failure made no connection, and
+        a plain-HTTP request is browser housekeeping (a page's own http request is
+        already refused at the request boundary), so both are evidence only.
+        """
+        self._record(
+            code,
+            scheme="https",
+            host=host,
+            resource_type="Tunnel",
+            navigation=False,
+            redirected=False,
+            fatal=code not in _NON_FATAL_PROXY_REFUSALS,
+            detected="proxy_connect",
+        )
+
     def tracks_ack(self, message_id: int) -> bool:
         """Return whether *message_id* answers, or may answer, a setup command.
 
@@ -751,7 +1045,8 @@ class DestinationGuard:
                 "subresource_blocks": self._subresource_blocks,
                 "redirect_hops": self._redirect_hops,
                 "cross_origin_redirects": self._cross_origin_redirects,
-                "post_response_address_check": True,
-                "residual_risks": list(RESIDUAL_RISKS),
+                "connection_pinning": self._pinned,
+                "post_response_address_check": not self._pinned,
+                "residual_risks": list(RESIDUAL_RISKS_PINNED if self._pinned else RESIDUAL_RISKS),
                 "blocked": blocked,
             }
