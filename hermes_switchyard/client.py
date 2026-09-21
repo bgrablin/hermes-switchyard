@@ -15,6 +15,8 @@ from contextvars import ContextVar
 from collections.abc import Callable
 from typing import Any, cast
 
+from . import receipt_state
+
 
 DEFAULT_ENDPOINT = "https://openrouter.ai/api/alpha/decisions"
 TYPESAFE_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
@@ -433,13 +435,11 @@ class DecisionClient:
     def _validate_usage(usage: Any) -> dict[str, Any]:
         if not isinstance(usage, dict):
             raise TypeError("Jev response usage must be an object")
-        validated = dict(usage)
-        if "cost" in validated:
-            cost = validated["cost"]
+        if "cost" in usage:
+            cost = usage["cost"]
             if type(cost) not in (int, float) or not math.isfinite(cost) or cost < 0:
                 raise ValueError("Invalid Jev usage cost")
-            validated["cost"] = float(cost)
-        return validated
+        return receipt_state.safe_usage(usage)
 
     @staticmethod
     def _validate_questions(questions: Any) -> dict[str, dict[str, Any]]:
@@ -479,11 +479,7 @@ class DecisionClient:
 
     @staticmethod
     def _merge_usage(total: dict[str, Any], usage: dict[str, Any]) -> None:
-        for key, value in usage.items():
-            if type(value) in (int, float) and math.isfinite(value):
-                total[key] = float(total.get(key, 0.0)) + float(value)
-            elif key not in total:
-                total[key] = value
+        receipt_state.merge_usage(total, usage)
 
     def _payload(self, state: Any, questions: dict[str, Any]) -> dict[str, Any]:
         payload = {"model": self.model, "state": state, "questions": questions}

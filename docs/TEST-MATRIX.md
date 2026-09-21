@@ -4,6 +4,7 @@ This matrix separates synthetic checks from host integrations and comparative ev
 
 | Area | Coverage | Evidence in this repository | Release statement |
 | --- | --- | --- | --- |
+| Record-triage workflow | `record_triage` batching, local bypass, abstention, malformed and late responses, partial batch failure, consumer rejection, artifact verification | `python -m unittest tests.test_record_triage -v` | Synthetic transport only. It shows plumbing and fail-closed behaviour, not Jev judgement quality or cost benefit; see [docs/RECORD-TRIAGE.md](RECORD-TRIAGE.md). |
 | Native manifest | Root `plugin.yaml`, root `register(ctx)`, declared tools, config schema | `hermes plugins validate` in the pinned Hermes lane and the local portability test when the Hermes parser is installed | Admission shape is checked; it does not certify runtime task quality. |
 | Offline plugin behavior | Routing, policy gates, response validation, target freshness, error redaction | `python -m unittest discover -s tests -v` | Tests use synthetic transports and dispatch fixtures. They do not call a live service. |
 | Synthetic evaluation | Fixture schema, policy behavior, abstention, source hashes | `python evaluation/evaluate.py --validate` | The evaluation is a deterministic policy and plumbing check, not a quality-calibration result. |
