@@ -846,6 +846,9 @@ class AutomaticRecommendationTests(unittest.TestCase):
                 result = recommender.recommend("Docker maintenance", turn_egress_policy=policy)
                 self.assertEqual(result["routing_reason"], reason)
                 self.assertEqual(result["hosted_attempted"], False)
+                self.assertEqual(result.get("hosted_skipped"), reason)
+                self.assertIsNotNone(recommender.last_receipt)
+                self.assertEqual(recommender.last_receipt.get("hosted_skip_reason"), reason)
         self.assertEqual(constructed, [])
 
     def test_cache_hit_preserves_original_routing_outcome_and_reason(self):
