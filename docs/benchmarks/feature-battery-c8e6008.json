@@ -538,7 +538,7 @@
       },
       "prior_linux_fulltest": {
         "label": "prior Linux DOM Felidae race (same box, earlier tip)",
-        "source": "/workspace/sy-fulltest-dom-wiki-full.json",
+        "source": "local prior DOM Felidae race receipt (not committed; superseded by tip-main run above)",
         "summary": {
           "status": "completion_candidate",
           "verified": false,
@@ -556,7 +556,7 @@
       }
     },
     "windows_headed_operator": {
-      "source": "/tmp/win-wikirace-latest.json + /tmp/win_wikirace_out.txt",
+      "source": "Windows headed operator short-race receipt (concurrent CUA validation; not committed)",
       "captured_at_ct": "2026-09-21 17:27:59 CT",
       "hermes": "0.21.4",
       "short_race": {
@@ -571,7 +571,7 @@
         "jev_total_latency_ms": 395.0,
         "operation_elapsed_ms": 2048.1,
         "tool_duration_ms": 2362,
-        "unknown_toolsets_warning_when_unpinned": "hermes_switchyard (observed in /tmp/win_wikirace_out.txt)"
+        "unknown_toolsets_warning_when_unpinned": "hermes_switchyard (observed when CLI pin omitted hermes_switchyard)"
       },
       "long_scenic_race": {
         "fair_measurement_on_this_box": "not_retained",
