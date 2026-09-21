@@ -40,9 +40,10 @@ COMPUTER_USE = {
         "one Jev request per step chooses operation and click target together, then the page is clicked. "
         "Hermes computer_use is not between those clicks. Desktop apps without a URL still use Cua Driver. "
         "DONE produces completion_candidate with verified=false. Only public or sanitized pages may be sent. "
-        "The DOM backend runs a fresh headless profile and cannot type, upload, authenticate, or join an "
-        "existing signed-in session; such a goal returns unsupported_capability with a request-free reason "
-        "code, and the result reports its backend, session_mode, browser, and confinement."
+        "The DOM backend runs a fresh headless profile, can type into ordinary text fields when "
+        "text_inputs are supplied, and cannot upload, authenticate, or join an existing signed-in "
+        "session; those goals return unsupported_capability with a request-free reason code, and the "
+        "result reports its backend, session_mode, browser, and confinement."
     ),
     "parameters": {
         "type": "object",
@@ -83,10 +84,10 @@ COMPUTER_USE = {
                     "additionalProperties": False,
                 },
                 "description": (
-                    "Optional bounded caller values for the desktop path. Values are matched locally to one "
-                    "exact visible field label and never sent to Jev. A web goal returns "
-                    "unsupported_capability with dom_text_input_unsupported instead of consuming Jev requests, "
-                    "because the DOM backend cannot type."
+                    "Optional bounded caller values matched locally to one exact visible field label and "
+                    "never sent to Jev. On the DOM backend these values enable TYPE_TEXT for ordinary text "
+                    "fields; a typing goal without values returns unsupported_capability with "
+                    "dom_text_input_value_required before any provider request."
                 ),
             },
             "completion_condition": {
