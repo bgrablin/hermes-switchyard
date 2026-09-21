@@ -399,14 +399,14 @@ class ReceiptEndToEndTests(unittest.TestCase):
             candidates=candidates,
             turn_egress_policy=_allowed_policy("SANITIZED_LARGE_CATALOG_TASK"),
         )
-        # TimeoutError from a later partition is classified as deadline_exceeded
-        # (distinct from generic transport_or_execution_failure).
-        self.assertEqual(result["hosted_error"], "deadline_exceeded")
+        # Plain TimeoutError from a synthetic transport is a provider/transport
+        # failure, not the typed aggregate DeadlineExceeded signal.
+        self.assertEqual(result["hosted_error"], "transport_or_execution_failure")
         self.assertEqual(result["jev_request_count"], 1)
         self.assertEqual(result["jev_total_usage"], {"cost": 0.01})
         receipt = recommender.last_receipt
         self.assertEqual(receipt["terminal_state"], "hosted_failure")
-        self.assertEqual(receipt["hosted_error"], "deadline_exceeded")
+        self.assertEqual(receipt["hosted_error"], "transport_or_execution_failure")
         self.assertEqual(receipt["request_count"], 1)
         self.assertEqual(receipt["total_usage"], {"cost": 0.01})
         self.assertEqual(receipt["total_latency_ms"], 5.0)

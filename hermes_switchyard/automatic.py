@@ -841,8 +841,10 @@ def _config_bool(value: Any, default: bool) -> bool:
 
 def _hosted_error_code(exc: Exception) -> str:
     # Map any hosted failure to a stable local code. Provider, transport, and
-    # executor details are never surfaced in a receipt. Deadline / cancel /
-    # late-discard outcomes stay distinct from generic transport failures.
+    # executor details are never surfaced in a receipt. Only the typed
+    # aggregate signals map to deadline/cancel/late-discard; a plain
+    # TimeoutError from a provider or custom transport remains a transport
+    # failure so intervention timeout stays distinct from provider I/O timeout.
     if isinstance(exc, PartialAccountingError) and isinstance(exc.__cause__, BaseException):
         cause_code = _hosted_error_code(exc.__cause__)  # type: ignore[arg-type]
         if cause_code in {"deadline_exceeded", "host_cancelled", "late_result_discarded"}:
@@ -851,7 +853,7 @@ def _hosted_error_code(exc: Exception) -> str:
         return "host_cancelled"
     if isinstance(exc, LateResultDiscarded):
         return "late_result_discarded"
-    if isinstance(exc, DeadlineExceeded) or isinstance(exc, TimeoutError):
+    if isinstance(exc, DeadlineExceeded):
         return "deadline_exceeded"
     if isinstance(exc, PermissionError):
         return "ack_required"
@@ -861,7 +863,7 @@ def _hosted_error_code(exc: Exception) -> str:
         return "validation_failure"
     if isinstance(exc, TypeError):
         return "typed_response_failure"
-    if isinstance(exc, RuntimeError):
+    if isinstance(exc, (RuntimeError, TimeoutError)):
         return "transport_or_execution_failure"
     return "plugin_error"
 
