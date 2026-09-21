@@ -1,31 +1,92 @@
 """Regression checks for automatic evaluation evidence classification."""
 from __future__ import annotations
 
-import unittest
 import tempfile
+import unittest
 from pathlib import Path
 from unittest import mock
 
 from evaluation.automatic_e2e import harness
-from evaluation.automatic_e2e.harness import _forbidden_tool_calls, _skill_load_metrics
+from evaluation.automatic_e2e.harness import (
+    HarnessInvalid,
+    _forbidden_tool_calls,
+    _skill_load_metrics,
+    build_skill_alias_map,
+    canonicalize_skill_identifier,
+)
 
 
 class AutomaticEvaluationHarnessTests(unittest.TestCase):
     def test_skill_load_metrics_requires_exact_expected_identifier(self):
-        correct, irrelevant = _skill_load_metrics(
+        correct, irrelevant, loaded_canonical, expected_canonical = _skill_load_metrics(
             ["docker-management-unsafe", "docker-management"],
             "docker-management",
         )
         self.assertTrue(correct)
         self.assertEqual(irrelevant, ["docker-management-unsafe"])
+        self.assertEqual(expected_canonical, "docker-management")
+        self.assertEqual(loaded_canonical, ["docker-management-unsafe", "docker-management"])
 
     def test_skill_load_metrics_reports_nonmatching_identifier(self):
-        correct, irrelevant = _skill_load_metrics(
+        correct, irrelevant, _, _ = _skill_load_metrics(
             ["docker-management-unsafe"],
             "docker-management",
         )
         self.assertFalse(correct)
         self.assertEqual(irrelevant, ["docker-management-unsafe"])
+
+    def test_namespaced_skill_load_matches_bare_expected_via_registry(self):
+        """Regress issue #24: devops:network-printer-operations is a correct load."""
+        aliases = build_skill_alias_map(
+            [
+                {
+                    "name": "network-printer-operations",
+                    "description": "Printers",
+                    "category": "devops",
+                },
+                {
+                    "name": "docker-management",
+                    "description": "Docker",
+                    "category": "devops",
+                },
+            ]
+        )
+        correct, irrelevant, loaded_canonical, expected_canonical = _skill_load_metrics(
+            ["devops:network-printer-operations"],
+            "network-printer-operations",
+            aliases,
+        )
+        self.assertTrue(correct)
+        self.assertEqual(irrelevant, [])
+        self.assertEqual(loaded_canonical, ["network-printer-operations"])
+        self.assertEqual(expected_canonical, "network-printer-operations")
+
+        correct_slash, _, _, _ = _skill_load_metrics(
+            ["devops/network-printer-operations"],
+            "network-printer-operations",
+            aliases,
+        )
+        self.assertTrue(correct_slash)
+
+        # Category-qualified expected also matches a bare load.
+        correct_inverse, _, _, _ = _skill_load_metrics(
+            ["network-printer-operations"],
+            "devops:network-printer-operations",
+            aliases,
+        )
+        self.assertTrue(correct_inverse)
+
+    def test_build_skill_alias_map_registers_bare_and_qualified_forms(self):
+        aliases = build_skill_alias_map(
+            [{"name": "log-triage", "category": "ops", "description": "Logs"}]
+        )
+        self.assertEqual(aliases["log-triage"], "log-triage")
+        self.assertEqual(aliases["ops:log-triage"], "log-triage")
+        self.assertEqual(aliases["ops/log-triage"], "log-triage")
+        self.assertEqual(
+            canonicalize_skill_identifier("ops:log-triage", aliases),
+            "log-triage",
+        )
 
     def test_forbidden_tool_calls_include_browser_and_web_tools(self):
         calls = [
@@ -41,8 +102,7 @@ class AutomaticEvaluationHarnessTests(unittest.TestCase):
 
     def test_observer_candidate_flags_ignore_system_catalog(self):
         with tempfile.TemporaryDirectory() as directory:
-            with mock.patch.object(harness, "_copy_skill"):
-                home, _ = harness._prepare_home(Path.cwd(), Path(directory), True)
+            home, _ = harness._prepare_home(Path.cwd(), Path(directory), True)
             namespace = {}
             source = home / "plugins" / "auto-e2e-observer" / "__init__.py"
             exec(compile(source.read_text(encoding="utf-8"), str(source), "exec"), namespace)
@@ -60,6 +120,27 @@ class AutomaticEvaluationHarnessTests(unittest.TestCase):
             record = namespace["records"][-1]
             self.assertTrue(record["docker_recommendation_present"])
             self.assertFalse(record["printer_recommendation_present"])
+
+    def test_prepare_home_copies_fixture_skills_not_operator_home(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home, _ = harness._prepare_home(Path.cwd(), Path(directory), False)
+            printer = home / "skills" / "devops" / "network-printer-operations" / "SKILL.md"
+            logs = home / "skills" / "ops" / "log-triage" / "SKILL.md"
+            self.assertTrue(printer.is_file())
+            self.assertTrue(logs.is_file())
+            self.assertIn("network-printer-operations", printer.read_text(encoding="utf-8"))
+
+    def test_paired_suite_has_more_than_two_unique_tasks(self):
+        ids = [task["id"] for task in harness.TASKS]
+        self.assertGreaterEqual(len(set(ids)), 3)
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_ensure_hermes_runtime_fails_closed_without_interpreter(self):
+        with mock.patch.object(harness, "_hermes_imports_available", return_value=(False, "ImportError: hermes_state")):
+            with mock.patch.object(harness, "resolve_hermes_python", return_value=None):
+                with self.assertRaises(HarnessInvalid) as ctx:
+                    harness.ensure_hermes_runtime()
+        self.assertIn("Hermes runtime imports unavailable", str(ctx.exception))
 
 
 if __name__ == "__main__":
