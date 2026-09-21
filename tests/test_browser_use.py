@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from contextlib import contextmanager
@@ -98,6 +99,8 @@ class BrowserUseTests(unittest.TestCase):
             self.assertFalse(_is_snap_chromium(wrapper))
 
     def test_snap_profile_is_created_under_confined_common_directory(self):
+        if os.name == "nt":
+            self.skipTest("Snap Chromium profile placement is Unix-only")
         with tempfile.TemporaryDirectory() as root:
             home = Path(root)
             with mock.patch("pathlib.Path.home", return_value=home):
