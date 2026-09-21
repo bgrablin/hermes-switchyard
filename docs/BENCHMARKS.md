@@ -7,7 +7,7 @@ Repository-owned with/without evidence for **0.5.0** tip `c8e6008`. Human-readab
 | Feature surface | Without | With | Latency / cost (with) | Fair A/B? |
 | --- | ---: | ---: | --- | --- |
 | `jev_skill_select` (top-1) | 7/12 | **12/12** | p50 **185 ms**, p95 **303 ms**; **~$0.000055**/decision | Yes — frozen 24-task lexical vs live Jev |
-| Skill-needed misses | 11/18 | **5/18** | (same run) | Yes |
+| Failed to pick a needed skill | 11/18 | **5/18** | (same run) | Yes |
 | No-skill false positives | 0/6 | **0/6** | (same run) | Yes |
 | Required-set via top-1 `select_skill` | **0/5** | **0/5** | (same run) | Yes — honest gap for top-1 API |
 | `jev_skill_select_many` | top-1 **0/5** complete | **5/5** complete (mean coverage 1.0) | p50 **253 ms**, p95 **352 ms**; **$0.000347** for 5 | Yes — same 5 frozen required-set tasks |
@@ -24,7 +24,7 @@ Repository-owned with/without evidence for **0.5.0** tip `c8e6008`. Human-readab
 | Metric | Local lexical | Live Switchyard | Paired change |
 | --- | ---: | ---: | ---: |
 | Strict single-skill top-1 | 7/12 (58.33%) | 12/12 (100.00%) | +41.67 pp |
-| Positive misses | 11/18 (61.11%) | 5/18 (27.78%) | −33.33 pp |
+| Failed to pick a needed skill | 11/18 (61.11%) | 5/18 (27.78%) | −33.33 pp |
 | Positive abstentions | 7/18 (38.89%) | 3/18 (16.67%) | −22.22 pp |
 | No-fit false positives | 0/6 (0.00%) | 0/6 (0.00%) | no change |
 | Candidate coverage | 18/18 | 18/18 | no change |
@@ -38,7 +38,7 @@ Observed Switchyard provider timing/usage (claimable; every case has a live rece
 - Tokens: **31,212** in / **3,966** out
 - Jev PAYG: **$0.0013109** for 24 cases (~**$0.000055**/decision)
 
-**Interpretation:** live Switchyard improves strict single-skill selection and reduces positive misses versus the local lexical fallback without raising no-fit false positives. The top-1 API still cannot complete multi-skill required sets (**0/5**).
+**Interpretation:** live Switchyard improves strict single-skill selection and reduces times a needed skill was missed versus the local lexical fallback without raising no-fit false positives. The top-1 API still cannot complete multi-skill required sets (**0/5**).
 
 Dataset hash unchanged from the historical public freeze (`97a7702c…`). Plugin/collector hashes were refreshed on tip `c8e6008` because plugin source drifted; numbers were re-collected rather than reused from `c6d9b28`.
 
