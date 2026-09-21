@@ -725,9 +725,14 @@ def ensure_platform_toolsets(
     still = verify['suppressed']
     if still:
         entries = verify['suppressors']
+        detail = (
+            'disabled_by:' + ','.join(entries)
+            if entries
+            else 'suppressed:' + ','.join(still)
+        )
         return _ensure_failure(
             'required_toolsets_suppressed',
-            detail='disabled_by:' + ','.join(entries),
+            detail=detail,
             added=added,
             already_present=already_present,
             focus_override=focus_override,
