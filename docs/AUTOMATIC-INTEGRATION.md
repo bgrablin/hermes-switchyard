@@ -89,7 +89,7 @@ _invoke_hook(
 )
 ```
 
-The host must forward only a typed envelope; the plugin still enforces standing acknowledgement, local policy, and redacted receipts. Advisory consumer mode skips hosted work as `consumer_contract_unmet` before envelope evaluation. In `load` mode, when the envelope is absent, denied, unknown, malformed, or restricted, hosted construction is skipped (`local_scan_unclassified` for a clean scan with no envelope). Local matching may still run because it does not cross the boundary. Current Hermes core may not yet propagate the envelope on every path; until it does, hosted automatic routing stays fail-closed even when `hosted_sanitized`, load mode, and acknowledgement are set.
+The host must forward only a typed envelope; the plugin still enforces standing acknowledgement, local policy, and redacted receipts. Envelope evaluation (when hosted mode is selected) still runs so redacted policy metadata can be recorded, but advisory consumer mode skips hosted client construction as `consumer_contract_unmet`. In `load` mode, when the envelope is absent, denied, unknown, malformed, or restricted, hosted construction is skipped (`local_scan_unclassified` for a clean scan with no envelope). Local matching may still run because it does not cross the boundary. Current Hermes core may not yet propagate the envelope on every path; until it does, hosted automatic routing stays fail-closed even when `hosted_sanitized`, load mode, and acknowledgement are set.
 
 ## Routing receipts and diagnostics
 

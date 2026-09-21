@@ -106,7 +106,7 @@ Hosted construction also requires `automatic_skill_consumer_mode=load` and a hos
 {"version":1,"decision":"allow","data_class":"sanitized","reason_code":"host_policy_allowed","allowed_payload":"sanitized public task"}
 ```
 
-The plugin scans the bounded task locally before construction. Only the envelope's `allowed_payload` and candidate identifiers are sent to Jev. Candidate descriptions, history, and full skill bodies stay local. Advisory consumer mode, false acknowledgement, restricted content, a missing envelope, or an explicit denied/unknown/malformed envelope fails closed before client construction. `always` calls Jev even for a confident local match when load mode and an allow envelope are present. Use `uncertain_only` only as an explicit latency-saving override. A valid hosted abstention stays abstained; only an unavailable transport may preserve a local recommendation.
+Without an envelope, the plugin scans the bounded task for restricted patterns and fail-closes (`local_scan_unclassified` when clean). With an allow envelope, the outbound scan checks the envelope `allowed_payload` and candidate identifiers before construction; only those values are sent to Jev. Candidate descriptions, history, and full skill bodies stay local. Advisory consumer mode, false acknowledgement (in load mode), restricted content, a missing envelope, or an explicit denied/unknown/malformed envelope fails closed before client construction. `always` calls Jev even for a confident local match when load mode and an allow envelope are present. Use `uncertain_only` only as an explicit latency-saving override. A valid hosted abstention stays abstained; only an unavailable transport may preserve a local recommendation.
 
 ## 6. Disable or roll back
 
