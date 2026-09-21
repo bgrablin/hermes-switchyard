@@ -8,6 +8,8 @@ imported; set SWITCHYARD_REQUIRE_HERMES=1 to make a missing runtime a failure in
 """
 from __future__ import annotations
 
+import copy
+
 import argparse
 import io
 import json
@@ -792,6 +794,73 @@ class RealHermesExposureTests(unittest.TestCase):
         matched = self.run_hermes(pin=pin, catalog_pins=(pin,), credential=True, settings={"jev_provider": "typesafe"})
         self.assertEqual(matched.status["effective_provider"], "typesafe")
         self.assertEqual(matched.status["status"], "ready")
+
+
+
+class ToolsetCompositionTests(unittest.TestCase):
+    """Issue #21: composition diagnostics and ensure-toolsets without widening."""
+
+    def test_toolset_composition_names_required_toolsets_and_doctor_boundary(self):
+        info = hermes_switchyard._toolset_composition()
+        self.assertEqual(
+            info["required_for_full_surface"],
+            [COMPUTER_USE_TOOLSET, PLUGIN_TOOLSET],
+        )
+        self.assertEqual(info["jev_computer_use_requires"], [COMPUTER_USE_TOOLSET])
+        self.assertEqual(info["decision_tools_require"], [PLUGIN_TOOLSET])
+        self.assertIn("Plugin Doctor", info["plugin_doctor"])
+        self.assertIn("callable exposure", info["plugin_doctor"])
+        self.assertIn("powershell", info["windows_pin_example"].lower())
+
+    def test_ensure_platform_toolsets_adds_only_required_names(self):
+        holder = {"config": {"platform_toolsets": {"cli": ["terminal", "browser"]}}}
+
+        def load_config():
+            return copy.deepcopy(holder["config"])
+
+        def save_config(config):
+            holder["config"] = copy.deepcopy(config)
+
+        fake_config = mock.Mock()
+        fake_config.load_config = load_config
+        fake_config.save_config = save_config
+        with mock.patch.dict(
+            "sys.modules",
+            {"hermes_cli.config": fake_config, "hermes_cli": mock.Mock(config=fake_config)},
+        ):
+            result = hermes_switchyard.ensure_platform_toolsets()
+        self.assertTrue(result["ok"])
+        self.assertEqual(sorted(result["added"]), ["cli:computer_use", "cli:hermes_switchyard"])
+        self.assertEqual(
+            holder["config"]["platform_toolsets"]["cli"],
+            ["terminal", "browser", "computer_use", "hermes_switchyard"],
+        )
+        with mock.patch.dict(
+            "sys.modules",
+            {"hermes_cli.config": fake_config, "hermes_cli": mock.Mock(config=fake_config)},
+        ):
+            again = hermes_switchyard.ensure_platform_toolsets()
+        self.assertTrue(again["ok"])
+        self.assertEqual(again["added"], [])
+        self.assertEqual(
+            holder["config"]["platform_toolsets"]["cli"],
+            ["terminal", "browser", "computer_use", "hermes_switchyard"],
+        )
+
+    def test_computer_use_pin_exposes_jev_computer_use_without_decision_tools(self):
+        hermes_switchyard.reset_runtime_status()
+        hermes = _StandInHermes()
+        ctx = _PluginContext(hermes)
+        with mock.patch.object(hermes_switchyard, "_secret", return_value=""):
+            hermes_switchyard.register(ctx)
+        report = hermes_switchyard._tool_exposure_report(
+            COMPUTER_USE_TOOLSET, seams=hermes.seams()
+        )
+        self.assertIs(report["tools"]["jev_computer_use"]["registered"], True)
+        self.assertIs(report["tools"]["jev_computer_use"]["callable"], True)
+        self.assertIs(report["tools"]["jev_assess"]["callable"], False)
+        self.assertEqual(report["tools"]["jev_assess"]["reason"], "toolset_not_selected")
+
 
 
 if __name__ == "__main__":

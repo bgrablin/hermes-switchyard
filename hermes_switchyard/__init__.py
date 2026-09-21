@@ -55,6 +55,10 @@ TOOL_TOOLSETS = {
     "jev_model_route": PLUGIN_TOOLSET,
     "jev_model_route_approved": PLUGIN_TOOLSET,
 }
+# Sessions that advertise Switchyard computer use need both toolsets selected.
+# Plugin Doctor / plugin-enable only toggles one plugin toolset key
+# (hermes_switchyard); computer_use must also be selected for jev_computer_use.
+REQUIRED_SESSION_TOOLSETS = (COMPUTER_USE_TOOLSET, PLUGIN_TOOLSET)
 
 # Handlers this process passed to ctx.register_tool, by tool name. Comparing them with the
 # Hermes registry separates "this plugin called register_tool" from "Hermes holds this
@@ -308,6 +312,105 @@ def _exposure_failure_reason(
     return "not_in_catalog"
 
 
+def _toolset_composition() -> dict[str, Any]:
+    """Describe required toolset composition and Doctor vs callable boundaries."""
+    return {
+        "required_for_full_surface": list(REQUIRED_SESSION_TOOLSETS),
+        "jev_computer_use_requires": [COMPUTER_USE_TOOLSET],
+        "decision_tools_require": [PLUGIN_TOOLSET],
+        "plugin_doctor": (
+            "Hermes Plugin Doctor reports discovery, import, and registration only; "
+            "it does not evaluate per-session callable exposure. Use "
+            "`hermes switchyard status --json` (optionally with --toolsets) for that."
+        ),
+        "windows_pin_example": (
+            'powershell: hermes -t "computer_use,hermes_switchyard" chat'
+        ),
+    }
+
+
+def ensure_platform_toolsets(
+    *,
+    platforms: tuple[str, ...] = ("cli",),
+    toolsets: tuple[str, ...] = REQUIRED_SESSION_TOOLSETS,
+) -> dict[str, Any]:
+    """Add required session toolsets to Hermes platform_toolsets without removing others.
+
+    Does not enable unrelated toolsets. Safe to call when Hermes config APIs are
+    available; returns a structured no-op result when they are not.
+    """
+    try:
+        from hermes_cli.config import load_config, save_config
+    except Exception as exc:  # noqa: BLE001 -- config may be unavailable offline
+        return {
+            "ok": False,
+            "reason": "config_unavailable",
+            "detail": type(exc).__name__,
+            "added": [],
+            "already_present": [],
+        }
+    try:
+        config = load_config()
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "reason": "config_unreadable",
+            "detail": type(exc).__name__,
+            "added": [],
+            "already_present": [],
+        }
+    if not isinstance(config, dict):
+        return {
+            "ok": False,
+            "reason": "config_invalid",
+            "detail": "config_not_object",
+            "added": [],
+            "already_present": [],
+        }
+    platform_toolsets = config.get("platform_toolsets")
+    if not isinstance(platform_toolsets, dict):
+        platform_toolsets = {}
+        config["platform_toolsets"] = platform_toolsets
+    added: list[str] = []
+    already_present: list[str] = []
+    changed = False
+    for platform in platforms:
+        current = platform_toolsets.get(platform)
+        if not isinstance(current, list):
+            current = []
+            platform_toolsets[platform] = current
+        normalized = [str(item) for item in current]
+        platform_toolsets[platform] = normalized
+        for toolset in toolsets:
+            key = f"{platform}:{toolset}"
+            if toolset in normalized:
+                already_present.append(key)
+            else:
+                normalized.append(toolset)
+                added.append(key)
+                changed = True
+    if changed:
+        try:
+            save_config(config)
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ok": False,
+                "reason": "config_unwritable",
+                "detail": type(exc).__name__,
+                "added": added,
+                "already_present": already_present,
+            }
+    return {
+        "ok": True,
+        "reason": "updated" if changed else "unchanged",
+        "detail": None,
+        "added": added,
+        "already_present": already_present,
+        "platforms": list(platforms),
+        "toolsets": list(toolsets),
+    }
+
+
 def _tool_exposure_report(requested_toolsets: Any = None, *, seams: SimpleNamespace | None = None) -> dict[str, Any]:
     """Compare what this plugin registered with what a session would expose.
 
@@ -473,6 +576,7 @@ def _cli_handler(args):
             "automatic_skill_jev_mode": _RUNTIME_STATUS["automatic_skill_jev_mode"],
             "hosted_construction_allowed": _RUNTIME_STATUS["hosted_construction_allowed"],
             "tool_exposure": exposure,
+            "toolset_composition": _toolset_composition(),
         }
         if getattr(args, "json_output", False):
             print(json.dumps(payload, sort_keys=True))
@@ -490,6 +594,13 @@ def _cli_handler(args):
             print(f"Hermes Switchyard: {status} (local status only)")
         for line in _exposure_lines(exposure):
             print(line)
+        composition = _toolset_composition()
+        print(
+            "Toolset composition: full surface needs "
+            + " + ".join(composition["required_for_full_surface"])
+            + "; jev_computer_use alone needs computer_use."
+        )
+        print(composition["plugin_doctor"])
         if status != "credential_required" and credential_missing:
             print(f"Credential: credential_required. {setup_hint}")
         return 0
@@ -547,8 +658,37 @@ def _cli_handler(args):
         indent = None if getattr(args, "json_output", False) else 2
         print(json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=indent))
         return 0
+    if command == "ensure-toolsets":
+        result = ensure_platform_toolsets()
+        if getattr(args, "json_output", False):
+            print(json.dumps(result, sort_keys=True))
+        elif result.get("ok"):
+            if result.get("added"):
+                print(
+                    "Ensured session toolsets "
+                    + ", ".join(result["toolsets"])
+                    + f" on platforms {', '.join(result['platforms'])}. "
+                    "Added: " + ", ".join(result["added"]) + ". Start a fresh session."
+                )
+            else:
+                print(
+                    "Required session toolsets already present: "
+                    + ", ".join(result["toolsets"])
+                    + "."
+                )
+        else:
+            print(
+                f"Could not ensure toolsets ({result.get('reason')}). "
+                "Enable Computer Use and Hermes Switchyard in `hermes tools`, "
+                'or pin both: hermes -t "computer_use,hermes_switchyard" chat'
+            )
+            return 1
+        return 0
     if command != "setup":
-        print("Usage: hermes switchyard <status|guide|setup|receipt|test> [--provider ...|--json]")
+        print(
+            "Usage: hermes switchyard <status|guide|setup|ensure-toolsets|receipt|test> "
+            "[--provider ...|--json]"
+        )
         return 2
     provider = args.provider
     key_name = "TYPESAFE_API_KEY" if provider == "typesafe" else "OPENROUTER_API_KEY"
@@ -560,7 +700,24 @@ def _cli_handler(args):
         print("No credential saved.")
         return 1
     save_env_value(key_name, value)
-    print(f"Saved {key_name} to the active Hermes profile secret store. Start a fresh session.")
+    ensure_result = ensure_platform_toolsets()
+    print(f"Saved {key_name} to the active Hermes profile secret store.")
+    if ensure_result.get("ok") and ensure_result.get("added"):
+        print(
+            "Also ensured toolsets "
+            + ", ".join(ensure_result["toolsets"])
+            + " for CLI sessions (added "
+            + ", ".join(ensure_result["added"])
+            + ")."
+        )
+    elif ensure_result.get("ok"):
+        print("Required CLI toolsets computer_use and hermes_switchyard are already configured.")
+    else:
+        print(
+            "Could not auto-ensure toolsets; enable Computer Use in `hermes tools` "
+            'or pin: hermes -t "computer_use,hermes_switchyard" chat'
+        )
+    print("Start a fresh session.")
     return 0
 
 
@@ -581,6 +738,14 @@ def _setup_cli(parser):
             "default is the selection Hermes' CLI uses when --toolsets is not given"
         ),
     )
+    ensure = commands.add_parser(
+        "ensure-toolsets",
+        help=(
+            "Add computer_use and hermes_switchyard to platform_toolsets.cli "
+            "without enabling unrelated toolsets"
+        ),
+    )
+    ensure.add_argument("--json", action="store_true", dest="json_output")
     commands.add_parser("guide", help="Show local usage guidance")
     test = commands.add_parser("test", help="Run the explicitly billed live provider test")
     test.add_argument("--live", action="store_true", help="Confirm that this may make a billed request")
