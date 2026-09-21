@@ -15,17 +15,15 @@ Measured with/without Switchyard on tip **0.5.0** (`c8e6008`). Human-readable be
 | Feature | What this row measures | Without Switchyard | With Switchyard |
 | --- | --- | ---: | ---: |
 | Skill pick | Choosing the one right specialist skill for a task | 7/12 correct | **12/12** correct |
-| Needed-skill failures | Tasks that needed a skill but got none or the wrong one | 11/18 failed | **5/18** failed |
-| False skill suggestions | Recommending a skill when the task needed none | **0/6** false | **0/6** false |
 | Multi-skill pick | Completing a task that needs several skills together | 0/5 sets complete (one-skill pick only) | **5/5** sets complete |
-| Model pick | Recommending a model and leaving an auditable receipt | 3/3 agree with local filter | **3/3** + receipt (`applied: false`) |
 | Assess | Answering a small typed multiple-choice check | 2/3 correct | **3/3** correct |
 | Automatic skill routing | Quietly suggesting a skill before the model acts (local match) | Off → always silent | 1/2 needed skills caught; no false suggest |
 | Computer use | Driving the browser/desktop toward a goal | Stock Hermes A/B not run here | 1-click DOM race; goal still unverified by the tool |
 
 - **Cheap:** about **$0.000055** per skill-select decision (~**$0.055** per 1,000)
 - **Fast:** about **0.19 s** typical; **0.30 s** at p95 on the frozen 24-task skill bench
-- **Honest gaps:** Model pick does not beat a complete local cheapest filter on this microbench. Automatic routing is not yet a counterbalanced Hermes-session win. Computer-use success is not `goal_verified` inside the tool.
+- **Also true, not table rows:** Switchyard does not invent a skill when none fits (0/6 on both arms). Model routing can leave an auditable recommendation, but it does **not** change Hermes’ active model yet (`applied: false`), so it is not on the install pitch.
+- **Honest gaps:** Automatic routing is not yet a counterbalanced Hermes-session win. Computer-use success is not `goal_verified` inside the tool.
 
 This shows better single-skill routing and a working multi-skill API. It is not a claim that every Hermes task improves.
 

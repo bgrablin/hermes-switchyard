@@ -7,18 +7,16 @@ Repository-owned with/without evidence for **0.5.0** tip `c8e6008`. Human-readab
 | Feature | What this row measures | Without | With | Latency / cost (with) | Fair A/B? |
 | --- | --- | ---: | ---: | --- | --- |
 | Skill pick | One right specialist skill for a task (`jev_skill_select`) | 7/12 | **12/12** | p50 **185 ms**, p95 **303 ms**; **~$0.000055**/decision | Yes — frozen 24-task lexical vs live Jev |
-| Needed-skill failures | Needed a skill; got none or the wrong one | 11/18 | **5/18** | (same run) | Yes |
-| False skill suggestions | Suggested a skill when none was needed | 0/6 | **0/6** | (same run) | Yes |
 | Multi-skill pick | Finish a task that needs several skills (`jev_skill_select_many`) | 0/5 sets (one-skill pick) | **5/5** sets (mean coverage 1.0) | p50 **253 ms**, p95 **352 ms**; **$0.000347** for 5 | Yes — same 5 frozen multi-skill tasks |
-| Model pick | Recommend a model with an auditable receipt (`jev_model_route`) | 3/3 local cheapest-qualified | **3/3** recommend | p50 **164 ms**; **$0.000067** for 3 | Partial — local filter is code-owned metadata, not Hermes default picker |
-| Model apply receipt | Whether Hermes actually switched models | n/a | `applied: false` | (adapter smoke) | Contract check on Hermes 0.19/0.21 |
 | Assess | Small typed multiple-choice check (`jev_assess`) | 2/3 | **3/3** | p50 **212 ms**; **$0.000040** for 3 | Weak baseline only (n=3 smoke) |
 | Automatic skill routing | Pre-model skill hint, local match on vs off | silent when off | 1/2 needed; no-fit stays silent | ~1–2 ms local | Yes for hook on/off; not whole-agent |
 | Computer use | Browser/desktop goal progress (`jev_computer_use` DOM) | stock A/B **not run** | Felidae: 1 click, Jev **249 ms**, ~**$0.000213**, `goal_verified: false` | Switchyard-only labeled | No fair stock A/B on this pass |
 
+Rows dropped from the install scorecard (still evidenced below where relevant): **needed-skill failures 11→5** double-counts the five multi-skill tasks under one-skill pick (single-skill is already 12/12); **false skill suggestions 0→0** is a no-delta safety check; **model pick / apply** is an advisory receipt that does not change Hermes’ active model (`applied: false`).
+
 ## Skill select (frozen 24-task live value bench)
 
-**Plain English:** Jev got **12 of 12** single-skill decisions right. The local word matcher got **7 of 12**. Across the 18 tasks that needed a skill, failures fell from **11 to 5**. Both arms avoided false recommendations on all **6** no-skill tasks.
+**Plain English:** Jev got **12 of 12** single-skill decisions right. The local word matcher got **7 of 12**. Both arms avoided inventing a skill on all **6** no-skill tasks. The old “11→5 needed-skill failures” rollup mixed in five multi-skill tasks that one-skill pick cannot complete; those are covered under multi-skill below (5/5 with `select_many`).
 
 | Metric | Local lexical | Live Switchyard | Paired change |
 | --- | ---: | ---: | ---: |
