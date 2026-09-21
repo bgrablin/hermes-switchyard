@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Host config fallback for Hermes 0.19 reads `plugins.entries.<id>.settings` (legacy `.config` accepted); outer entry fields such as `allow_tool_override` are no longer mistaken for plugin settings.
 - Tolerates Hermes 0.19.0 PluginContext hosts that omit `get_config`: `register()` falls back to `plugins.entries.<plugin_id>` (or install defaults) so tools, hooks, and `hermes switchyard` still register when the plugin is enabled.
 - Makes automatic skill routing `local_only` by default. Hosted automatic routing now requires an explicit `hosted_sanitized` profile setting; the legacy boolean remains compatibility-only and never authorizes hosted egress.
 - Resolves Ubuntu's `chromium-browser` Snap wrapper to `/snap/bin/chromium` and places each temporary browser profile under the Snap-accessible `~/snap/chromium/common` directory with exact per-run cleanup. Snap confinement is detected from the resolved executable and from a bounded wrapper-script prefix (quoted, unquoted, or `--`-separated exec targets; compiled binaries are never inspected as scripts). Directory preparation and per-run profile creation both raise a typed `snap_profile_unavailable` diagnostic, and `jev_computer_use` returns that code instead of a generic execution failure.
