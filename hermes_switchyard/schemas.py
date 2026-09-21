@@ -39,7 +39,10 @@ COMPUTER_USE = {
         "Bounded multi-step GUI loop. A start_url or https URL in the goal selects the DOM browser loop: "
         "one Jev request per step chooses operation and click target together, then the page is clicked. "
         "Hermes computer_use is not between those clicks. Desktop apps without a URL still use Cua Driver. "
-        "DONE produces completion_candidate with verified=false. Only public or sanitized pages may be sent."
+        "DONE produces completion_candidate with verified=false. Only public or sanitized pages may be sent. "
+        "The DOM backend runs a fresh headless profile and cannot type, upload, authenticate, or join an "
+        "existing signed-in session; such a goal returns unsupported_capability with a request-free reason "
+        "code, and the result reports its backend, session_mode, browser, and confinement."
     ),
     "parameters": {
         "type": "object",
@@ -79,7 +82,29 @@ COMPUTER_USE = {
                     "required": ["field_label", "value"],
                     "additionalProperties": False,
                 },
-                "description": "Optional bounded caller values. Values are matched locally to one exact visible field label and never sent to Jev.",
+                "description": (
+                    "Optional bounded caller values for the desktop path. Values are matched locally to one "
+                    "exact visible field label and never sent to Jev. A web goal returns "
+                    "unsupported_capability with dom_text_input_unsupported instead of consuming Jev requests, "
+                    "because the DOM backend cannot type."
+                ),
+            },
+            "completion_condition": {
+                "type": "object",
+                "minProperties": 1,
+                "properties": {
+                    "url_equals": {"type": "string", "maxLength": 200, "description": "Exact public https URL."},
+                    "url_contains": {"type": "string", "maxLength": 200, "description": "Required URL substring."},
+                    "title_contains": {"type": "string", "maxLength": 200, "description": "Required page-title substring."},
+                    "text_contains": {"type": "string", "maxLength": 200, "description": "Required visible-text substring."},
+                    "element_label": {"type": "string", "maxLength": 200, "description": "Required exact offered element label."},
+                },
+                "additionalProperties": False,
+                "description": (
+                    "Optional bounded completion predicate for a web goal, evaluated locally after every action. "
+                    "The loop stops without another Jev decision once it is satisfied; Jev never sees or relaxes it. "
+                    "The result stays completion_candidate with verified=false."
+                ),
             },
             "public_or_sanitized_data_ack": _ACKNOWLEDGEMENT,
             "deadline_seconds": _DEADLINE,

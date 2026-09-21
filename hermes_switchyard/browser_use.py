@@ -8,6 +8,7 @@ computer_use is not in the loop. Desktop CUA remains in computer_use.py.
 from __future__ import annotations
 
 import base64
+import hashlib
 import ipaddress
 import json
 import os
@@ -35,6 +36,19 @@ from .client import (
 
 MAX_PAGE_ELEMENTS = 48
 MAX_PAGE_TEXT = 4000
+MAX_SCANNED_CANDIDATES = 600
+NO_PROGRESS_LIMIT = 2
+LOCAL_SCROLL_RECOVERY_LIMIT = 3
+DOM_BACKEND = "chromium_dom"
+DOM_SESSION_MODE = "ephemeral_fresh_profile"
+_COMPLETION_FIELDS = ("url_equals", "url_contains", "title_contains", "text_contains", "element_label")
+_QUOTED_TITLE_DERIVATION = re.compile(r'title\s+(?:contains|equals|is)\s+"([^"]{3,120})"', re.I)
+_CAPABILITY_SIGNALS = (
+    ("dom_text_input_unsupported", re.compile(r"(?i)\b(?:type|enter|fill|write)\b.{0,40}\b(?:field|box|input|form|search|url bar)\b")),
+    ("dom_file_upload_unsupported", re.compile(r"(?i)\b(?:upload|attach(?:ment)?|choose file|file picker)\b")),
+    ("dom_authentication_unsupported", re.compile(r"(?i)\b(?:log ?in|sign ?in|log ?out|sign ?out|password|credentials?|2fa|verification code)\b")),
+    ("dom_existing_session_unsupported", re.compile(r"(?i)\b(?:my (?:account|inbox|browser)|already (?:open|signed in|logged in)|existing (?:session|browser|profile)|the browser i have open)\b")),
+)
 _URL_IN_TEXT = re.compile(r"https?://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+", re.I)
 _UNSAFE_URI = re.compile(r"(?i)\b(?:file|javascript|data|about|vbscript|blob):")
 _WIKI_FROM = re.compile(
@@ -85,11 +99,33 @@ _DENIED_HREF_PARTS = (
 )
 _SNAPSHOT_JS = """(() => {
   const root = document.querySelector("#mw-content-text .mw-parser-output, #mw-content-text, main, #content, [role=main]") || document.body;
+  // Stable target identity: one WeakMap registry per document, so a target keeps
+  // the same id across scrolls, recaptures, and later snapshots.
+  const registry = window.__hermesSwitchyardTargets || (window.__hermesSwitchyardTargets = { ids: new WeakMap(), next: 1 });
+  function stableId(el) {
+    let id = registry.ids.get(el);
+    if (!id) { id = String(registry.next++); registry.ids.set(el, id); }
+    return id;
+  }
+  const viewportHeight = window.innerHeight || 800;
+  const scrollY = Math.round(window.scrollY || window.pageYOffset || 0);
+  function placementOf(el) {
+    const rect = el.getBoundingClientRect();
+    const top = Math.round(rect.top + scrollY);
+    const height = Math.round(rect.height);
+    return {
+      inViewport: rect.bottom > 0 && rect.top < viewportHeight,
+      nearViewport: rect.bottom > -viewportHeight && rect.top < viewportHeight * 2,
+      top,
+      center: top + height / 2,
+      height
+    };
+  }
   function collect(selector) {
-    const elements = [];
+    const found = [];
     const skipLabel = /^(toggle|hide|move to sidebar|\\d+(\\.\\d+)*\\s)/i;
     for (const el of root.querySelectorAll(selector)) {
-      if (elements.length >= 48) break;
+      if (found.length >= __SWITCHYARD_SCAN_BOUND__) break;
       if (el.closest("#toc, .toc, nav, [role=navigation], .vector-toc, .mw-cite-backlink, .interlanguage-link, .mw-portlet, .navbox, .vector-dropdown, .reference")) continue;
       if (el.hidden || el.disabled || el.getAttribute("aria-hidden") === "true" || el.closest("[hidden], [aria-hidden='true']")) continue;
       const label = String(el.innerText || el.getAttribute("aria-label") || "").replace(/\\s+/g, " ").trim().slice(0, 120);
@@ -100,24 +136,65 @@ _SNAPSHOT_JS = """(() => {
       let article = "";
       try { article = new URL(href, location.href).pathname.replace(/^\\/wiki\\//, ""); } catch (e) { article = hrefAttr; }
       if (article.includes(":")) continue;
-      const id = String(elements.length + 1);
-      el.setAttribute("data-jev-id", id);
-      const role = (el.getAttribute("role") || (el.tagName === "A" ? "link" : "button")).toLowerCase();
-      elements.push({id, role, label, href, kind: "click"});
+      found.push({ el, role: (el.getAttribute("role") || (el.tagName === "A" ? "link" : "button")).toLowerCase(), label, href, placement: placementOf(el) });
     }
-    return elements;
+    return found;
   }
-  let elements = collect(".mw-parser-output p a[href], .infobox a[href], p a[href]");
-  if (elements.length < 8) {
-    elements = collect("a[href], button, [role='link'], [role='button']");
+  // The article-body selector marks preferred targets, but it must never replace
+  // the broader candidate set: replacing it dropped every other interactive target
+  // on a page whose body happened to hold a handful of links.
+  const preferred = collect(".mw-parser-output p a[href], .infobox a[href], p a[href]");
+  const preferredSet = new Set(preferred.map(item => item.el));
+  let candidates = preferred.concat(
+    collect("a[href], button, [role='link'], [role='button']").filter(item => !preferredSet.has(item.el))
+  );
+  for (const item of candidates) { item.preferred = preferredSet.has(item.el); }
+  if (candidates.length > __SWITCHYARD_SCAN_BOUND__) {
+    candidates = candidates.slice(0, __SWITCHYARD_SCAN_BOUND__);
   }
+  const rank = item => item.placement.inViewport ? 0 : (item.placement.nearViewport ? 1 : 2);
+  // Offscreen candidates are ordered by distance from the current viewport, so a
+  // scroll advances the offered window instead of re-offering the document top.
+  const viewportCenter = scrollY + viewportHeight / 2;
+  candidates.sort((a, b) => rank(a) - rank(b)
+    || Math.abs(a.placement.center - viewportCenter) - Math.abs(b.placement.center - viewportCenter)
+    || (b.preferred ? 1 : 0) - (a.preferred ? 1 : 0)
+    || a.placement.top - b.placement.top);
+  const offered = candidates.slice(0, __SWITCHYARD_PAGE_ELEMENTS__);
+  let inViewport = 0;
+  for (const item of candidates) { if (item.placement.inViewport) inViewport += 1; }
+  const elements = offered.map(item => {
+    const id = stableId(item.el);
+    item.el.setAttribute("data-jev-id", id);
+    return {
+      id,
+      role: (item.role === "link" || item.role === "hyperlink") ? "link" : "button",
+      label: item.label,
+      href: item.href,
+      kind: "click",
+      in_viewport: item.placement.inViewport
+    };
+  });
+  const active = document.activeElement;
   return {
     url: location.href,
     title: document.title || "",
     text: String((root.innerText || "")).replace(/\\s+/g, " ").trim().slice(0, 4000),
-    elements
+    elements,
+    focus: active && active.tagName ? String(active.tagName).toLowerCase() : "",
+    scroll: { offset: scrollY, height: Math.round(viewportHeight), document_height: Math.round((document.documentElement || {}).scrollHeight || 0) },
+    candidates_total: candidates.length,
+    candidates_in_viewport: inViewport,
+    candidates_offered: elements.length
   };
 })()"""
+
+# The scan bound and the offered window are single-sourced here so the JS
+# cannot drift from the constants the rest of the module reasons about.
+_SNAPSHOT_JS = (
+    _SNAPSHOT_JS.replace("__SWITCHYARD_SCAN_BOUND__", str(MAX_SCANNED_CANDIDATES))
+    .replace("__SWITCHYARD_PAGE_ELEMENTS__", str(MAX_PAGE_ELEMENTS))
+)
 
 
 class BrowserSession(Protocol):
@@ -192,10 +269,160 @@ def _public_http_url(value: str) -> bool:
     return bool(ip.is_global)
 
 
-def _safe_elements(raw: Any) -> list[dict[str, str]]:
+def _observation_signature(page: dict[str, Any]) -> str:
+    """Hash the parts of an observation that represent page progress.
+
+    Scroll offset and focus are excluded on purpose: they describe the view, not
+    the content, so including them would mark every scroll as progress and would
+    hide the ineffective-scroll defect.
+    """
+    elements = _safe_elements(page.get("elements"))
+    payload = json.dumps(
+        {
+            "url": str(page.get("url") or ""),
+            "title": str(page.get("title") or ""),
+            "text": str(page.get("text") or "")[:MAX_PAGE_TEXT],
+            "elements": [[item["id"], item["label"], item["href"]] for item in elements],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _normalize_completion_condition(explicit: Any, goal: Any) -> dict[str, Any] | None:
+    """Return one bounded predicate that is fixed before execution starts.
+
+    The predicate is never sent to Jev, so a decision provider cannot invent or
+    relax it mid-loop. It is either supplied by the caller or derived from an
+    explicit quoted expectation inside the caller's own goal text.
+    """
+    if explicit is not None:
+        if not isinstance(explicit, dict) or not explicit:
+            raise ValueError("completion_condition must be a non-empty object")
+        unknown = set(explicit) - set(_COMPLETION_FIELDS)
+        if unknown:
+            raise ValueError("completion_condition has unsupported fields")
+        condition: dict[str, Any] = {"source": "caller"}
+        for field in _COMPLETION_FIELDS:
+            value = explicit.get(field)
+            if value is None:
+                continue
+            if type(value) is not str or not value.strip():
+                raise ValueError("completion_condition values must be non-empty strings")
+            text = value.strip()
+            if len(text) > 200:
+                raise ValueError("completion_condition values are bounded to 200 characters")
+            if field == "url_equals" and not _public_http_url(text):
+                raise ValueError("completion_condition url_equals must be a public https URL")
+            if field == "url_contains" and _UNSAFE_URI.search(text):
+                raise ValueError("completion_condition url_contains must not name an unsafe scheme")
+            condition[field] = text
+        if len(condition) == 1:
+            raise ValueError("completion_condition requires at least one condition field")
+        return condition
+    text_goal = goal if isinstance(goal, str) else ""
+    derived = _QUOTED_TITLE_DERIVATION.search(text_goal)
+    if derived is None:
+        return None
+    expected = derived.group(1).strip()
+    if not expected:
+        return None
+    return {"source": "derived_goal_title", "title_contains": expected}
+
+
+def _completion_status(condition: dict[str, Any] | None, page: dict[str, Any]) -> dict[str, Any] | None:
+    """Evaluate the fixed predicate locally against one observation."""
+    if not condition:
+        return None
+    url = str(page.get("url") or "")
+    title = str(page.get("title") or "")
+    text = str(page.get("text") or "")
+    elements = _safe_elements(page.get("elements"))
+    checks: dict[str, bool] = {}
+    for field in _COMPLETION_FIELDS:
+        expected = condition.get(field)
+        if not isinstance(expected, str):
+            continue
+        if field == "url_equals":
+            result = url == expected
+        elif field == "url_contains":
+            result = expected in url
+        elif field == "title_contains":
+            result = expected.casefold() in title.casefold()
+        elif field == "text_contains":
+            result = expected.casefold() in text.casefold()
+        else:
+            result = any(item["label"].casefold() == expected.casefold() for item in elements)
+        checks[field] = bool(result)
+    if not checks:
+        return None
+    return {
+        "source": str(condition.get("source") or "caller"),
+        "satisfied": all(checks.values()),
+        "checks": checks,
+    }
+
+
+def unsupported_dom_capabilities(goal: Any, text_inputs: Any, allowed_hotkeys: Any) -> list[str]:
+    """Return local unsupported-capability codes for the DOM backend.
+
+    This runs before the first provider request so an unsupported requirement
+    fails locally instead of consuming Jev requests to discover the mismatch.
+    """
+    codes: list[str] = []
+    if text_inputs:
+        codes.append("dom_text_input_unsupported")
+    if allowed_hotkeys:
+        codes.append("dom_hotkey_unsupported")
+    text = goal if isinstance(goal, str) else ""
+    for code, pattern in _CAPABILITY_SIGNALS:
+        if code not in codes and pattern.search(text):
+            codes.append(code)
+    return codes
+
+
+def _failure_reason(exc: BaseException) -> str:
+    """Map one exception to a bounded local failure code without provider text."""
+    if isinstance(exc, TimeoutError):
+        return "provider_timeout"
+    if isinstance(exc, TypeError):
+        return "malformed_response"
+    if isinstance(exc, ValueError):
+        return "validation_failure"
+    if isinstance(exc, OSError):
+        return "transport_failure"
+    if isinstance(exc, RuntimeError):
+        return "provider_error"
+    return "unexpected_failure"
+
+
+def _startup_failure_reason(exc: BaseException) -> str:
+    """Map one browser startup failure to a bounded local diagnostic code."""
+    if isinstance(exc, BrowserStartupError):
+        return exc.code
+    text = f"{exc}".casefold()
+    if "singletonlock" in text or "permission denied" in text:
+        return "browser_profile_not_writable"
+    if "no chromium-family browser is installed" in text:
+        return "browser_not_installed"
+    if isinstance(exc, TimeoutError):
+        return "browser_start_timeout"
+    return "browser_start_failed"
+
+
+class BrowserStartupError(RuntimeError):
+    """Local browser startup failure carrying a bounded diagnostic code."""
+
+    def __init__(self, code: str, message: str = ""):
+        super().__init__(message or code)
+        self.code = code
+
+
+def _safe_elements(raw: Any) -> list[dict[str, Any]]:
     if not isinstance(raw, list):
         return []
-    keep: list[dict[str, str]] = []
+    keep: list[dict[str, Any]] = []
     seen: set[str] = set()
     for item in raw:
         if not isinstance(item, dict) or len(keep) >= MAX_PAGE_ELEMENTS:
@@ -217,15 +444,18 @@ def _safe_elements(raw: Any) -> list[dict[str, str]]:
         if folded in {"edit", "cite", "[edit]", "learn more", "hide this message"}:
             continue
         seen.add(element_id)
-        keep.append(
-            {
-                "id": element_id,
-                "role": "link" if role in {"link", "hyperlink"} else "button",
-                "label": label[:120],
-                "href": href[:500],
-                "kind": "click",
-            }
-        )
+        record: dict[str, Any] = {
+            "id": element_id,
+            "role": "link" if role in {"link", "hyperlink"} else "button",
+            "label": label[:120],
+            "href": href[:500],
+            "kind": "click",
+        }
+        # Viewport knowledge is local and bounded; it lets the decision see which
+        # offered targets are actually on screen without exposing page geometry.
+        if item.get("in_viewport") is True:
+            record["in_viewport"] = True
+        keep.append(record)
     return keep
 
 
@@ -239,6 +469,9 @@ def run_browser_goal(
     min_actions_before_done: int = 0,
     public_or_sanitized_data_ack: bool = True,
     deadline_seconds: float = DEFAULT_OPERATION_DEADLINE_SECONDS,
+    completion_condition: Any = None,
+    text_inputs: Any = None,
+    allowed_hotkeys: Any = None,
 ) -> dict[str, Any]:
     """Run one in-process Jev browser loop. The coordinator does not sit between clicks."""
     if type(goal) is not str or not goal.strip():
@@ -254,38 +487,139 @@ def run_browser_goal(
     actions: list[dict[str, Any]] = []
     decisions: list[dict[str, Any]] = []
     page: dict[str, Any] = {"url": "", "title": "", "text": "", "elements": []}
-    with request_budget_scope(client, MAX_OPERATION_REQUESTS, deadline_seconds=deadline_seconds):
-        operation_remaining_deadline()
-        if session is None:
-            if not isinstance(start_url, str) or not _public_http_url(start_url):
-                raise ValueError("start_url must be a public https URL")
-            with open_browser_session(start_url) as owned:
-                return _run_browser_loop(
-                    goal=goal,
-                    session=owned,
-                    client=client,
-                    max_steps=max_steps,
-                    min_actions_before_done=min_actions_before_done,
-                    public_or_sanitized_data_ack=public_or_sanitized_data_ack,
-                    started=started,
-                    operation_id=operation_id,
-                    actions=actions,
-                    decisions=decisions,
-                    page=page,
-                )
-        return _run_browser_loop(
-            goal=goal,
-            session=session,
-            client=client,
-            max_steps=max_steps,
-            min_actions_before_done=min_actions_before_done,
-            public_or_sanitized_data_ack=public_or_sanitized_data_ack,
-            started=started,
+    condition = _normalize_completion_condition(completion_condition, goal)
+    progress: dict[str, Any] = {
+        "attempted_requests": 0,
+        "last_state_hash": None,
+        "browser": None,
+        "confinement": None,
+        "session_setup_ms": None,
+    }
+    # The backend cannot type, upload, authenticate, or reach a signed-in session.
+    # Detect that requirement locally instead of paying Jev to discover it.
+    unsupported = unsupported_dom_capabilities(goal, text_inputs, allowed_hotkeys)
+    if unsupported:
+        return _browser_receipt(
             operation_id=operation_id,
+            goal=goal,
+            page=page,
             actions=actions,
             decisions=decisions,
-            page=page,
+            started=started,
+            status="unsupported_capability",
+            failure_phase="capability",
+            progress=progress,
+            condition=condition,
+            unsupported_capabilities=unsupported,
         )
+    try:
+        with request_budget_scope(client, MAX_OPERATION_REQUESTS, deadline_seconds=deadline_seconds):
+            operation_remaining_deadline()
+            if session is None:
+                if not isinstance(start_url, str) or not _public_http_url(start_url):
+                    raise ValueError("start_url must be a public https URL")
+                try:
+                    manager = open_browser_session(start_url)
+                    owned = manager.__enter__()
+                except Exception as exc:  # noqa: BLE001 -- startup diagnostics stay local and bounded
+                    return _browser_receipt(
+                        operation_id=operation_id,
+                        goal=goal,
+                        page=page,
+                        actions=actions,
+                        decisions=decisions,
+                        started=started,
+                        status="blocked",
+                        failure_phase="browser_startup",
+                        progress=progress,
+                        condition=condition,
+                        failure_reason=_startup_failure_reason(exc),
+                    )
+                try:
+                    _describe_backend(progress, owned)
+                    return _run_browser_loop(
+                        goal=goal,
+                        session=owned,
+                        client=client,
+                        max_steps=max_steps,
+                        min_actions_before_done=min_actions_before_done,
+                        public_or_sanitized_data_ack=public_or_sanitized_data_ack,
+                        started=started,
+                        operation_id=operation_id,
+                        actions=actions,
+                        decisions=decisions,
+                        page=page,
+                        progress=progress,
+                        condition=condition,
+                    )
+                finally:
+                    try:
+                        manager.__exit__(None, None, None)
+                    except Exception:  # noqa: BLE001 -- cleanup must not mask the loop result
+                        pass
+            _describe_backend(progress, session)
+            return _run_browser_loop(
+                goal=goal,
+                session=session,
+                client=client,
+                max_steps=max_steps,
+                min_actions_before_done=min_actions_before_done,
+                public_or_sanitized_data_ack=public_or_sanitized_data_ack,
+                started=started,
+                operation_id=operation_id,
+                actions=actions,
+                decisions=decisions,
+                page=page,
+                progress=progress,
+                condition=condition,
+            )
+    except TimeoutError:
+        return _browser_receipt(
+            operation_id=operation_id,
+            goal=goal,
+            page=page,
+            actions=actions,
+            decisions=decisions,
+            started=started,
+            status="deadline_exceeded",
+            failure_phase="deadline",
+            progress=progress,
+            condition=condition,
+            reconcile_before_retry=True,
+        )
+    except Exception as exc:  # noqa: BLE001 -- every terminal path must keep action evidence
+        return _browser_receipt(
+            operation_id=operation_id,
+            goal=goal,
+            page=page,
+            actions=actions,
+            decisions=decisions,
+            started=started,
+            status="failed",
+            failure_phase="unexpected",
+            progress=progress,
+            condition=condition,
+            failure_reason=_failure_reason(exc),
+            reconcile_before_retry=bool(actions),
+        )
+
+
+def _describe_backend(progress: dict[str, Any], session: BrowserSession) -> None:
+    """Record backend identity and session mode when the session exposes it."""
+    describe = getattr(session, "backend_info", None)
+    if not callable(describe):
+        return
+    try:
+        info = describe()
+    except Exception:  # noqa: BLE001 -- identity reporting is diagnostic only
+        return
+    if not isinstance(info, dict):
+        return
+    progress["browser"] = info.get("browser")
+    progress["confinement"] = info.get("confinement")
+    setup_ms = info.get("setup_ms")
+    if isinstance(setup_ms, (int, float)) and not isinstance(setup_ms, bool):
+        progress["session_setup_ms"] = round(float(setup_ms), 1)
 
 
 def _run_browser_loop(
@@ -301,36 +635,64 @@ def _run_browser_loop(
     actions: list[dict[str, Any]],
     decisions: list[dict[str, Any]],
     page: dict[str, Any],
+    progress: dict[str, Any],
+    condition: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    try:
-        page.update(session.observe())
-    except Exception:
+    """Run one bounded observe-decide-act loop over the session.
+
+    Every terminal path returns a structured receipt that keeps the actions that
+    were already attempted, so a later provider or validation failure never
+    discards completed external work.
+    """
+
+    def finish(**fields: Any) -> dict[str, Any]:
         return _browser_receipt(
             operation_id=operation_id,
             goal=goal,
-            page=page,
+            page=fields.pop("page", page),
             actions=actions,
             decisions=decisions,
             started=started,
+            progress=progress,
+            condition=condition,
+            **fields,
+        )
+
+    try:
+        page.update(session.observe())
+    except Exception:
+        return finish(
+            page=page,
             status="blocked",
             failure_phase="capture",
             reconcile_before_retry=False,
         )
     if not _public_http_url(str(page.get("url") or "")):
-        return _browser_receipt(
-            operation_id=operation_id,
-            goal=goal,
+        return finish(
             page=page,
-            actions=actions,
-            decisions=decisions,
-            started=started,
             status="blocked",
             failure_phase="unsafe_url",
             reconcile_before_retry=False,
         )
+    signature = _observation_signature(page)
+    progress["last_state_hash"] = signature
+    stalled = 0
+    # A caller-supplied predicate is fixed before execution. When it is already
+    # satisfied there is nothing to decide, so no provider request is spent.
+    completion = _completion_status(condition, page)
+    if completion is not None and completion["satisfied"] and len(actions) >= min_actions_before_done:
+        return finish(
+            page=page,
+            status="completion_candidate",
+            failure_phase=None,
+            completion=completion,
+            completion_source="local_predicate",
+        )
     for step in range(1, max_steps + 1):
         operation_remaining_deadline()
         elements = _safe_elements(page.get("elements"))
+        signature = _observation_signature(page)
+        progress["last_state_hash"] = signature
         operation_criteria = {
             "SCROLL_DOWN": "Scroll down to reveal more page content",
             "SCROLL_UP": "Scroll up to reveal earlier page content",
@@ -377,19 +739,47 @@ def _run_browser_loop(
                 for item in actions[-8:]
             ],
         }
-        decision = client.decide(
-            state,
-            questions,
-            public_or_sanitized_data_ack=public_or_sanitized_data_ack,
-        )
+        progress["attempted_requests"] = int(progress.get("attempted_requests") or 0) + 1
+        try:
+            decision = client.decide(
+                state,
+                questions,
+                public_or_sanitized_data_ack=public_or_sanitized_data_ack,
+            )
+        except Exception as exc:  # noqa: BLE001 -- a provider failure keeps partial evidence
+            return finish(
+                page=page,
+                status="provider_failure",
+                failure_phase="decision",
+                failure_reason=_failure_reason(exc),
+                reconcile_before_retry=bool(actions),
+            )
         if not isinstance(decision, dict) or not isinstance(decision.get("answers"), dict):
-            raise TypeError("Jev browser decision has no answers object")
+            return finish(
+                page=page,
+                status="provider_failure",
+                failure_phase="decision",
+                failure_reason="malformed_response",
+                reconcile_before_retry=bool(actions),
+            )
         answers = decision["answers"]
         if set(answers) != set(questions):
-            raise ValueError("Jev browser answer keys do not exactly match the step batch")
+            return finish(
+                page=page,
+                status="provider_failure",
+                failure_phase="decision",
+                failure_reason="validation_failure",
+                reconcile_before_retry=bool(actions),
+            )
         operation_answer = answers.get("operation")
         if not isinstance(operation_answer, dict):
-            raise TypeError("Jev browser decision is missing operation")
+            return finish(
+                page=page,
+                status="provider_failure",
+                failure_phase="decision",
+                failure_reason="malformed_response",
+                reconcile_before_retry=bool(actions),
+            )
         operation = operation_answer.get("choice")
         decisions.append(
             {
@@ -402,41 +792,29 @@ def _run_browser_loop(
             }
         )
         if operation not in operation_criteria:
-            return _browser_receipt(
-                operation_id=operation_id,
-                goal=goal,
+            return finish(
                 page=page,
-                actions=actions,
-                decisions=decisions,
-                started=started,
                 status="abstained",
                 failure_phase="operation_selection",
             )
         if operation == "DONE":
-            return _browser_receipt(
-                operation_id=operation_id,
-                goal=goal,
+            return finish(
                 page=page,
-                actions=actions,
-                decisions=decisions,
-                started=started,
                 status="completion_candidate",
                 failure_phase=None,
+                completion=_completion_status(condition, page),
+                completion_source="provider_decision",
             )
         if operation == "BLOCKED":
-            return _browser_receipt(
-                operation_id=operation_id,
-                goal=goal,
+            return finish(
                 page=page,
-                actions=actions,
-                decisions=decisions,
-                started=started,
                 status="blocked",
                 failure_phase="operation_selection",
             )
         label = operation
         target_id = None
         operation_remaining_deadline()
+        action_dispatched: bool | None = None
         try:
             if operation == "CLICK":
                 target_answer = answers.get("click_target")
@@ -445,38 +823,23 @@ def _run_browser_loop(
                 target_id = str(target_answer.get("choice") or "")
                 chosen = next((item for item in elements if item["id"] == target_id), None)
                 if chosen is None:
-                    return _browser_receipt(
-                        operation_id=operation_id,
-                        goal=goal,
+                    return finish(
                         page=page,
-                        actions=actions,
-                        decisions=decisions,
-                        started=started,
                         status="abstained",
                         failure_phase="target_selection",
                     )
                 label = chosen["label"]
                 fresh = session.observe()
                 if not _public_http_url(str(fresh.get("url") or "")):
-                    return _browser_receipt(
-                        operation_id=operation_id,
-                        goal=goal,
+                    return finish(
                         page=fresh,
-                        actions=actions,
-                        decisions=decisions,
-                        started=started,
                         status="blocked",
                         failure_phase="unsafe_url",
                         reconcile_before_retry=bool(actions),
                     )
                 if str(fresh.get("url") or "") != str(page.get("url") or ""):
-                    return _browser_receipt(
-                        operation_id=operation_id,
-                        goal=goal,
+                    return finish(
                         page=fresh,
-                        actions=actions,
-                        decisions=decisions,
-                        started=started,
                         status="abstained",
                         failure_phase="stale_target",
                         reconcile_before_retry=bool(actions),
@@ -490,113 +853,167 @@ def _run_browser_loop(
                     None,
                 )
                 if matched is None:
-                    return _browser_receipt(
-                        operation_id=operation_id,
-                        goal=goal,
+                    return finish(
                         page=fresh,
-                        actions=actions,
-                        decisions=decisions,
-                        started=started,
                         status="abstained",
                         failure_phase="stale_target",
                         reconcile_before_retry=bool(actions),
                     )
                 target_id = matched["id"]
                 session.click(target_id, label=matched["label"], href=matched["href"])
+                action_dispatched = True
             elif operation in {"SCROLL_DOWN", "SCROLL_UP"}:
                 session.scroll("down" if operation == "SCROLL_DOWN" else "up")
+                action_dispatched = True
             else:
                 session.wait(0.2)
+                action_dispatched = True
             after = session.observe()
         except Exception:
             actions.append(
-                {
-                    "step": step,
-                    "operation": operation,
-                    "label": label,
-                    "element": target_id,
-                    "url": str(page.get("url") or ""),
-                    "title": str(page.get("title") or "")[:240],
-                    "executor": "browser_dom",
-                    "verdict": None,
-                    "effect_confirmed": False,
-                    "effect_status": "unknown",
-                    "escalation": None,
-                }
+                _action_record(
+                    step=step,
+                    operation=operation,
+                    label=label,
+                    target_id=target_id,
+                    page=page,
+                    dispatched=action_dispatched,
+                    effect_observed=None,
+                    effect_status="unknown",
+                )
             )
-            return _browser_receipt(
-                operation_id=operation_id,
-                goal=goal,
+            return finish(
                 page=page,
-                actions=actions,
-                decisions=decisions,
-                started=started,
-                status="abstained",
+                status="partial_failure",
                 failure_phase="action",
                 reconcile_before_retry=True,
             )
         if not _public_http_url(str(after.get("url") or "")):
             url_changed = str(after.get("url") or "") != str(page.get("url") or "")
             actions.append(
-                {
-                    "step": step,
-                    "operation": operation,
-                    "label": label,
-                    "element": target_id,
-                    "url": str(after.get("url") or ""),
-                    "title": str(after.get("title") or "")[:240],
-                    "executor": "browser_dom",
-                    "verdict": None,
-                    "effect_confirmed": True if operation == "CLICK" else url_changed,
-                    "effect_status": "left_public_https",
-                    "escalation": None,
-                }
+                _action_record(
+                    step=step,
+                    operation=operation,
+                    label=label,
+                    target_id=target_id,
+                    page=after,
+                    dispatched=action_dispatched,
+                    effect_observed=url_changed,
+                    effect_status="left_public_https",
+                )
             )
-            return _browser_receipt(
-                operation_id=operation_id,
-                goal=goal,
+            return finish(
                 page=after,
-                actions=actions,
-                decisions=decisions,
-                started=started,
                 status="blocked",
                 failure_phase="unsafe_url",
                 reconcile_before_retry=True,
             )
         url_changed = str(after.get("url") or "") != str(page.get("url") or "")
         title_changed = str(after.get("title") or "") != str(page.get("title") or "")
-        if operation == "CLICK":
-            confirmed = True
-            effect_status = "url_changed" if url_changed else "same_document"
+        content_changed = _observation_signature(after) != signature
+        focus_changed = str(after.get("focus") or "") != str(page.get("focus") or "")
+        observed = url_changed or title_changed or content_changed or focus_changed
+        if url_changed:
+            effect_status = "url_changed"
+        elif title_changed:
+            effect_status = "title_changed"
+        elif content_changed or focus_changed:
+            effect_status = "document_changed"
         else:
-            confirmed = url_changed or title_changed
-            effect_status = "page_changed" if confirmed else "unchanged"
+            effect_status = "no_observed_effect"
         actions.append(
-            {
-                "step": step,
-                "operation": operation,
-                "label": label,
-                "element": target_id,
-                "url": str(after.get("url") or ""),
-                "title": str(after.get("title") or "")[:240],
-                "executor": "browser_dom",
-                "verdict": None,
-                "effect_confirmed": confirmed,
-                "effect_status": effect_status,
-                "escalation": None,
-            }
+            _action_record(
+                step=step,
+                operation=operation,
+                label=label,
+                target_id=target_id,
+                page=after,
+                dispatched=action_dispatched,
+                effect_observed=observed,
+                effect_status=effect_status,
+            )
         )
+        progressed = content_changed or url_changed or title_changed
+        if not progressed and operation in {"SCROLL_DOWN", "SCROLL_UP"}:
+            # A scroll that reveals nothing is retried locally, inside this step,
+            # instead of paying for another provider decision on unchanged state.
+            recovered = _local_scroll_recovery(session, operation, signature)
+            if recovered is not None:
+                after = recovered
+                progressed = True
+                actions[-1]["local_scroll_recovery"] = True
+        stalled = 0 if progressed else stalled + 1
         page = after
-    return _browser_receipt(
-        operation_id=operation_id,
-        goal=goal,
+        completion = _completion_status(condition, page)
+        if completion is not None and completion["satisfied"] and len(actions) >= min_actions_before_done:
+            return finish(
+                page=page,
+                status="completion_candidate",
+                failure_phase=None,
+                completion=completion,
+                completion_source="local_predicate",
+            )
+        if stalled >= NO_PROGRESS_LIMIT:
+            return finish(
+                page=page,
+                status="blocked",
+                failure_phase="no_progress",
+                stalled_observations=stalled,
+                reconcile_before_retry=True,
+            )
+    return finish(
         page=page,
-        actions=actions,
-        decisions=decisions,
-        started=started,
         status="budget_exhausted",
         failure_phase="max_steps",
     )
+
+
+def _action_record(
+    *,
+    step: int,
+    operation: Any,
+    label: str,
+    target_id: str | None,
+    page: dict[str, Any],
+    dispatched: bool | None,
+    effect_observed: bool | None,
+    effect_status: str,
+) -> dict[str, Any]:
+    """Build one action record that separates dispatch from observed effect."""
+    return {
+        "step": step,
+        "operation": operation,
+        "label": label,
+        "element": target_id,
+        "url": str(page.get("url") or ""),
+        "title": str(page.get("title") or "")[:240],
+        "executor": "browser_dom",
+        "verdict": None,
+        "action_dispatched": dispatched,
+        "effect_observed": effect_observed,
+        "effect_confirmed": effect_observed,
+        "effect_status": effect_status,
+        "goal_verified": False,
+        "escalation": None,
+    }
+
+
+def _local_scroll_recovery(
+    session: BrowserSession,
+    operation: str,
+    signature: str,
+) -> dict[str, Any] | None:
+    """Scroll further locally until the observation changes or the bound is hit."""
+    direction = "down" if operation == "SCROLL_DOWN" else "up"
+    for _ in range(LOCAL_SCROLL_RECOVERY_LIMIT):
+        operation_remaining_deadline()
+        session.scroll(direction)
+        candidate = session.observe()
+        if not _public_http_url(str(candidate.get("url") or "")):
+            return None
+        if _observation_signature(candidate) != signature:
+            return candidate
+    return None
 
 
 def _browser_receipt(
@@ -610,13 +1027,32 @@ def _browser_receipt(
     status: str,
     failure_phase: str | None,
     reconcile_before_retry: bool = False,
+    progress: dict[str, Any] | None = None,
+    condition: dict[str, Any] | None = None,
+    completion: dict[str, Any] | None = None,
+    completion_source: str | None = None,
+    failure_reason: str | None = None,
+    unsupported_capabilities: list[str] | None = None,
+    stalled_observations: int = 0,
 ) -> dict[str, Any]:
+    state = progress or {}
     click_count = sum(item.get("operation") == "CLICK" for item in actions)
-    return {
+    dispatched = sum(1 for item in actions if item.get("action_dispatched") is True)
+    observed_effects = sum(1 for item in actions if item.get("effect_observed") is True)
+    latencies = [
+        float(item["latency_ms"])
+        for item in decisions
+        if isinstance(item.get("latency_ms"), (int, float)) and not isinstance(item.get("latency_ms"), bool)
+    ]
+    receipt: dict[str, Any] = {
         "status": status,
         "verified": False,
         "verification_owner": "coordinator",
         "executor": "browser_dom",
+        "backend": DOM_BACKEND,
+        "session_mode": DOM_SESSION_MODE,
+        "browser": state.get("browser"),
+        "browser_confinement": state.get("confinement"),
         "computer_use_dispatches": 0,
         "goal": goal,
         "app": "browser",
@@ -626,12 +1062,37 @@ def _browser_receipt(
         "decisions": decisions,
         "operation_id": operation_id,
         "attempted_action_count": len(actions),
+        "action_dispatched_count": dispatched,
+        "effect_observed_count": observed_effects,
+        "goal_verified": False,
         "click_count": click_count,
         "jev_request_count": len(decisions),
+        "attempted_request_count": int(state.get("attempted_requests") or len(decisions)),
+        "jev_total_latency_ms": round(sum(latencies), 1) if latencies else 0.0,
+        "last_state_hash": state.get("last_state_hash"),
         "failure_phase": failure_phase,
         "reconcile_before_retry": reconcile_before_retry or bool(actions and status not in {"completion_candidate"}),
         "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
     }
+    if state.get("session_setup_ms") is not None:
+        receipt["session_setup_ms"] = state.get("session_setup_ms")
+    if failure_reason:
+        receipt["failure_reason"] = failure_reason
+    if unsupported_capabilities:
+        receipt["unsupported_capabilities"] = sorted(set(unsupported_capabilities))
+    if stalled_observations:
+        receipt["stalled_observations"] = stalled_observations
+    if completion is not None:
+        receipt["completion"] = completion
+    if completion_source:
+        receipt["completion_source"] = completion_source
+    if condition is not None:
+        # The fixed predicate is echoed so the receipt proves what the loop was
+        # allowed to stop on; Jev never saw it and could not relax it.
+        receipt["completion_predicate"] = {
+            key: value for key, value in condition.items() if isinstance(value, (str, bool))
+        }
+    return receipt
 
 
 class _ChromeWebSocket:
@@ -745,9 +1206,13 @@ class ChromiumSession:
     def __init__(self, start_url: str, *, headed: bool = False):
         if not _public_http_url(start_url):
             raise ValueError("start_url must be a public https URL")
-        binary = _browser_binary()
+        started = time.perf_counter()
+        binary, family, confinement = _browser_binary_details()
         if binary is None:
             raise RuntimeError("no Chromium-family browser is installed")
+        self.browser_family = family
+        self.confinement = confinement
+        self.setup_ms: float | None = None
         self._tmpdir = _browser_profile_dir(binary)
         self._proc: subprocess.Popen[str] | None = None
         self._ws: _ChromeWebSocket | None = None
@@ -755,6 +1220,10 @@ class ChromiumSession:
         port = _free_localhost_port()
         profile = Path(self._tmpdir.name) / "profile"
         profile.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(profile, 0o700)
+        except OSError:
+            pass
         command = [
             str(binary),
             f"--remote-debugging-port={port}",
@@ -794,6 +1263,17 @@ class ChromiumSession:
                 pass
             raise
         log_file.close()
+        self.setup_ms = round((time.perf_counter() - started) * 1000, 1)
+
+    def backend_info(self) -> dict[str, Any]:
+        """Report backend identity, session mode, and measured setup cost."""
+        return {
+            "backend": DOM_BACKEND,
+            "session_mode": DOM_SESSION_MODE,
+            "browser": self.browser_family,
+            "confinement": self.confinement,
+            "setup_ms": self.setup_ms,
+        }
 
     def observe(self) -> dict[str, Any]:
         result = self._evaluate(_SNAPSHOT_JS)
@@ -804,7 +1284,7 @@ class ChromiumSession:
         return result
 
     def click(self, element_id: str, label: str = "", href: str = "") -> None:
-        if not re.fullmatch(r"[0-9]{1,4}", element_id):
+        if not re.fullmatch(r"[0-9]{1,9}", element_id):
             raise ValueError("element id is not a snapshot index")
         expected_label = json.dumps(label)
         expected_href = json.dumps(href)
@@ -939,11 +1419,7 @@ def _wrapper_head(candidate: Path, limit: int = 4096) -> str:
 
 
 def _snap_wrapper_target(head: str) -> str | None:
-    """Return the confined target a wrapper execs, if it launches Snap Chromium.
-
-    The documented Ubuntu wrapper is exactly ``exec /snap/bin/chromium "$@"``,
-    but aliases and PATH shims vary the quoting and may add a ``--`` separator.
-    """
+    """Return the confined target a wrapper execs, if it launches Snap Chromium."""
     match = re.search(
         r'(?m)^\s*exec\s+(?:"([^"]+)"|\'([^\']+)\'|(\S+))\s+(?:--\s+)?"\$@"\s*$',
         head,
@@ -951,23 +1427,74 @@ def _snap_wrapper_target(head: str) -> str | None:
     if match is None:
         return None
     target = next((group for group in match.groups() if group), "")
-    if not target:
-        return None
-    if not target.startswith("/snap/bin/"):
+    if not target or not target.startswith("/snap/bin/"):
         return None
     return target
 
 
-def _browser_profile_dir(binary: Path | None = None) -> tempfile.TemporaryDirectory[str]:
-    # The explicit Snap confinement rule is evaluated before the Windows
-    # default so it holds on every platform. A real Windows browser path is
-    # never Snap Chromium, so Windows behavior is unchanged for real inputs;
-    # ordering it first keeps one code path for the rule instead of letting the
-    # platform default silently mask an explicit confinement requirement.
-    if binary is not None and _is_snap_chromium(binary):
-        # Strictly confined Chromium can access its per-user common directory,
-        # but not every runtime/cache directory. Keep each run isolated and
-        # let TemporaryDirectory remove only the exact profile it created.
+def _is_snap_chromium(binary: Path | None) -> bool:
+    """Return whether *binary* is a Snap-confined Chromium entry point."""
+    if binary is None:
+        return False
+    try:
+        resolved = binary.resolve()
+    except OSError:
+        resolved = binary
+    for candidate in (binary, resolved):
+        if candidate == _SNAP_ENTRY_POINT:
+            return True
+        if str(candidate).startswith("/snap/bin/"):
+            return True
+    try:
+        if not binary.is_file():
+            return False
+    except OSError:
+        return False
+    return _snap_wrapper_target(_wrapper_head(binary)) is not None
+
+
+def _is_snap_confined(path: Path | None) -> bool:
+    """Snap detection used by the DOM backend, including ``snap run`` wrappers.
+
+    The merged operational detector stays strict. This adds the bounded
+    ``snap run`` form so a wrapper that does not exec ``/snap/bin`` directly
+    is still classified as confined.
+    """
+    if _is_snap_chromium(path):
+        return True
+    if path is None:
+        return False
+    return "snap run" in _wrapper_head(path)
+
+
+def _resolve_browser_binary(candidate: Path, *, snap_binary: Path | None = None) -> Path | None:
+    """Resolve the Ubuntu Chromium wrapper without trusting its temporary path."""
+    if not candidate.is_file():
+        return None
+    target_text = _snap_wrapper_target(_wrapper_head(candidate))
+    if target_text is None:
+        return candidate
+    target = snap_binary or Path(target_text)
+    if target.is_file():
+        return target
+    return candidate
+
+
+def _browser_profile_dir(binary: Path | str | None = None) -> tempfile.TemporaryDirectory[str]:
+    """Create an isolated browser profile.
+
+    A path uses the merged identity check. The strings ``snap`` and ``none``
+    remain for the DOM backend's older call sites and select the same
+    directories.
+    """
+    probe: Path | None
+    if binary == "snap":
+        probe = _SNAP_ENTRY_POINT
+    elif binary == "none":
+        probe = None
+    else:
+        probe = binary
+    if probe is not None and _is_snap_chromium(probe):
         common = Path.home() / "snap" / "chromium" / "common"
         try:
             common.mkdir(parents=True, exist_ok=True)
@@ -996,83 +1523,60 @@ def _browser_profile_dir(binary: Path | None = None) -> tempfile.TemporaryDirect
     return tempfile.TemporaryDirectory(prefix="switchyard-browser-", dir=str(cache), ignore_cleanup_errors=True)
 
 
-def _is_snap_chromium(binary: Path | None) -> bool:
-    """Return whether *binary* is a Snap-confined Chromium entry point.
+def _browser_binary_details() -> tuple[Path | None, str | None, str]:
+    """Return the browser path, family, and confinement class.
 
-    Detection follows the resolved executable's identity rather than one
-    exact wrapper wording: the canonical entry point path (on every
-    platform, so the confinement rule still holds on Windows inputs), any
-    path under ``/snap/bin/``, and any wrapper whose script execs a
-    ``/snap/bin/...`` target (quoted, unquoted, or after a ``--``
-    separator).
+    An unsandboxed install is preferred. Snap detection uses the merged
+    identity rules plus a bounded ``snap run`` wrapper check.
     """
-    if binary is None:
-        return False
-    try:
-        resolved = binary.resolve()
-    except OSError:
-        resolved = binary
-    for candidate in (binary, resolved):
-        if candidate == _SNAP_ENTRY_POINT:
-            return True
-        if str(candidate).startswith("/snap/bin/"):
-            return True
-    try:
-        if not binary.is_file():
-            return False
-    except OSError:
-        return False
-    return _snap_wrapper_target(_wrapper_head(binary)) is not None
-
-
-def _resolve_browser_binary(candidate: Path, *, snap_binary: Path | None = None) -> Path | None:
-    """Resolve the Ubuntu Chromium wrapper without trusting its temporary path."""
-    if not candidate.is_file():
-        return None
-    target_text = _snap_wrapper_target(_wrapper_head(candidate))
-    if target_text is None:
-        return candidate
-    target = snap_binary or Path(target_text)
-    if target.is_file():
-        return target
-    return candidate
-
-
-def _browser_binary() -> Path | None:
     names = (
-        "chromium-browser",
-        "google-chrome-stable",
-        "google-chrome",
-        "msedge",
-        "chrome",
-        "chromium",
+        ("chromium-browser", "chromium"),
+        ("google-chrome-stable", "chrome"),
+        ("google-chrome", "chrome"),
+        ("msedge", "edge"),
+        ("chrome", "chrome"),
+        ("chromium", "chromium"),
     )
-    for name in names:
+    confined: tuple[Path, str, str] | None = None
+    for name, family in names:
         found = shutil.which(name)
-        if found:
-            resolved = _resolve_browser_binary(Path(found))
-            if resolved is not None:
-                return resolved
+        if not found:
+            continue
+        candidate = Path(found)
+        resolved = _resolve_browser_binary(candidate)
+        chosen = resolved if resolved is not None else candidate
+        if _is_snap_confined(candidate) or _is_snap_confined(chosen):
+            if confined is None:
+                confined = (chosen if chosen.is_file() else candidate, family, "snap")
+            continue
+        return chosen, family, "none"
     roots = [
         os.environ.get("PROGRAMFILES", ""),
         os.environ.get("PROGRAMFILES(X86)", ""),
         os.environ.get("LOCALAPPDATA", ""),
     ]
     relatives = (
-        Path("Google/Chrome/Application/chrome.exe"),
-        Path("Microsoft/Edge/Application/msedge.exe"),
-        Path("Google/Chrome/Application/chrome"),
+        (Path("Google/Chrome/Application/chrome.exe"), "chrome"),
+        (Path("Microsoft/Edge/Application/msedge.exe"), "edge"),
+        (Path("Google/Chrome/Application/chrome"), "chrome"),
     )
     for root in roots:
         if not root:
             continue
         base = Path(root)
-        for relative in relatives:
+        for relative, family in relatives:
             candidate = base / relative
             resolved = _resolve_browser_binary(candidate)
             if resolved is not None:
-                return resolved
-    return None
+                return resolved, family, "none"
+    if confined is not None:
+        return confined
+    return None, None, "none"
+
+
+def _browser_binary() -> Path | None:
+    """Return the selected browser path without confinement details."""
+    return _browser_binary_details()[0]
 
 
 def _free_localhost_port() -> int:

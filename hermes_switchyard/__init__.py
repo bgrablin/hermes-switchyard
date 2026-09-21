@@ -877,6 +877,9 @@ def register(ctx):
                         min_actions_before_done=int(args.get("min_actions_before_done") or 0),
                         public_or_sanitized_data_ack=ack,
                         deadline_seconds=args.get("deadline_seconds", DEFAULT_OPERATION_DEADLINE_SECONDS),
+                        completion_condition=args.get("completion_condition"),
+                        text_inputs=args.get("text_inputs"),
+                        allowed_hotkeys=args.get("allowed_hotkeys"),
                     )
                 return json.dumps(with_client(run_dom))
             def native_dispatch(tool_name, tool_args):
