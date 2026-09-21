@@ -86,3 +86,67 @@ Switchyard does not apply it. The operator or coordinator must use Hermes' norma
 ## Verification boundary
 
 Offline tests prove registry validation, expiry, cheapest-qualified selection, provider-failure classification, and no automatic switch. They do not prove that a recommended model can complete an arbitrary task or that its account currently has quota.
+
+## Policy-owned adapter (0.5.0)
+
+Hermes Agent **0.19** does not expose a plugin hook or `PluginContext` API that can change the active coordinator model. Switchyard therefore ships a policy-owned adapter that makes approved-registry routing mechanical without silently swapping models:
+
+| Surface | Role |
+| --- | --- |
+| `jev_model_route` | Tool routing point for caller-supplied candidates |
+| `jev_model_route_approved` | Tool routing point for the profile-owned approved registry |
+| `hermes_switchyard.model_registry.route_model_from_registry` | Code-owned registry helper |
+| `hermes_switchyard.model_route_adapter.recommend_model_route` | **First-class** coordinator entry: registry path + typed receipt |
+| `hermes_switchyard.model_route_adapter.recommend_model_route_from_profile` | Profile-registry entry + typed receipt |
+| `hermes_switchyard.model_route_adapter.register_model_route_adapter` | Probes Hermes for a future model-selection seam; **safe no-op** on 0.19 |
+| `hermes_switchyard.model_route_adapter.accept_model_route` | Explicit accept path; refuses unless the host supplies an apply callback |
+
+### Receipt contract
+
+Every adapter recommendation includes:
+
+- `applied: false` — the active Hermes model is unchanged
+- `no_fallback: true` — provider/model fallback is never invented
+- `account_boundary` — recommendation grants no new account or credential authority
+- `source` — `code_owned_registry` or `profile_owned_registry`
+- `integration_point` — the callable coordinators should invoke
+- Distinct `status` / `abstention_reason` values: `selected`, `abstained`, `empty_registry`, `stale_registry`, `no_eligible_candidates`, `budget_exhausted` / `invalid_registry` / `provider_unavailable` (profile path)
+
+### Registration behavior on Hermes 0.19
+
+On plugin `register()`, Switchyard calls `register_model_route_adapter(ctx)`:
+
+1. Probe for `register_model_router` / `register_model_selection_policy` / `register_model_route`, or a known model-selection hook name.
+2. If absent (Hermes 0.19), record `mode: noop_seam_unavailable` and leave the runtime model untouched.
+3. If a future host exposes a supported method, register a **recommend-only** callback. Apply still requires `accept_model_route(..., apply_callback=...)`.
+
+`hermes switchyard status --json` includes `model_route_adapter` so operators can see the registration receipt.
+
+### Coordinator integration (mechanical)
+
+```python
+from hermes_switchyard.model_route_adapter import (
+    recommend_model_route,
+    accept_model_route,
+)
+
+receipt = recommend_model_route(
+    task=public_task,
+    requirements={
+        "data_classes": ["public"],
+        "tool_capabilities": ["terminal"],
+        "context_limit": 32000,
+        "budget": 1.0,
+    },
+    client=jev_client,
+    public_or_sanitized_data_ack=True,
+    registry=approved_candidates,  # code-owned; descriptions never confer approval
+)
+# receipt["applied"] is False. Use Hermes' normal explicit model workflow to change
+# models, or pass an explicit apply_callback once a Hermes apply seam exists:
+# accept_model_route(receipt, apply_callback=hermes_supported_apply)
+```
+
+### Honesty boundary
+
+Closing issue #11 on Hermes 0.19 means shipping the strongest adapter + docs + tests that make integration mechanical and fail-closed. It does **not** mean Switchyard can change the active Hermes model; that requires a Hermes core apply seam that does not exist in 0.19.

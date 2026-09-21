@@ -35,6 +35,10 @@
 - Adds [docs/DOM-BROWSER-BACKEND.md](docs/DOM-BROWSER-BACKEND.md).
 - Adds `hermes_switchyard.record_triage`, a bounded second demonstration of the `jev_assess` primitive. It qualifies public or synthetic records in bounded `jev_assess`-shaped batches with code-defined alternatives, an aggregate deadline, and request accounting; decides some records locally without a provider request; and feeds only accepted decisions to a deterministic consumer that writes a local work-queue artifact. `verify_artifact` re-checks that artifact from disk. It is a library module, not a registered tool, so the tool surface and `plugin.yaml` are unchanged. See `docs/RECORD-TRIAGE.md`.
 
+## 0.5.0
+
+- Model-routing adapter for issue #11: `hermes_switchyard.model_route_adapter` makes the approved-registry path first-class with typed receipts (`applied: false`, `no_fallback`, account boundary, distinct empty/stale/budget/provider outcomes). `register_model_route_adapter` probes Hermes for a model-selection apply seam and records a safe no-op on Hermes 0.19 (no silent model swap). `accept_model_route` refuses apply unless the host supplies an explicit callback. Documents the Hermes 0.19 honesty boundary in `docs/MODEL-ROUTING.md`. Status JSON includes `model_route_adapter`.
+
 ## 0.4.2
 
 - Automatic hosted Jev is on after install. `automatic_skill_public_or_sanitized_data_ack` defaults true. Set it false to skip hosted automatic routing. Topic words such as "private" or "verification" no longer skip Jev; high-confidence secrets, payment values, and verification codes still do.
