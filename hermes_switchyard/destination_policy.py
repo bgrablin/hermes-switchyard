@@ -419,10 +419,24 @@ class ValidatingProxy:
             # The slot is taken here so a flood cannot create unbounded threads; the
             # serving thread owns it and releases it when the tunnel ends.
             if not self._slots.acquire(blocking=False):
+                # Windows aborts a socket that still holds an unread request.
+                # Drain the CONNECT before the refusal so the status can be read.
+                self._drain_unread(conn)
                 self._reply(conn, "503 Service Unavailable")
                 self._close(conn)
                 continue
             threading.Thread(target=self._serve, args=(conn,), daemon=True).start()
+
+    @staticmethod
+    def _drain_unread(sock: socket.socket) -> None:
+        sock.settimeout(1.0)
+        try:
+            while True:
+                chunk = sock.recv(4096)
+                if not chunk or b"\r\n\r\n" in chunk:
+                    return
+        except OSError:
+            return
 
     @staticmethod
     def _close(sock: socket.socket | None) -> None:
