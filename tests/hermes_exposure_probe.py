@@ -116,6 +116,7 @@ def main() -> int:
         "catalogs": catalogs,
         "registry": entries,
         "disabled_toolsets": disabled,
+        "platform_toolsets": config.get("platform_toolsets") if isinstance(config, dict) else None,
     }
     Path(scenario["result_path"]).write_text(json.dumps(result), encoding="utf-8")
     return 0
