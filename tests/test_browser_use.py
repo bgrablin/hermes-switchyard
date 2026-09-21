@@ -1362,13 +1362,15 @@ class BrowserReliabilityTests(unittest.TestCase):
             def which(name):
                 return {"chromium-browser": str(wrapper), "chromium": str(native)}.get(name)
 
-            with mock.patch.object(browser_use.shutil, "which", side_effect=which):
+            hidden = {"PROGRAMFILES": "", "PROGRAMFILES(X86)": "", "LOCALAPPDATA": ""}
+            with mock.patch.dict(os.environ, hidden, clear=False), mock.patch.object(browser_use.shutil, "which", side_effect=which):
                 path, family, confinement = browser_use._browser_binary_details()
             self.assertEqual(path, native)
             self.assertEqual(family, "chromium")
             self.assertEqual(confinement, "none")
 
-            with mock.patch.object(browser_use.shutil, "which", side_effect=lambda name: str(wrapper) if name == "chromium-browser" else None):
+            only_wrapper = lambda name: str(wrapper) if name == "chromium-browser" else None
+            with mock.patch.dict(os.environ, hidden, clear=False), mock.patch.object(browser_use.shutil, "which", side_effect=only_wrapper):
                 path, family, confinement = browser_use._browser_binary_details()
             self.assertEqual(path, wrapper)
             self.assertEqual(confinement, "snap")

@@ -34,6 +34,7 @@ import ipaddress
 import re
 import select
 import socket
+import struct
 import threading
 import time
 from collections import OrderedDict
@@ -427,6 +428,16 @@ class ValidatingProxy:
     def _close(sock: socket.socket | None) -> None:
         if sock is None:
             return
+        try:
+            # Windows aborts an unread response if close() races the send.
+            # A short linger lets the refusal status leave the host.
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 1))
+        except (OSError, AttributeError):
+            pass
+        try:
+            sock.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
         try:
             sock.close()
         except OSError:
