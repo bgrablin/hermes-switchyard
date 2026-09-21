@@ -217,11 +217,13 @@ class AutomaticEvaluationHarnessTests(unittest.TestCase):
 
     def test_env_shebang_parses_into_reexec_argv(self):
         argv = _parse_shebang_reexec_argv("#!/usr/bin/env python3")
-        self.assertEqual(argv[0], "/usr/bin/env")
+        # On POSIX the shebang path is kept; on Windows without that path,
+        # shutil.which("env") may supply a Git usr\bin\env location.
+        self.assertTrue(Path(argv[0]).name.lower().startswith("env"), argv[0])
         self.assertEqual(argv[1:], ["python3"])
 
         argv_s = _parse_shebang_reexec_argv("#!/usr/bin/env -S python3 -u")
-        self.assertEqual(argv_s[0], "/usr/bin/env")
+        self.assertTrue(Path(argv_s[0]).name.lower().startswith("env"), argv_s[0])
         self.assertIn("python3", argv_s)
 
     def test_direct_python_shebang_parses_into_reexec_argv(self):
