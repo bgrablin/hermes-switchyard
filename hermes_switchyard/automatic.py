@@ -1,15 +1,22 @@
 """Automatic, bounded skill routing through Hermes ``pre_llm_call``.
 
 The hook defaults to advisory mode. Its opt-in typed consumer can load one
-accepted skill through Hermes' normal skill loader without changing a toolset or
-rewriting the cached system prompt. Local matching supplies a deterministic
-fallback. Automatic routing defaults to local-only matching. Hosted Jev is
-available only when hosted_sanitized mode is explicitly selected. Standing
+accepted skill through Hermes' normal ``skill_view`` loader without changing a
+toolset or rewriting the cached system prompt. Local matching supplies a
+deterministic fallback. Automatic routing defaults to local-only matching.
+Hosted Jev is available only when ``hosted_sanitized`` mode is explicitly
+selected *and* the consumer can adopt (``load`` mode). Advisory recommendations
+never authorize hosted work: delivery alone is not adoption. Standing
 acknowledgement is retained for explicit hosted opt-in; it does not authorize
-hosted automatic routing by itself. A host envelope is optional strengthening and may
-provide a narrower sanitized payload. The automatic hosted payload then contains only the accepted task and
-exact candidate identifiers. Conversation history, candidate descriptions, and
-full skill bodies stay local.
+hosted automatic routing by itself. A host envelope is optional strengthening
+and may provide a narrower sanitized payload. The automatic hosted payload then
+contains only the accepted task and exact candidate identifiers. Conversation
+history, candidate descriptions, and full skill bodies stay local.
+
+Every automatic turn records delivery, adoption, and outcome separately.
+Outcome stays ``unverified`` at the plugin boundary so delivery is never claimed
+as improvement. Explicit user skill instructions are resolved before any local
+or hosted selection and suppress routing with zero provider requests.
 """
 from __future__ import annotations
 
@@ -328,6 +335,7 @@ class AutomaticSkillRecommender:
         cache_seconds: float = DEFAULT_CACHE_SECONDS,
         cache_size: int = DEFAULT_CACHE_SIZE,
         deadline_seconds: float = DEFAULT_AUTOMATIC_DEADLINE_SECONDS,
+        adoption_capable: bool | None = None,
     ) -> None:
         self.configured_candidates = (
             _validate_candidates(configured_candidates, limit=None)
@@ -356,6 +364,10 @@ class AutomaticSkillRecommender:
         self.cache_seconds = max(0.0, min(float(cache_seconds), MAX_CACHE_SECONDS))
         self.cache_size = max(1, min(int(cache_size), 128))
         self.deadline_seconds = _validate_deadline_seconds(deadline_seconds)
+        # None leaves hosted policy unchanged for direct library callers.
+        # The pre_llm_call hook sets False for advisory mode so hosted work
+        # abstains when the consumer cannot adopt the recommendation.
+        self.adoption_capable = None if adoption_capable is None else bool(adoption_capable)
         self._cache: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
         self._lock = threading.RLock()
         self._client: Any | None = None
@@ -633,6 +645,13 @@ class AutomaticSkillRecommender:
             result["hosted_skipped"] = "routing_mode_local_only"
             result["routing_status"] = "local_selection" if local_selected else "local_abstention"
             result["routing_reason"] = local_reason if not local_selected else "local_match"
+        elif self.adoption_capable is False:
+            # Advisory (or any non-adopting) consumer cannot turn a hosted
+            # recommendation into an observable skill load. Abstain from hosted
+            # work rather than paying cost/latency for delivery-only advice.
+            result["hosted_skipped"] = "consumer_contract_unmet"
+            result["routing_status"] = "hosted_skipped"
+            result["routing_reason"] = "consumer_contract_unmet"
         elif evaluation is not None and not evaluation.allowed:
             # This branch occurs before client_factory() by design. Local
             # matching is still allowed because it does not cross the boundary.
@@ -1013,6 +1032,40 @@ def build_routing_receipt(result: dict) -> dict:
     }
 
 
+
+def build_consumption_contract(
+    *,
+    delivery_status: str,
+    adoption_status: str,
+) -> dict[str, str]:
+    """Return the first-class delivery/adoption/outcome record.
+
+    Outcome is always ``unverified`` at the plugin boundary. Callers that want
+    comparative improvement must measure it outside this receipt (for example
+    paired end-to-end arms) and must not treat delivery as success.
+    """
+    if delivery_status not in receipt_state.DELIVERY_STATUSES:
+        raise ValueError("delivery_status is invalid")
+    if adoption_status not in receipt_state.ADOPTION_STATUSES:
+        raise ValueError("adoption_status is invalid")
+    if adoption_status == "adopted" and delivery_status != "delivered":
+        raise ValueError("adopted requires delivered")
+    if adoption_status == "suppressed" and delivery_status != "skipped":
+        raise ValueError("suppressed requires skipped delivery")
+    return {
+        "delivery_status": delivery_status,
+        "adoption_status": adoption_status,
+        "outcome_status": "unverified",
+    }
+
+
+def _attach_consumption_contract(receipt: dict[str, Any], contract: Mapping[str, str]) -> dict[str, Any]:
+    """Merge a validated consumption contract into a receipt copy."""
+    updated = dict(receipt)
+    updated.update(dict(contract))
+    return updated
+
+
 def _format_recommendation(name: str) -> str:
     return (
         "Advisory skill recommendation: consider the exact skill identifier "
@@ -1113,6 +1166,7 @@ def build_pre_llm_call_hook(
             local_margin=local_margin,
             cache_seconds=cache_seconds,
             deadline_seconds=deadline_seconds,
+            adoption_capable=(consumer_mode == "load"),
         )
     except (TypeError, ValueError) as exc:
         logger.warning("automatic skill recommendation disabled by invalid configuration: %s", type(exc).__name__)
@@ -1146,6 +1200,63 @@ def build_pre_llm_call_hook(
             if configured or recommender.routing_mode == "off"
             else discover_available_skill_candidates()
         )
+        candidates = recommender.configured_candidates if configured else catalog_candidates
+        # Explicit skill instructions win before any local/hosted selection so a
+        # determined turn never pays for a hosted Jev request.
+        override = _explicit_skill_override(user_message, candidates)
+        if override is not None:
+            result = {
+                "status": "abstained",
+                "selected": None,
+                "source": "none",
+                "abstention_reason": "explicit_override",
+                "routing_mode": recommender.routing_mode,
+                "routing_status": "hosted_skipped",
+                "routing_reason": "explicit_override",
+                "hosted_attempted": False,
+                "hosted_skipped": "explicit_override",
+                "candidate_count": len(candidates) if isinstance(candidates, (list, tuple)) else 0,
+                "candidates_considered": [],
+                "cache_hit": False,
+                "request_count": 0,
+            }
+            contract = build_consumption_contract(
+                delivery_status="skipped",
+                adoption_status="suppressed",
+            )
+            receipt = _attach_consumption_contract(build_routing_receipt(result), contract)
+            if consumer_mode == "load":
+                receipt.update(
+                    {
+                        "consumer_status": "explicit_override",
+                        "loaded_skill": None,
+                        "loaded_source": None,
+                        "skill_load_verified": False,
+                        "advisory_only": True,
+                    }
+                )
+            recommender.last_receipt = receipt
+            receipt_state.store_latest_receipt(receipt)
+            metadata = redacted_routing_metadata(result)
+            metadata["skill_recommendation"] = {
+                "status": "explicit_override",
+                "selected": None,
+                "explicit_skill": override,
+                "source": "none",
+                "loaded_once": False,
+                **contract,
+            }
+            setattr(on_pre_llm_call, "last_result", dict(result))
+            setattr(on_pre_llm_call, "last_receipt", dict(receipt))
+            setattr(on_pre_llm_call, "last_metadata", dict(metadata))
+            setattr(on_pre_llm_call, "last_routing_metadata", dict(metadata))
+            response = {"metadata": metadata}
+            if turn_key is not None:
+                consumed_turns[turn_key] = dict(response)
+                while len(consumed_turns) > DEFAULT_CACHE_SIZE:
+                    consumed_turns.popitem(last=False)
+            return response
+
         result = recommender.recommend(
             user_message,
             candidates=catalog_candidates,
@@ -1160,28 +1271,46 @@ def build_pre_llm_call_hook(
         setattr(on_pre_llm_call, "last_routing_metadata", dict(metadata))
         selected = result.get("selected")
         if not isinstance(selected, str) or not selected:
+            contract = build_consumption_contract(
+                delivery_status="not_delivered",
+                adoption_status="not_applicable",
+            )
+            receipt = _attach_consumption_contract(dict(recommender.last_receipt or {}), contract)
+            recommender.last_receipt = receipt
+            receipt_state.store_latest_receipt(receipt)
+            setattr(on_pre_llm_call, "last_receipt", dict(receipt))
             metadata["skill_recommendation"] = {
                 "status": "abstained",
                 "selected": None,
                 "source": result.get("source", "none"),
                 "loaded_once": False,
+                **contract,
             }
             response = {"metadata": metadata}
         elif consumer_mode == "advisory":
+            contract = build_consumption_contract(
+                delivery_status="delivered",
+                adoption_status="not_adopted",
+            )
+            receipt = _attach_consumption_contract(dict(recommender.last_receipt or {}), contract)
+            recommender.last_receipt = receipt
+            receipt_state.store_latest_receipt(receipt)
+            setattr(on_pre_llm_call, "last_receipt", dict(receipt))
             metadata["skill_recommendation"] = {
                 "status": "advisory",
                 "selected": selected,
                 "source": result.get("source", "none"),
                 "loaded_once": False,
+                **contract,
             }
             response = {"context": _format_recommendation(selected), "metadata": metadata}
         else:
-            candidates = recommender.configured_candidates if configured else catalog_candidates
-            override = _explicit_skill_override(user_message, candidates)
-            if override is not None:
-                status, loaded_context = "explicit_override", None
-            elif _mandatory_skill_conflict(selected, mandatory_skills):
+            if _mandatory_skill_conflict(selected, mandatory_skills):
                 status, loaded_context = "mandatory_conflict", None
+                contract = build_consumption_contract(
+                    delivery_status="skipped",
+                    adoption_status="suppressed",
+                )
             else:
                 try:
                     if active_skill_loader is None:
@@ -1190,15 +1319,24 @@ def build_pre_llm_call_hook(
                     if not isinstance(loaded_context, str) or not loaded_context.strip():
                         raise ValueError("skill loader returned no content")
                     status = "loaded"
+                    contract = build_consumption_contract(
+                        delivery_status="delivered",
+                        adoption_status="adopted",
+                    )
                 except Exception:  # noqa: BLE001 -- consumer fails closed to advisory context
                     logger.warning("automatic skill consumer rejected %s", selected, exc_info=True)
                     status, loaded_context = "load_failed", None
+                    contract = build_consumption_contract(
+                        delivery_status="delivered",
+                        adoption_status="not_adopted",
+                    )
             loaded_once = status == "loaded"
             metadata["skill_recommendation"] = {
                 "status": status,
                 "selected": selected,
                 "source": result.get("source", "none"),
                 "loaded_once": loaded_once,
+                **contract,
             }
             receipt = dict(recommender.last_receipt or {})
             receipt.update(
@@ -1210,6 +1348,7 @@ def build_pre_llm_call_hook(
                     "advisory_only": not loaded_once,
                 }
             )
+            receipt = _attach_consumption_contract(receipt, contract)
             recommender.last_receipt = receipt
             receipt_state.store_latest_receipt(receipt)
             setattr(on_pre_llm_call, "last_receipt", dict(receipt))

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Automatic skill routing consumption contract (issue #19): resolve explicit skill instructions before any local/hosted selection with zero provider requests (`explicit_override` pre-routing skip); record `delivery_status`, `adoption_status`, and `outcome_status` separately (outcome stays `unverified` at the plugin boundary); hosted automatic routing abstains with `consumer_contract_unmet` unless consumer mode is `load` (Hermes `skill_view` seam); advisory delivery is never treated as adoption.
 - Fail closed when a clean local restricted-pattern scan has no host per-turn allow envelope: unclassified turns stay `data_class=unknown` (`local_scan_unclassified`) and are not forwarded to hosted Jev as `sanitized`.
 - Automatic hosted routing uses a separate intervention deadline (default 20s, below the typical Hermes ~30s plugin callback) from explicit decision/computer-use deadlines (60s). Remaining budget is checked before each partition/reduction request; late results after the deadline are discarded; distinct receipt codes record `deadline_exceeded`, `host_cancelled`, and `late_result_discarded`; intervention timeout is reported separately from provider I/O timeout (issue #26).
 - DOM browser receipts: preserve the action ledger on provider timeout/validation failures as `partial_failure` with `reconcile_before_retry`; distinguish `action_dispatched` / `effect_observed` / `goal_verified`; do not set `effect_confirmed` for same-document clicks with no observed URL/title/DOM delta (issue #28).

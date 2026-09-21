@@ -157,7 +157,9 @@ hermes switchyard setup --provider typesafe
 
 ## Typed skill consumer and no model switch
 
-Advisory mode does not call Hermes' skill loader. Opt-in load mode passes the accepted exact identifier to Hermes' supported `skill_view` loader. Any explicit skill instruction suppresses automatic loading, abstention and invalid output do nothing, and loader rejection fails closed to advisory context. Repeated delivery of the same identified turn reuses the first callback result rather than loading again.
+Advisory mode does not call Hermes' skill loader and cannot authorize hosted automatic routing: hosted work abstains with `consumer_contract_unmet` unless consumer mode is `load`. Opt-in load mode passes the accepted exact identifier to Hermes' supported `skill_view` loader (the supported consumer seam). Explicit skill instructions are resolved **before** any local or hosted selection, recorded as a pre-routing `explicit_override` skip with zero provider requests, and suppress automatic loading. Abstention and invalid output do nothing; loader rejection fails closed to advisory context. Repeated delivery of the same identified turn reuses the first callback result rather than loading again.
+
+Every automatic turn records `delivery_status`, `adoption_status`, and `outcome_status` separately. The plugin always leaves `outcome_status` as `unverified` so delivery alone is never claimed as improvement. Paired evaluation must show the on arm improving adoption or outcome over the off arm.
 
 `jev_model_route` remains a separate advisory tool. Automatic recommendations do not select a new Hermes model, provider, account, credential, toolset, or fallback. A Jev fit signal is not a calibrated quality or safety claim, and the active model may encode cost, quota, capability, residency, or authorization policy.
 

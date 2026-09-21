@@ -34,7 +34,7 @@ config_schema:
   approved_model_registry_version: {type: str, default: "", description: Required operator-managed version identifier for the approved model registry}
   approved_model_registry_valid_until: {type: str, default: "", description: Required timezone-aware ISO-8601 expiry for the approved model registry}
   automatic_skill_recommendation: {type: bool, default: true, description: Enable bounded local skill recommendations in the pre_llm_call lifecycle hook}
-  automatic_skill_consumer_mode: {type: str, default: "advisory", description: "advisory injects a recommendation; load invokes Hermes skill_view once per accepted turn and preserves typed load readback"}
+  automatic_skill_consumer_mode: {type: str, default: "advisory", description: "advisory delivers recommendation context without adoption; load adopts via Hermes skill_view once per accepted turn. Hosted automatic routing requires load mode; delivery, adoption, and outcome are recorded separately"}
   automatic_skill_candidates: {type: list, default: [], description: "Explicit skill candidate objects; an empty list uses the full Hermes active profile skills registry and candidate descriptions remain local-only for automatic hosted routing"}
   automatic_skill_local_threshold: {type: float, default: 0.2, description: "Local token-overlap threshold; it is an uncalibrated abstention policy"}
   automatic_skill_local_margin: {type: float, default: 0.05, description: "Required local winner margin; it is an uncalibrated abstention policy"}

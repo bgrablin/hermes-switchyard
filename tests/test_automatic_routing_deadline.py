@@ -211,6 +211,8 @@ class AutomaticRoutingDeadlineTests(unittest.TestCase):
             client_factory=lambda: DecisionClient(
                 api_key="fixture-key", transport=transport
             ),
+            consumer_mode="load",
+            skill_loader=lambda name, task_id=None: name,
         )
         response = hook(
             user_message="public Docker maintenance",
