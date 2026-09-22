@@ -1,9 +1,12 @@
 """Per-turn envelope validation for automatic hosted decisions.
 
 The plugin owns the standing acknowledgement and local bounded scan. Hosted
-construction requires an explicit host allow envelope (``turn_egress_policy``);
-a clean local scan without one is ``unknown`` / ``local_scan_unclassified`` and
-does not authorize hosting. The plugin is not Hermes-owned DLP or authorization.
+construction is authorized by either (1) an explicit host allow envelope
+(``turn_egress_policy``) or (2) a standing operator acknowledgement when the
+envelope is absent and the local restricted-pattern scan is clean
+(``egress_authority: standing_ack``). Explicit deny, unknown, malformed, and
+restricted envelopes still fail closed. The plugin is not Hermes-owned DLP or
+authorization.
 """
 from __future__ import annotations
 
@@ -36,13 +39,24 @@ _REASON_CODE_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 _ALLOWED_PAYLOAD_CONTROL_CHARS = frozenset({"\n", "\r", "\t"})
 
 
+# Authority sources recorded on allowed evaluations (existing envelope vocabulary).
+EGRESS_AUTHORITY_HOST_ENVELOPE = "host_envelope"
+EGRESS_AUTHORITY_STANDING_ACK = "standing_ack"
+
+# Install / register defaults for automatic hosted routing (must match plugin.yaml).
+DEFAULT_ROUTING_MODE = "hosted_sanitized"
+DEFAULT_CONSUMER_MODE = "load"
+DEFAULT_AUTOMATIC_PUBLIC_OR_SANITIZED_DATA_ACK = True
+
+
 @dataclass(frozen=True)
 class TurnEgressEvaluation:
     """A redacted result of evaluating one host turn envelope.
 
     ``allowed_payload`` is retained only for the immediate allowed call.  It is
     never included in :meth:`metadata` and callers must not persist it in a
-    receipt or recommendation result.
+    receipt or recommendation result. ``egress_authority`` records whether an
+    allow came from a host envelope or standing operator acknowledgement.
     """
 
     allowed: bool
@@ -52,16 +66,20 @@ class TurnEgressEvaluation:
     reason_code: str
     allowed_payload: str | None = None
     version: int | None = None
+    egress_authority: str | None = None
 
     @property
     def metadata(self) -> dict[str, Any]:
         """Return status-only metadata safe for a plugin receipt."""
-        return {
+        meta: dict[str, Any] = {
             "policy_status": self.status,
             "policy_reason": self.reason_code,
             "policy_data_class": self.data_class,
             "policy_version": self.version,
         }
+        if self.egress_authority is not None:
+            meta["egress_authority"] = self.egress_authority
+        return meta
 
     @property
     def cache_key(self) -> tuple[Any, ...]:
@@ -114,11 +132,11 @@ def _valid_payload(value: Any) -> bool:
 def evaluate_turn_egress_policy(policy: Any) -> TurnEgressEvaluation:
     """Evaluate a host per-turn envelope without performing I/O.
 
-    This helper validates only the envelope. Automatic hosted routing requires
-    an allow envelope at the call site. When none is supplied, the recommender
-    still applies acknowledgement and local-scan gates: false acknowledgement
-    yields ``ack_required``, restricted task text yields a specific
-    ``local_scan_*`` reason, and a clean scan yields ``local_scan_unclassified``.
+    This helper validates only the envelope. When none is supplied, the
+    recommender applies acknowledgement and local-scan gates: false
+    acknowledgement yields ``ack_required``, restricted task text yields a
+    specific ``local_scan_*`` reason, and a clean scan with standing
+    acknowledgement allows hosting with ``egress_authority=standing_ack``.
     Explicit deny, unknown, malformed, and restricted envelopes remain
     fail-closed here.
     """
@@ -194,6 +212,7 @@ def evaluate_turn_egress_policy(policy: Any) -> TurnEgressEvaluation:
         reason_code="per_turn_policy_allowed",
         allowed_payload=allowed_payload,
         version=version,
+        egress_authority=EGRESS_AUTHORITY_HOST_ENVELOPE,
     )
 
 

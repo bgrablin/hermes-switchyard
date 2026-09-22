@@ -48,9 +48,40 @@ class _Context:
 
 
 class AutomaticRecommendationTests(unittest.TestCase):
-    def test_recommender_defaults_to_local_only_without_legacy_opt_in(self):
+    def test_recommender_defaults_to_hosted_sanitized(self):
+        calls = []
+
+        def transport(payload):
+            calls.append(payload)
+            return {
+                "model": "typesafe/jev-1.13",
+                "answers": {
+                    "skill": {
+                        "choice": "docker-management",
+                        "confidence": 0.99,
+                        "probabilities": {"docker-management": 1.0},
+                    },
+                    "needs_skill": {"noul": 0.99},
+                },
+                "usage": {},
+            }
+
         recommender = AutomaticSkillRecommender(
             configured_candidates=[{"name": "docker-management", "description": "Docker containers"}],
+            client_factory=lambda: DecisionClient(api_key="fixture-key", transport=transport),
+            adoption_capable=True,
+        )
+        result = recommender.recommend("Diagnose a Docker container")
+        self.assertEqual(recommender.routing_mode, "hosted_sanitized")
+        self.assertTrue(result["hosted_attempted"])
+        self.assertEqual(result.get("egress_authority"), "standing_ack")
+        self.assertEqual(result.get("policy_reason"), "standing_ack_allowed")
+        self.assertGreaterEqual(len(calls), 1)
+
+    def test_recommender_legacy_hosted_enabled_false_stays_local_only(self):
+        recommender = AutomaticSkillRecommender(
+            configured_candidates=[{"name": "docker-management", "description": "Docker containers"}],
+            hosted_enabled=False,
             client_factory=lambda: (_ for _ in ()).throw(AssertionError("local-only routing must not build a client")),
         )
         result = recommender.recommend("Diagnose a Docker container")
@@ -258,7 +289,7 @@ class AutomaticRecommendationTests(unittest.TestCase):
             },
         )
 
-    def test_plugin_registration_defaults_stay_local_until_explicit_attestation(self):
+    def test_plugin_registration_defaults_host_via_standing_ack(self):
         import hermes_switchyard as switchyard
 
         calls = []
@@ -293,25 +324,28 @@ class AutomaticRecommendationTests(unittest.TestCase):
             side_effect=lambda **_kwargs: DecisionClient(api_key="fixture-key", transport=transport),
         )
         with patcher_key, patcher_client:
-            # Without an explicit attestation the default must never host a call.
+            # Install defaults (hosted_sanitized + load + ack) authorize hosting
+            # via standing acknowledgement when no host envelope is present.
             default_context = build_context()
             switchyard.register(default_context)
             hook = default_context.hooks["pre_llm_call"]
             result = hook(user_message="public Docker maintenance request", conversation_history=[])
             self.assertIsNotNone(result)
-            self.assertEqual(len(calls), 0)
-            self.assertFalse(hook.last_result["hosted_attempted"])
+            self.assertEqual(len(calls), 1)
+            self.assertTrue(hook.last_result["hosted_attempted"])
+            self.assertEqual(hook.last_result.get("egress_authority"), "standing_ack")
+            self.assertEqual(hook.last_result.get("policy_reason"), "standing_ack_allowed")
 
-            # Attestation alone is not enough: the host must also supply an
-            # explicit per-turn allow envelope, and the consumer must be able
-            # to adopt (load). A clean local scan is unknown, not sanitized.
-            attested_context = build_context({
+            # An explicit host allow envelope still authorizes and records
+            # egress_authority=host_envelope.
+            calls.clear()
+            envelope_context = build_context({
                 "automatic_skill_routing_mode": "hosted_sanitized",
                 "automatic_skill_public_or_sanitized_data_ack": True,
                 "automatic_skill_consumer_mode": "load",
             })
-            switchyard.register(attested_context)
-            hook = attested_context.hooks["pre_llm_call"]
+            switchyard.register(envelope_context)
+            hook = envelope_context.hooks["pre_llm_call"]
             result = hook(
                 user_message="public Docker maintenance request",
                 conversation_history=[],
@@ -321,6 +355,24 @@ class AutomaticRecommendationTests(unittest.TestCase):
             self.assertEqual(len(calls), 1)
             self.assertTrue(hook.last_result["hosted_attempted"])
             self.assertEqual(hook.last_result["source"], "jev")
+            self.assertEqual(hook.last_result.get("egress_authority"), "host_envelope")
+
+            # Explicit deny envelopes still fail closed despite standing ack.
+            calls.clear()
+            denied = hook(
+                user_message="public Docker maintenance request",
+                conversation_history=[],
+                turn_egress_policy={
+                    "version": 1,
+                    "decision": "deny",
+                    "data_class": "private",
+                    "reason_code": "private_turn",
+                },
+            )
+            self.assertIsNotNone(denied)
+            self.assertEqual(len(calls), 0)
+            self.assertFalse(hook.last_result["hosted_attempted"])
+            self.assertEqual(hook.last_result.get("hosted_skipped"), "restricted_data_class")
 
     def test_skill_registry_discovery_uses_public_response_schema(self):
         payload = {
@@ -565,31 +617,71 @@ class AutomaticRecommendationTests(unittest.TestCase):
         self.assertTrue(result["hosted_attempted"])
         self.assertEqual(result["source"], "jev")
 
-    def test_clean_local_scan_without_supplied_policy_stays_unknown(self):
-        constructed = []
+    def test_clean_local_scan_without_supplied_policy_allows_standing_ack(self):
+        calls = []
 
-        def forbidden_client():
-            constructed.append(True)
-            raise AssertionError("unclassified local-only scan must not construct a hosted client")
+        def transport(payload):
+            calls.append(payload)
+            return {
+                "model": "typesafe/jev-1.13",
+                "answers": {
+                    "skill": {
+                        "choice": "docker-management",
+                        "confidence": 0.99,
+                        "probabilities": {"docker-management": 1.0},
+                    },
+                    "needs_skill": {"noul": 0.99},
+                },
+                "usage": {},
+            }
 
         recommender = AutomaticSkillRecommender(
             configured_candidates=[{"name": "docker-management", "description": "Docker"}],
             hosted_enabled=True,
             public_or_sanitized_data_ack=True,
-            client_factory=forbidden_client,
+            client_factory=lambda: DecisionClient(api_key="fixture-key", transport=transport),
+            adoption_capable=True,
         )
         result = recommender.recommend("Diagnose an ordinary Docker container issue")
+        self.assertTrue(result["hosted_attempted"])
+        self.assertIsNone(result.get("policy_data_class"))
+        self.assertIsNone(result.get("policy_version"))
+        self.assertEqual(result.get("policy_status"), "allowed")
+        self.assertEqual(result.get("policy_reason"), "standing_ack_allowed")
+        self.assertEqual(result.get("egress_authority"), "standing_ack")
+        self.assertNotIn("hosted_skipped", result)
+        self.assertGreaterEqual(len(calls), 1)
+        wire = json.dumps(calls[0], sort_keys=True)
+        self.assertIn("Diagnose an ordinary Docker container issue", wire)
+
+    def test_envelope_deny_still_blocks_despite_standing_ack(self):
+        constructed = []
+
+        def forbidden_client():
+            constructed.append(True)
+            raise AssertionError("deny envelope must not construct a hosted client")
+
+        deny = {
+            "version": 1,
+            "decision": "deny",
+            "data_class": "private",
+            "reason_code": "private_turn",
+        }
+        recommender = AutomaticSkillRecommender(
+            configured_candidates=[{"name": "docker-management", "description": "Docker"}],
+            routing_mode="hosted_sanitized",
+            public_or_sanitized_data_ack=True,
+            client_factory=forbidden_client,
+            adoption_capable=True,
+        )
+        result = recommender.recommend(
+            "Diagnose an ordinary Docker container issue",
+            turn_egress_policy=deny,
+        )
         self.assertFalse(result["hosted_attempted"])
         self.assertEqual(constructed, [])
-        self.assertEqual(result.get("policy_data_class"), "unknown")
-        self.assertEqual(result.get("policy_status"), "unknown")
-        self.assertEqual(result.get("policy_reason"), "local_scan_unclassified")
-        self.assertEqual(result.get("hosted_skipped"), "local_scan_unclassified")
-        self.assertIsNotNone(recommender.last_receipt)
-        self.assertEqual(
-            recommender.last_receipt.get("hosted_skip_reason"),
-            "local_scan_unclassified",
-        )
+        self.assertEqual(result.get("hosted_skipped"), "restricted_data_class")
+        self.assertEqual(result.get("policy_reason"), "restricted_data_class")
 
     def test_ack_false_blocks_hosted_call_without_envelope(self):
         constructed = []
