@@ -1470,6 +1470,7 @@ class PluginEntryPointTests(unittest.TestCase):
                     "jev_skill_select_many",
                     "jev_model_route",
                     "jev_model_route_approved",
+                    "jev_session_search_rerank",
                 ):
                     with self.subTest(name=name):
                         result = json.loads(context.tools[name]({"public_or_sanitized_data_ack": False}))
@@ -1512,7 +1513,7 @@ class PluginEntryPointTests(unittest.TestCase):
         context = Context()
         hermes_switchyard.register(context)
         self.assertEqual(context.toolsets["jev_computer_use"], "computer_use")
-        for name in ("jev_assess", "jev_skill_select", "jev_skill_select_many", "jev_model_route"):
+        for name in ("jev_assess", "jev_skill_select", "jev_skill_select_many", "jev_model_route", "jev_session_search_rerank"):
             self.assertEqual(context.toolsets[name], "hermes_switchyard")
 
     def test_jev_computer_use_is_visible_without_credentials(self):

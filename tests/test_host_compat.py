@@ -174,6 +174,7 @@ class RegisterWithoutGetConfigTests(unittest.TestCase):
             "jev_skill_select",
             "jev_skill_select_many",
             "jev_model_route",
+            "jev_session_search_rerank",
         ):
             self.assertIn(name, registered["tools"])
 

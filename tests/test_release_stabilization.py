@@ -360,9 +360,15 @@ class NamespaceAndAckTests(unittest.TestCase):
             check_native_hermes.EXPECTED_REQUIRED_FIELDS["jev_skill_select_many"],
             {"task", "candidates"},
         )
+        self.assertIn("jev_session_search_rerank", check_native_hermes.EXPECTED_TOOLS)
+        self.assertEqual(
+            check_native_hermes.EXPECTED_REQUIRED_FIELDS["jev_session_search_rerank"],
+            {"query", "candidates"},
+        )
+        self.assertIn("  - jev_session_search_rerank", manifest)
 
     def test_model_facing_acknowledgement_defaults_on_and_is_optional(self):
-        for schema in (schemas.ASSESS, schemas.COMPUTER_USE, schemas.SKILL_SELECT, schemas.MODEL_ROUTE, schemas.MULTI_SKILL_SELECT):
+        for schema in (schemas.ASSESS, schemas.COMPUTER_USE, schemas.SKILL_SELECT, schemas.MODEL_ROUTE, schemas.MULTI_SKILL_SELECT, schemas.SESSION_SEARCH_RERANK):
             self.assertNotIn("public_or_sanitized_data_ack", schema["parameters"]["required"])
             self.assertIs(schema["parameters"]["properties"]["public_or_sanitized_data_ack"]["default"], True)
         text_inputs = schemas.COMPUTER_USE["parameters"]["properties"]["text_inputs"]
