@@ -25,7 +25,12 @@ from .client import (
 )
 from . import browser_use
 from .computer_use import StaleTargetError, run_computer_goal
-from .egress import is_routing_mode
+from .egress import (
+    DEFAULT_AUTOMATIC_PUBLIC_OR_SANITIZED_DATA_ACK,
+    DEFAULT_CONSUMER_MODE,
+    DEFAULT_ROUTING_MODE,
+    is_routing_mode,
+)
 from .model_policy import recommend_approved_model
 from .model_route_adapter import register_model_route_adapter
 from .reasoning_effort_adapter import register_reasoning_effort_adapter
@@ -1396,16 +1401,17 @@ def register(ctx):
 
     configured_routing_mode = ctx_get_config(ctx, "automatic_skill_routing_mode", default=None)
     if configured_routing_mode is None:
-        # Automatic routing is local-only unless the operator explicitly opts
-        # into hosted_sanitized mode. The legacy boolean never authorizes egress.
-        configured_routing_mode = "local_only"
+        # Unset profiles inherit the install default (hosted_sanitized). The
+        # legacy automatic_skill_jev boolean never authorizes egress by itself.
+        configured_routing_mode = DEFAULT_ROUTING_MODE
     automatic_hook = build_pre_llm_call_hook(
         enabled=setting_bool("automatic_skill_recommendation", True),
         configured_candidates=ctx_get_config(ctx, "automatic_skill_candidates", default=[]),
         routing_mode=configured_routing_mode,
         hosted_mode=ctx_get_config(ctx, "automatic_skill_jev_mode", default="always"),
         public_or_sanitized_data_ack=setting_bool(
-            "automatic_skill_public_or_sanitized_data_ack", False
+            "automatic_skill_public_or_sanitized_data_ack",
+            DEFAULT_AUTOMATIC_PUBLIC_OR_SANITIZED_DATA_ACK,
         ),
         client_factory=client,
         cache_identity=cache_identity,
@@ -1437,8 +1443,8 @@ def register(ctx):
             minimum=0.5,
             maximum=DEFAULT_OPERATION_DEADLINE_SECONDS,
         ),
-        consumer_mode=ctx_get_config(ctx, 
-            "automatic_skill_consumer_mode", default="advisory"
+        consumer_mode=ctx_get_config(
+            ctx, "automatic_skill_consumer_mode", default=DEFAULT_CONSUMER_MODE
         ),
         skill_loader=_load_skill_context,
         mandatory_skills=discover_mandatory_skills(
@@ -1447,9 +1453,10 @@ def register(ctx):
     )
     _publish_runtime_status(
         routing_mode=configured_routing_mode,
-        consumer_mode=ctx_get_config(ctx, "automatic_skill_consumer_mode", default="advisory"),
+        consumer_mode=ctx_get_config(ctx, "automatic_skill_consumer_mode", default=DEFAULT_CONSUMER_MODE),
         public_or_sanitized_data_ack=setting_bool(
-            "automatic_skill_public_or_sanitized_data_ack", False
+            "automatic_skill_public_or_sanitized_data_ack",
+            DEFAULT_AUTOMATIC_PUBLIC_OR_SANITIZED_DATA_ACK,
         ),
         automatic_skill_jev_mode=ctx_get_config(ctx, "automatic_skill_jev_mode", default="always"),
     )

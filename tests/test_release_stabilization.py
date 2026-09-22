@@ -469,7 +469,7 @@ class NamespaceAndAckTests(unittest.TestCase):
         self.assertIs(payload["public_or_sanitized_data_ack"], True)
         self.assertIs(payload["hosted_construction_allowed"], True)
 
-    def test_unset_routing_mode_defaults_to_local_only(self):
+    def test_unset_routing_mode_defaults_to_hosted_sanitized(self):
         import hermes_switchyard
 
         class Context:
@@ -493,16 +493,17 @@ class NamespaceAndAckTests(unittest.TestCase):
                 pass
 
         hermes_switchyard.reset_runtime_status()
-        # An old profile with no routing-mode setting must get the new
-        # local-only default, never an implicit hosted upgrade.
+        # An unset profile inherits install defaults: hosted_sanitized + load + ack.
         hermes_switchyard.register(Context({}))
         status = SimpleNamespace(switchyard_command="status", json_output=True)
         with mock.patch.object(hermes_switchyard, "_secret", return_value=""), \
              mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
             self.assertEqual(hermes_switchyard._cli_handler(status), 0)
         payload = json.loads(stdout.getvalue())
-        self.assertEqual(payload["routing_mode"], "local_only")
-        self.assertIs(payload["hosted_construction_allowed"], False)
+        self.assertEqual(payload["routing_mode"], "hosted_sanitized")
+        self.assertEqual(payload["consumer_mode"], "load")
+        self.assertIs(payload["public_or_sanitized_data_ack"], True)
+        self.assertIs(payload["hosted_construction_allowed"], True)
 
     def test_registered_route_resolves_config_and_secret_each_call(self):
         import hermes_switchyard
