@@ -64,6 +64,9 @@ billed provider when `jev_provider` is configured explicitly.
 
 ## Skill selection
 
+
+`jev_session_search_rerank` re-ranks a stock Hermes `session_search` FTS shortlist. Call `session_search` first, then pass ordered compact cards plus the recall question. Fail-open returns the first FTS candidate when Jev is unavailable or low-confidence; full transcripts are never sent by default.
+
 `jev_skill_select` is advisory only. Candidate identifiers are exact: leading or
 trailing whitespace is rejected and no identifier normalization is performed.
 The provider's per-Choice limit is handled internally: catalogs larger than 255

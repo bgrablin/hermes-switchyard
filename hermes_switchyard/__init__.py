@@ -35,6 +35,7 @@ from .model_policy import recommend_approved_model
 from .model_route_adapter import register_model_route_adapter
 from .reasoning_effort_adapter import register_reasoning_effort_adapter
 from .routing import route_model, select_skill, select_skills
+from .session_search_rerank import rerank_session_search
 
 from .host_compat import ctx_get_config, register_auxiliary_task as register_host_auxiliary_task
 
@@ -63,6 +64,7 @@ TOOL_TOOLSETS = {
     "jev_skill_select_many": PLUGIN_TOOLSET,
     "jev_model_route": PLUGIN_TOOLSET,
     "jev_model_route_approved": PLUGIN_TOOLSET,
+    "jev_session_search_rerank": PLUGIN_TOOLSET,
 }
 # Sessions that advertise Switchyard computer use need both toolsets selected.
 # Plugin Doctor / plugin-enable only toggles one plugin toolset key
@@ -1616,6 +1618,30 @@ def register(ctx):
         except Exception as exc:  # noqa: BLE001 -- tool handlers return structured errors
             return _error(exc)
 
+    def session_search_rerank_handler(args, **kwargs):
+        try:
+            _require_public_data_ack(args, standing=standing_ack)
+            return json.dumps(with_client(lambda active_client: rerank_session_search(
+                    query=str(args.get("query") or ""),
+                    candidates=list(args.get("candidates") or []),
+                    client=active_client,
+                    choice_confidence_threshold=args.get(
+                        "choice_confidence_threshold",
+                        schemas.DEFAULT_SESSION_SEARCH_CHOICE_CONFIDENCE_THRESHOLD,
+                    ),
+                    winning_probability_threshold=args.get(
+                        "winning_probability_threshold",
+                        schemas.DEFAULT_SESSION_SEARCH_WINNING_PROBABILITY_THRESHOLD,
+                    ),
+                    max_card_chars=args.get("max_card_chars", schemas.DEFAULT_MAX_CARD_CHARS),
+                    pick_match_message=args.get("pick_match_message", True),
+                    public_or_sanitized_data_ack=_resolved_public_data_ack(args, standing_ack),
+                    deadline_seconds=args.get("deadline_seconds", DEFAULT_OPERATION_DEADLINE_SECONDS),
+                )))
+        except Exception as exc:  # noqa: BLE001 -- tool handlers return structured errors
+            return _error(exc)
+
+
     def register_tool(name, schema, handler, check_fn):
         _REGISTERED_HANDLERS[name] = handler
         ctx.register_tool(
@@ -1636,6 +1662,12 @@ def register(ctx):
     register_tool("jev_model_route", schemas.MODEL_ROUTE, route_handler, decision_tools_available)
     register_tool(
         "jev_model_route_approved", schemas.MODEL_ROUTE_APPROVED, approved_route_handler, decision_tools_available
+    )
+    register_tool(
+        "jev_session_search_rerank",
+        schemas.SESSION_SEARCH_RERANK,
+        session_search_rerank_handler,
+        decision_tools_available,
     )
     if hasattr(ctx, "register_skill"):
         ctx.register_skill(
