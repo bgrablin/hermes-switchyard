@@ -5,7 +5,6 @@ import io
 import json
 import math
 import unittest
-from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
