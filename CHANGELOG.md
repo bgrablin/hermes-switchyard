@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Adds `jev_session_search_rerank`: Jev Choice re-rank over a Hermes `session_search` FTS shortlist (compact redacted cards only). Fail-open returns the first FTS candidate when Jev is down or below confidence thresholds. Optional second Choice picks `match_message_id` among anchors. See `docs/SESSION-SEARCH-RERANK.md`.
 - Publish tip-main with/without feature scorecard (skill select, multi-skill 5/5 via `select_many`, model route, assess, automatic local_only, computer-use DOM) in README and `docs/BENCHMARKS.md`; refresh live selector report to plugin hash on `c8e6008`; computer-use Felidae row re-bound to tip-main dual-gate (`goal_verified: false` on `local_predicate` early-stop).
 
 - DOM browser receipts dual-gate verification: `goal_verified` / `verified` are true only when Hermes agreed `DONE` (`completion_source: provider_decision`) **and** a local completion condition is satisfied; `verification_owner` is then `hermes_and_url`. A `local_predicate` early-stop (caller-supplied `completion_condition` or derived `derived_goal_title` / `derived_goal_url`) may still be `completion_candidate` but keeps `goal_verified` / `verified` false. Provider `DONE` without a satisfied condition stays unverified (`verification_owner: coordinator`). Derived predicates never self-certify alone.

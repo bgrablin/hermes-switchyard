@@ -68,6 +68,7 @@ Use the secure setup steps in [docs/SETUP.md](docs/SETUP.md). Never pass an API 
 ## Supported features
 
 - **General assessment:** `jev_assess` exposes Choice, Score, and Noul through validated bounded requests. Large independent question sets are batched without dropping questions; the plugin never turns a probability into an unreviewed side effect.
+- **Session search re-rank:** `jev_session_search_rerank` re-ranks a stock Hermes `session_search` FTS shortlist with a Jev Choice (optional message-id Choice). Cards are redacted and capped; full transcripts stay local. Fail-open returns the first FTS hit when Jev is down or low-confidence. See `docs/SESSION-SEARCH-RERANK.md`.
 - **Skill selection:** `jev_skill_select` recommends one skill from the candidate list supplied by Hermes. Catalogs larger than Jev's per-Choice limit are searched with partition fan-out and recursive reduction; no tail is silently discarded. It never loads the skill.
 - **Multi-skill selection:** `jev_skill_select_many` independently scores the complete bounded catalog and returns a typed list of exact skill identifiers. It is a separate advisory contract and never loads or mutates skills.
 - **Adaptive reasoning effort (default on):** On Hermes ≥ 0.21, Jev picks `reasoning_effort` (`none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`/`ultra`) per turn and after tools through `llm_request` middleware — raise when stuck, lower for routine work. Fail closed keeps the previous effort. Disable with `hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort false`. `jev_model_route` stays advisory (`applied: false`); this is the apply-able win.
@@ -166,7 +167,7 @@ Hermes puts a tool in a session's callable catalog only when the toolset the too
 | Toolset | Tools | Notes |
 | --- | --- | --- |
 | `computer_use` | `jev_computer_use` | Hermes' own low-level `computer_use` tool is in the same toolset. |
-| `hermes_switchyard` | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route` | The plugin's own toolset; nothing else is registered in it. |
+| `hermes_switchyard` | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_session_search_rerank` | The plugin's own toolset; nothing else is registered in it. |
 
 Selecting one of the two toolsets does not select the other, and Switchyard adds no tool to any other core toolset.
 

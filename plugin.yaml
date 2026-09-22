@@ -23,6 +23,7 @@ provides_tools:
   - jev_skill_select_many
   - jev_model_route
   - jev_model_route_approved
+  - jev_session_search_rerank
 provides_hooks:
   - pre_llm_call
   - post_tool_call
@@ -51,4 +52,7 @@ config_schema:
   adaptive_reasoning_effort: {type: bool, default: true, description: "On after install. Jev picks Hermes reasoning_effort per turn / after tools via llm_request middleware (Codex-style). Fail closed keeps the previous effort. Set false to disable."}
   adaptive_reasoning_effort_default: {type: str, default: "medium", description: "Fallback effort when Jev has not chosen yet or fails closed (none|minimal|low|medium|high|xhigh|max|ultra)"}
   adaptive_reasoning_effort_deadline_seconds: {type: float, default: 8.0, description: "Wall-clock budget for the adaptive-effort Jev Choice; kept small so llm_request middleware stays snappy"}
+  session_search_rerank_choice_confidence_threshold: {type: float, default: 0.8, description: "Uncalibrated local policy threshold for jev_session_search_rerank; below this the tool fail-opens to stock FTS order"}
+  session_search_rerank_winning_probability_threshold: {type: float, default: 0.8, description: "Uncalibrated winning-probability threshold for jev_session_search_rerank fail-open"}
+  session_search_rerank_max_card_chars: {type: int, default: 480, description: "Per-card text cap after redaction for jev_session_search_rerank"}
   public_or_sanitized_data_ack: {type: bool, default: true, description: "Standing consent for Jev tool calls. On after install. Callers may omit the field. Set false to refuse Jev calls."}

@@ -6,6 +6,12 @@ from .routing import (
     DEFAULT_SKILL_NEEDS_THRESHOLD,
     DEFAULT_SKILL_WINNING_PROBABILITY_THRESHOLD,
 )
+from .session_search_rerank import (
+    DEFAULT_CHOICE_CONFIDENCE_THRESHOLD as DEFAULT_SESSION_SEARCH_CHOICE_CONFIDENCE_THRESHOLD,
+    DEFAULT_MAX_CARD_CHARS,
+    DEFAULT_WINNING_PROBABILITY_THRESHOLD as DEFAULT_SESSION_SEARCH_WINNING_PROBABILITY_THRESHOLD,
+    MAX_CANDIDATES as MAX_SESSION_SEARCH_CANDIDATES,
+)
 
 _HOTKEYS = [
     "SUBMIT", "CANCEL", "SAVE", "UNDO", "REDO", "SELECT_ALL", "COPY", "FIND",
@@ -352,6 +358,85 @@ MODEL_ROUTE_APPROVED = {
             "public_or_sanitized_data_ack": _ACKNOWLEDGEMENT,
         },
         "required": ["task"],
+        "additionalProperties": False,
+    },
+}
+
+SESSION_SEARCH_RERANK = {
+    "name": "jev_session_search_rerank",
+    "description": (
+        "Advisory re-rank of a Hermes session_search FTS shortlist. Call stock session_search "
+        "first (higher limit / compact detail), then pass ordered candidate cards plus the recall "
+        "question here. Jev Choices a session_id (and optionally a match_message_id among anchors). "
+        "Cards are redacted and length-capped; full transcripts are never sent by default. "
+        "Fail-open returns the first FTS candidate when Jev is down or below confidence thresholds."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "minLength": 1,
+                "description": "User recall question used to re-rank the FTS shortlist.",
+            },
+            "candidates": {
+                "type": "array",
+                "maxItems": MAX_SESSION_SEARCH_CANDIDATES,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "session_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                        "title": {"type": "string", "maxLength": 160},
+                        "snippet": {
+                            "type": "string",
+                            "maxLength": 2000,
+                            "description": "Compact FTS match preview; never a full transcript.",
+                        },
+                        "match_message_ids": {
+                            "type": "array",
+                            "maxItems": 16,
+                            "items": {"type": "string", "minLength": 1, "maxLength": 128},
+                            "description": "Optional message-id anchors within this session for a second Choice.",
+                        },
+                    },
+                    "required": ["session_id"],
+                    "additionalProperties": False,
+                },
+                "description": (
+                    "Ordered FTS shortlist (stock session_search order). Empty list returns status=empty "
+                    "with no provider call. At most 64 cards."
+                ),
+            },
+            "choice_confidence_threshold": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": DEFAULT_SESSION_SEARCH_CHOICE_CONFIDENCE_THRESHOLD,
+                "description": "Uncalibrated local policy threshold; below this the tool fail-opens to FTS order.",
+            },
+            "winning_probability_threshold": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": DEFAULT_SESSION_SEARCH_WINNING_PROBABILITY_THRESHOLD,
+                "description": "Uncalibrated local policy threshold for the winning Choice mass; below this fail-opens.",
+            },
+            "max_card_chars": {
+                "type": "integer",
+                "minimum": 64,
+                "maximum": 2000,
+                "default": DEFAULT_MAX_CARD_CHARS,
+                "description": "Per-card text cap after redaction before the card is sent to Jev.",
+            },
+            "pick_match_message": {
+                "type": "boolean",
+                "default": True,
+                "description": "When true and the winner has message-id anchors, run an optional second Choice.",
+            },
+            "public_or_sanitized_data_ack": _ACKNOWLEDGEMENT,
+            "deadline_seconds": _DEADLINE,
+        },
+        "required": ["query", "candidates"],
         "additionalProperties": False,
     },
 }
