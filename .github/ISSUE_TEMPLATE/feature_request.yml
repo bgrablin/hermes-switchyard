@@ -1,0 +1,62 @@
+name: Feature request
+description: Propose an improvement with sanitized details.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not paste API keys, tokens, passwords, private UI text, raw screenshots, personal paths, private hostnames, or work data. Replace sensitive values with short placeholders.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem should this feature solve for Hermes Switchyard users?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the change you want. Name the exact tool, setting, or document when known.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other routes you evaluated and why they fall short.
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Feature area
+      description: Which part of the plugin does this change?
+      options:
+        - Skill selection
+        - Multi-skill selection
+        - Model routing
+        - Adaptive reasoning effort
+        - Automatic skill routing
+        - Computer use
+        - Session search rerank
+        - Documentation and release process
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance evidence
+      description: What observable check would show this feature works? Skip this field if unknown.
+    validations:
+      required: false
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I have not included secrets, private data, or personal paths in this request.
+          required: true
