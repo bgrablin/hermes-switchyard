@@ -4,7 +4,7 @@ Picks the right specialist skill for Hermes more often — cheap, fast, and care
 
 Version: 0.5.2
 
-Hermes Switchyard is a plugin that helps Hermes choose skills, models, and computer-use actions. Under the hood it uses [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) for structured decisions; Switchyard applies local policy and keeps actions bounded. Flow: **Jev decides → Switchyard validates → Hermes executes and verifies**. After install, automatic skill routing defaults to **hosted_sanitized** + **load** with standing acknowledgement on: Switchyard can recommend and load one accepted skill per turn when a live Jev key is present. Model routing stays recommend+receipt (`applied: false` until a Hermes apply seam exists). For computer use, receipt-level dual-gate verification sets `goal_verified` only when Hermes agreed `DONE` **and** a local completion condition is satisfied (`verification_owner: hermes_and_url`); a `local_predicate` early-stop may still be `completion_candidate` but keeps both flags false. Switchyard does not modify Hermes core or silently change your active model. Opt down to `local_only` / `advisory` for privacy. Explicit deny/unknown/malformed/restricted host envelopes and restricted local scans still fail closed.
+Hermes Switchyard is a plugin that helps Hermes choose skills, models, and computer-use actions. Under the hood it uses [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) for structured decisions; Switchyard applies local policy and keeps actions bounded. Flow: **Jev decides → Switchyard validates → Hermes executes and verifies**. Deployed surface: seven Jev-backed tools, two lifecycle hooks (`pre_llm_call` and `post_tool_call`), and one middleware (`llm_request`) that applies adaptive reasoning effort, which is on by default. After install, automatic skill routing defaults to **hosted_sanitized** + **load** with standing acknowledgement on: Switchyard can recommend and load one accepted skill per turn when a live Jev key is present. Model routing stays recommend+receipt (`applied: false` until a Hermes apply seam exists). For computer use, receipt-level dual-gate verification sets `goal_verified` only when Hermes agreed `DONE` **and** a local completion condition is satisfied (`verification_owner: hermes_and_url`); a `local_predicate` early-stop may still be `completion_candidate` but keeps both flags false. Switchyard does not modify Hermes core or silently change your active model. Opt down to `local_only` / `advisory` for privacy. Explicit deny/unknown/malformed/restricted host envelopes and restricted local scans still fail closed.
 
 ![Hermes Switchyard feature map: Jev decision flow and feature stations for assess, skill select, multi-skill, model route, computer use, and automatic skill routing across Windows, macOS, and Linux](docs/assets/hermes-switchyard-overview.png)
 
@@ -66,6 +66,14 @@ The supported endpoints are `https://api.typesafe.ai/v1/systemone` and `https://
 Use the secure setup steps in [docs/SETUP.md](docs/SETUP.md). Never pass an API key with a command-line argument or store it in a URL, repository file, fixture, or issue report.
 
 ## Supported features
+
+Deployed surface, as registered at this version:
+
+| Surface | Deployed | Default |
+| --- | --- | --- |
+| Tools (7) | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, `jev_session_search_rerank`, `jev_computer_use` | Registered under two toolsets; see [Toolsets and session exposure](#toolsets-and-session-exposure) |
+| Hooks (2) | `pre_llm_call` (automatic skill recommendation), `post_tool_call` (adaptive effort after tools) | On after install |
+| Middleware (1) | `llm_request` (adaptive reasoning effort per turn) | On after install |
 
 - **General assessment:** `jev_assess` exposes Choice, Score, and Noul through validated bounded requests. Large independent question sets are batched without dropping questions; the plugin never turns a probability into an unreviewed side effect.
 - **Session search re-rank:** `jev_session_search_rerank` re-ranks a stock Hermes `session_search` FTS shortlist with a Jev Choice (optional message-id Choice). Cards are redacted and capped; full transcripts stay local. Fail-open returns the first FTS hit when Jev is down or low-confidence. See `docs/SESSION-SEARCH-RERANK.md`.
@@ -162,17 +170,17 @@ Cua Driver supports background desktop actions on Windows, macOS, and Linux. Swi
 
 ## Toolsets and session exposure
 
-Hermes puts a tool in a session's callable catalog only when the toolset the tool is registered under is selected for that session. Switchyard registers its six tools under two toolsets:
+Hermes puts a tool in a session's callable catalog only when the toolset the tool is registered under is selected for that session. Switchyard registers its seven tools under two toolsets:
 
 | Toolset | Tools | Notes |
 | --- | --- | --- |
 | `computer_use` | `jev_computer_use` | Hermes' own low-level `computer_use` tool is in the same toolset. |
-| `hermes_switchyard` | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_session_search_rerank` | The plugin's own toolset; nothing else is registered in it. |
+| `hermes_switchyard` | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, `jev_session_search_rerank` | The plugin's own toolset; nothing else is registered in it. |
 
 Selecting one of the two toolsets does not select the other, and Switchyard adds no tool to any other core toolset.
 
-- **No pin.** A session started without `--toolsets` uses Hermes' default selection for the CLI. With Hermes' default configuration that selection includes both toolsets. A toolset list saved by `hermes tools` that leaves Computer Use off keeps `jev_computer_use` out of sessions while the five decision tools stay callable. Enable Computer Use in `hermes tools`, or pin the toolset for the session.
-- **Explicit pin.** `--toolsets` (`-t`) replaces the default selection and does not add plugin toolsets. `hermes -t computer_use chat` exposes `jev_computer_use` and no decision tool. `hermes -t hermes_switchyard chat` exposes the five decision tools and no computer-use tool. A pin such as `terminal`, or the `hermes-cli` composite alone, exposes none of the six tools even though all six stay registered. To expose all six, name both toolsets. In PowerShell, quote the list, because an unquoted comma is PowerShell's array operator. Hermes also subtracts the configured `agent.disabled_toolsets` list from every CLI session, including one with an explicit pin, so a toolset named there stays unreachable whatever `--toolsets` says. Remove the name from that list in `config.yaml`, or enable the toolset in `hermes tools`, which also removes it from the list for the CLI.
+- **No pin.** A session started without `--toolsets` uses Hermes' default selection for the CLI. With Hermes' default configuration that selection includes both toolsets. A toolset list saved by `hermes tools` that leaves Computer Use off keeps `jev_computer_use` out of sessions while the six decision tools stay callable. Enable Computer Use in `hermes tools`, or pin the toolset for the session.
+- **Explicit pin.** `--toolsets` (`-t`) replaces the default selection and does not add plugin toolsets. `hermes -t computer_use chat` exposes `jev_computer_use` and no decision tool. `hermes -t hermes_switchyard chat` exposes the six decision tools and no computer-use tool. A pin such as `terminal`, or the `hermes-cli` composite alone, exposes none of the seven tools even though all six stay registered. To expose all seven, name both toolsets. In PowerShell, quote the list, because an unquoted comma is PowerShell's array operator. Hermes also subtracts the configured `agent.disabled_toolsets` list from every CLI session, including one with an explicit pin, so a toolset named there stays unreachable whatever `--toolsets` says. Remove the name from that list in `config.yaml`, or enable the toolset in `hermes tools`, which also removes it from the list for the CLI.
 - **Outside the selection means unreachable.** Hermes' Tool Search bridge (`tool_search`, `tool_describe`, `tool_call`) is scoped to the same selection, so `tool_describe` reports a tool outside it as not found. That is a toolset-selection or registration problem, not a Jev outage.
 
 ```text
