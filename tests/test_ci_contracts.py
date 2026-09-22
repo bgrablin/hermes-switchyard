@@ -50,16 +50,19 @@ class CiContractTests(unittest.TestCase):
         self.assertIn("  cancel-in-progress: true\n", workflow)
 
     def test_pull_request_event_plans_exactly_one_matrix_cell(self):
-        """Pin the event-dependent matrix so a future edit can't silently
+        """Pin event-dependent matrix behavior without duplicating the job steps.
 
-        restore the six-way matrix on every PR push (the original cost
-        problem this workflow fixes). Reads the exact JSON the `plan` job
-        emits for each branch of its event_name guard.
+        Pull requests use one fast combo, pushes to main use the required
+        six-cell matrix, and weekly/manual runs add one non-required
+        pre-qualification cell. Reads the exact JSON the `plan` job emits for
+        each branch of its event_name guard.
         """
         workflow = self._workflow_text()
         guard = re.search(
             r'if \[ "\$\{\{ github\.event_name \}\}" = "pull_request" \]; then\n'
             r"(?P<pr_branch>(?:.*\n)*?)"
+            r"          elif .*schedule.*workflow_dispatch.*\n"
+            r"(?P<prequal_branch>(?:.*\n)*?)"
             r"          else\n"
             r"(?P<default_branch>(?:.*\n)*?)"
             r"          fi\n",
@@ -68,17 +71,33 @@ class CiContractTests(unittest.TestCase):
         if guard is None:
             self.fail(
                 "compatibility workflow's plan job is missing the "
-                "pull_request event_name guard; the fast PR gate may have "
-                "regressed to a static matrix"
+                "event-dependent matrix guard; the fast PR gate or the "
+                "pre-qualification lane may have regressed"
             )
-        pr_matrix = "".join(
-            re.findall(r'\{"os":"[^"]+","python-version":"[^"]+"\}', guard.group("pr_branch"))
-        )
-        default_matrix = "".join(
-            re.findall(r'\{"os":"[^"]+","python-version":"[^"]+"\}', guard.group("default_branch"))
-        )
-        pr_cells = re.findall(r'\{"os":"([^"]+)","python-version":"([^"]+)"\}', pr_matrix)
-        default_cells = re.findall(r'\{"os":"([^"]+)","python-version":"([^"]+)"\}', default_matrix)
+
+        def matrix_cells(branch: str) -> list[tuple[str, str]]:
+            matrix = "".join(
+                re.findall(
+                    r'\{"os":"[^"]+","python-version":"[^"]+"\}',
+                    branch,
+                )
+            )
+            return re.findall(
+                r'\{"os":"([^"]+)","python-version":"([^"]+)"\}',
+                matrix,
+            )
+
+        pr_cells = matrix_cells(guard.group("pr_branch"))
+        prequal_cells = matrix_cells(guard.group("prequal_branch"))
+        default_cells = matrix_cells(guard.group("default_branch"))
+        required_cells = [
+            ("ubuntu-latest", "3.11"),
+            ("ubuntu-latest", "3.12"),
+            ("ubuntu-latest", "3.13"),
+            ("windows-latest", "3.11"),
+            ("windows-latest", "3.12"),
+            ("windows-latest", "3.13"),
+        ]
 
         self.assertEqual(
             pr_cells,
@@ -87,18 +106,46 @@ class CiContractTests(unittest.TestCase):
         )
         self.assertEqual(
             sorted(default_cells),
-            sorted(
-                [
-                    ("ubuntu-latest", "3.11"),
-                    ("ubuntu-latest", "3.12"),
-                    ("ubuntu-latest", "3.13"),
-                    ("windows-latest", "3.11"),
-                    ("windows-latest", "3.12"),
-                    ("windows-latest", "3.13"),
-                ]
-            ),
-            "push/schedule/workflow_dispatch events must plan the full "
-            "2 OS x 3 Python matrix",
+            sorted(required_cells),
+            "push events must plan the required 2 OS x 3 Python matrix",
+        )
+        self.assertEqual(
+            sorted(prequal_cells),
+            sorted(required_cells + [("ubuntu-latest", "3.14")]),
+            "schedule and workflow_dispatch events must add only the "
+            "Ubuntu/Python 3.14 pre-qualification cell",
+        )
+        self.assertNotIn(
+            '"python-version":"3.14"',
+            guard.group("pr_branch"),
+            "Python 3.14 must stay out of the required pull-request matrix",
+        )
+        self.assertIn(
+            "continue-on-error: ${{ matrix.python-version == '3.14' }}",
+            workflow,
+            "the Python 3.14 pre-qualification cell must be non-required",
+        )
+
+    def test_ruff_pin_matches_the_lint_configuration(self):
+        """The lint runner version lives in two files; they must not drift.
+
+        `ruff.toml` pins the version a developer's local runner must match,
+        and the compatibility workflow pins the version CI installs. A
+        mismatch means CI and local runs check different rule sets.
+        """
+        workflow = self._workflow_text()
+        config = (Path(__file__).resolve().parent.parent / "ruff.toml").read_text(encoding="utf-8")
+        required = re.search(r'required-version = "==([0-9][0-9.]*)"', config)
+        runner = re.search(r"uvx --from ruff==([0-9][0-9.]*) ruff check", workflow)
+        if required is None or runner is None:
+            self.fail(
+                "ruff pin missing: ruff.toml or the compatibility workflow "
+                "does not pin a ruff version"
+            )
+        self.assertEqual(
+            runner.group(1),
+            required.group(1),
+            "ruff pin drift between ruff.toml and the compatibility workflow",
         )
 
     def test_compatibility_step_sequence_is_not_duplicated_across_lanes(self):
