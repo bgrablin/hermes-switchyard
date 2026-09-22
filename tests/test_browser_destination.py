@@ -213,7 +213,7 @@ class DestinationPolicyTests(unittest.TestCase):
         for leaked in ("hunter2", "user", "secret", "token", "abc", "8443"):
             self.assertNotIn(leaked, text)
         self.assertEqual(redact_url("https://user:hunter2@127.0.0.1:8443/secret?token=abc"), "https://127.0.0.1/")
-        self.assertEqual(redact_url("file:///etc/passwd"), "file:")
+        self.assertEqual(redact_url("file:///forbidden/local-secret"), "file:")
         self.assertEqual(redact_url("javascript:fetch('//x')"), "javascript:")
         self.assertEqual(redact_url("https://example.com/a?b=c"), "https://example.com/a?b=c")
         self.assertEqual(redact_url("https://example.com/\n"), "")
@@ -358,7 +358,7 @@ class DestinationGuardTests(unittest.TestCase):
                 ("XHR", "https://127.0.0.1:8443/api"),
                 ("Fetch", "https://localhost/api"),
                 ("Script", "https://169.254.169.254/latest/meta-data"),
-                ("Stylesheet", "file:///etc/passwd"),
+                ("Stylesheet", "file:///forbidden/local-secret"),
                 ("Media", "https://192.168.0.2/v.mp4"),
             ),
             start=1,

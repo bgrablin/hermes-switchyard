@@ -45,6 +45,8 @@
 
 ## 0.5.0
 
+- Adaptive reasoning-effort picker (Codex-style): on by default after install. Jev chooses Hermes `reasoning_effort` (`none|minimal|low|medium|high|xhigh|max|ultra`) per turn / after tools; `llm_request` middleware applies it for the next generation; fail closed keeps the previous effort; prompt-cache friendly (messages untouched). Disable with `adaptive_reasoning_effort: false`. Receipts record effort, reason code, and whether applied. `jev_model_route` remains advisory (`applied: false`).
+
 - Model-routing adapter for issue #11: `hermes_switchyard.model_route_adapter` makes the approved-registry path first-class with typed receipts (`applied: false`, `no_fallback`, account boundary, distinct empty/stale/budget/provider outcomes). `register_model_route_adapter` probes Hermes for a model-selection apply seam and records a safe no-op on Hermes 0.19 (no silent model swap). `accept_model_route` refuses apply unless the host supplies an explicit callback. Documents the Hermes 0.19 honesty boundary in `docs/MODEL-ROUTING.md`. Status JSON includes `model_route_adapter`.
 
 ## 0.4.2

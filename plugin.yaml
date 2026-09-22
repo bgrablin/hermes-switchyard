@@ -25,6 +25,9 @@ provides_tools:
   - jev_model_route_approved
 provides_hooks:
   - pre_llm_call
+  - post_tool_call
+provides_middleware:
+  - llm_request
 config_schema:
   jev_provider: {type: str, default: "auto", description: auto prefers direct TypeSafe when TYPESAFE_API_KEY is available; also accepts typesafe or openrouter}
   api_endpoint: {type: str, default: "https://openrouter.ai/api/alpha/decisions", description: Fixed TypeSafe or OpenRouter Jev endpoint; arbitrary endpoints fail closed}
@@ -45,4 +48,7 @@ config_schema:
   automatic_skill_jev_mode: {type: str, default: "always", description: "always evaluates the full catalog on every allowed turn; uncertain_only is an explicit latency-saving override"}
   automatic_skill_public_or_sanitized_data_ack: {type: bool, default: false, description: "Explicit operator attestation required before hosted automatic routing sends bounded task and candidate identifiers to Jev. Hosted automatic routing stays off until an operator sets this true together with hosted_sanitized routing mode. Restricted turns remain prohibited; this is not Hermes-owned DLP."}
   automatic_skill_mandatory_skills: {type: list, default: [], description: "Exact skill identifiers treated as mandatory; load mode does not auto-load a different recommendation"}
+  adaptive_reasoning_effort: {type: bool, default: true, description: "On after install. Jev picks Hermes reasoning_effort per turn / after tools via llm_request middleware (Codex-style). Fail closed keeps the previous effort. Set false to disable."}
+  adaptive_reasoning_effort_default: {type: str, default: "medium", description: "Fallback effort when Jev has not chosen yet or fails closed (none|minimal|low|medium|high|xhigh|max|ultra)"}
+  adaptive_reasoning_effort_deadline_seconds: {type: float, default: 8.0, description: "Wall-clock budget for the adaptive-effort Jev Choice; kept small so llm_request middleware stays snappy"}
   public_or_sanitized_data_ack: {type: bool, default: true, description: "Standing consent for Jev tool calls. On after install. Callers may omit the field. Set false to refuse Jev calls."}
