@@ -1,4 +1,4 @@
-"""Invariant tests for the CI source gate and live usage receipts."""
+"""Invariant tests for the CI source gate, the upstream pin, and live usage receipts."""
 from __future__ import annotations
 
 import io
@@ -124,6 +124,50 @@ class CiContractTests(unittest.TestCase):
             "expected exactly two jobs (plan, compatibility); a new job "
             "means the single-source-of-truth step sequence was split",
         )
+
+    PINNED_WORKFLOWS = (
+        "switchyard-compatibility.yml",
+        "live-jev.yml",
+        "release-candidate.yml",
+        "upstream-pin-drift.yml",
+    )
+    PINNED_DOCS = ("docs/CI.md", "docs/TEST-MATRIX.md", "THIRD_PARTY.md")
+    HERMES_UPSTREAM_PIN = re.compile(r"(?m)^\s*HERMES_UPSTREAM_SHA:\s*([0-9a-f]{40})\s*$")
+
+    def _workflow_pins(self) -> dict[str, str]:
+        root = Path(__file__).resolve().parent.parent
+        pins: dict[str, str] = {}
+        for name in self.PINNED_WORKFLOWS:
+            text = (root / ".github" / "workflows" / name).read_text(encoding="utf-8")
+            match = self.HERMES_UPSTREAM_PIN.search(text)
+            if match is None:
+                self.fail(f"{name} is missing the HERMES_UPSTREAM_SHA environment pin")
+            pins[name] = match.group(1)
+        return pins
+
+    def test_pinned_workflows_agree_on_one_hermes_upstream_sha(self):
+        """The pin is duplicated by design, so equality is the only guard.
+
+        Workflows stay self-contained, which means the SHA is copied into
+        each file; this test is what catches a silent divergence.
+        """
+        pins = self._workflow_pins()
+        unique = sorted(set(pins.values()))
+        self.assertEqual(len(unique), 1, f"pinned workflows disagree: {pins}")
+
+    def test_documented_hermes_upstream_references_match_the_pin(self):
+        """Documented references must name the pinned commit and nothing else."""
+        pins = self._workflow_pins()
+        pin = pins[self.PINNED_WORKFLOWS[0]]
+        root = Path(__file__).resolve().parent.parent
+        for relative in self.PINNED_DOCS:
+            text = (root / relative).read_text(encoding="utf-8")
+            found = sorted(set(re.findall(r"\b[0-9a-f]{40}\b", text)))
+            self.assertEqual(
+                found,
+                [pin],
+                f"{relative} must reference only the pinned commit; found {found}",
+            )
 
     def test_live_source_requires_canonical_repo_allowlisted_ref_and_exact_head(self):
         source_sha = "a" * 40
