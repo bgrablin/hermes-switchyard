@@ -2289,14 +2289,6 @@ class ChromiumSession:
 _SNAP_ENTRY_POINT = Path("/snap/bin/chromium")
 
 
-class BrowserStartupError(RuntimeError):
-    """A browser could not be prepared for launch; ``code`` is a stable reason."""
-
-    def __init__(self, code: str, message: str) -> None:
-        super().__init__(message)
-        self.code = code
-
-
 def _wrapper_head(candidate: Path, limit: int = 4096) -> str:
     """Read the head of a candidate wrapper, bounded for large real binaries.
 
