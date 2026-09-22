@@ -279,6 +279,52 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
         self.assertNotIn("reasoning_effort", codex)
         self.assertEqual(codex["reasoning"]["effort"], "max")
 
+    def test_codex_astra_maps_none_and_minimal_to_low(self):
+        # openai-codex / Responses / Astra reject reasoning_effort=none (HTTP 400).
+        cases = [
+            {"provider": "openai-codex", "model": "gpt-6-astra", "api_mode": "codex_responses"},
+            {"provider": "openai", "model": "gpt-6-astra", "api_mode": "responses"},
+            {"provider": "openai", "model": "gpt-6-astra", "api_mode": None},
+            {"provider": "openai-codex", "model": "gpt-5.4", "api_mode": "codex_responses"},
+        ]
+        for kwargs in cases:
+            with self.subTest(**{k: v for k, v in kwargs.items() if v is not None}):
+                self.assertEqual(clamp_effort_for_provider("none", **kwargs), "low")
+                self.assertEqual(clamp_effort_for_provider("minimal", **kwargs), "low")
+                wire = wire_efforts_for_provider(**kwargs)
+                self.assertNotIn("none", wire)
+                self.assertNotIn("minimal", wire)
+                self.assertIn("low", wire)
+                for level in ("low", "medium", "high", "xhigh", "max"):
+                    self.assertIn(level, wire)
+
+                applied = apply_effort_to_request(
+                    {"model": kwargs["model"], "reasoning_effort": "medium"},
+                    "none",
+                    **kwargs,
+                )
+                self.assertEqual(applied["reasoning_effort"], "low")
+                self.assertNotEqual(applied["reasoning_effort"], "none")
+
+                nested = apply_effort_to_request(
+                    {"model": kwargs["model"], "input": "hi"},
+                    "none",
+                    **{**kwargs, "api_mode": kwargs.get("api_mode") or "codex_responses"},
+                )
+                self.assertNotIn("reasoning_effort", nested)
+                self.assertEqual(nested["reasoning"]["effort"], "low")
+                self.assertTrue(nested["reasoning"].get("enabled", True))
+
+        # Non-Codex / non-Astra may still keep internal none (disabled).
+        self.assertEqual(
+            clamp_effort_for_provider("none", provider="openrouter", model="openai/gpt-4o"),
+            "none",
+        )
+        self.assertIn(
+            "none",
+            wire_efforts_for_provider(provider="openrouter", model="openai/gpt-4o", api_mode="chat_completions"),
+        )
+
     def test_turn_id_invalidates_cache_retries_reuse(self):
         client = FakeClient(choice="low")
         controller = ReasoningEffortController(client_factory=lambda: client)

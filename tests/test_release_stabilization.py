@@ -680,7 +680,7 @@ class NamespaceAndAckTests(unittest.TestCase):
         manifest = (root / "plugin.yaml").read_text(encoding="utf-8")
         readme = (root / "README.md").read_text(encoding="utf-8")
         self.assertIn("name: hermes-switchyard", manifest)
-        self.assertIn("version: 0.5.1", manifest)
+        self.assertIn("version: 0.5.2", manifest)
         self.assertNotIn("plugins doctor /path/to/jev-decision", readme)
         self.assertIn("hermes switchyard", readme)
         self.assertNotIn("hermes jev-decision", readme)
