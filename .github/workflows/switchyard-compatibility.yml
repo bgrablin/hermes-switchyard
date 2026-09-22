@@ -5,9 +5,10 @@ name: Switchyard compatibility
 #   gate. All 26 prior compatibility failures broke identically across every matrix cell,
 #   so running the full 6-way matrix on every PR push bought redundant runs, not extra
 #   signal, against a limited Actions minutes budget.
-# - The full 2 OS x 3 Python matrix runs only after code lands on main, plus a weekly
+# - The full 2 OS x 3 Python matrix runs after code lands on main, plus a weekly
 #   schedule and manual dispatch, to still catch real OS/version-specific drift without
-#   paying the 6x multiplier on every PR iteration.
+#   paying the 6x multiplier on every PR iteration. Weekly and manual runs add one
+#   non-required Ubuntu / Python 3.14 pre-qualification cell; it is outside the PR gate.
 # - `compatibility` defines the step sequence exactly once. `plan` only decides how many
 #   matrix cells that one sequence expands into for the current event, so a future
 #   dependency/security/test-command change updates one lane, never two that can drift
@@ -46,6 +47,16 @@ jobs:
           set -euo pipefail
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             matrix='{"include":[{"os":"ubuntu-latest","python-version":"3.11"}]}'
+          elif [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            matrix='{"include":[
+              {"os":"ubuntu-latest","python-version":"3.11"},
+              {"os":"ubuntu-latest","python-version":"3.12"},
+              {"os":"ubuntu-latest","python-version":"3.13"},
+              {"os":"windows-latest","python-version":"3.11"},
+              {"os":"windows-latest","python-version":"3.12"},
+              {"os":"windows-latest","python-version":"3.13"},
+              {"os":"ubuntu-latest","python-version":"3.14"}
+            ]}'
           else
             matrix='{"include":[
               {"os":"ubuntu-latest","python-version":"3.11"},
@@ -67,6 +78,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    continue-on-error: ${{ matrix.python-version == '3.14' }}
     steps:
       - name: Check out candidate source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
