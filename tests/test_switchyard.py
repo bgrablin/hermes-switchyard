@@ -1411,6 +1411,33 @@ class PluginEntryPointTests(unittest.TestCase):
         save.assert_called_once_with("TYPESAFE_API_KEY", "synthetic-key")
         ensure.assert_called_once_with()
 
+    def test_cli_setup_reports_hosted_routing_default_and_config_key(self):
+        import hermes_switchyard
+
+        args = SimpleNamespace(switchyard_command="setup", provider="typesafe", json_output=False)
+        ensure_result = {"ok": True, "added": [], "focus_override": {"active": False}}
+        fake_config = mock.Mock()
+        fake_prompt = mock.Mock()
+        fake_prompt.masked_secret_prompt.return_value = "offline-key"
+        with mock.patch.dict(
+            "sys.modules",
+            {
+                "hermes_cli": mock.Mock(config=fake_config, secret_prompt=fake_prompt),
+                "hermes_cli.config": fake_config,
+                "hermes_cli.secret_prompt": fake_prompt,
+            },
+        ), mock.patch.object(
+            hermes_switchyard, "ensure_platform_toolsets", return_value=ensure_result
+        ), mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            code = hermes_switchyard._cli_handler(args)
+
+        self.assertEqual(code, 0)
+        self.assertIn(
+            "Automatic hosted skill routing is on by default (`hosted_sanitized` + `load`); "
+            "change it with `plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode`.",
+            stdout.getvalue(),
+        )
+
     def test_tool_availability_uses_the_configured_provider_secret(self):
         import hermes_switchyard
 
