@@ -10,7 +10,7 @@ Hermes Switchyard is a plugin that helps Hermes choose skills, models, and compu
 
 ## Why install
 
-Measured feature scorecard for **0.5.0** (selector rows on `c8e6008`; computer-use DOM re-bound to tip-main `a8dae19` after #57+#58). Comparison arms vary by row — not always “product without Switchyard.” Human-readable benefits first; verification hashes live under [Proof](#proof).
+Feature scorecard last collected for **0.5.0**: selector and microbench rows were measured at commit `c8e6008c6314e182fd7b100a30efb384db542ee8`; computer-use DOM was re-bound to tip-main commit `a8dae196b0b9892eeb627829d97363ec3d4bb9c9` after #57+#58. It was **not re-collected for 0.5.1 or 0.5.2**. Comparison arms vary by row, not always “product without Switchyard.” Human-readable benefits first; verification hashes live under [Proof](#proof).
 
 | Feature | What this row measures | Comparison arm | Measured arm |
 | --- | --- | ---: | ---: |
