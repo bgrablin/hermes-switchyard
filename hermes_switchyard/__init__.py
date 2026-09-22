@@ -35,7 +35,7 @@ from .model_policy import recommend_approved_model
 from .model_route_adapter import register_model_route_adapter
 from .reasoning_effort_adapter import register_reasoning_effort_adapter
 from .routing import route_model, select_skill, select_skills
-from .session_search_rerank import rerank_session_search
+from .session_search_rerank import fail_open_to_fts, rerank_session_search
 
 from .host_compat import ctx_get_config, register_auxiliary_task as register_host_auxiliary_task
 
@@ -1400,6 +1400,26 @@ def register(ctx):
         return value if type(value) is bool else default
 
     standing_ack = setting_bool("public_or_sanitized_data_ack", True)
+    session_search_choice_confidence = _config_float(
+        ctx_get_config(ctx, "session_search_rerank_choice_confidence_threshold", default=0.8),
+        default=0.8,
+        minimum=0.0,
+        maximum=1.0,
+    )
+    session_search_winning_probability = _config_float(
+        ctx_get_config(ctx, "session_search_rerank_winning_probability_threshold", default=0.8),
+        default=0.8,
+        minimum=0.0,
+        maximum=1.0,
+    )
+    session_search_max_card_chars = int(
+        _config_float(
+            ctx_get_config(ctx, "session_search_rerank_max_card_chars", default=360),
+            default=360.0,
+            minimum=64.0,
+            maximum=720.0,
+        )
+    )
 
     configured_routing_mode = ctx_get_config(ctx, "automatic_skill_routing_mode", default=None)
     if configured_routing_mode is None:
@@ -1621,25 +1641,57 @@ def register(ctx):
     def session_search_rerank_handler(args, **kwargs):
         try:
             _require_public_data_ack(args, standing=standing_ack)
-            return json.dumps(with_client(lambda active_client: rerank_session_search(
-                    query=str(args.get("query") or ""),
-                    candidates=list(args.get("candidates") or []),
-                    client=active_client,
-                    choice_confidence_threshold=args.get(
-                        "choice_confidence_threshold",
-                        schemas.DEFAULT_SESSION_SEARCH_CHOICE_CONFIDENCE_THRESHOLD,
-                    ),
-                    winning_probability_threshold=args.get(
-                        "winning_probability_threshold",
-                        schemas.DEFAULT_SESSION_SEARCH_WINNING_PROBABILITY_THRESHOLD,
-                    ),
-                    max_card_chars=args.get("max_card_chars", schemas.DEFAULT_MAX_CARD_CHARS),
-                    pick_match_message=args.get("pick_match_message", True),
-                    public_or_sanitized_data_ack=_resolved_public_data_ack(args, standing_ack),
-                    deadline_seconds=args.get("deadline_seconds", DEFAULT_OPERATION_DEADLINE_SECONDS),
-                )))
+            query = str(args.get("query") or "")
+            candidates = list(args.get("candidates") or [])
+            choice_confidence_threshold = args.get(
+                "choice_confidence_threshold",
+                session_search_choice_confidence,
+            )
+            winning_probability_threshold = args.get(
+                "winning_probability_threshold",
+                session_search_winning_probability,
+            )
+            max_card_chars = args.get("max_card_chars", session_search_max_card_chars)
+            pick_match_message = args.get("pick_match_message", True)
+            ack = _resolved_public_data_ack(args, standing_ack)
+            deadline_seconds = args.get("deadline_seconds", DEFAULT_OPERATION_DEADLINE_SECONDS)
+            thresholds = {
+                "choice_confidence": float(choice_confidence_threshold),
+                "winning_probability": float(winning_probability_threshold),
+            }
+
+            try:
+                active_client = client()
+            except Exception:  # noqa: BLE001 -- missing key/route fails open to FTS
+                return json.dumps(
+                    fail_open_to_fts(
+                        candidates=candidates,
+                        query=query,
+                        reason="jev_unavailable",
+                        thresholds=thresholds,
+                        max_card_chars=int(max_card_chars),
+                        pick_match_message=bool(pick_match_message),
+                    )
+                )
+            try:
+                return json.dumps(
+                    rerank_session_search(
+                        query=query,
+                        candidates=candidates,
+                        client=active_client,
+                        choice_confidence_threshold=choice_confidence_threshold,
+                        winning_probability_threshold=winning_probability_threshold,
+                        max_card_chars=max_card_chars,
+                        pick_match_message=pick_match_message,
+                        public_or_sanitized_data_ack=ack,
+                        deadline_seconds=deadline_seconds,
+                    )
+                )
+            finally:
+                active_client.close()
         except Exception as exc:  # noqa: BLE001 -- tool handlers return structured errors
             return _error(exc)
+
 
 
     def register_tool(name, schema, handler, check_fn):

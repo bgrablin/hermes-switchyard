@@ -19,8 +19,9 @@ The plugin does not invoke Hermes FTS itself. Input order is treated as stock FT
 | `query` | Recall question |
 | `candidates[]` | Compact cards: `session_id`, optional `title` / `snippet`, optional `match_message_ids` |
 | Thresholds | `choice_confidence_threshold`, `winning_probability_threshold` (uncalibrated local policy) |
-| `max_card_chars` | Per-card cap after redaction (default 480) |
-| `pick_match_message` | Optional second Choice among message-id anchors |
+| `max_card_chars` | Per-card cap after redaction (default 360) |
+| `pick_match_message` | Optional second Choice among `match_anchors` with previews |
+| Bounds | At most 32 cards; per-card cap ≤ 720; aggregate UTF-8 request budget enforced |
 
 ### Guarantees
 

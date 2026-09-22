@@ -3,15 +3,17 @@
 Stock Hermes ``session_search`` is lexical/FTS. For recall-style questions the
 wrong session often ranks first. This module accepts the ordered FTS shortlist
 (compact cards only) plus the user's recall question, asks Jev for a Choice
-among session ids, and optionally a second Choice among message-id anchors.
+among session ids, and optionally a second Choice among message-id anchors that
+carry distinguishing preview text.
 
-Fail-open policy: when Jev is unavailable, returns an invalid response, or
-falls below local confidence / winning-probability thresholds, return the first
-FTS candidate (input order) with an explicit ``fail_open_reason``. Empty
-shortlists return a structured empty result with no provider call.
+Fail-open policy: when the Jev client is unavailable, the provider fails,
+responses are invalid, or confidence / winning-probability fall below local
+thresholds, return the first FTS candidate (input order) with an explicit
+``fail_open_reason``. Empty shortlists return a structured empty result with no
+provider call.
 
-Full session transcripts are never sent by default — only redacted, length-capped
-card text.
+Full session transcripts are never sent by default — only redacted,
+length-capped card text within an aggregate UTF-8 request budget.
 """
 from __future__ import annotations
 
@@ -19,9 +21,11 @@ import math
 import re
 from typing import Any, Mapping, Sequence
 
+from . import receipt_state
 from .client import (
     DEFAULT_OPERATION_DEADLINE_SECONDS,
     MAX_DECISION_REQUESTS,
+    MAX_REQUEST_BYTES,
     PartialAccountingError,
     operation_remaining_deadline,
     request_budget_scope,
@@ -31,19 +35,24 @@ from .routing import (
     DEFAULT_SKILL_WINNING_PROBABILITY_THRESHOLD,
     _choice_metrics,
     _decision_metadata,
+    _request_size,
 )
 
 WORKFLOW_ID = "session_search_rerank.v1"
 
 DEFAULT_CHOICE_CONFIDENCE_THRESHOLD = DEFAULT_SKILL_CHOICE_CONFIDENCE_THRESHOLD
 DEFAULT_WINNING_PROBABILITY_THRESHOLD = DEFAULT_SKILL_WINNING_PROBABILITY_THRESHOLD
-DEFAULT_MAX_CARD_CHARS = 480
-MAX_CANDIDATES = 64
+# Keep defaults well under MAX_REQUEST_BYTES even with duplicated previews.
+DEFAULT_MAX_CARD_CHARS = 360
+MAX_CANDIDATES = 32
+MAX_CARD_CHARS = 720
 MAX_QUERY_CHARS = 1_200
 MAX_SESSION_ID_CHARS = 128
 MAX_MESSAGE_ID_CHARS = 128
-MAX_MESSAGE_ANCHORS = 16
-MAX_TITLE_CHARS = 160
+MAX_MESSAGE_ANCHORS = 8
+MAX_ANCHOR_PREVIEW_CHARS = 160
+MAX_TITLE_CHARS = 120
+_REQUEST_SIZE_MARGIN = 1_024
 
 _EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b")
 _PHONE_RE = re.compile(r"\b(?:\+?\d[\d(). -]{7,}\d)\b")
@@ -62,6 +71,8 @@ _FAIL_OPEN_REASONS = frozenset({
     "choice_confidence_below_threshold",
     "winning_probability_below_threshold",
     "partial_accounting_failed",
+    "jev_unavailable",
+    "request_too_large",
 })
 
 
@@ -119,6 +130,43 @@ def _validate_message_id(value: Any) -> str:
     return message_id
 
 
+def _parse_anchors(raw: Any, *, index: int) -> list[dict[str, str]]:
+    """Return anchors as {message_id, preview} with redacted previews."""
+    anchors: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def add(message_id: str, preview: str = "") -> None:
+        if message_id in seen:
+            return
+        seen.add(message_id)
+        anchors.append(
+            {
+                "message_id": message_id,
+                "preview": redact_card_text(preview)[:MAX_ANCHOR_PREVIEW_CHARS],
+            }
+        )
+
+    if raw is None:
+        return anchors
+    if isinstance(raw, str):
+        add(_validate_message_id(raw))
+        return anchors
+    if not isinstance(raw, (list, tuple)):
+        raise ValueError(f"candidates[{index}] message anchors must be a string or list")
+    if len(raw) > MAX_MESSAGE_ANCHORS:
+        raise ValueError(f"candidates[{index}] exceeds {MAX_MESSAGE_ANCHORS} message anchors")
+    for item in raw:
+        if isinstance(item, str):
+            add(_validate_message_id(item))
+        elif isinstance(item, Mapping):
+            mid = _validate_message_id(item.get("message_id") or item.get("id"))
+            preview = _coerce_text(item.get("preview") or item.get("snippet") or "", MAX_ANCHOR_PREVIEW_CHARS)
+            add(mid, preview)
+        else:
+            raise ValueError(f"candidates[{index}] anchor entries must be strings or objects")
+    return anchors
+
+
 def _normalize_candidates(
     candidates: Sequence[Any],
     *,
@@ -139,41 +187,29 @@ def _normalize_candidates(
         seen.add(session_id)
         title = redact_card_text(_coerce_text(raw.get("title"), MAX_TITLE_CHARS))
         snippet = redact_card_text(_coerce_text(raw.get("snippet"), max_card_chars))
-        # Prefer snippet; fall back to title for the card body sent to Jev.
         body = snippet or title
         if len(body) > max_card_chars:
             body = body[:max_card_chars]
-        anchors_raw = raw.get("match_message_ids") or raw.get("match_message_id")
-        anchors: list[str] = []
+        anchors_raw = raw.get("match_anchors")
         if anchors_raw is None:
-            anchors = []
-        elif isinstance(anchors_raw, str):
-            anchors = [_validate_message_id(anchors_raw)]
-        elif isinstance(anchors_raw, (list, tuple)):
-            if len(anchors_raw) > MAX_MESSAGE_ANCHORS:
-                raise ValueError(
-                    f"candidates[{index}].match_message_ids exceeds {MAX_MESSAGE_ANCHORS}"
-                )
-            for anchor in anchors_raw:
-                mid = _validate_message_id(anchor)
-                if mid not in anchors:
-                    anchors.append(mid)
-        else:
-            raise ValueError(f"candidates[{index}].match_message_ids must be a string or list")
+            anchors_raw = raw.get("match_message_ids")
+        if anchors_raw is None:
+            anchors_raw = raw.get("match_message_id")
+        anchors = _parse_anchors(anchors_raw, index=index)
         normalized.append(
             {
                 "session_id": session_id,
                 "title": title,
                 "snippet": snippet,
                 "card_text": body,
-                "match_message_ids": anchors,
+                "match_anchors": anchors,
                 "fts_index": index,
             }
         )
     return normalized
 
 
-def _empty_result(*, query: str) -> dict[str, Any]:
+def _empty_result(*, query: str, max_card_chars: int = DEFAULT_MAX_CARD_CHARS) -> dict[str, Any]:
     return {
         "workflow_id": WORKFLOW_ID,
         "status": "empty",
@@ -194,28 +230,39 @@ def _empty_result(*, query: str) -> dict[str, Any]:
         "thresholds": None,
         "redaction": {
             "emails_phones_tokens": True,
-            "max_card_chars": DEFAULT_MAX_CARD_CHARS,
+            "max_card_chars": max_card_chars,
             "full_transcripts_sent": False,
         },
         "pick_match_message": False,
     }
 
 
-def _fail_open_result(
+def fail_open_to_fts(
     *,
-    candidates: list[dict[str, Any]],
-    reason: str,
+    candidates: Sequence[Any],
     query: str,
-    thresholds: dict[str, float],
-    max_card_chars: int,
-    pick_match_message: bool,
+    reason: str,
+    thresholds: dict[str, float] | None = None,
+    max_card_chars: int = DEFAULT_MAX_CARD_CHARS,
+    pick_match_message: bool = True,
     metadata: Mapping[str, Any] | None = None,
     confidence: float = 0.0,
     winning_probability: float | None = None,
 ) -> dict[str, Any]:
+    """Return the first FTS candidate with an explicit fail-open reason.
+
+    Used by the tool handler when the Jev client cannot be constructed, and by
+    the re-rank path when Jev is down or low-confidence.
+    """
+    query_text = (query or "").strip()[:MAX_QUERY_CHARS]
+    if not candidates:
+        return _empty_result(query=query_text, max_card_chars=max_card_chars)
+    normalized = _normalize_candidates(candidates, max_card_chars=max_card_chars)
+    if not normalized:
+        return _empty_result(query=query_text, max_card_chars=max_card_chars)
     if reason not in _FAIL_OPEN_REASONS:
         reason = "provider_failed"
-    winner = candidates[0]
+    winner = normalized[0]
     meta = dict(metadata or {})
     return {
         "workflow_id": WORKFLOW_ID,
@@ -225,9 +272,9 @@ def _fail_open_result(
         "confidence": float(confidence),
         "winning_probability": winning_probability,
         "fail_open_reason": reason,
-        "shortlist_size": len(candidates),
+        "shortlist_size": len(normalized),
         "fts_order_preserved": True,
-        "query_chars": len(query),
+        "query_chars": len(query_text),
         "model": meta.get("model"),
         "request_id": meta.get("request_id"),
         "latency_ms": meta.get("latency_ms", 0.0),
@@ -292,37 +339,77 @@ def _session_criteria(candidates: list[dict[str, Any]]) -> dict[str, str]:
     return criteria
 
 
+def _session_state(query: str, candidates: list[dict[str, Any]], criteria: dict[str, str]) -> dict[str, Any]:
+    # Avoid duplicating the full preview twice: criteria carries the preview;
+    # state only carries session_id + fts_rank for ordering context.
+    return {
+        "recall_question": query,
+        "fts_shortlist": [
+            {
+                "session_id": item["session_id"],
+                "fts_rank": item["fts_index"],
+            }
+            for item in candidates
+        ],
+        "session_previews": criteria,
+    }
+
+
+def _ensure_request_fits(state: Any, questions: dict[str, Any]) -> None:
+    size = _request_size(state, questions)
+    if size > MAX_REQUEST_BYTES - _REQUEST_SIZE_MARGIN:
+        raise ValueError(
+            f"session_search_rerank payload exceeds the bounded request budget ({size} bytes)"
+        )
+
+
 def _pick_match_message_id(
     *,
     client: Any,
     query: str,
     session_id: str,
-    anchors: Sequence[str],
+    anchors: Sequence[Mapping[str, str]],
     public_or_sanitized_data_ack: bool,
     metadata_bucket: list[dict[str, Any]],
 ) -> str | None:
-    """Optional second Choice among message-id anchors; returns None on any failure."""
+    """Optional second Choice among message anchors with distinguishing previews.
+
+    When multiple anchors lack previews, preserve FTS order (first anchor) rather
+    than asking Jev to choose among opaque ids.
+    """
     if len(anchors) == 0:
         return None
     if len(anchors) == 1:
-        return anchors[0]
-    criteria = {anchor: f"Message anchor {index + 1}" for index, anchor in enumerate(anchors)}
+        return anchors[0]["message_id"]
+    with_preview = [a for a in anchors if a.get("preview")]
+    if len(with_preview) < 2:
+        # Not enough distinguishing evidence — keep stock FTS anchor order.
+        return anchors[0]["message_id"]
+    criteria = {
+        a["message_id"]: a["preview"] or f"(anchor {index + 1})"
+        for index, a in enumerate(with_preview)
+    }
     state = {
         "recall_question": query,
         "selected_session_id": session_id,
-        "message_anchors": list(anchors),
+        "message_anchors": [
+            {"message_id": mid, "preview": preview} for mid, preview in criteria.items()
+        ],
     }
+    # State already carries previews once; criteria is required by Choice.
     questions = {
         "match_message": {
             "type": "choice",
             "instructions": (
                 "Which message anchor best answers the recall question within the "
-                "already-selected session? Choose only one offered message id."
+                "already-selected session? Choose only one offered message id. "
+                "Use each anchor's preview text."
             ),
             "criteria": criteria,
         }
     }
     try:
+        _ensure_request_fits(state, questions)
         operation_remaining_deadline()
         result = client.decide(
             state,
@@ -337,14 +424,35 @@ def _pick_match_message_id(
         )
         return choice
     except Exception:  # noqa: BLE001 -- optional second pick must not break discovery
-        return None
+        return anchors[0]["message_id"]
+
+
+def _merge_call_metadata(base: dict[str, Any], extra: Mapping[str, Any]) -> None:
+    try:
+        base_latency = float(base.get("total_latency_ms") or base.get("latency_ms") or 0.0)
+        extra_latency = float(extra.get("total_latency_ms") or extra.get("latency_ms") or 0.0)
+        base["total_latency_ms"] = base_latency + extra_latency
+        base["request_count"] = int(base.get("request_count") or 1) + int(extra.get("request_count") or 1)
+        if extra.get("request_id"):
+            base["request_id"] = extra.get("request_id")
+        if extra.get("model"):
+            base["model"] = extra.get("model")
+        extra_usage = extra.get("total_usage") or extra.get("usage") or {}
+        usage = dict(base.get("usage") or {})
+        receipt_state.merge_usage(usage, extra_usage)
+        base["usage"] = usage
+        total_usage = dict(base.get("total_usage") or base.get("usage") or {})
+        receipt_state.merge_usage(total_usage, extra_usage)
+        base["total_usage"] = total_usage
+    except (TypeError, ValueError):
+        pass
 
 
 def rerank_session_search(
     *,
     query: str,
     candidates: Sequence[Any],
-    client: Any,
+    client: Any | None,
     choice_confidence_threshold: float = DEFAULT_CHOICE_CONFIDENCE_THRESHOLD,
     winning_probability_threshold: float = DEFAULT_WINNING_PROBABILITY_THRESHOLD,
     max_card_chars: int = DEFAULT_MAX_CARD_CHARS,
@@ -357,8 +465,8 @@ def rerank_session_search(
     if not isinstance(query, str) or not query.strip():
         raise ValueError("query must be a non-empty string")
     query_text = query.strip()[:MAX_QUERY_CHARS]
-    if type(max_card_chars) is not int or not 64 <= max_card_chars <= 2_000:
-        raise ValueError("max_card_chars must be an integer between 64 and 2000")
+    if type(max_card_chars) is not int or not 64 <= max_card_chars <= MAX_CARD_CHARS:
+        raise ValueError(f"max_card_chars must be an integer between 64 and {MAX_CARD_CHARS}")
     thresholds = {
         "choice_confidence": _bounded_number(
             choice_confidence_threshold, "choice_confidence_threshold"
@@ -369,23 +477,23 @@ def rerank_session_search(
     }
     normalized = _normalize_candidates(candidates, max_card_chars=max_card_chars)
     if not normalized:
-        return _empty_result(query=query_text)
+        return _empty_result(query=query_text, max_card_chars=max_card_chars)
+
+    if client is None:
+        return fail_open_to_fts(
+            candidates=normalized,
+            query=query_text,
+            reason="jev_unavailable",
+            thresholds=thresholds,
+            max_card_chars=max_card_chars,
+            pick_match_message=pick_match_message,
+        )
 
     with request_budget_scope(
         client, MAX_DECISION_REQUESTS, deadline_seconds=deadline_seconds
     ):
         criteria = _session_criteria(normalized)
-        state = {
-            "recall_question": query_text,
-            "fts_shortlist": [
-                {
-                    "session_id": item["session_id"],
-                    "preview": criteria[item["session_id"]],
-                    "fts_rank": item["fts_index"],
-                }
-                for item in normalized
-            ],
-        }
+        state = _session_state(query_text, normalized, criteria)
         questions = {
             "session": {
                 "type": "choice",
@@ -397,6 +505,18 @@ def rerank_session_search(
                 "criteria": criteria,
             }
         }
+        try:
+            _ensure_request_fits(state, questions)
+        except ValueError:
+            return fail_open_to_fts(
+                candidates=normalized,
+                query=query_text,
+                reason="request_too_large",
+                thresholds=thresholds,
+                max_card_chars=max_card_chars,
+                pick_match_message=pick_match_message,
+            )
+
         metadata: dict[str, Any] = {}
         try:
             operation_remaining_deadline()
@@ -405,13 +525,38 @@ def rerank_session_search(
                 questions,
                 public_or_sanitized_data_ack=True,
             )
+        except PartialAccountingError as exc:
+            partial_meta = {}
+            if exc.partial:
+                partial_meta = dict(exc.partial[-1])
+            return fail_open_to_fts(
+                candidates=normalized,
+                query=query_text,
+                reason="partial_accounting_failed",
+                thresholds=thresholds,
+                max_card_chars=max_card_chars,
+                pick_match_message=pick_match_message,
+                metadata=partial_meta,
+            )
+        except Exception:  # noqa: BLE001 -- discovery must fail open
+            return fail_open_to_fts(
+                candidates=normalized,
+                query=query_text,
+                reason="provider_failed",
+                thresholds=thresholds,
+                max_card_chars=max_card_chars,
+                pick_match_message=pick_match_message,
+                metadata=metadata,
+            )
+
+        try:
             metadata = _decision_metadata(result)
             answers = result.get("answers") or {}
             if set(answers) != set(questions):
-                return _fail_open_result(
+                return fail_open_to_fts(
                     candidates=normalized,
-                    reason="invalid_response",
                     query=query_text,
+                    reason="invalid_response",
                     thresholds=thresholds,
                     max_card_chars=max_card_chars,
                     pick_match_message=pick_match_message,
@@ -421,52 +566,40 @@ def rerank_session_search(
                 answers.get("session"), criteria, "session"
             )
             winning_probability = probabilities[selected_id]
-            if confidence < thresholds["choice_confidence"]:
-                return _fail_open_result(
-                    candidates=normalized,
-                    reason="choice_confidence_below_threshold",
-                    query=query_text,
-                    thresholds=thresholds,
-                    max_card_chars=max_card_chars,
-                    pick_match_message=pick_match_message,
-                    metadata=metadata,
-                    confidence=confidence,
-                    winning_probability=winning_probability,
-                )
-            if winning_probability < thresholds["winning_probability"]:
-                return _fail_open_result(
-                    candidates=normalized,
-                    reason="winning_probability_below_threshold",
-                    query=query_text,
-                    thresholds=thresholds,
-                    max_card_chars=max_card_chars,
-                    pick_match_message=pick_match_message,
-                    metadata=metadata,
-                    confidence=confidence,
-                    winning_probability=winning_probability,
-                )
-        except PartialAccountingError as exc:
-            partial_meta = {}
-            if exc.partial:
-                partial_meta = dict(exc.partial[-1])
-            return _fail_open_result(
+        except (TypeError, ValueError):
+            return fail_open_to_fts(
                 candidates=normalized,
-                reason="partial_accounting_failed",
                 query=query_text,
-                thresholds=thresholds,
-                max_card_chars=max_card_chars,
-                pick_match_message=pick_match_message,
-                metadata=partial_meta,
-            )
-        except Exception:  # noqa: BLE001 -- discovery must fail open
-            return _fail_open_result(
-                candidates=normalized,
-                reason="provider_failed",
-                query=query_text,
+                reason="invalid_response",
                 thresholds=thresholds,
                 max_card_chars=max_card_chars,
                 pick_match_message=pick_match_message,
                 metadata=metadata,
+            )
+
+        if confidence < thresholds["choice_confidence"]:
+            return fail_open_to_fts(
+                candidates=normalized,
+                query=query_text,
+                reason="choice_confidence_below_threshold",
+                thresholds=thresholds,
+                max_card_chars=max_card_chars,
+                pick_match_message=pick_match_message,
+                metadata=metadata,
+                confidence=confidence,
+                winning_probability=winning_probability,
+            )
+        if winning_probability < thresholds["winning_probability"]:
+            return fail_open_to_fts(
+                candidates=normalized,
+                query=query_text,
+                reason="winning_probability_below_threshold",
+                thresholds=thresholds,
+                max_card_chars=max_card_chars,
+                pick_match_message=pick_match_message,
+                metadata=metadata,
+                confidence=confidence,
+                winning_probability=winning_probability,
             )
 
         match_message_id: str | None = None
@@ -477,26 +610,12 @@ def rerank_session_search(
                 client=client,
                 query=query_text,
                 session_id=selected_id,
-                anchors=winner["match_message_ids"],
+                anchors=winner["match_anchors"],
                 public_or_sanitized_data_ack=True,
                 metadata_bucket=extra_meta,
             )
             if extra_meta:
-                # Fold optional second-call accounting into the receipt totals.
-                extra = extra_meta[-1]
-                try:
-                    base_latency = float(metadata.get("total_latency_ms") or metadata.get("latency_ms") or 0.0)
-                    extra_latency = float(extra.get("total_latency_ms") or extra.get("latency_ms") or 0.0)
-                    metadata["total_latency_ms"] = base_latency + extra_latency
-                    metadata["request_count"] = int(metadata.get("request_count") or 1) + int(
-                        extra.get("request_count") or 1
-                    )
-                    if extra.get("request_id"):
-                        metadata["request_id"] = extra.get("request_id")
-                    if extra.get("model"):
-                        metadata["model"] = extra.get("model")
-                except (TypeError, ValueError):
-                    pass
+                _merge_call_metadata(metadata, extra_meta[-1])
 
         return _selected_result(
             session_id=selected_id,

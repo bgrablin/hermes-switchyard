@@ -5,6 +5,7 @@ import unittest
 
 from hermes_switchyard.session_search_rerank import (
     DEFAULT_MAX_CARD_CHARS,
+    fail_open_to_fts,
     redact_card_text,
     rerank_session_search,
 )
@@ -67,13 +68,16 @@ def _candidates():
             "session_id": "sess-a",
             "title": "Grocery list",
             "snippet": "milk eggs bread contact alice@example.com",
-            "match_message_ids": ["msg-a1", "msg-a2"],
+            "match_anchors": [
+                {"message_id": "msg-a1", "preview": "eggs and milk list"},
+                {"message_id": "msg-a2", "preview": "store hours reminder"},
+            ],
         },
         {
             "session_id": "sess-b",
             "title": "Deploy plan",
             "snippet": "rollback window and canary for payments phone +1 555 0100",
-            "match_message_ids": ["msg-b1"],
+            "match_anchors": [{"message_id": "msg-b1", "preview": "canary deploy rollback"}],
         },
         {
             "session_id": "sess-c",
@@ -84,16 +88,17 @@ def _candidates():
 
 
 class RedactionTests(unittest.TestCase):
-    def test_redacts_email_phone_and_token(self):
+    def test_redacts_email_phone_and_secret_assignment(self):
         text = (
             "email me at alice@example.com or +1 (555) 010-9988 "
-            "api_key=sk-abcdefghijklmnopqrstuvwxyz"
+            "secret=fixture-key-value"
         )
         redacted = redact_card_text(text)
         self.assertNotIn("alice@example.com", redacted)
         self.assertIn("[email]", redacted)
         self.assertIn("[phone]", redacted)
         self.assertIn("[secret]", redacted)
+        self.assertNotIn("fixture-key-value", redacted)
 
 
 class RerankTests(unittest.TestCase):
@@ -129,12 +134,10 @@ class RerankTests(unittest.TestCase):
         self.assertGreaterEqual(result["confidence"], 0.9)
         self.assertFalse(result["redaction"]["full_transcripts_sent"])
         self.assertEqual(result["redaction"]["max_card_chars"], DEFAULT_MAX_CARD_CHARS)
-        # First call is session Choice; single-anchor winner skips second call.
         self.assertEqual(len(client.calls), 1)
         state, questions = client.calls[0]
         self.assertIn("recall_question", state)
         self.assertEqual(set(questions), {"session"})
-        # Redaction applied before egress.
         preview = questions["session"]["criteria"]["sess-a"]
         self.assertNotIn("alice@example.com", preview)
         self.assertIn("[email]", preview)
@@ -152,6 +155,26 @@ class RerankTests(unittest.TestCase):
         self.assertEqual(result["fail_open_reason"], "provider_failed")
         self.assertTrue(result["fts_order_preserved"])
         self.assertIsNone(result["match_message_id"])
+
+    def test_fail_open_when_client_missing(self):
+        result = rerank_session_search(
+            query="recall the deploy thread",
+            candidates=_candidates(),
+            client=None,
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["status"], "fail_open")
+        self.assertEqual(result["fail_open_reason"], "jev_unavailable")
+        self.assertEqual(result["selected_session_id"], "sess-a")
+
+    def test_fail_open_helper_matches_fts_order(self):
+        result = fail_open_to_fts(
+            candidates=_candidates(),
+            query="x",
+            reason="jev_unavailable",
+        )
+        self.assertEqual(result["selected_session_id"], "sess-a")
+        self.assertEqual(result["fail_open_reason"], "jev_unavailable")
 
     def test_fail_open_on_low_confidence(self):
         client = FakeDecisionClient(
@@ -185,6 +208,25 @@ class RerankTests(unittest.TestCase):
         self.assertEqual(result["selected_session_id"], "sess-a")
         self.assertEqual(result["fail_open_reason"], "winning_probability_below_threshold")
 
+    def test_fail_open_on_malformed_answer(self):
+        def bad(_state, questions):
+            return {
+                "model": "typesafe/jev-1.13",
+                "answers": {"session": {"choice": "not-offered", "confidence": 0.9, "probabilities": {}}},
+                "usage": {},
+                "latency_ms": 1.0,
+            }
+
+        client = FakeDecisionClient(bad)
+        result = rerank_session_search(
+            query="recall",
+            candidates=_candidates(),
+            client=client,
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["status"], "fail_open")
+        self.assertEqual(result["fail_open_reason"], "invalid_response")
+
     def test_ack_false_refuses(self):
         client = FakeDecisionClient(_session_response("sess-b"))
         with self.assertRaises(PermissionError):
@@ -196,7 +238,7 @@ class RerankTests(unittest.TestCase):
             )
         self.assertEqual(client.calls, [])
 
-    def test_second_choice_among_message_anchors(self):
+    def test_second_choice_among_message_anchors_with_previews(self):
         def factory(state, questions):
             if "session" in questions:
                 criteria = questions["session"]["criteria"]
@@ -206,11 +248,11 @@ class RerankTests(unittest.TestCase):
                     "answers": {
                         "session": _choice(criteria, "sess-a", 0.95, 0.9),
                     },
-                    "usage": {},
+                    "usage": {"total_tokens": 5},
                     "latency_ms": 10.0,
                     "request_count": 1,
                     "total_latency_ms": 10.0,
-                    "total_usage": {},
+                    "total_usage": {"total_tokens": 5},
                 }
             criteria = questions["match_message"]["criteria"]
             return {
@@ -219,16 +261,16 @@ class RerankTests(unittest.TestCase):
                 "answers": {
                     "match_message": _choice(criteria, "msg-a2", 0.93, 0.91),
                 },
-                "usage": {},
+                "usage": {"total_tokens": 7},
                 "latency_ms": 8.0,
                 "request_count": 1,
                 "total_latency_ms": 8.0,
-                "total_usage": {},
+                "total_usage": {"total_tokens": 7},
             }
 
         client = FakeDecisionClient(factory)
         result = rerank_session_search(
-            query="where was the grocery list message?",
+            query="where was the store hours reminder?",
             candidates=_candidates(),
             client=client,
             public_or_sanitized_data_ack=True,
@@ -238,6 +280,28 @@ class RerankTests(unittest.TestCase):
         self.assertEqual(result["match_message_id"], "msg-a2")
         self.assertEqual(len(client.calls), 2)
         self.assertEqual(client.calls[1][1].keys(), {"match_message"})
+        self.assertEqual(result["usage"].get("total_tokens"), 12)
+        self.assertEqual(result["request_count"], 2)
+
+    def test_multi_anchor_without_previews_keeps_fts_order(self):
+        candidates = [
+            {
+                "session_id": "sess-a",
+                "snippet": "alpha",
+                "match_message_ids": ["msg-1", "msg-2"],
+            },
+            {"session_id": "sess-b", "snippet": "beta"},
+        ]
+        client = FakeDecisionClient(_session_response("sess-a"))
+        result = rerank_session_search(
+            query="alpha?",
+            candidates=candidates,
+            client=client,
+            public_or_sanitized_data_ack=True,
+        )
+        self.assertEqual(result["status"], "selected")
+        self.assertEqual(result["match_message_id"], "msg-1")
+        self.assertEqual(len(client.calls), 1)
 
 
 if __name__ == "__main__":
