@@ -1,6 +1,6 @@
 # Hermes Switchyard
 
-Picks the right specialist skill for Hermes more often — cheap, fast, and careful not to invent one when you don’t need it.
+Picks the right specialist skill for Hermes more often, sets the reasoning effort for each turn, and drives computer-use tasks with receipts. Cheap, fast, and careful not to invent one when you don’t need it.
 
 Version: 0.5.2
 
@@ -26,7 +26,7 @@ Feature scorecard last collected for **0.5.0**: selector and microbench rows wer
 - **Also true, not table rows:** Switchyard does not invent a skill when none fits (0/6 on both arms).
 - **Honest gaps:** Automatic routing is not yet a counterbalanced Hermes-session win. Computer-use dual-gate ([PR #57](https://github.com/bgrablin/hermes-switchyard/pull/57) on main) sets `goal_verified: true` only when Hermes `DONE` **and** a local condition match; local-predicate early-stops stay `goal_verified: false`. Stock Hermes GUI A/B is still the open comparison arm.
 
-This shows better single-skill routing and a working multi-skill API. It is not a claim that every Hermes task improves.
+This shows better single-skill routing and a working multi-skill API. It is not a claim that every Hermes task improves. Adaptive reasoning effort has no row here: the table measures decision quality, and effort selection is a different claim.
 
 <a id="proof"></a>
 **Proof:** method, limitations, per-feature tables, and verification hashes → [docs/BENCHMARKS.md](docs/BENCHMARKS.md) · [selector JSON](docs/benchmarks/live-selector-c8e6008.json) · [feature battery JSON](docs/benchmarks/feature-battery-c8e6008.json)
@@ -79,9 +79,28 @@ Deployed surface, as registered at this version:
 - **Session search re-rank:** `jev_session_search_rerank` re-ranks a stock Hermes `session_search` FTS shortlist with a Jev Choice (optional message-id Choice). Cards are redacted and capped; full transcripts stay local. Fail-open returns the first FTS hit when Jev is down or low-confidence. See `docs/SESSION-SEARCH-RERANK.md`.
 - **Skill selection:** `jev_skill_select` recommends one skill from the candidate list supplied by Hermes. Catalogs larger than Jev's per-Choice limit are searched with partition fan-out and recursive reduction; no tail is silently discarded. It never loads the skill.
 - **Multi-skill selection:** `jev_skill_select_many` independently scores the complete bounded catalog and returns a typed list of exact skill identifiers. It is a separate advisory contract and never loads or mutates skills.
-- **Adaptive reasoning effort (default on):** On Hermes ≥ 0.21, Jev picks `reasoning_effort` (`none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`/`ultra`) per turn and after tools through `llm_request` middleware — raise when stuck, lower for routine work. Fail closed keeps the previous effort. Disable with `hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort false`. `jev_model_route` stays advisory (`applied: false`); this is the apply-able win.
+- **Adaptive reasoning effort (default on):** Jev picks the per-turn `reasoning_effort` through Hermes' `llm_request` middleware. Defaults and the disable command are in [Adaptive reasoning effort](#adaptive-reasoning-effort).
 - **Model routing:** `jev_model_route` is **recommend + receipt (advisory)**. It filters candidates using explicit code-owned metadata and requirements, then recommends the lowest-cost qualified candidate and leaves an auditable receipt. It does **not** auto-apply or change Hermes' active model (`applied: false` until a Hermes apply seam exists). `route_model_from_registry` and `hermes_switchyard.model_route_adapter.recommend_model_route` supply a first-class approved-registry path with the same receipt contract. `jev_model_route_approved` instead reads a profile-owned approved registry with policy validated locally, including operator-managed version and expiry fields. Neither tool changes the active Hermes model or tries another provider when Jev fails. Stale registry generations abstain as `stale_registry`; an empty registry abstains as `empty_registry`.
 - **Cua Driver computer use:** `jev_computer_use` is registered by default in the `computer_use` toolset on **Windows, macOS, and Linux** (cross-platform). Public web goals (`start_url` or an https URL in the goal) run a DOM browser loop: one Jev request per step, page clicks, no Hermes `computer_use` between actions. Desktop apps without a URL still use Cua Driver. Standing `public_or_sanitized_data_ack` is on after install, so callers may omit it. A live Jev route is still required. A session only exposes the tool when the `computer_use` toolset is selected; see [Toolsets and session exposure](#toolsets-and-session-exposure). The DOM backend runs a fresh headless profile, reports its `backend`, `session_mode`, `browser`, and confinement class, offers scroll-relative targets with stable identities, and evaluates an optional caller-supplied `completion_condition` locally so it can stop without another request. Receipt-level dual-gate verification sets **`goal_verified: true`** / `verified: true` only when Hermes agreed `DONE` (`completion_source: provider_decision`) **and** a local completion condition is satisfied (`verification_owner: hermes_and_url`); a `local_predicate` early-stop may still be `completion_candidate` but keeps both flags false. It can type into ordinary text fields when `text_inputs` are supplied; it does not upload, authenticate, or attach to an existing browser session. Those goals, and typing goals without values, return `unsupported_capability` before any request. See [docs/DOM-BROWSER-BACKEND.md](docs/DOM-BROWSER-BACKEND.md).
+
+## Adaptive reasoning effort
+
+Adaptive reasoning effort is on by default. On Hermes 0.21 or newer, Switchyard registers the `llm_request` middleware, and Jev chooses `reasoning_effort` for the turn from the task and the recent results. It raises effort when the work is stuck or ambiguous and lowers it for routine steps. The plugin re-evaluates after tool results when the host exposes the `post_tool_call` hook. This is the one capability Switchyard applies to the live request instead of only recommending.
+
+Levels are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, and `ultra`. Switchyard sends only levels the host accepts. For transports that reject the lowest levels, such as Codex, Responses, and Astra, it maps `none` and `minimal` to `low`, so adaptive effort never causes a rejected request.
+
+| Setting | Default | What it controls |
+| --- | --- | --- |
+| `adaptive_reasoning_effort` | `true` | Runs the effort middleware. |
+| `adaptive_reasoning_effort_default` | `medium` | Effort for the first turn and after a fail-closed decision. |
+| `adaptive_reasoning_effort_deadline_seconds` | `8.0` | Wall-clock budget for the effort choice, so the middleware stays quick. |
+
+Fail closed: if the Jev route is unavailable, slow, or low-confidence, the previous effort stays. Switchyard does not change the active model and does not fall back to another provider.
+
+```text
+hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort_default high
+hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort false
+```
 
 ## Automatic skill recommendations
 
