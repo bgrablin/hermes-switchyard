@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Hermes Switchyard setup and configuration
+    url: https://github.com/bgrablin/hermes-switchyard/blob/main/docs/SETUP.md
+    about: Setup, configuration, and the supported toolsets.

@@ -8,6 +8,8 @@ config.yaml
 config.yml
 **/config.yaml
 **/config.yml
+# The issue chooser config is a tracked template, not local state
+!.github/ISSUE_TEMPLATE/config.yml
 *.key
 *.pem
 *.p12
