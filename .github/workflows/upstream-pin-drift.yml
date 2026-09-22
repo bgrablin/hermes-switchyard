@@ -1,0 +1,54 @@
+name: Upstream pin drift
+
+# Report-only check. It compares the pinned Hermes upstream commit with the
+# current default-branch head of NousResearch/hermes-agent and records the
+# delta in the run summary. It never writes to the repository and never fails
+# on drift, so a re-pin stays a deliberate, reviewed change.
+# No event payload reaches a run step: the only external value is a hex SHA
+# read from git ls-remote, and it is quoted into the summary, never evaluated.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 6 1 * *' # first day of each month, 06:23 UTC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-pin-drift
+  cancel-in-progress: false
+
+env:
+  HERMES_UPSTREAM_SHA: 8503ee4459316ce092b5d69b7d396c27aa03d0be
+  UPSTREAM_REPOSITORY_URL: https://github.com/NousResearch/hermes-agent.git
+
+jobs:
+  report:
+    name: Report upstream pin drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Compare the pin with the upstream default-branch head
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="$(git ls-remote "$UPSTREAM_REPOSITORY_URL" HEAD | awk '{print $1}')"
+          test -n "$head_sha"
+          if [ "$head_sha" = "$HERMES_UPSTREAM_SHA" ]; then
+            status="pin matches the upstream default-branch head"
+            compare="not required"
+          else
+            status="upstream has moved past the pin"
+            compare="https://github.com/NousResearch/hermes-agent/compare/${HERMES_UPSTREAM_SHA}...${head_sha}"
+          fi
+          {
+            printf '## Hermes upstream pin drift\n\n'
+            printf '| Field | Value |\n'
+            printf '| --- | --- |\n'
+            printf '| Pinned SHA | `%s` |\n' "$HERMES_UPSTREAM_SHA"
+            printf '| Upstream default-branch head | `%s` |\n' "$head_sha"
+            printf '| Status | %s |\n' "$status"
+            printf '| Compare | %s |\n' "$compare"
+          } >> "$GITHUB_STEP_SUMMARY"
+          printf 'pin=%s head=%s status=%s\n' "$HERMES_UPSTREAM_SHA" "$head_sha" "$status"
