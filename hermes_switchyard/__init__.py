@@ -35,7 +35,7 @@ from .model_policy import recommend_approved_model
 from .model_route_adapter import register_model_route_adapter
 from .reasoning_effort_adapter import register_reasoning_effort_adapter
 from .routing import route_model, select_skill, select_skills
-from .session_search_rerank import fail_open_to_fts, rerank_session_search
+from .session_search_rerank import rerank_session_search
 
 from .host_compat import ctx_get_config, register_auxiliary_task as register_host_auxiliary_task
 
@@ -1655,11 +1655,6 @@ def register(ctx):
             pick_match_message = args.get("pick_match_message", True)
             ack = _resolved_public_data_ack(args, standing_ack)
             deadline_seconds = args.get("deadline_seconds", DEFAULT_OPERATION_DEADLINE_SECONDS)
-            thresholds = {
-                "choice_confidence": float(choice_confidence_threshold),
-                "winning_probability": float(winning_probability_threshold),
-            }
-
             try:
                 active_client = client()
             except Exception:  # noqa: BLE001 -- missing key/route fails open to FTS

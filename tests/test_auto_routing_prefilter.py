@@ -22,7 +22,6 @@ from hermes_switchyard.automatic import (
     build_routing_receipt,
     plan_hosted_prefilter,
 )
-from hermes_switchyard.client import DecisionClient
 
 
 def _allowed_policy(payload="SANITIZED_TASK_MARKER"):

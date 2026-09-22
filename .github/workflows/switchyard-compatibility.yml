@@ -159,6 +159,12 @@ jobs:
             --plugin-root "$GITHUB_WORKSPACE" \
             --report "$RUNNER_TEMP/switchyard-receipts/native-tool-invocation.json"
 
+      - name: Run Ruff lint gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          UV_NO_CONFIG=1 uvx --from ruff==0.11.13 ruff check .
+
       - name: Run offline plugin checks
         shell: bash
         run: |

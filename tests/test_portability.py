@@ -14,9 +14,10 @@ from pathlib import Path
 import re
 from unittest import mock
 
+from scripts import check_portability
+
 
 ROOT = Path(__file__).resolve().parent.parent
-from scripts import check_portability
 
 
 def _manifest_version() -> str:

@@ -25,7 +25,6 @@ from hermes_switchyard.client import (
     DecisionClient,
     MAX_REQUEST_BYTES,
     PartialAccountingError,
-    operation_deadline_scope,
 )
 from hermes_switchyard.computer_use import run_computer_goal
 from hermes_switchyard.routing import (
@@ -835,7 +834,7 @@ class F4GuIEvidenceTests(unittest.TestCase):
         fresh["elements"][0]["focused"] = True
         dispatch = SyntheticDispatch([focused, fresh])
         # text_inputs reference a different field than the focused control.
-        result = run_computer_goal(
+        run_computer_goal(
             goal="fill the name", app="Chrome", max_steps=2,
             dispatch=dispatch, client=ComputerClient(["TYPE_TEXT"]),
             public_or_sanitized_data_ack=True, deadline_seconds=60.0,
@@ -956,7 +955,7 @@ class F5RestrictedMarkerTests(unittest.TestCase):
         )
         # First a clean, cached request.
         task1, policy1 = self._marked_task("Review the public technical design.")
-        r1 = recommender.recommend(task1, turn_egress_policy=policy1)
+        recommender.recommend(task1, turn_egress_policy=policy1)
         self.assertTrue(client_calls)
         client_calls.clear()
         # Then a newly-marked variant on the same recommender.
@@ -975,8 +974,6 @@ class A0NoIntermediateModelCallTests(unittest.TestCase):
     liveness proof."""
 
     def test_registered_handler_runs_multi_action_with_zero_non_jev_inference(self):
-        from hermes_switchyard import client as _client_module
-
         spy_calls = {"n": 0, "jev_calls": 0}
 
         class ForbiddenLLM:
