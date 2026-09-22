@@ -151,6 +151,14 @@ jobs:
             --source-sha "$SWITCHYARD_SOURCE_SHA" \
             --report "$RUNNER_TEMP/switchyard-receipts/native-compatibility.json"
 
+      - name: Call every registered tool through Hermes' real dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$HERMES_PYTHON" scripts/ci/check_native_tool_invocation.py \
+            --plugin-root "$GITHUB_WORKSPACE" \
+            --report "$RUNNER_TEMP/switchyard-receipts/native-tool-invocation.json"
+
       - name: Run offline plugin checks
         shell: bash
         run: |

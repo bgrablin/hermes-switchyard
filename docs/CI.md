@@ -17,8 +17,9 @@ Each matrix job:
 2. Creates a venv outside the Hermes checkout with `uv venv`.
 3. Installs the pinned checkout with the upstream contributor setup, `uv pip install -e ".[all,dev]"`.
 4. Runs `hermes plugins validate --json` and `hermes plugins doctor --ci` against this candidate.
-5. Runs `scripts/ci/check_native_hermes.py`, which uses Hermes' real manifest parser, directory loader, registration path, registry entries, and tool schemas.
-6. Runs the plugin's offline tests with that native Hermes Python, so the native parser test cannot become a green import skip.
+5. Runs `scripts/ci/check_native_hermes.py`, which uses Hermes' real manifest parser, directory loader, registration path, registry entries, and tool schemas. This proves every declared tool is registered with a well-formed schema; it does not call a handler.
+6. Runs `scripts/ci/check_native_tool_invocation.py`, which loads the same real registry entries and actually calls each Jev-backed tool's handler (`jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_assess`) with a synthetic HTTPS transport standing in for the Jev provider. No network call, no credential, no cost; it exercises the exact code path a live turn would use (schema → handler closure → `DecisionClient` → `http.client.HTTPSConnection` → response validation → JSON envelope) so a PR that breaks a handler at runtime (bad import, signature mismatch, argument-handling regression) fails this required PR gate instead of only the manual, paid `Live Jev contract` workflow. A synthetic transport does not prove a live Jev response would satisfy the plugin; that remains the live contract's job.
+7. Runs the plugin's offline tests with that native Hermes Python, so the native parser test cannot become a green import skip.
 
 The native receipt is uploaded as a workflow artifact. It contains the candidate source SHA, pinned Hermes SHA, manifest identity, registered tool names, schema fields, and interpreter version. It never contains credentials or model requests.
 
