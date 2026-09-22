@@ -26,6 +26,8 @@ provides_tools:
 provides_hooks:
   - pre_llm_call
   - post_tool_call
+provides_middleware:
+  - llm_request
 config_schema:
   jev_provider: {type: str, default: "auto", description: auto prefers direct TypeSafe when TYPESAFE_API_KEY is available; also accepts typesafe or openrouter}
   api_endpoint: {type: str, default: "https://openrouter.ai/api/alpha/decisions", description: Fixed TypeSafe or OpenRouter Jev endpoint; arbitrary endpoints fail closed}
