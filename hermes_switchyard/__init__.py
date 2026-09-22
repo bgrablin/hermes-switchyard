@@ -28,6 +28,7 @@ from .computer_use import StaleTargetError, run_computer_goal
 from .egress import is_routing_mode
 from .model_policy import recommend_approved_model
 from .model_route_adapter import register_model_route_adapter
+from .reasoning_effort_adapter import register_reasoning_effort_adapter
 from .routing import route_model, select_skill, select_skills
 
 from .host_compat import ctx_get_config, register_auxiliary_task as register_host_auxiliary_task
@@ -41,6 +42,7 @@ _UNREGISTERED_RUNTIME_STATUS = {
     "automatic_skill_jev_mode": None,
     "hosted_construction_allowed": False,
     "model_route_adapter": None,
+    "reasoning_effort_adapter": None,
 }
 _RUNTIME_STATUS = dict(_UNREGISTERED_RUNTIME_STATUS)
 
@@ -104,6 +106,7 @@ def _publish_runtime_status(
             ),
             "hosted_construction_allowed": bool(mode == "hosted_sanitized" and ack),
             "model_route_adapter": _RUNTIME_STATUS.get("model_route_adapter"),
+            "reasoning_effort_adapter": _RUNTIME_STATUS.get("reasoning_effort_adapter"),
         }
     )
 
@@ -965,6 +968,7 @@ def _cli_handler(args):
             "automatic_skill_jev_mode": _RUNTIME_STATUS["automatic_skill_jev_mode"],
             "hosted_construction_allowed": _RUNTIME_STATUS["hosted_construction_allowed"],
             "model_route_adapter": _RUNTIME_STATUS.get("model_route_adapter"),
+            "reasoning_effort_adapter": _RUNTIME_STATUS.get("reasoning_effort_adapter"),
             "tool_exposure": exposure,
             "toolset_composition": _toolset_composition(),
         }
@@ -1457,6 +1461,28 @@ def register(ctx):
     # bind a future seam) without changing the active model. Coordinators use
     # recommend_model_route / jev_model_route_approved for typed receipts.
     _RUNTIME_STATUS["model_route_adapter"] = register_model_route_adapter(ctx)
+
+    # Hermes 0.21 exposes llm_request middleware + reasoning_effort. Adaptive
+    # effort is the apply-able win; model route stays advisory (applied: false).
+    _RUNTIME_STATUS["reasoning_effort_adapter"] = register_reasoning_effort_adapter(
+        ctx,
+        enabled=setting_bool("adaptive_reasoning_effort", True),
+        default_effort=str(
+            ctx_get_config(ctx, "adaptive_reasoning_effort_default", default="medium") or "medium"
+        ),
+        client_factory=client,
+        public_or_sanitized_data_ack=standing_ack,
+        deadline_seconds=_config_float(
+            ctx_get_config(
+                ctx,
+                "adaptive_reasoning_effort_deadline_seconds",
+                default=8.0,
+            ),
+            8.0,
+            minimum=0.5,
+            maximum=DEFAULT_OPERATION_DEADLINE_SECONDS,
+        ),
+    )
 
     def assess_handler(args, **kwargs):
         try:

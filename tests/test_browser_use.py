@@ -137,7 +137,7 @@ class BrowserUseTests(unittest.TestCase):
         self.assertEqual(url, "https://en.wikipedia.org/wiki/Felidae")
 
     def test_rejects_file_urls(self):
-        self.assertIsNone(infer_start_url("file:///etc/passwd", "open this"))
+        self.assertIsNone(infer_start_url("file:///forbidden/local-secret", "open this"))
 
     def test_rejects_localhost_and_private_urls(self):
         self.assertIsNone(infer_start_url("http://localhost:8000/", "open this"))
@@ -150,7 +150,7 @@ class BrowserUseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             requested_web_start(None, "open https://192.168.0.1/ now")
         with self.assertRaises(ValueError):
-            requested_web_start(None, "open file:///etc/passwd")
+            requested_web_start(None, "open file:///forbidden/local-secret")
         with self.assertRaises(ValueError):
             requested_web_start(None, "run javascript:alert(1)")
         with self.assertRaises(ValueError):
@@ -453,7 +453,7 @@ class BrowserUseTests(unittest.TestCase):
             result = json.loads(
                 context.tools["jev_computer_use"](
                     {
-                        "goal": "open file:///etc/passwd in Chrome",
+                        "goal": "open file:///forbidden/local-secret in Chrome",
                         "app": "Chrome",
                     }
                 )

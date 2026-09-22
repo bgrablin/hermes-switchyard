@@ -77,6 +77,33 @@ On Windows, set `HERMES_HOME` to a new temporary directory using the shell's nor
 
 A successful native check proves discovery and registration, not model quality, GUI completion, or permission to send private data. It also does not prove that a session can call a tool.
 
+
+## Adaptive reasoning effort (Hermes ≥ 0.21)
+
+After install, adaptive reasoning effort is **on**. Switchyard registers Hermes
+`llm_request` middleware and asks Jev for a typed Choice over
+`none|minimal|low|medium|high|xhigh|max|ultra` before each generation (and again
+after tools when outcomes change). The middleware rewrites only request-scoped
+effort fields — messages stay untouched for prompt-cache friendliness. If Jev
+fails or ack is missing, the previous effort is kept.
+
+Disable:
+
+```text
+hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort false
+```
+
+Optional defaults:
+
+```text
+hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort_default medium
+hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort_deadline_seconds 8
+```
+
+On Hermes hosts without `register_middleware`, registration records
+`noop_seam_unavailable` and does not change requests. `jev_model_route` remains
+advisory (`applied: false`); adaptive effort is the apply path.
+
 ## Confirm what a session exposes
 
 Hermes puts a tool in a session's callable catalog only when the toolset the tool is registered under is selected for that session. The required composition is:
