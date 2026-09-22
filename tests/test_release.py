@@ -5,6 +5,7 @@ import hashlib
 import ast
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -28,6 +29,13 @@ from scripts.build_release import (
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE_MANIFEST_NAME = "SOURCE-MANIFEST.json"
 CHECKSUMS_NAME = "SHA256SUMS"
+
+
+def _manifest_version(root: Path = ROOT) -> str:
+    text = (root / "plugin.yaml").read_text(encoding="utf-8")
+    match = re.search(r"(?m)^version:\s*(\S+)", text)
+    assert match is not None, "plugin.yaml declares no version"
+    return match.group(1)
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -146,7 +154,7 @@ class ReleaseArchiveTests(unittest.TestCase):
                 second,
                 source_root=repo,
                 expected_source_sha=source_sha,
-                expected_version="0.5.0",
+                expected_version=_manifest_version(repo),
             )
             self.assertTrue(result["integrity_verified"])
             self.assertTrue(result["source_verified"])
