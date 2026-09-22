@@ -1125,6 +1125,10 @@ def _cli_handler(args):
     save_env_value(key_name, value)
     ensure_result = ensure_platform_toolsets()
     print(f"Saved {key_name} to the active Hermes profile secret store.")
+    print(
+        "Automatic hosted skill routing is on by default (`hosted_sanitized` + `load`); "
+        "change it with `plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode`."
+    )
     if ensure_result.get("ok") and ensure_result.get("added"):
         print(
             "Also ensured toolsets "
