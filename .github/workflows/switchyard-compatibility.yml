@@ -1,10 +1,24 @@
 name: Switchyard compatibility
 
+# CI cost/signal design:
+# - Pull requests get one fast combo (ubuntu-latest / Python 3.11) as the required merge
+#   gate. All 26 prior compatibility failures broke identically across every matrix cell,
+#   so running the full 6-way matrix on every PR push bought redundant runs, not extra
+#   signal, against a limited Actions minutes budget.
+# - The full 2 OS x 3 Python matrix runs only after code lands on main, plus a weekly
+#   schedule and manual dispatch, to still catch real OS/version-specific drift without
+#   paying the 6x multiplier on every PR iteration.
+# - `compatibility` defines the step sequence exactly once. `plan` only decides how many
+#   matrix cells that one sequence expands into for the current event, so a future
+#   dependency/security/test-command change updates one lane, never two that can drift
+#   apart. tests/test_ci_contracts.py pins this event -> matrix-size behavior.
 on:
   push:
     branches:
       - main
   pull_request:
+  schedule:
+    - cron: '17 6 * * 1' # weekly Monday 06:17 UTC full-matrix regression check
   workflow_dispatch:
 
 permissions:
@@ -18,15 +32,41 @@ env:
   HERMES_UPSTREAM_SHA: 8503ee4459316ce092b5d69b7d396c27aa03d0be
 
 jobs:
+  plan:
+    name: Plan compatibility matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Compute event-dependent matrix
+        id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            matrix='{"include":[{"os":"ubuntu-latest","python-version":"3.11"}]}'
+          else
+            matrix='{"include":[
+              {"os":"ubuntu-latest","python-version":"3.11"},
+              {"os":"ubuntu-latest","python-version":"3.12"},
+              {"os":"ubuntu-latest","python-version":"3.13"},
+              {"os":"windows-latest","python-version":"3.11"},
+              {"os":"windows-latest","python-version":"3.12"},
+              {"os":"windows-latest","python-version":"3.13"}
+            ]}'
+          fi
+          compact="$(printf '%s' "$matrix" | tr -d '\n ')"
+          printf 'matrix=%s\n' "$compact" >> "$GITHUB_OUTPUT"
+
   compatibility:
     name: ${{ matrix.os }} / Python ${{ matrix.python-version }} / native Hermes
+    needs: plan
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        python-version: ['3.11', '3.12', '3.13']
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
     steps:
       - name: Check out candidate source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -111,6 +151,14 @@ jobs:
             --source-sha "$SWITCHYARD_SOURCE_SHA" \
             --report "$RUNNER_TEMP/switchyard-receipts/native-compatibility.json"
 
+      - name: Call every registered tool through Hermes' real dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$HERMES_PYTHON" scripts/ci/check_native_tool_invocation.py \
+            --plugin-root "$GITHUB_WORKSPACE" \
+            --report "$RUNNER_TEMP/switchyard-receipts/native-tool-invocation.json"
+
       - name: Run offline plugin checks
         shell: bash
         run: |
@@ -129,6 +177,7 @@ jobs:
             echo "## Switchyard compatibility"
             echo "- Candidate source SHA: ${SWITCHYARD_SOURCE_SHA:-unavailable}"
             echo "- Hermes source SHA: $HERMES_UPSTREAM_SHA"
+            echo "- Combo: ${{ matrix.os }} / Python ${{ matrix.python-version }}"
             echo "- Native manifest, registration, and tool-schema checks: see receipt artifact"
             echo "- Live Jev requests: not run by this workflow"
           } >> "$GITHUB_STEP_SUMMARY"
