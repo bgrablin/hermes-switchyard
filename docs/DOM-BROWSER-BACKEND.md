@@ -246,7 +246,9 @@ Each action record separates three claims that are not interchangeable:
 | --- | --- |
 | `action_dispatched` | the click, scroll, or wait was sent to the browser |
 | `effect_observed` | a URL, title, document, or focus change was observed afterwards |
-| `goal_verified` / `verified` | both `true` when a caller `completion_condition` is satisfied via `completion_source: local_predicate`; `verification_owner` is then `local_completion_predicate`. Jev `DONE` without a satisfied local predicate stays `completion_candidate` with `goal_verified: false`, `verified: false`, and `verification_owner: coordinator` |
+| `goal_verified` | always false inside the loop; receipt-level verification is separate |
+
+Action records do not carry a top-level `verified` field. Receipt-level dual-gate verification sets `goal_verified` / `verified` true only when Hermes agreed `DONE` (`completion_source: provider_decision`) **and** a local completion condition is satisfied; `verification_owner` is then `hermes_and_url`. A `local_predicate` early-stop (caller-supplied or derived) may still be `completion_candidate` but keeps both flags false. Provider `DONE` without a satisfied condition stays unverified (`verification_owner: coordinator`).
 
 `effect_confirmed` repeats `effect_observed` for compatibility and is never true
 without an observed delta, so a click that changes nothing reports
