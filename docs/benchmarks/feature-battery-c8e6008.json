@@ -1,0 +1,567 @@
+{
+  "generated_at_ct": "2026-09-21 19:36:36 CT",
+  "plugin_tip": "c8e6008",
+  "plugin_version": "0.5.0",
+  "jev_model": "typesafe/jev-1.13",
+  "multi_skill": {
+    "feature": "jev_skill_select_many",
+    "n": 5,
+    "with_select_many_complete": "5/5",
+    "with_select_many_mean_coverage": 1.0,
+    "without_top1_complete": "0/5",
+    "without_top1_mean_coverage": 0.1,
+    "p50_latency_ms": 252.8,
+    "p95_latency_ms": 351.6,
+    "total_cost_select_many": 0.00034692,
+    "total_cost_top1": 0.00027342,
+    "rows_select_many": [
+      {
+        "id": "multi_git_pr_review_001",
+        "required": [
+          "git-change-preparation",
+          "github-code-review"
+        ],
+        "selected": [
+          "git-change-preparation",
+          "github-code-review"
+        ],
+        "complete": true,
+        "coverage": 1.0,
+        "status": "selected",
+        "wall_ms": 352.5,
+        "latency_ms": 351.6,
+        "cost": 6.9468e-05,
+        "error": null,
+        "scores": {
+          "git-change-preparation": 0.98,
+          "github-code-review": 0.98,
+          "docker-management": 0.1,
+          "kubernetes-patterns": 0.08,
+          "postgres-patterns": 0.05,
+          "network-config-validation": 0.05,
+          "smart-home-local-apis": 0.03,
+          "document-intelligence": 0.13,
+          "spreadsheet-delivery-certification": 0.03,
+          "local-place-recommendations": 0.01,
+          "literature-review": 0.09,
+          "software-release-governance": 0.17
+        }
+      },
+      {
+        "id": "multi_postgres_backup_001",
+        "required": [
+          "docker-management",
+          "postgres-patterns"
+        ],
+        "selected": [
+          "docker-management",
+          "postgres-patterns"
+        ],
+        "complete": true,
+        "coverage": 1.0,
+        "status": "selected",
+        "wall_ms": 253.7,
+        "latency_ms": 252.8,
+        "cost": 6.9342e-05,
+        "error": null,
+        "scores": {
+          "git-change-preparation": 0.14,
+          "github-code-review": 0.3,
+          "docker-management": 0.96,
+          "kubernetes-patterns": 0.61,
+          "postgres-patterns": 0.95,
+          "network-config-validation": 0.16,
+          "smart-home-local-apis": 0.03,
+          "document-intelligence": 0.08,
+          "spreadsheet-delivery-certification": 0.03,
+          "local-place-recommendations": 0.01,
+          "literature-review": 0.05,
+          "software-release-governance": 0.23
+        }
+      },
+      {
+        "id": "multi_report_studies_001",
+        "required": [
+          "document-intelligence",
+          "literature-review"
+        ],
+        "selected": [
+          "document-intelligence",
+          "literature-review"
+        ],
+        "complete": true,
+        "coverage": 1.0,
+        "status": "selected",
+        "wall_ms": 254.6,
+        "latency_ms": 253.6,
+        "cost": 6.9468e-05,
+        "error": null,
+        "scores": {
+          "git-change-preparation": 0.08,
+          "github-code-review": 0.05,
+          "docker-management": 0.05,
+          "kubernetes-patterns": 0.03,
+          "postgres-patterns": 0.04,
+          "network-config-validation": 0.03,
+          "smart-home-local-apis": 0.02,
+          "document-intelligence": 0.95,
+          "spreadsheet-delivery-certification": 0.07,
+          "local-place-recommendations": 0.02,
+          "literature-review": 0.88,
+          "software-release-governance": 0.14
+        }
+      },
+      {
+        "id": "multi_vlan_home_automation_001",
+        "required": [
+          "network-config-validation",
+          "smart-home-local-apis"
+        ],
+        "selected": [
+          "network-config-validation",
+          "smart-home-local-apis"
+        ],
+        "complete": true,
+        "coverage": 1.0,
+        "status": "selected",
+        "wall_ms": 200.8,
+        "latency_ms": 199.9,
+        "cost": 6.9426e-05,
+        "error": null,
+        "scores": {
+          "git-change-preparation": 0.11,
+          "github-code-review": 0.27,
+          "docker-management": 0.26,
+          "kubernetes-patterns": 0.15,
+          "postgres-patterns": 0.1,
+          "network-config-validation": 0.98,
+          "smart-home-local-apis": 0.96,
+          "document-intelligence": 0.11,
+          "spreadsheet-delivery-certification": 0.03,
+          "local-place-recommendations": 0.02,
+          "literature-review": 0.04,
+          "software-release-governance": 0.13
+        }
+      },
+      {
+        "id": "multi_release_pr_proof_001",
+        "required": [
+          "github-code-review",
+          "software-release-governance"
+        ],
+        "selected": [
+          "git-change-preparation",
+          "github-code-review",
+          "software-release-governance"
+        ],
+        "complete": true,
+        "coverage": 1.0,
+        "status": "selected",
+        "wall_ms": 201.1,
+        "latency_ms": 200.2,
+        "cost": 6.9216e-05,
+        "error": null,
+        "scores": {
+          "git-change-preparation": 0.91,
+          "github-code-review": 0.96,
+          "docker-management": 0.15,
+          "kubernetes-patterns": 0.12,
+          "postgres-patterns": 0.07,
+          "network-config-validation": 0.07,
+          "smart-home-local-apis": 0.03,
+          "document-intelligence": 0.65,
+          "spreadsheet-delivery-certification": 0.05,
+          "local-place-recommendations": 0.02,
+          "literature-review": 0.1,
+          "software-release-governance": 0.95
+        }
+      }
+    ],
+    "rows_top1": [
+      {
+        "id": "multi_git_pr_review_001",
+        "required": [
+          "git-change-preparation",
+          "github-code-review"
+        ],
+        "selected": [],
+        "complete": false,
+        "coverage": 0.0,
+        "status": "abstained",
+        "latency_ms": 164.8,
+        "cost": 5.4768e-05,
+        "wall_ms": 165.3,
+        "error": null
+      },
+      {
+        "id": "multi_postgres_backup_001",
+        "required": [
+          "docker-management",
+          "postgres-patterns"
+        ],
+        "selected": [],
+        "complete": false,
+        "coverage": 0.0,
+        "status": "abstained",
+        "latency_ms": 184.2,
+        "cost": 5.4642e-05,
+        "wall_ms": 184.6,
+        "error": null
+      },
+      {
+        "id": "multi_report_studies_001",
+        "required": [
+          "document-intelligence",
+          "literature-review"
+        ],
+        "selected": [],
+        "complete": false,
+        "coverage": 0.0,
+        "status": "abstained",
+        "latency_ms": 169.4,
+        "cost": 5.4768e-05,
+        "wall_ms": 169.8,
+        "error": null
+      },
+      {
+        "id": "multi_vlan_home_automation_001",
+        "required": [
+          "network-config-validation",
+          "smart-home-local-apis"
+        ],
+        "selected": [
+          "network-config-validation"
+        ],
+        "complete": false,
+        "coverage": 0.5,
+        "status": "selected",
+        "latency_ms": 162.6,
+        "cost": 5.4726e-05,
+        "wall_ms": 163.0,
+        "error": null
+      },
+      {
+        "id": "multi_release_pr_proof_001",
+        "required": [
+          "github-code-review",
+          "software-release-governance"
+        ],
+        "selected": [],
+        "complete": false,
+        "coverage": 0.0,
+        "status": "abstained",
+        "latency_ms": 168.1,
+        "cost": 5.4516e-05,
+        "wall_ms": 168.5,
+        "error": null
+      }
+    ],
+    "note": "Same 5 frozen required-set tasks. Without = jev_skill_select (top-1). With = jev_skill_select_many (independent Noul scores)."
+  },
+  "model_route": {
+    "feature": "jev_model_route",
+    "n": 3,
+    "without_correct": "3/3",
+    "with_correct": "3/3",
+    "applied_field_values": [
+      null,
+      null,
+      null
+    ],
+    "p50_latency_ms": 163.6,
+    "total_cost": 6.678e-05,
+    "rows": [
+      {
+        "id": "terminal_simple",
+        "gold": "cheap",
+        "without_lexical": "cheap",
+        "without_ok": true,
+        "without_ms": 0.014,
+        "with_selected": "cheap",
+        "with_status": "selected",
+        "with_ok": true,
+        "with_ms": 152.1,
+        "latency_ms": 151.6,
+        "cost": 2.5956e-05,
+        "applied": null,
+        "eligible": [
+          "cheap",
+          "mid"
+        ],
+        "error": null,
+        "selection_policy": "cheapest qualified candidate; advisory only; runtime model is unchanged"
+      },
+      {
+        "id": "web_research",
+        "gold": "mid",
+        "without_lexical": "mid",
+        "without_ok": true,
+        "without_ms": 0.016,
+        "with_selected": "mid",
+        "with_status": "selected",
+        "with_ok": true,
+        "with_ms": 196.9,
+        "latency_ms": 196.5,
+        "cost": 2.0118e-05,
+        "applied": null,
+        "eligible": [
+          "mid"
+        ],
+        "error": null,
+        "selection_policy": "cheapest qualified candidate; advisory only; runtime model is unchanged"
+      },
+      {
+        "id": "vision_long",
+        "gold": "expensive",
+        "without_lexical": "expensive",
+        "without_ok": true,
+        "without_ms": 0.013,
+        "with_selected": "expensive",
+        "with_status": "selected",
+        "with_ok": true,
+        "with_ms": 163.9,
+        "latency_ms": 163.6,
+        "cost": 2.0706e-05,
+        "applied": null,
+        "eligible": [
+          "expensive"
+        ],
+        "error": null,
+        "selection_policy": "cheapest qualified candidate; advisory only; runtime model is unchanged"
+      }
+    ],
+    "caveat": "Without arm is local cheapest-qualified filter on code-owned metadata (not Hermes default picker). applied:false expected until a Hermes apply seam exists.",
+    "adapter_applied": false,
+    "adapter_note": "route_model library result may omit applied; recommend_model_route adapter sets applied:false."
+  },
+  "assess": {
+    "feature": "jev_assess",
+    "n": 3,
+    "without_correct": "2/3",
+    "with_correct": "3/3",
+    "p50_latency_ms": 211.7,
+    "total_cost": 4.032e-05,
+    "rows": [
+      {
+        "id": "sky",
+        "gold": "blue",
+        "without_first": "blue",
+        "without_ok": true,
+        "with_choice": "blue",
+        "with_ok": true,
+        "confidence": 1,
+        "latency_ms": 280.7,
+        "cost": 1.365e-05,
+        "error": null,
+        "model": "typesafe/jev-1.13-20260917"
+      },
+      {
+        "id": "sum",
+        "gold": "4",
+        "without_first": "3",
+        "without_ok": false,
+        "with_choice": "4",
+        "with_ok": true,
+        "confidence": 1,
+        "latency_ms": 167.0,
+        "cost": 1.3482e-05,
+        "error": null,
+        "model": "typesafe/jev-1.13-20260917"
+      },
+      {
+        "id": "earth",
+        "gold": "yes",
+        "without_first": "yes",
+        "without_ok": true,
+        "with_choice": "yes",
+        "with_ok": true,
+        "confidence": 1,
+        "latency_ms": 211.7,
+        "cost": 1.3188e-05,
+        "error": null,
+        "model": "typesafe/jev-1.13-20260917"
+      }
+    ],
+    "caveat": "Tiny Choice smoke (n=3). Without = first-criteria baseline, not a competing model."
+  },
+  "automatic": {
+    "feature": "automatic_skill_routing",
+    "mode_tested": "local_only vs off (install-default path; no hosted Jev)",
+    "n": 3,
+    "without_silent": "3/3",
+    "with_correct": "2/3",
+    "with_helpful_on_positives": "1/2",
+    "rows": [
+      {
+        "id": "docker",
+        "gold": "docker-management",
+        "without_ok": true,
+        "without_status": "disabled",
+        "with_selected": "docker-management",
+        "with_ok": true,
+        "with_status": "local_selection",
+        "with_source": "local",
+        "off_ms": 2.621,
+        "on_ms": 1.979,
+        "on_keys": [
+          "abstention_reason",
+          "cache_hit",
+          "candidate_count",
+          "candidates_considered",
+          "hosted_attempted",
+          "hosted_skipped",
+          "local_score",
+          "routing_mode",
+          "routing_reason",
+          "routing_status",
+          "selected",
+          "source",
+          "status"
+        ],
+        "without_selected": null,
+        "without_helpful": false,
+        "with_helpful": true
+      },
+      {
+        "id": "postgres",
+        "gold": "postgres-patterns",
+        "without_ok": true,
+        "without_status": "disabled",
+        "with_selected": null,
+        "with_ok": false,
+        "with_status": "local_abstention",
+        "with_source": "none",
+        "off_ms": 1.012,
+        "on_ms": 1.062,
+        "on_keys": [
+          "abstention_reason",
+          "cache_hit",
+          "candidate_count",
+          "candidates_considered",
+          "hosted_attempted",
+          "hosted_skipped",
+          "local_score",
+          "routing_mode",
+          "routing_reason",
+          "routing_status",
+          "selected",
+          "source",
+          "status"
+        ],
+        "without_selected": null,
+        "without_helpful": false,
+        "with_helpful": false
+      },
+      {
+        "id": "nofit",
+        "gold": null,
+        "without_ok": true,
+        "without_status": "disabled",
+        "with_selected": null,
+        "with_ok": true,
+        "with_status": "local_abstention",
+        "with_source": "none",
+        "off_ms": 0.892,
+        "on_ms": 1.089,
+        "on_keys": [
+          "abstention_reason",
+          "cache_hit",
+          "candidate_count",
+          "candidates_considered",
+          "hosted_attempted",
+          "hosted_skipped",
+          "local_score",
+          "routing_mode",
+          "routing_reason",
+          "routing_status",
+          "selected",
+          "source",
+          "status"
+        ],
+        "without_selected": null,
+        "without_helpful": true,
+        "with_helpful": true
+      }
+    ],
+    "caveat": "Local token-overlap only. Not a counterbalanced Hermes-session outcome study. Hosted_sanitized + load adoption requires host turn_egress_policy envelope."
+  },
+  "model_route_adapter": {
+    "feature": "recommend_model_route adapter",
+    "selected": null,
+    "status": "abstained",
+    "applied": false,
+    "latency_ms": null,
+    "cost": null,
+    "note": "applied:false is the audited Hermes 0.19/0.21 contract until an apply seam exists."
+  },
+  "computer_use": {
+    "feature": "jev_computer_use",
+    "arms": {
+      "switchyard_dom": {
+        "label": "with Switchyard DOM (run_browser_goal on tip-main dual-gate)",
+        "tip_ref": "a8dae19 (origin/main; #57 dual-gate + #58)",
+        "plugin_tip": "a8dae19",
+        "artifact": "docs/benchmarks/computer-use-goal-verified-felidae.json",
+        "summary": {
+          "status": "completion_candidate",
+          "verified": false,
+          "goal_verified": false,
+          "verification_owner": "coordinator",
+          "completion_source": "local_predicate",
+          "executor": "browser_dom",
+          "backend": "chromium_dom",
+          "url": "https://en.wikipedia.org/wiki/Felidae",
+          "title": "Felidae - Wikipedia",
+          "click_count": 1,
+          "jev_request_count": 1,
+          "jev_total_latency_ms": 365.0,
+          "elapsed_ms": 2232.0,
+          "computer_use_dispatches": 0,
+          "completion": {
+            "source": "caller",
+            "satisfied": true,
+            "checks": {
+              "url_contains": true
+            }
+          },
+          "jev_total_cost": 0.000212772
+        }
+      },
+      "stock_computer_use": {
+        "label": "stock Hermes computer_use (not Switchyard)",
+        "fair_ab": "pending_session1_gui",
+        "reason": "Fair stock arm needs interactive Session-1 GUI on the same public goal; not completed in this pass. Switchyard DOM arm is measured; under dual-gate local_predicate early-stop keeps goal_verified false."
+      }
+    },
+    "windows_headed_operator": {
+      "source": "Windows headed operator short-race receipt (concurrent CUA validation; not committed)",
+      "captured_at_ct": "2026-09-21 17:27:59 CT",
+      "hermes": "0.21.4",
+      "short_race": {
+        "goal": "Cat \u2192 Felidae",
+        "click_count": 1,
+        "final_url": "https://en.wikipedia.org/wiki/Felidae",
+        "status": "completion_candidate",
+        "goal_verified": false,
+        "verified": false,
+        "backend": "chromium_dom",
+        "session_mode": "headless_ephemeral",
+        "jev_total_latency_ms": 395.0,
+        "operation_elapsed_ms": 2048.1,
+        "tool_duration_ms": 2362,
+        "unknown_toolsets_warning_when_unpinned": "hermes_switchyard (observed when CLI pin omitted hermes_switchyard)"
+      },
+      "long_scenic_race": {
+        "fair_measurement_on_this_box": "not_retained",
+        "operator_observation": "Concurrent Windows CUA validation reported a long Pizza\u2192UN scenic race that reached ~20 clicks then stalled on geography before United Nations; goal_verified remained false even when URL matched; pin -t computer_use,hermes_switchyard required to avoid Unknown toolsets.",
+        "note": "No multi-click long-race JSON receipt was retained on this metrics box; do not treat the operator note as a claim-gated hash-bound number."
+      }
+    }
+  },
+  "computer_use_note": "Dual-gate on tip-main: goal_verified/verified true only when completion_source is provider_decision AND local completion is satisfied (verification_owner hermes_and_url). Felidae DOM re-run on a8dae19: local_predicate early-stop \u2192 goal_verified false. Windows short_race receipt remains goal_verified false / verified false. Stock A/B pending.",
+  "plugin_tips": {
+    "selector_and_feature_microbench": "c8e6008",
+    "computer_use_dom": "a8dae19",
+    "note": "Selector / multi-skill / model-route / assess / automatic rows were collected on c8e6008. Computer-use DOM Felidae race was re-collected on tip-main a8dae19 (includes #57 dual-gate + #58). Do not assign one tip to mixed-source evidence."
+  }
+}

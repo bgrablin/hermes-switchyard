@@ -1,0 +1,199 @@
+{
+  "candidate_catalog_hash": "d16e9d6e2c6850b9624083f7102004bea3ba9f6b3c0db8dd51988b544df8c070",
+  "claim_level": "live_selector_value",
+  "claim_scope": "Complete live Jev selector receipts compared with the deterministic local lexical baseline on the same frozen public-synthetic heldout cases.",
+  "collector_source_hash": "0b31a15d1f7966a8f600ab825e7af1785cc6abfccf55e4284d7c79ca67afce34",
+  "dataset_hash": "97a7702c0fa0474a8b13e8b018f4a1c86d4b9f84cbe5cba4c5d7122df73b6c28",
+  "heldout_case_count": 24,
+  "label_frozen": true,
+  "lexical": {
+    "ambiguous": {
+      "accepted": 0,
+      "accepted_rate": 0.0,
+      "cases": 1
+    },
+    "candidate_coverage": {
+      "covered_cases": 18,
+      "rate": 1.0,
+      "target_cases": 18
+    },
+    "case_count": 24,
+    "no_fit": {
+      "cases": 6,
+      "false_positive_rate": 0.0,
+      "false_positives": 0
+    },
+    "positive_abstention": {
+      "cases": 7,
+      "rate": 0.3888888888888889
+    },
+    "positive_miss": {
+      "cases": 11,
+      "rate": 0.6111111111111112
+    },
+    "required_set": {
+      "cases": 5,
+      "complete": 0,
+      "mean_coverage": 0.4
+    },
+    "strict_top1": {
+      "accuracy": 0.5833333333333334,
+      "cases": 12,
+      "correct": 7
+    },
+    "timing": {
+      "claimability_reason": "offline timings are harness/simulation timings",
+      "claimable": false,
+      "convention": "nearest-rank: sort values, rank=ceil(p*n), clamp the rank to at least 1",
+      "individual_latency": true,
+      "p50_provider_call_ms": null,
+      "p50_wall_ms": 0.069,
+      "p95_provider_call_ms": null,
+      "p95_wall_ms": 0.1,
+      "provider_timing_case_count": 24,
+      "provider_timing_claimability_reason": "offline timings are harness/simulation timings",
+      "provider_timing_claimable": false,
+      "provider_timing_coverage_complete": false,
+      "provider_timing_observation_count": 0,
+      "total_provider_call_ms": null,
+      "total_wall_ms": null,
+      "wall_time_scope": null
+    },
+    "usage": {
+      "actual_observation_required_for_live_totals": true,
+      "included_codex_quota_tokens": {
+        "known_cases": 0,
+        "sum": null
+      },
+      "input_tokens": {
+        "known_cases": 0,
+        "sum": null
+      },
+      "jev_payg_dollars": {
+        "known_cases": 0,
+        "sum": null
+      },
+      "live_totals_claimable": false,
+      "output_tokens": {
+        "known_cases": 0,
+        "sum": null
+      },
+      "reported_dollar_cost": {
+        "known_cases": 0,
+        "sum": null
+      },
+      "total_tokens": {
+        "known_cases": 0,
+        "sum": null
+      },
+      "unknown_is_null_not_zero": true
+    }
+  },
+  "limitations": [
+    "This is a selector benchmark, not proof of whole-agent task improvement.",
+    "The deterministic lexical arm is a local baseline, not another hosted model.",
+    "Strict top-1, no-fit, required-set, and ambiguity metrics remain separate; no aggregate score is emitted.",
+    "Provider confidence is uncalibrated and is not reported as correctness probability."
+  ],
+  "paired_deltas": {
+    "no_fit_false_positive_rate": 0.0,
+    "positive_miss_rate": -0.33333333333333337,
+    "strict_top1_accuracy": 0.41666666666666663
+  },
+  "plugin_source_hash": "614b402d26be013d4290ce4f6e0ea57509eb71bccf575721ec8381fe3c7cf0d9",
+  "provider_call_count": 24,
+  "provider_models": [
+    "typesafe/jev-1.13-20260917"
+  ],
+  "providers": [
+    "openrouter"
+  ],
+  "report_hash": "995db72de90ab2498dd157f48d3380ff326338d0a5d055662a28ac0810a6fba3",
+  "report_source_hash": "0a83cac98482aaded5ae87dc707bdb97236c99f8e3dabcbaf31d8721cc20f466",
+  "request_cap": 24,
+  "schema_version": 1,
+  "status": "ok",
+  "switchyard": {
+    "ambiguous": {
+      "accepted": 1,
+      "accepted_rate": 1.0,
+      "cases": 1
+    },
+    "candidate_coverage": {
+      "covered_cases": 18,
+      "rate": 1.0,
+      "target_cases": 18
+    },
+    "case_count": 24,
+    "no_fit": {
+      "cases": 6,
+      "false_positive_rate": 0.0,
+      "false_positives": 0
+    },
+    "positive_abstention": {
+      "cases": 3,
+      "rate": 0.16666666666666666
+    },
+    "positive_miss": {
+      "cases": 5,
+      "rate": 0.2777777777777778
+    },
+    "required_set": {
+      "cases": 5,
+      "complete": 0,
+      "mean_coverage": 0.2
+    },
+    "strict_top1": {
+      "accuracy": 1.0,
+      "cases": 12,
+      "correct": 12
+    },
+    "timing": {
+      "claimability_reason": null,
+      "claimable": true,
+      "convention": "nearest-rank: sort values, rank=ceil(p*n), clamp the rank to at least 1",
+      "individual_latency": true,
+      "p50_provider_call_ms": 185.0,
+      "p50_wall_ms": 185.418,
+      "p95_provider_call_ms": 303.3,
+      "p95_wall_ms": 303.685,
+      "provider_timing_case_count": 24,
+      "provider_timing_claimability_reason": null,
+      "provider_timing_claimable": true,
+      "provider_timing_coverage_complete": true,
+      "provider_timing_observation_count": 24,
+      "total_provider_call_ms": 5195.0,
+      "total_wall_ms": 5204.376,
+      "wall_time_scope": "case_end_to_end"
+    },
+    "usage": {
+      "actual_observation_required_for_live_totals": true,
+      "included_codex_quota_tokens": {
+        "known_cases": 0,
+        "sum": null
+      },
+      "input_tokens": {
+        "known_cases": 24,
+        "sum": 31212.0
+      },
+      "jev_payg_dollars": {
+        "known_cases": 24,
+        "sum": 0.0013109
+      },
+      "live_totals_claimable": true,
+      "output_tokens": {
+        "known_cases": 24,
+        "sum": 3966.0
+      },
+      "reported_dollar_cost": {
+        "known_cases": 24,
+        "sum": 0.0013109
+      },
+      "total_tokens": {
+        "known_cases": 0,
+        "sum": null
+      },
+      "unknown_is_null_not_zero": true
+    }
+  }
+}
