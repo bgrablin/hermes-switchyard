@@ -91,7 +91,7 @@ Offline tests prove registry validation, expiry, cheapest-qualified selection, p
 
 ### Checked upstream status
 
-The reviewed Hermes Agent pin is commit `8503ee4459316ce092b5d69b7d396c27aa03d0be`. At that commit, `PluginContext` exposes registration for tools, hooks, middleware, skills, and providers, but no public model-selection registration or apply callback. Hermes has an internal `apply_model_selection` configuration helper for callers that already own the model-switch workflow. That helper is not a plugin seam. The checked upstream commit therefore has no model-selection apply seam for Switchyard to use.
+The repository's reviewed Hermes Agent pin is commit `8503ee4459316ce092b5d69b7d396c27aa03d0be`. The official upstream `main` head checked for this change is commit `71a2fe399bbd7a219c71f9d9fca2b313b01f2057`. At both commits, `PluginContext` exposes registration for tools, hooks, middleware, skills, and providers, but no public model-selection registration or apply callback. Hermes has an internal `apply_model_selection` configuration helper for callers that already own the model-switch workflow. That helper is not a plugin seam. The checked upstream commits therefore have no model-selection apply seam for Switchyard to use.
 
 ### Required host contract
 
