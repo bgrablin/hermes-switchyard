@@ -36,6 +36,12 @@ Run the `Release candidate` workflow with `workflow_dispatch` on the exact revie
 
 A workflow artifact is not a public release. Inspect the ZIP contents and checksum, then retain the exact workflow run and source SHA as review evidence.
 
+## Changelog and scorecard policy
+
+At tag time, fold every shipped bullet from `## Unreleased` into the matching `## <version>` section. Keep `## Unreleased` empty of shipped work. Check each moved bullet against the introducing commit and the tags that contain it. Do not tag while shipped bullets remain under `## Unreleased`.
+
+Re-measure the feature scorecard for each minor-version release candidate (`0.x.0`) before its tag. The release owner runs the collection or records a named benchmark operator in the release evidence. Patch releases do not trigger a new collection unless the feature or benchmark harness changes. When a release is not re-measured, `README.md` and `docs/BENCHMARKS.md` must name the last-collected release, list the exact measured commits, and state that the scorecard was not re-collected for the intervening releases.
+
 ## Manual native Hermes gate
 
 Before publication, run the native Hermes gate against the exact upstream commit named in [docs/TEST-MATRIX.md](TEST-MATRIX.md). The gate must use a fresh `HERMES_HOME`, no plugin credentials, the real `hermes plugins validate --json` command, and the actual Hermes manifest parser. Use the dependency setup documented by that exact upstream checkout and keep the source checkout pinned to the full SHA. A dependency-install failure is a release blocker, not a passing substitute.
