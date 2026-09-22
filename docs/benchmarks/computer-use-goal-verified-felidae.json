@@ -1,12 +1,15 @@
 {
-  "label": "Cat\u2192Felidae DOM race after goal_verified local-predicate fix",
-  "tip_ref": "fix/goal-verified-local-predicate (PR #57)",
+  "label": "Cat\u2192Felidae DOM race on tip-main dual-gate (post #57+#58)",
+  "tip_ref": "a8dae19 (origin/main; includes #57 dual-gate + #58 adaptive reasoning)",
+  "plugin_tip": "a8dae19",
+  "branch_tip": "fc4b731",
+  "captured_at_ct": "2026-09-21 19:36:16 CT",
   "summary": {
-    "elapsed_s": 2.423,
+    "elapsed_s": 2.468,
     "status": "completion_candidate",
-    "goal_verified": true,
-    "verified": true,
-    "verification_owner": "local_completion_predicate",
+    "goal_verified": false,
+    "verified": false,
+    "verification_owner": "coordinator",
     "completion_source": "local_predicate",
     "completion": {
       "source": "caller",
@@ -19,15 +22,17 @@
     "title": "Felidae - Wikipedia",
     "click_count": 1,
     "jev_request_count": 1,
-    "jev_total_latency_ms": 322.3,
-    "elapsed_ms": 2231.3,
-    "failure_phase": null
+    "jev_total_latency_ms": 365.0,
+    "elapsed_ms": 2232.0,
+    "computer_use_dispatches": 0,
+    "failure_phase": null,
+    "jev_total_cost": 0.000212772
   },
   "receipt": {
     "status": "completion_candidate",
-    "goal_verified": true,
-    "verified": true,
-    "verification_owner": "local_completion_predicate",
+    "goal_verified": false,
+    "verified": false,
+    "verification_owner": "coordinator",
     "completion_source": "local_predicate",
     "completion": {
       "source": "caller",
@@ -40,22 +45,27 @@
     "title": "Felidae - Wikipedia",
     "click_count": 1,
     "jev_request_count": 1,
-    "jev_total_latency_ms": 322.3,
-    "elapsed_ms": 2231.3,
+    "jev_total_latency_ms": 365.0,
+    "elapsed_ms": 2232.0,
     "computer_use_dispatches": 0,
     "executor": "browser_dom",
     "backend": "chromium_dom",
     "failure_phase": null,
     "decisions": [
       {
+        "phase": "step",
         "operation": "CLICK",
-        "latency_ms": 322.3,
+        "latency_ms": 365.0,
         "model": "typesafe/jev-1.13-20260917",
         "usage": {
-          "input_tokens": 5046.0,
-          "output_tokens": 424.0,
-          "cost": 0.000211932
-        }
+          "input_tokens": 5066.0,
+          "output_tokens": 431.0,
+          "cost": 0.000212772
+        },
+        "questions": [
+          "click_target",
+          "operation"
+        ]
       }
     ]
   }

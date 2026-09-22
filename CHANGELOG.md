@@ -1,12 +1,8 @@
 # Changelog
 
-## [Unreleased]
-
-### Documentation
-
-- Publish tip-main with/without feature scorecard (skill select, multi-skill 5/5 via `select_many`, model route, assess, automatic local_only, computer-use DOM) in README and `docs/BENCHMARKS.md`; refresh live selector report to plugin hash on `c8e6008`.
-
 ## Unreleased
+
+- Publish tip-main with/without feature scorecard (skill select, multi-skill 5/5 via `select_many`, model route, assess, automatic local_only, computer-use DOM) in README and `docs/BENCHMARKS.md`; refresh live selector report to plugin hash on `c8e6008`; computer-use Felidae row re-bound to tip-main dual-gate (`goal_verified: false` on `local_predicate` early-stop).
 
 - DOM browser receipts dual-gate verification: `goal_verified` / `verified` are true only when Hermes agreed `DONE` (`completion_source: provider_decision`) **and** a local completion condition is satisfied; `verification_owner` is then `hermes_and_url`. A `local_predicate` early-stop (caller-supplied `completion_condition` or derived `derived_goal_title` / `derived_goal_url`) may still be `completion_candidate` but keeps `goal_verified` / `verified` false. Provider `DONE` without a satisfied condition stays unverified (`verification_owner: coordinator`). Derived predicates never self-certify alone.
 - DOM browser `url_contains` completion matching is case-insensitive (aligned with title/text predicates) so a needle like `United_Nations` matches `https://en.wikipedia.org/wiki/United_Nations` regardless of casing; unit coverage proves the Wikipedia-shaped regression.

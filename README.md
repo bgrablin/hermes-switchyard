@@ -4,27 +4,27 @@ Picks the right specialist skill for Hermes more often — cheap, fast, and care
 
 Version: 0.5.0
 
-Hermes Switchyard is a plugin that helps Hermes choose skills, models, and computer-use actions. Under the hood it uses [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) for structured decisions; Switchyard applies local policy and keeps actions bounded. Flow: **Jev decides → Switchyard validates → Hermes executes and verifies**. Defaults are **advisory**: skill and model tools recommend with receipts; model routing does **not** auto-apply (`applied: false` until a Hermes apply seam exists). For computer use, Hermes can verify goals **in-tool** via `goal_verified` when a local completion predicate matches. Switchyard does not modify Hermes core or silently change your active model. Automatic skill loading stays opt-in. Hosted automatic routing additionally requires load mode, acknowledgement, and an explicit host per-turn allow envelope.
+Hermes Switchyard is a plugin that helps Hermes choose skills, models, and computer-use actions. Under the hood it uses [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) for structured decisions; Switchyard applies local policy and keeps actions bounded. Flow: **Jev decides → Switchyard validates → Hermes executes and verifies**. Defaults are **advisory**: skill and model tools recommend with receipts; model routing does **not** auto-apply (`applied: false` until a Hermes apply seam exists). For computer use, receipt-level dual-gate verification sets `goal_verified` only when Hermes agreed `DONE` **and** a local completion condition is satisfied (`verification_owner: hermes_and_url`); a `local_predicate` early-stop may still be `completion_candidate` but keeps both flags false. Switchyard does not modify Hermes core or silently change your active model. Automatic skill loading stays opt-in. Hosted automatic routing additionally requires load mode, acknowledgement, and an explicit host per-turn allow envelope.
 
 ![Hermes Switchyard overview: Jev decides (assess, skill, multi-skill, model route, CUA, automatic skills), Switchyard validates, Hermes executes and verifies — recommend+receipt advisory routing; in-tool goal_verified; Win/macOS/Linux](docs/assets/hermes-switchyard-overview.png)
 
 ## Why install
 
-Measured with/without Switchyard on tip **0.5.0** (`c8e6008`). Human-readable benefits first; verification hashes live under [Proof](#proof).
+Measured feature scorecard for **0.5.0** (selector rows on `c8e6008`; computer-use DOM re-bound to tip-main `a8dae19` after #57+#58). Comparison arms vary by row — not always “product without Switchyard.” Human-readable benefits first; verification hashes live under [Proof](#proof).
 
-| Feature | What this row measures | Without Switchyard | With Switchyard |
+| Feature | What this row measures | Comparison arm | Measured arm |
 | --- | --- | ---: | ---: |
-| Skill pick | Choosing the one right specialist skill for a task | 7/12 correct | **12/12** correct |
-| Multi-skill pick | Completing a task that needs several skills together | 0/5 sets complete (one-skill pick only) | **5/5** sets complete |
+| Skill pick | Choosing the one right specialist skill for a task | Lexical baseline: 7/12 correct | **`jev_skill_select`:** **12/12** correct |
+| Multi-skill pick | Completing a task that needs several skills together | One-skill API (`jev_skill_select`): 0/5 sets complete | **`jev_skill_select_many`:** **5/5** sets complete |
 | Model route | Switchyard `jev_model_route`: recommend a model for the task and leave a receipt | No Switchyard recommendation | **Ships in 0.5.0** — 3/3 agree with a local filter + receipt; does **not** switch Hermes’ active model yet (`applied: false`) |
-| Assess | Answering a small typed multiple-choice check | 2/3 correct | **3/3** correct |
+| Assess | Answering a small typed multiple-choice check | First-option baseline: 2/3 correct | **`jev_assess`:** **3/3** correct |
 | Automatic skill routing | Quietly suggesting a skill before the model acts (local match) | Off → always silent | 1/2 needed skills caught; no false suggest |
-| Computer use | Driving the browser/desktop toward a goal | Stock Hermes `computer_use` A/B still pending fair Session-1 GUI run | **Cat→Felidae DOM:** 1 click, Jev ~322 ms, ~$0.00021, **`goal_verified: true`** (local `url_contains`) |
+| Computer use | Driving the browser/desktop toward a goal | Stock Hermes `computer_use` A/B still pending fair Session-1 GUI run | **Cat→Felidae DOM** (tip `a8dae19`): 1 click, Jev ~365 ms, ~$0.00021, local `url_contains` satisfied; **`goal_verified: false`** (dual-gate: `local_predicate` early-stop does not self-certify) |
 
 - **Cheap:** about **$0.000055** per skill-select decision (~**$0.055** per 1,000)
 - **Fast:** about **0.19 s** typical; **0.30 s** at p95 on the frozen 24-task skill bench
 - **Also true, not table rows:** Switchyard does not invent a skill when none fits (0/6 on both arms).
-- **Honest gaps:** Automatic routing is not yet a counterbalanced Hermes-session win. Computer-use local predicates now set `goal_verified: true` when they match (see [PR #57](https://github.com/bgrablin/hermes-switchyard/pull/57)); stock Hermes GUI A/B is still the open comparison arm.
+- **Honest gaps:** Automatic routing is not yet a counterbalanced Hermes-session win. Computer-use dual-gate ([PR #57](https://github.com/bgrablin/hermes-switchyard/pull/57) on main) sets `goal_verified: true` only when Hermes `DONE` **and** a local condition match; local-predicate early-stops stay `goal_verified: false`. Stock Hermes GUI A/B is still the open comparison arm.
 
 This shows better single-skill routing and a working multi-skill API. It is not a claim that every Hermes task improves.
 
@@ -119,7 +119,7 @@ The tools are advisory and bounded:
 
 - A high confidence score is not proof that a choice is correct.
 - Switchyard can return no selection when eligibility or confidence checks fail. This valid result is called abstention.
-- The default advisory consumer does not load skills. The opt-in `load` consumer invokes Hermes' normal loader once for an accepted turn; neither skill mode changes runtime models. Model routing stays recommend+receipt (`applied: false`). Computer use may set in-tool `goal_verified` when a local completion predicate matches; that is not a claim that every GUI task is certified.
+- The default advisory consumer does not load skills. The opt-in `load` consumer invokes Hermes' normal loader once for an accepted turn; neither skill mode changes runtime models. Model routing stays recommend+receipt (`applied: false`). Computer use sets in-tool `goal_verified` only under dual-gate (Hermes `DONE` + local condition); that is not a claim that every GUI task is certified.
 - Provider fallback is disabled. A failed Jev request does not silently move to another provider.
 - Each assessment, skill-selection, or model-routing operation has one aggregate 64-request budget. A CUA run has one aggregate 256-request budget across its 100-action ceiling; serialized request size is also bounded.
 - Skill selection and model routing work wherever Hermes can expose the plugin toolset. `jev_computer_use` is available on Windows, macOS, and Linux when Hermes' Cua Driver-backed `computer_use` tool is available.
