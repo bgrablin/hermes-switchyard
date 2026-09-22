@@ -4,9 +4,12 @@ This repository has three separate CI boundaries. Offline checks never call Open
 
 ## Offline compatibility
 
-`.github/workflows/switchyard-compatibility.yml` runs the plugin's Python test and hygiene surface on Ubuntu and Windows with Python 3.11, 3.12, and 3.13. The matrix uses the supported Hermes range `>=3.11,<3.14`; Python 3.14 is not a supported Hermes runtime for this gate.
+`.github/workflows/switchyard-compatibility.yml` runs the plugin's Python test and hygiene surface with the supported Hermes range `>=3.11,<3.14`; Python 3.14 is not a supported Hermes runtime for this gate. One `plan` job computes an event-dependent matrix; one `compatibility` job runs the exact same step sequence for every planned cell, so a future dependency, security, or test-command change updates one lane instead of two that could drift apart (`tests/test_ci_contracts.py` pins this).
 
-The six-entry matrix runs once for each pull-request revision and once after a change reaches `main`. Feature-branch pushes do not also start a duplicate matrix run. Superseded runs for the same pull request or branch are cancelled. Maintainers can still use `workflow_dispatch` for an explicit rerun.
+- **Pull requests** run one fast combo: Ubuntu, Python 3.11. All 26 compatibility failures observed before this design broke identically across every matrix cell, so the other five cells bought redundant runs against a limited Actions minutes budget, not extra signal. This fast check is the required branch-protection status check on `main`.
+- **Push to `main`, a weekly schedule (Monday 06:17 UTC), and manual `workflow_dispatch`** run the full six-entry matrix (Ubuntu and Windows, Python 3.11/3.12/3.13), to still catch real OS/version-specific drift without paying the 6x multiplier on every PR iteration.
+
+Superseded runs for the same pull request or branch are cancelled. Maintainers can still use `workflow_dispatch` for an explicit full-matrix rerun on any branch.
 
 Each matrix job:
 
@@ -14,8 +17,9 @@ Each matrix job:
 2. Creates a venv outside the Hermes checkout with `uv venv`.
 3. Installs the pinned checkout with the upstream contributor setup, `uv pip install -e ".[all,dev]"`.
 4. Runs `hermes plugins validate --json` and `hermes plugins doctor --ci` against this candidate.
-5. Runs `scripts/ci/check_native_hermes.py`, which uses Hermes' real manifest parser, directory loader, registration path, registry entries, and tool schemas.
-6. Runs the plugin's offline tests with that native Hermes Python, so the native parser test cannot become a green import skip.
+5. Runs `scripts/ci/check_native_hermes.py`, which uses Hermes' real manifest parser, directory loader, registration path, registry entries, and tool schemas. This proves every declared tool is registered with a well-formed schema; it does not call a handler.
+6. Runs `scripts/ci/check_native_tool_invocation.py`, which loads the same real registry entries and actually calls each Jev-backed tool's handler (`jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_assess`) with a synthetic HTTPS transport standing in for the Jev provider. No network call, no credential, no cost; it exercises the exact code path a live turn would use (schema → handler closure → `DecisionClient` → `http.client.HTTPSConnection` → response validation → JSON envelope) so a PR that breaks a handler at runtime (bad import, signature mismatch, argument-handling regression) fails this required PR gate instead of only the manual, paid `Live Jev contract` workflow. A synthetic transport does not prove a live Jev response would satisfy the plugin; that remains the live contract's job.
+7. Runs the plugin's offline tests with that native Hermes Python, so the native parser test cannot become a green import skip.
 
 The native receipt is uploaded as a workflow artifact. It contains the candidate source SHA, pinned Hermes SHA, manifest identity, registered tool names, schema fields, and interpreter version. It never contains credentials or model requests.
 
