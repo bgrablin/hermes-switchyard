@@ -1,17 +1,17 @@
 # Hermes Switchyard benchmark results
 
-Repository-owned with/without evidence for **0.5.0** tip `c8e6008`. Human-readable benefits first. Hashes and reproduce steps are under [Proof](#proof). This page does not claim whole-agent improvement.
+Repository-owned feature evidence for **0.5.0** (selector/microbench tip `c8e6008`; computer-use DOM re-bound to tip-main `a8dae19` after #57+#58). Comparison arms vary by row. Human-readable benefits first. Hashes and reproduce steps are under [Proof](#proof). This page does not claim whole-agent improvement.
 
 ## Per-feature scorecard
 
-| Feature | What this row measures | Without | With | Latency / cost (with) | Fair A/B? |
+| Feature | What this row measures | Comparison arm | Measured arm | Latency / cost (measured) | Fair A/B? |
 | --- | --- | ---: | ---: | --- | --- |
-| Skill pick | One right specialist skill for a task (`jev_skill_select`) | 7/12 | **12/12** | p50 **185 ms**, p95 **303 ms**; **~$0.000055**/decision | Yes — frozen 24-task lexical vs live Jev |
-| Multi-skill pick | Finish a task that needs several skills (`jev_skill_select_many`) | 0/5 sets (one-skill pick) | **5/5** sets (mean coverage 1.0) | p50 **253 ms**, p95 **352 ms**; **$0.000347** for 5 | Yes — same 5 frozen multi-skill tasks |
+| Skill pick | One right specialist skill for a task (`jev_skill_select`) | Lexical: 7/12 | **12/12** | p50 **185 ms**, p95 **303 ms**; **~$0.000055**/decision | Yes — frozen 24-task lexical vs live Jev |
+| Multi-skill pick | Finish a task that needs several skills (`jev_skill_select_many`) | One-skill API (`jev_skill_select`): 0/5 sets | **5/5** sets (mean coverage 1.0) | p50 **253 ms**, p95 **352 ms**; **$0.000347** for 5 | Yes — same 5 frozen multi-skill tasks; comparison arm is still a Switchyard API |
 | Model route | Recommend a model + auditable receipt (`jev_model_route`); ships in 0.5.0 | no Switchyard recommendation | **3/3** recommend; `applied: false` (Hermes does not switch yet) | p50 **164 ms**; **$0.000067** for 3 | Partial — agrees with code-owned local filter; not a Hermes auto-picker |
-| Assess | Small typed multiple-choice check (`jev_assess`) | 2/3 | **3/3** | p50 **212 ms**; **$0.000040** for 3 | Weak baseline only (n=3 smoke) |
+| Assess | Small typed multiple-choice check (`jev_assess`) | First-option baseline: 2/3 | **3/3** | p50 **212 ms**; **$0.000040** for 3 | Weak baseline only (n=3 smoke) |
 | Automatic skill routing | Pre-model skill hint, local match on vs off | silent when off | 1/2 needed; no-fit stays silent | ~1–2 ms local | Yes for hook on/off; not whole-agent |
-| Computer use | Browser/desktop goal progress (`jev_computer_use` DOM) | stock A/B **pending** Session-1 GUI | Felidae: 1 click, Jev **322 ms**, ~**$0.00021**, **`goal_verified: true`** | Yes for Switchyard local predicate ([PR #57](https://github.com/bgrablin/hermes-switchyard/pull/57)); stock arm pending | Partial — Switchyard verified; stock not yet |
+| Computer use | Browser/desktop goal progress (`jev_computer_use` DOM) | stock A/B **pending** Session-1 GUI | Felidae: 1 click; local `url_contains` ok; **`goal_verified: false`** (dual-gate) | Jev **365 ms**; ~**$0.00021** | **Unavailable** — stock Session-1 GUI arm pending; do not treat Switchyard-only as A/B |
 
 Rows kept off the install scorecard: **needed-skill failures 11→5** double-counts the five multi-skill tasks under one-skill pick (single-skill is already 12/12); **false skill suggestions 0→0** is a no-delta safety check. **Model route** stays on the scorecard as a shipped 0.5.0 feature (`jev_model_route`); Hermes does not apply the recommendation yet (`applied: false`).
 
@@ -45,8 +45,8 @@ Same **5** frozen required-set tasks as the selector bench.
 
 | Arm | Multi-skill sets complete | Mean coverage | p50 latency | Total cost |
 | --- | ---: | ---: | ---: | ---: |
-| Without: one-skill pick (`jev_skill_select`) | **0/5** | 0.10 | ~165–184 ms | $0.000273 |
-| With: `jev_skill_select_many` | **5/5** | **1.00** | **253 ms** | $0.000347 |
+| Comparison: one-skill API (`jev_skill_select`, still Switchyard) | **0/5** | 0.10 | ~165–184 ms | $0.000273 |
+| Measured: `jev_skill_select_many` | **5/5** | **1.00** | **253 ms** | $0.000347 |
 
 **Interpretation:** when a task needs several skills together, `select_many` completes the set (**5/5**). One-skill pick is the wrong tool for that job (**0/5** on the same tasks) — that contrast is why this row exists, not a claim that one-skill pick will ever score set completion.
 
@@ -86,31 +86,32 @@ Install-default path: `AutomaticSkillRecommender` **`local_only`** vs **`off`** 
 
 ## Computer use (`jev_computer_use`)
 
-### Switchyard DOM (measured on this metrics pass)
+### Switchyard DOM (re-measured on tip-main dual-gate)
 
-Public Cat → Felidae Wikipedia race via `run_browser_goal` on tip-main:
+Public Cat → Felidae Wikipedia race via `run_browser_goal` on tip-main `a8dae19` (includes [PR #57](https://github.com/bgrablin/hermes-switchyard/pull/57) dual-gate + #58). Artifact: [`computer-use-goal-verified-felidae.json`](benchmarks/computer-use-goal-verified-felidae.json).
 
 | Field | Value |
 | --- | --- |
-| tip | `fix/goal-verified-local-predicate` ([PR #57](https://github.com/bgrablin/hermes-switchyard/pull/57)) on top of #54 |
+| tip | `a8dae19` (`origin/main`) |
 | status | `completion_candidate` |
 | clicks / Jev requests | 1 / 1 |
-| Jev latency | **322.3 ms** |
-| operation elapsed | **2231.3 ms** |
+| Jev latency | **365.0 ms** |
+| operation elapsed | **2232.0 ms** |
 | Jev cost | ~**$0.00021** |
 | `computer_use_dispatches` | **0** (DOM path; no Hermes `computer_use` between clicks) |
-| `goal_verified` / `verified` | **true** / **true** |
-| `verification_owner` | `local_completion_predicate` |
+| `goal_verified` / `verified` | **false** / **false** |
+| `verification_owner` | `coordinator` |
 | `completion_source` | `local_predicate` |
 | completion predicate | `url_contains: Felidae` satisfied locally |
+| dual-gate note | Local-predicate early-stop does **not** self-certify. Dual-gate requires Hermes `DONE` (`provider_decision`) **and** a satisfied local condition → `verification_owner: hermes_and_url`. |
 
 ### Stock Hermes `computer_use` A/B
 
-**Pending** a fair Session-1 interactive GUI run of stock Hermes `computer_use` on the same Cat→Felidae public goal. Do not invent a latency/cost delta. Switchyard DOM arm above is measured and **`goal_verified: true`**.
+**Pending** a fair Session-1 interactive GUI run of stock Hermes `computer_use` on the same Cat→Felidae public goal. Do not invent a latency/cost delta. Fair A/B is **unavailable** until that stock arm runs. Switchyard DOM arm above is measured with **`goal_verified: false`** under dual-gate.
 
 ### Windows headed operator notes (qualitative + short-race receipt)
 
-A concurrent Windows validation (Hermes 0.21.x) showed `jev_computer_use` callable when toolsets are pinned. Short Cat → Felidae race on the verification tip: **1 click**, final URL Felidae, status `completion_candidate`, **`goal_verified: true`** / **`verified: true`** / `verification_owner: local_completion_predicate`. Pinning only `computer_use` without `hermes_switchyard` produced `Unknown toolsets: hermes_switchyard`. A longer scenic Pizza → United Nations race was operator-observed to run many clicks then stall before UN; that long-race receipt was **not** retained on this metrics box, so it is **not** hash-bound here.
+A concurrent Windows validation (Hermes 0.21.x) showed `jev_computer_use` callable when toolsets are pinned. Short Cat → Felidae race recorded in the feature battery: **1 click**, final URL Felidae, status `completion_candidate`, **`goal_verified: false`** / **`verified: false`** (do not conflate with the Linux tip-main DOM receipt above). Pinning only `computer_use` without `hermes_switchyard` produced `Unknown toolsets: hermes_switchyard`. A longer scenic Pizza → United Nations race was operator-observed to run many clicks then stall before UN; that long-race receipt was **not** retained on this metrics box, so it is **not** hash-bound here.
 
 ## Proof
 
@@ -132,7 +133,7 @@ Historical report at the prior plugin hash: [`live-selector-c6d9b28.json`](bench
 
 ### Feature battery artifact
 
-[`feature-battery-c8e6008.json`](benchmarks/feature-battery-c8e6008.json) holds the multi-skill, model-route, assess, automatic, and computer-use rows from this pass.
+[`feature-battery-c8e6008.json`](benchmarks/feature-battery-c8e6008.json) holds the multi-skill, model-route, assess, automatic, and computer-use rows. Selector/microbench rows bind to tip `c8e6008`; the computer-use DOM section records tip `a8dae19` per-run (see `plugin_tips` in the artifact).
 
 ### Reproduce selector value report
 
@@ -160,5 +161,5 @@ The report refuses partial case sets, missing acknowledgement, dataset/catalog/s
 - The lexical / first-option / local-filter arms are deterministic local baselines, not competing hosted models (except where noted).
 - Strict top-1, multi-skill, no-fit, ambiguity, model-route, assess, automatic, and computer-use metrics stay separate. No aggregate “awesomeness score.”
 - Provider confidence is uncalibrated and is not correctness probability.
-- `goal_verified` / `verified` are **true** when a caller `completion_condition` matches via `completion_source: local_predicate` (`verification_owner: local_completion_predicate`). Jev `DONE` without a local predicate stays unverified (`verification_owner: coordinator`).
+- Dual-gate: `goal_verified` / `verified` are **true** only when Hermes agreed `DONE` (`completion_source: provider_decision`) **and** a local completion condition is satisfied (`verification_owner: hermes_and_url`). A `local_predicate` early-stop may still be `completion_candidate` but keeps both flags **false**. Provider `DONE` without a satisfied condition stays unverified (`verification_owner: coordinator`).
 - Results bind to the hashes above. Re-run when plugin source hash drifts.

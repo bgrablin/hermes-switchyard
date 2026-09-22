@@ -1,5 +1,5 @@
 {
-  "generated_at_ct": "2026-09-21 18:51:51 CT",
+  "generated_at_ct": "2026-09-21 19:36:36 CT",
   "plugin_tip": "c8e6008",
   "plugin_version": "0.5.0",
   "jev_model": "typesafe/jev-1.13",
@@ -498,13 +498,15 @@
     "feature": "jev_computer_use",
     "arms": {
       "switchyard_dom": {
-        "label": "with Switchyard DOM (run_browser_goal after goal_verified fix)",
-        "tip_ref": "fix/goal-verified-local-predicate (PR #57)",
+        "label": "with Switchyard DOM (run_browser_goal on tip-main dual-gate)",
+        "tip_ref": "a8dae19 (origin/main; #57 dual-gate + #58)",
+        "plugin_tip": "a8dae19",
+        "artifact": "docs/benchmarks/computer-use-goal-verified-felidae.json",
         "summary": {
           "status": "completion_candidate",
-          "verified": true,
-          "goal_verified": true,
-          "verification_owner": "local_completion_predicate",
+          "verified": false,
+          "goal_verified": false,
+          "verification_owner": "coordinator",
           "completion_source": "local_predicate",
           "executor": "browser_dom",
           "backend": "chromium_dom",
@@ -512,8 +514,8 @@
           "title": "Felidae - Wikipedia",
           "click_count": 1,
           "jev_request_count": 1,
-          "jev_total_latency_ms": 322.3,
-          "elapsed_ms": 2231.3,
+          "jev_total_latency_ms": 365.0,
+          "elapsed_ms": 2232.0,
           "computer_use_dispatches": 0,
           "completion": {
             "source": "caller",
@@ -522,13 +524,13 @@
               "url_contains": true
             }
           },
-          "jev_total_cost": 0.000211932
+          "jev_total_cost": 0.000212772
         }
       },
       "stock_computer_use": {
-        "label": "without Switchyard (stock Hermes computer_use)",
+        "label": "stock Hermes computer_use (not Switchyard)",
         "fair_ab": "pending_session1_gui",
-        "reason": "Fair stock arm needs interactive Session-1 GUI on the same public goal; not completed in this pass. Switchyard DOM arm is measured with goal_verified true."
+        "reason": "Fair stock arm needs interactive Session-1 GUI on the same public goal; not completed in this pass. Switchyard DOM arm is measured; under dual-gate local_predicate early-stop keeps goal_verified false."
       }
     },
     "windows_headed_operator": {
@@ -556,5 +558,10 @@
       }
     }
   },
-  "computer_use_note": "goal_verified true via local_completion_predicate after PR #57; stock A/B still pending"
+  "computer_use_note": "Dual-gate on tip-main: goal_verified/verified true only when completion_source is provider_decision AND local completion is satisfied (verification_owner hermes_and_url). Felidae DOM re-run on a8dae19: local_predicate early-stop \u2192 goal_verified false. Windows short_race receipt remains goal_verified false / verified false. Stock A/B pending.",
+  "plugin_tips": {
+    "selector_and_feature_microbench": "c8e6008",
+    "computer_use_dom": "a8dae19",
+    "note": "Selector / multi-skill / model-route / assess / automatic rows were collected on c8e6008. Computer-use DOM Felidae race was re-collected on tip-main a8dae19 (includes #57 dual-gate + #58). Do not assign one tip to mixed-source evidence."
+  }
 }
