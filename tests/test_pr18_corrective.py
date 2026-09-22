@@ -10,7 +10,6 @@ import json
 import os
 import tempfile
 import unittest
-from types import SimpleNamespace
 from unittest import mock
 
 import hermes_switchyard
@@ -353,9 +352,6 @@ class A0NoIntermediateModelCallTests(unittest.TestCase):
     """
 
     def test_registered_handler_runs_multi_action_with_zero_non_jev_inference(self):
-        import hermes_switchyard
-        from hermes_switchyard import client as _client_module
-
         spy_calls = {"n": 0, "jev_calls": 0}
 
         class ForbiddenLLM:
