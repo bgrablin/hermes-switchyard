@@ -126,6 +126,28 @@ class CiContractTests(unittest.TestCase):
             "the Python 3.14 pre-qualification cell must be non-required",
         )
 
+    def test_ruff_pin_matches_the_lint_configuration(self):
+        """The lint runner version lives in two files; they must not drift.
+
+        `ruff.toml` pins the version a developer's local runner must match,
+        and the compatibility workflow pins the version CI installs. A
+        mismatch means CI and local runs check different rule sets.
+        """
+        workflow = self._workflow_text()
+        config = (Path(__file__).resolve().parent.parent / "ruff.toml").read_text(encoding="utf-8")
+        required = re.search(r'required-version = "==([0-9][0-9.]*)"', config)
+        runner = re.search(r"uvx --from ruff==([0-9][0-9.]*) ruff check", workflow)
+        if required is None or runner is None:
+            self.fail(
+                "ruff pin missing: ruff.toml or the compatibility workflow "
+                "does not pin a ruff version"
+            )
+        self.assertEqual(
+            runner.group(1),
+            required.group(1),
+            "ruff pin drift between ruff.toml and the compatibility workflow",
+        )
+
     def test_compatibility_step_sequence_is_not_duplicated_across_lanes(self):
         """Guard against a second copy of the compatibility steps (the
 
