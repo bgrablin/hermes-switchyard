@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import hashlib
 import ast
+import importlib.util
 import json
 import os
 import re
 import shutil
 import subprocess
 import tempfile
+import sys
 import unittest
 import zipfile
 from pathlib import Path
@@ -200,6 +202,40 @@ class ReleaseArchiveTests(unittest.TestCase):
             self.assertTrue((extracted / "docs/AUTOMATIC-SETUP.md").is_file())
             self.assertTrue((extracted / "docs/AUTOMATIC-INTEGRATION.md").is_file())
             self.assertTrue((extracted / "docs/assets/hermes-switchyard-branding.png").is_file())
+
+    def test_archive_contains_importable_plugin_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            repo, source_sha = _fixture_repo(base)
+            archive = build_release(repo, base / "dist", source_sha)
+            extracted = base / "extracted"
+            with zipfile.ZipFile(archive) as opened:
+                opened.extractall(extracted)
+
+            package_init = extracted / "hermes_switchyard" / "__init__.py"
+            spec = importlib.util.spec_from_file_location(
+                "hermes_switchyard",
+                package_init,
+                submodule_search_locations=[str(package_init.parent)],
+            )
+            self.assertIsNotNone(spec)
+            self.assertIsNotNone(spec.loader)
+            stale = {
+                name: module
+                for name, module in sys.modules.items()
+                if name == "hermes_switchyard" or name.startswith("hermes_switchyard.")
+            }
+            for name in stale:
+                sys.modules.pop(name, None)
+            try:
+                module = importlib.util.module_from_spec(spec)
+                sys.modules["hermes_switchyard"] = module
+                spec.loader.exec_module(module)
+            finally:
+                for name in list(sys.modules):
+                    if name == "hermes_switchyard" or name.startswith("hermes_switchyard."):
+                        sys.modules.pop(name, None)
+                sys.modules.update(stale)
 
     def test_source_sha_must_be_exact_lowercase_existing_commit(self):
         with tempfile.TemporaryDirectory() as directory:
