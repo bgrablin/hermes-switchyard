@@ -10,6 +10,8 @@ This repository has three separate CI boundaries. Offline checks never call Open
 - **Push to `main`** runs the full six-entry matrix (Ubuntu and Windows, Python 3.11/3.12/3.13), to still catch real OS/version-specific drift without paying the 6x multiplier on every PR iteration.
 - **A weekly schedule (Monday 06:17 UTC) and manual `workflow_dispatch`** run the full six-entry matrix plus one Ubuntu / Python 3.14 pre-qualification cell. The 3.14 job has `continue-on-error`, is not included in the pull-request matrix, and is not a required status check. A failure is early compatibility signal while the supported Hermes range stays `>=3.11,<3.14`.
 
+- **Lint** runs in every compatibility cell with the pinned runner and config: `uvx --from ruff==0.11.13 ruff check .` reads `ruff.toml`. Both files carry the same version, and `tests/test_ci_contracts.py` fails when the two drift.
+
 Superseded runs for the same pull request or branch are cancelled. Maintainers can still use `workflow_dispatch` for an explicit full-matrix rerun on any branch.
 
 Each matrix job:
