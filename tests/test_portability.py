@@ -11,11 +11,19 @@ import textwrap
 import types
 import unittest
 from pathlib import Path
+import re
 from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parent.parent
 from scripts import check_portability
+
+
+def _manifest_version() -> str:
+    text = (ROOT / "plugin.yaml").read_text(encoding="utf-8")
+    match = re.search(r"(?m)^version:\s*(\S+)", text)
+    assert match is not None, "plugin.yaml declares no version"
+    return match.group(1)
 
 
 def _offline_env() -> dict[str, str]:
@@ -67,7 +75,7 @@ class PortabilityTests(unittest.TestCase):
         self.assertIsNotNone(parsed)
         _check_manifest_version(raw_manifest, parsed.name)
         self.assertEqual(parsed.name, "hermes-switchyard")
-        self.assertEqual(parsed.version, "0.5.0")
+        self.assertEqual(parsed.version, _manifest_version())
         self.assertEqual(parsed.manifest_version, 1)
         self.assertIsNone(parsed.api_version)
 
