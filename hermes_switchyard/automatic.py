@@ -708,14 +708,17 @@ class AutomaticSkillRecommender:
                 # egress_authority=standing_ack (not a second policy language).
                 scan_reason = _local_scan_reason(task, task_text)
                 if scan_reason is None:
+                    # Do not claim a positive data-class or policy version: the
+                    # local scan is a blocklist, not a sanitizer. Authority is
+                    # standing_ack alone.
                     evaluation = TurnEgressEvaluation(
                         allowed=True,
                         decision="allow",
-                        data_class="sanitized",
+                        data_class=None,
                         status="allowed",
                         reason_code="standing_ack_allowed",
                         allowed_payload=task_text,
-                        version=1,
+                        version=None,
                         egress_authority=EGRESS_AUTHORITY_STANDING_ACK,
                     )
                 else:
