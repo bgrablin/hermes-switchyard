@@ -11,6 +11,7 @@ from .session_search_rerank import (
     DEFAULT_MAX_CARD_CHARS,
     DEFAULT_WINNING_PROBABILITY_THRESHOLD as DEFAULT_SESSION_SEARCH_WINNING_PROBABILITY_THRESHOLD,
     MAX_CANDIDATES as MAX_SESSION_SEARCH_CANDIDATES,
+    MAX_CARD_CHARS as MAX_SESSION_SEARCH_CARD_CHARS,
 )
 
 _HOTKEYS = [
@@ -367,9 +368,10 @@ SESSION_SEARCH_RERANK = {
     "description": (
         "Advisory re-rank of a Hermes session_search FTS shortlist. Call stock session_search "
         "first (higher limit / compact detail), then pass ordered candidate cards plus the recall "
-        "question here. Jev Choices a session_id (and optionally a match_message_id among anchors). "
-        "Cards are redacted and length-capped; full transcripts are never sent by default. "
-        "Fail-open returns the first FTS candidate when Jev is down or below confidence thresholds."
+        "question here. Jev Choices a session_id (and optionally a match_message_id among anchors "
+        "that include distinguishing previews). Cards are redacted and length-capped within an "
+        "aggregate request budget; full transcripts are never sent by default. Fail-open returns "
+        "the first FTS candidate when Jev is unavailable, down, or below confidence thresholds."
     ),
     "parameters": {
         "type": "object",
@@ -386,17 +388,31 @@ SESSION_SEARCH_RERANK = {
                     "type": "object",
                     "properties": {
                         "session_id": {"type": "string", "minLength": 1, "maxLength": 128},
-                        "title": {"type": "string", "maxLength": 160},
+                        "title": {"type": "string", "maxLength": 120},
                         "snippet": {
                             "type": "string",
-                            "maxLength": 2000,
+                            "maxLength": MAX_SESSION_SEARCH_CARD_CHARS,
                             "description": "Compact FTS match preview; never a full transcript.",
                         },
                         "match_message_ids": {
                             "type": "array",
-                            "maxItems": 16,
+                            "maxItems": 8,
                             "items": {"type": "string", "minLength": 1, "maxLength": 128},
-                            "description": "Optional message-id anchors within this session for a second Choice.",
+                            "description": "Optional message-id anchors; without previews, multi-anchor Choice is skipped.",
+                        },
+                        "match_anchors": {
+                            "type": "array",
+                            "maxItems": 8,
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "message_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                                    "preview": {"type": "string", "maxLength": 160},
+                                },
+                                "required": ["message_id"],
+                                "additionalProperties": False,
+                            },
+                            "description": "Preferred anchors with redacted previews for an optional second Choice.",
                         },
                     },
                     "required": ["session_id"],
@@ -404,7 +420,7 @@ SESSION_SEARCH_RERANK = {
                 },
                 "description": (
                     "Ordered FTS shortlist (stock session_search order). Empty list returns status=empty "
-                    "with no provider call. At most 64 cards."
+                    "with no provider call. At most 32 cards."
                 ),
             },
             "choice_confidence_threshold": {
@@ -424,14 +440,14 @@ SESSION_SEARCH_RERANK = {
             "max_card_chars": {
                 "type": "integer",
                 "minimum": 64,
-                "maximum": 2000,
+                "maximum": MAX_SESSION_SEARCH_CARD_CHARS,
                 "default": DEFAULT_MAX_CARD_CHARS,
                 "description": "Per-card text cap after redaction before the card is sent to Jev.",
             },
             "pick_match_message": {
                 "type": "boolean",
                 "default": True,
-                "description": "When true and the winner has message-id anchors, run an optional second Choice.",
+                "description": "When true and the winner has message anchors with previews, run an optional second Choice.",
             },
             "public_or_sanitized_data_ack": _ACKNOWLEDGEMENT,
             "deadline_seconds": _DEADLINE,
