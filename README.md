@@ -6,7 +6,7 @@ Version: 0.5.0
 
 Hermes Switchyard is a plugin that helps Hermes choose skills, models, and computer-use actions. Under the hood it uses [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) for structured decisions; Switchyard applies local policy and keeps actions bounded. Flow: **Jev decides → Switchyard validates → Hermes executes and verifies**. After install, automatic skill routing defaults to **hosted_sanitized** + **load** with standing acknowledgement on: Switchyard can recommend and load one accepted skill per turn when a live Jev key is present. Model routing stays recommend+receipt (`applied: false` until a Hermes apply seam exists). For computer use, receipt-level dual-gate verification sets `goal_verified` only when Hermes agreed `DONE` **and** a local completion condition is satisfied (`verification_owner: hermes_and_url`); a `local_predicate` early-stop may still be `completion_candidate` but keeps both flags false. Switchyard does not modify Hermes core or silently change your active model. Opt down to `local_only` / `advisory` for privacy. Explicit deny/unknown/malformed/restricted host envelopes and restricted local scans still fail closed.
 
-![Hermes Switchyard overview: Jev decides (assess, skill, multi-skill, model route, CUA, automatic skills), Switchyard validates, Hermes executes and verifies — recommend+receipt advisory routing; in-tool goal_verified; Win/macOS/Linux](docs/assets/hermes-switchyard-overview.png)
+![Hermes Switchyard feature map: Jev decision flow and feature stations for assess, skill select, multi-skill, model route, computer use, and automatic skill routing across Windows, macOS, and Linux](docs/assets/hermes-switchyard-overview.png)
 
 ## Why install
 
