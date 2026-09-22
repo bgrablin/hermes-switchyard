@@ -162,7 +162,7 @@ Cua Driver supports background desktop actions on Windows, macOS, and Linux. Swi
 
 ## Toolsets and session exposure
 
-Hermes puts a tool in a session's callable catalog only when the toolset the tool is registered under is selected for that session. Switchyard registers its five tools under two toolsets:
+Hermes puts a tool in a session's callable catalog only when the toolset the tool is registered under is selected for that session. Switchyard registers its six tools under two toolsets:
 
 | Toolset | Tools | Notes |
 | --- | --- | --- |
@@ -171,8 +171,8 @@ Hermes puts a tool in a session's callable catalog only when the toolset the too
 
 Selecting one of the two toolsets does not select the other, and Switchyard adds no tool to any other core toolset.
 
-- **No pin.** A session started without `--toolsets` uses Hermes' default selection for the CLI. With Hermes' default configuration that selection includes both toolsets. A toolset list saved by `hermes tools` that leaves Computer Use off keeps `jev_computer_use` out of sessions while the four decision tools stay callable. Enable Computer Use in `hermes tools`, or pin the toolset for the session.
-- **Explicit pin.** `--toolsets` (`-t`) replaces the default selection and does not add plugin toolsets. `hermes -t computer_use chat` exposes `jev_computer_use` and no decision tool. `hermes -t hermes_switchyard chat` exposes the four decision tools and no computer-use tool. A pin such as `terminal`, or the `hermes-cli` composite alone, exposes none of the five tools even though all five stay registered. To expose all five, name both toolsets. In PowerShell, quote the list, because an unquoted comma is PowerShell's array operator. Hermes also subtracts the configured `agent.disabled_toolsets` list from every CLI session, including one with an explicit pin, so a toolset named there stays unreachable whatever `--toolsets` says. Remove the name from that list in `config.yaml`, or enable the toolset in `hermes tools`, which also removes it from the list for the CLI.
+- **No pin.** A session started without `--toolsets` uses Hermes' default selection for the CLI. With Hermes' default configuration that selection includes both toolsets. A toolset list saved by `hermes tools` that leaves Computer Use off keeps `jev_computer_use` out of sessions while the five decision tools stay callable. Enable Computer Use in `hermes tools`, or pin the toolset for the session.
+- **Explicit pin.** `--toolsets` (`-t`) replaces the default selection and does not add plugin toolsets. `hermes -t computer_use chat` exposes `jev_computer_use` and no decision tool. `hermes -t hermes_switchyard chat` exposes the five decision tools and no computer-use tool. A pin such as `terminal`, or the `hermes-cli` composite alone, exposes none of the six tools even though all six stay registered. To expose all six, name both toolsets. In PowerShell, quote the list, because an unquoted comma is PowerShell's array operator. Hermes also subtracts the configured `agent.disabled_toolsets` list from every CLI session, including one with an explicit pin, so a toolset named there stays unreachable whatever `--toolsets` says. Remove the name from that list in `config.yaml`, or enable the toolset in `hermes tools`, which also removes it from the list for the CLI.
 - **Outside the selection means unreachable.** Hermes' Tool Search bridge (`tool_search`, `tool_describe`, `tool_call`) is scoped to the same selection, so `tool_describe` reports a tool outside it as not found. That is a toolset-selection or registration problem, not a Jev outage.
 
 ```text
