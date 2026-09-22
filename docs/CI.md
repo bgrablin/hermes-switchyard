@@ -4,9 +4,12 @@ This repository has three separate CI boundaries. Offline checks never call Open
 
 ## Offline compatibility
 
-`.github/workflows/switchyard-compatibility.yml` runs the plugin's Python test and hygiene surface on Ubuntu and Windows with Python 3.11, 3.12, and 3.13. The matrix uses the supported Hermes range `>=3.11,<3.14`; Python 3.14 is not a supported Hermes runtime for this gate.
+`.github/workflows/switchyard-compatibility.yml` runs the plugin's Python test and hygiene surface with the supported Hermes range `>=3.11,<3.14`; Python 3.14 is not a supported Hermes runtime for this gate. One `plan` job computes an event-dependent matrix; one `compatibility` job runs the exact same step sequence for every planned cell, so a future dependency, security, or test-command change updates one lane instead of two that could drift apart (`tests/test_ci_contracts.py` pins this).
 
-The six-entry matrix runs once for each pull-request revision and once after a change reaches `main`. Feature-branch pushes do not also start a duplicate matrix run. Superseded runs for the same pull request or branch are cancelled. Maintainers can still use `workflow_dispatch` for an explicit rerun.
+- **Pull requests** run one fast combo: Ubuntu, Python 3.11. All 26 compatibility failures observed before this design broke identically across every matrix cell, so the other five cells bought redundant runs against a limited Actions minutes budget, not extra signal. This fast check is the required branch-protection status check on `main`.
+- **Push to `main`, a weekly schedule (Monday 06:17 UTC), and manual `workflow_dispatch`** run the full six-entry matrix (Ubuntu and Windows, Python 3.11/3.12/3.13), to still catch real OS/version-specific drift without paying the 6x multiplier on every PR iteration.
+
+Superseded runs for the same pull request or branch are cancelled. Maintainers can still use `workflow_dispatch` for an explicit full-matrix rerun on any branch.
 
 Each matrix job:
 
