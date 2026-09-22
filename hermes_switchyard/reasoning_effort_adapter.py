@@ -8,6 +8,7 @@ Jev fails. Model apply stays out of scope — jev_model_route remains advisory.
 """
 from __future__ import annotations
 
+import json
 import threading
 from typing import Any, Callable, Mapping, Sequence
 
@@ -32,6 +33,7 @@ DEFAULT_ADAPTIVE_REASONING_DEADLINE_SECONDS = 8.0
 MAX_TASK_CHARS = 1_200
 MAX_TOOL_OUTCOMES = 6
 MAX_OUTCOME_CHARS = 160
+_DEFAULT_SESSION_KEY = "_default"
 
 _EFFORT_CRITERIA: dict[str, str] = {
     "none": "No extended reasoning; trivial lookup, ack, or formatting.",
@@ -43,6 +45,10 @@ _EFFORT_CRITERIA: dict[str, str] = {
     "max": "Maximum available effort; stuck or safety-critical judgment.",
     "ultra": "Highest Hermes tier when the provider exposes ultra.",
 }
+
+_FAILURE_STATUSES = frozenset(
+    {"error", "failed", "blocked", "cancelled", "canceled", "timeout", "timed_out"}
+)
 
 _LAST_REGISTRATION: dict[str, Any] = {
     "registered": False,
@@ -113,32 +119,77 @@ def _truncate(text: Any, limit: int) -> str:
     return cleaned[: max(0, limit - 1)].rstrip() + "…"
 
 
+def _session_key(*, session_id: Any = None, task_id: Any = None) -> str:
+    for candidate in (session_id, task_id):
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+        if candidate is not None and not isinstance(candidate, (bool, bytes)):
+            text = str(candidate).strip()
+            if text:
+                return text
+    return _DEFAULT_SESSION_KEY
+
+
+def _content_text(content: Any) -> str:
+    if isinstance(content, str) and content.strip():
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, Mapping):
+                for key in ("text", "input_text", "content"):
+                    value = block.get(key)
+                    if isinstance(value, str) and value.strip():
+                        parts.append(value)
+                        break
+                else:
+                    nested = block.get("content")
+                    if nested is not None and nested is not content:
+                        nested_text = _content_text(nested)
+                        if nested_text:
+                            parts.append(nested_text)
+            elif isinstance(block, str) and block.strip():
+                parts.append(block)
+        return " ".join(parts).strip()
+    return ""
+
+
+def _messages_task_snippet(messages: Sequence[Any]) -> str:
+    for message in reversed(list(messages)):
+        if not isinstance(message, Mapping):
+            continue
+        role = str(message.get("role") or "").strip().lower()
+        msg_type = str(message.get("type") or "").strip().lower()
+        # Chat Completions: role=user. Responses/Codex: type=message|input_text
+        # with role=user (or omitted on bare input_text items).
+        if role and role != "user":
+            continue
+        if not role and msg_type and msg_type not in {"message", "input_text"}:
+            continue
+        text = _content_text(message.get("content"))
+        if not text and isinstance(message.get("text"), str):
+            text = message["text"].strip()
+        if text:
+            return _truncate(text, MAX_TASK_CHARS)
+    return ""
+
+
 def _extract_task_snippet(request: Mapping[str, Any] | None, explicit: Any = None) -> str:
     if isinstance(explicit, str) and explicit.strip():
         return _truncate(explicit, MAX_TASK_CHARS)
     if not isinstance(request, Mapping):
         return ""
     messages = request.get("messages")
-    if not isinstance(messages, Sequence):
-        return ""
-    for message in reversed(list(messages)):
-        if not isinstance(message, Mapping):
-            continue
-        if message.get("role") != "user":
-            continue
-        content = message.get("content")
-        if isinstance(content, str) and content.strip():
-            return _truncate(content, MAX_TASK_CHARS)
-        if isinstance(content, list):
-            parts: list[str] = []
-            for block in content:
-                if isinstance(block, Mapping) and isinstance(block.get("text"), str):
-                    parts.append(block["text"])
-                elif isinstance(block, str):
-                    parts.append(block)
-            joined = " ".join(parts).strip()
-            if joined:
-                return _truncate(joined, MAX_TASK_CHARS)
+    if isinstance(messages, Sequence) and not isinstance(messages, (str, bytes, bytearray)):
+        snippet = _messages_task_snippet(messages)
+        if snippet:
+            return snippet
+    # Hermes Responses/Codex llm_request uses `input` (list or direct string).
+    raw_input = request.get("input")
+    if isinstance(raw_input, str) and raw_input.strip():
+        return _truncate(raw_input, MAX_TASK_CHARS)
+    if isinstance(raw_input, Sequence) and not isinstance(raw_input, (str, bytes, bytearray)):
+        return _messages_task_snippet(raw_input)
     return ""
 
 
@@ -163,54 +214,241 @@ def summarize_tool_outcome(
     return {"tool": name, "status": status, "detail": detail}
 
 
-def apply_effort_to_request(request: Mapping[str, Any], effort: str) -> dict[str, Any]:
-    """Rewrite provider kwargs effort fields only — never touch messages.
+def _parse_structured_result(result: Any) -> Any:
+    if isinstance(result, Mapping):
+        return result
+    if isinstance(result, str):
+        text = result.strip()
+        if not text:
+            return None
+        try:
+            parsed = json.loads(text)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        return parsed
+    return None
 
-    Prompt-cache friendliness: messages / tools / system stay byte-identical;
-    only reasoning_effort (and nested effort twins already present) change.
+
+def derive_tool_failure(
+    *,
+    status: Any = None,
+    error_type: Any = None,
+    error_message: Any = None,
+    error: Any = None,
+    result: Any = None,
+    ok: Any = None,
+) -> tuple[bool, str]:
+    """Derive stuck/failure from Hermes post_tool_call fields + structured results."""
+    status_text = str(status or "").strip().lower()
+    if status_text in _FAILURE_STATUSES:
+        detail = error_message or error_type or status_text
+        return True, _truncate(detail, MAX_OUTCOME_CHARS)
+
+    if error_message or error_type:
+        return True, _truncate(error_message or error_type, MAX_OUTCOME_CHARS)
+
+    if error:
+        return True, _truncate(error, MAX_OUTCOME_CHARS)
+
+    if ok is False:
+        return True, _truncate(
+            error_message or result or "tool reported failure", MAX_OUTCOME_CHARS
+        )
+
+    parsed = _parse_structured_result(result)
+    if isinstance(parsed, Mapping):
+        if parsed.get("error") or parsed.get("ok") is False:
+            detail = (
+                parsed.get("error")
+                or parsed.get("error_message")
+                or parsed.get("status")
+                or "tool reported failure"
+            )
+            return True, _truncate(detail, MAX_OUTCOME_CHARS)
+        preview = parsed.get("status") or parsed.get("detail") or "ok"
+        return False, _truncate(preview, MAX_OUTCOME_CHARS)
+
+    if result is not None:
+        return False, _truncate(result, MAX_OUTCOME_CHARS)
+    return False, "ok"
+
+
+def clamp_effort_for_provider(
+    effort: Any,
+    *,
+    provider: Any = None,
+    model: Any = None,
+    api_mode: Any = None,
+) -> str:
+    """Map an internal Hermes effort onto a provider-safe wire value.
+
+    Mirrors Hermes transport clamps so middleware never reinserts internal-only
+    levels (especially ``ultra``) after the host has already shaped kwargs.
     """
     level = normalize_effort(effort)
+    if level == "none":
+        return "none"
+
+    provider_s = str(provider or "").strip().lower()
+    model_s = str(model or "").strip().lower()
+    api_mode_s = str(api_mode or "").strip().lower()
+
+    is_codex = api_mode_s in {"codex_responses", "responses"} or "codex" in provider_s
+    is_xai = (
+        provider_s in {"xai", "x-ai"}
+        or "xai" in provider_s
+        or model_s.startswith("grok")
+        or "/grok" in model_s
+        or model_s.startswith("x-ai/")
+    )
+    is_anthropic = (
+        api_mode_s in {"anthropic_messages", "anthropic"}
+        or provider_s in {"anthropic", "claude"}
+        or "anthropic" in provider_s
+        or "claude" in model_s
+    )
+    is_lmstudio = provider_s in {"lmstudio", "lm-studio", "lm_studio"} or "lmstudio" in provider_s
+
+    if is_codex:
+        if level == "minimal":
+            level = "low"
+        if is_xai and level in {"xhigh", "max", "ultra"}:
+            return "high"
+        if level == "ultra":
+            # Codex product tier; Responses wire value is max (gpt-5.6+) and
+            # the safest non-internal ceiling elsewhere.
+            return "max"
+        return level
+
+    if is_anthropic:
+        if level == "minimal":
+            level = "low"
+        if level == "ultra":
+            level = "max"
+        no_xhigh = (
+            "claude-opus-4-6" in model_s
+            or "claude-opus-4.6" in model_s
+            or "claude-sonnet-4-6" in model_s
+            or "claude-sonnet-4.6" in model_s
+        )
+        if no_xhigh and level == "xhigh":
+            level = "max"
+        return level
+
+    if is_lmstudio:
+        if level in {"max", "ultra"}:
+            return "xhigh"
+        return level
+
+    # Chat Completions / OpenAI-compat / OpenRouter: ultra is internal-only.
+    if level == "ultra":
+        if "gpt-5.6" in model_s:
+            return "max"
+        return "max"
+    return level
+
+
+def wire_efforts_for_provider(
+    *,
+    provider: Any = None,
+    model: Any = None,
+    api_mode: Any = None,
+    allowed_efforts: Sequence[str] | None = None,
+) -> tuple[str, ...]:
+    """Return de-duplicated wire-safe efforts for Jev / request writes."""
+    source = [
+        level
+        for level in (allowed_efforts or HERMES_REASONING_EFFORTS)
+        if level in ALLOWED_EFFORTS
+    ] or list(HERMES_REASONING_EFFORTS)
+    out: list[str] = []
+    seen: set[str] = set()
+    for level in source:
+        wire = clamp_effort_for_provider(
+            level, provider=provider, model=model, api_mode=api_mode
+        )
+        if wire not in seen:
+            seen.add(wire)
+            out.append(wire)
+    return tuple(out) or (DEFAULT_EFFORT,)
+
+
+def _set_effort_mapping(mapping: dict[str, Any], level: str) -> dict[str, Any]:
+    out = dict(mapping)
+    if level == "none":
+        out["enabled"] = False
+        out.pop("effort", None)
+    else:
+        out["enabled"] = True
+        out["effort"] = level
+    return out
+
+
+def apply_effort_to_request(
+    request: Mapping[str, Any],
+    effort: str,
+    *,
+    provider: Any = None,
+    model: Any = None,
+    api_mode: Any = None,
+) -> dict[str, Any]:
+    """Rewrite provider kwargs effort fields only — never touch messages/input.
+
+    Prompt-cache friendliness: messages / input / tools / system stay
+    byte-identical; only provider-facing effort twins change. Uses Hermes'
+    provider/model/api-mode clamps so internal-only levels never hit the wire.
+    """
+    level = clamp_effort_for_provider(
+        effort, provider=provider, model=model, api_mode=api_mode
+    )
     out = dict(request)
-    out["reasoning_effort"] = level
+    api_mode_s = str(api_mode or "").strip().lower()
+    provider_s = str(provider or "").strip().lower()
+
+    touched = False
+
+    if "reasoning_effort" in out:
+        out["reasoning_effort"] = level
+        touched = True
+
+    nested = out.get("reasoning")
+    if isinstance(nested, Mapping):
+        out["reasoning"] = _set_effort_mapping(dict(nested), level)
+        touched = True
+
+    reasoning_config = out.get("reasoning_config")
+    if isinstance(reasoning_config, Mapping):
+        out["reasoning_config"] = _set_effort_mapping(dict(reasoning_config), level)
+        touched = True
 
     extra = out.get("extra_body")
     if isinstance(extra, Mapping):
         extra_out = dict(extra)
+        extra_touched = False
         reasoning = extra_out.get("reasoning")
         if isinstance(reasoning, Mapping):
-            reasoning_out = dict(reasoning)
-            if level == "none":
-                reasoning_out["enabled"] = False
-                reasoning_out.pop("effort", None)
-            else:
-                reasoning_out["enabled"] = True
-                reasoning_out["effort"] = level
-            extra_out["reasoning"] = reasoning_out
-        elif "reasoning_effort" in extra_out or level != "none":
+            extra_out["reasoning"] = _set_effort_mapping(dict(reasoning), level)
+            extra_touched = True
+        if "reasoning_effort" in extra_out:
             extra_out["reasoning_effort"] = level
-        out["extra_body"] = extra_out
+            extra_touched = True
+        if extra_touched:
+            out["extra_body"] = extra_out
+            touched = True
 
-    nested = out.get("reasoning")
-    if isinstance(nested, Mapping):
-        nested_out = dict(nested)
-        if level == "none":
-            nested_out["enabled"] = False
-            nested_out.pop("effort", None)
+    if not touched:
+        # Choose Hermes wire shape from api-mode / provider rather than always
+        # injecting a generic top-level reasoning_effort (Responses rejects it).
+        if api_mode_s in {"codex_responses", "responses"} or "codex" in provider_s:
+            out["reasoning"] = _set_effort_mapping({}, level)
+        elif (
+            api_mode_s in {"anthropic_messages", "anthropic"}
+            or provider_s in {"anthropic", "claude"}
+            or "anthropic" in provider_s
+        ):
+            out["reasoning_config"] = _set_effort_mapping({}, level)
         else:
-            nested_out["enabled"] = True
-            nested_out["effort"] = level
-        out["reasoning"] = nested_out
-
-    reasoning_config = out.get("reasoning_config")
-    if isinstance(reasoning_config, Mapping):
-        cfg = dict(reasoning_config)
-        if level == "none":
-            cfg["enabled"] = False
-            cfg.pop("effort", None)
-        else:
-            cfg["enabled"] = True
-            cfg["effort"] = level
-        out["reasoning_config"] = cfg
+            out["reasoning_effort"] = level
 
     return out
 
@@ -260,7 +498,7 @@ def choose_reasoning_effort(
 
     stuck = any(item.get("status") in {"error", "failed"} for item in outcomes)
     candidates = [
-        {"id": level, "description": _EFFORT_CRITERIA[level]} for level in levels
+        {"id": level, "description": _EFFORT_CRITERIA.get(level, level)} for level in levels
     ]
     criteria = _criteria(candidates, "id")
     state = {
@@ -339,8 +577,27 @@ def choose_reasoning_effort(
         }
 
 
+class _SessionEffortState:
+    """Mutable per-session/task effort state + lock."""
+
+    __slots__ = ("lock", "effort", "outcomes", "dirty", "last_choice", "last_turn_id")
+
+    def __init__(self, default_effort: str) -> None:
+        self.lock = threading.RLock()
+        self.effort = default_effort
+        self.outcomes: list[dict[str, str]] = []
+        self.dirty = True
+        self.last_turn_id: str | None = None
+        self.last_choice: dict[str, Any] = {
+            "effort": default_effort,
+            "reason_code": "default_no_prior",
+            "applied": False,
+            "source": "controller_init",
+        }
+
+
 class ReasoningEffortController:
-    """Process-local effort state shared by middleware and post_tool_call."""
+    """Effort controller with per-session/task state for concurrent gateways."""
 
     def __init__(
         self,
@@ -362,20 +619,28 @@ class ReasoningEffortController:
             for level in (allowed_efforts or HERMES_REASONING_EFFORTS)
             if level in ALLOWED_EFFORTS
         ) or tuple(HERMES_REASONING_EFFORTS)
-        self._lock = threading.RLock()
-        self._effort = self.default_effort
-        self._outcomes: list[dict[str, str]] = []
-        self._dirty = True
-        self._last_choice: dict[str, Any] = {
-            "effort": self._effort,
-            "reason_code": "default_no_prior",
-            "applied": False,
-            "source": "controller_init",
-        }
+        self._registry_lock = threading.RLock()
+        self._sessions: dict[str, _SessionEffortState] = {}
 
-    def record_tool_outcome(self, outcome: Mapping[str, Any]) -> None:
-        with self._lock:
-            self._outcomes.append(
+    def _state_for(self, *, session_id: Any = None, task_id: Any = None) -> _SessionEffortState:
+        key = _session_key(session_id=session_id, task_id=task_id)
+        with self._registry_lock:
+            state = self._sessions.get(key)
+            if state is None:
+                state = _SessionEffortState(self.default_effort)
+                self._sessions[key] = state
+            return state
+
+    def record_tool_outcome(
+        self,
+        outcome: Mapping[str, Any],
+        *,
+        session_id: Any = None,
+        task_id: Any = None,
+    ) -> None:
+        state = self._state_for(session_id=session_id, task_id=task_id)
+        with state.lock:
+            state.outcomes.append(
                 summarize_tool_outcome(
                     tool_name=outcome.get("tool") or outcome.get("tool_name"),
                     ok=outcome.get("ok"),
@@ -383,35 +648,66 @@ class ReasoningEffortController:
                     result_preview=outcome.get("detail") or outcome.get("result_preview"),
                 )
             )
-            self._outcomes = self._outcomes[-MAX_TOOL_OUTCOMES:]
-            self._dirty = True
+            state.outcomes = state.outcomes[-MAX_TOOL_OUTCOMES:]
+            state.dirty = True
 
-    def _publish(self, receipt: Mapping[str, Any]) -> dict[str, Any]:
+    def _publish(self, receipt: Mapping[str, Any], state: _SessionEffortState) -> dict[str, Any]:
         global _LAST_RECEIPT
         payload = dict(receipt)
         _LAST_RECEIPT = dict(payload)
-        self._last_choice = dict(payload)
+        state.last_choice = dict(payload)
         return payload
 
-    def ensure_choice(self, *, task: str, force: bool = False) -> dict[str, Any]:
-        with self._lock:
+    def ensure_choice(
+        self,
+        *,
+        task: str,
+        force: bool = False,
+        session_id: Any = None,
+        task_id: Any = None,
+        turn_id: Any = None,
+        provider: Any = None,
+        model: Any = None,
+        api_mode: Any = None,
+    ) -> dict[str, Any]:
+        state = self._state_for(session_id=session_id, task_id=task_id)
+        with state.lock:
             if not self.enabled:
                 return self._publish(
                     {
                         "status": "disabled",
-                        "effort": self._effort,
+                        "effort": state.effort,
                         "reason_code": "disabled",
                         "applied": False,
-                        "prior_effort": self._effort,
-                    }
+                        "prior_effort": state.effort,
+                    },
+                    state,
                 )
-            if not force and not self._dirty and self._last_choice.get("effort"):
-                cached = dict(self._last_choice)
+
+            turn_key = None
+            if isinstance(turn_id, str) and turn_id.strip():
+                turn_key = turn_id.strip()
+            elif turn_id is not None and str(turn_id).strip():
+                turn_key = str(turn_id).strip()
+
+            if turn_key is not None:
+                if state.last_turn_id is not None and turn_key != state.last_turn_id:
+                    state.dirty = True
+                state.last_turn_id = turn_key
+
+            if not force and not state.dirty and state.last_choice.get("effort"):
+                cached = dict(state.last_choice)
                 cached["reason_code"] = "cached"
                 cached["status"] = "cached"
-                return self._publish(cached)
+                return self._publish(cached, state)
 
-            prior = self._effort
+            prior = state.effort
+            wire_levels = wire_efforts_for_provider(
+                provider=provider,
+                model=model,
+                api_mode=api_mode,
+                allowed_efforts=self.allowed_efforts,
+            )
             if self.client_factory is None:
                 choice: dict[str, Any] = {
                     "status": "kept_previous",
@@ -437,12 +733,12 @@ class ReasoningEffortController:
                     try:
                         choice = choose_reasoning_effort(
                             task=task,
-                            recent_tool_outcomes=list(self._outcomes),
+                            recent_tool_outcomes=list(state.outcomes),
                             prior_effort=prior,
                             client=client,
                             public_or_sanitized_data_ack=self.public_or_sanitized_data_ack,
                             deadline_seconds=self.deadline_seconds,
-                            allowed_efforts=self.allowed_efforts,
+                            allowed_efforts=wire_levels,
                         )
                     finally:
                         close = getattr(client, "close", None)
@@ -452,12 +748,20 @@ class ReasoningEffortController:
                             except Exception:  # noqa: BLE001
                                 pass
 
-            effort = normalize_effort(choice.get("effort"), default=prior)
-            self._effort = effort
-            self._dirty = False
+            effort = clamp_effort_for_provider(
+                choice.get("effort"),
+                provider=provider,
+                model=model,
+                api_mode=api_mode,
+            )
+            # Prefer prior when clamp would invent an empty/unknown value.
+            if effort not in ALLOWED_EFFORTS:
+                effort = normalize_effort(prior)
+            state.effort = effort
+            state.dirty = False
             choice = dict(choice)
             choice["effort"] = effort
-            return self._publish(choice)
+            return self._publish(choice, state)
 
     def on_llm_request(
         self,
@@ -466,17 +770,46 @@ class ReasoningEffortController:
     ) -> dict[str, Any]:
         """llm_request middleware: choose (if needed) and apply effort to kwargs."""
         raw_request = request if isinstance(request, Mapping) else {}
+        session_id = context.get("session_id")
+        task_id = context.get("task_id")
+        turn_id = context.get("turn_id")
+        provider = context.get("provider")
+        model = context.get("model") or raw_request.get("model")
+        api_mode = context.get("api_mode")
         task = _extract_task_snippet(
             raw_request, context.get("task") or context.get("user_message")
         )
-        choice = self.ensure_choice(task=task)
-        effort = normalize_effort(choice.get("effort"), default=self.default_effort)
-        modified = apply_effort_to_request(raw_request, effort)
+        choice = self.ensure_choice(
+            task=task,
+            session_id=session_id,
+            task_id=task_id,
+            turn_id=turn_id,
+            provider=provider,
+            model=model,
+            api_mode=api_mode,
+        )
+        effort = clamp_effort_for_provider(
+            choice.get("effort"),
+            provider=provider,
+            model=model,
+            api_mode=api_mode,
+        )
+        modified = apply_effort_to_request(
+            raw_request,
+            effort,
+            provider=provider,
+            model=model,
+            api_mode=api_mode,
+        )
+        state = self._state_for(session_id=session_id, task_id=task_id)
         receipt = dict(choice)
         receipt["effort"] = effort
         receipt["applied"] = True
         receipt["source"] = "llm_request_middleware"
-        self._publish(receipt)
+        receipt["session_id"] = _session_key(session_id=session_id, task_id=task_id)
+        if turn_id is not None:
+            receipt["turn_id"] = turn_id
+        self._publish(receipt, state)
         return {
             "request": modified,
             "source": "hermes-switchyard",
@@ -489,25 +822,34 @@ class ReasoningEffortController:
             tool_name: Any = None,
             result: Any = None,
             error: Any = None,
+            status: Any = None,
+            error_type: Any = None,
+            error_message: Any = None,
+            session_id: Any = None,
+            task_id: Any = None,
             **kwargs: Any,
         ) -> None:
-            ok = error is None
-            preview = ""
-            if isinstance(result, Mapping):
-                preview = str(result.get("error") or result.get("status") or "")[
-                    :MAX_OUTCOME_CHARS
-                ]
-                if result.get("ok") is False or result.get("error"):
-                    ok = False
-            elif result is not None:
-                preview = _truncate(result, MAX_OUTCOME_CHARS)
+            failed, preview = derive_tool_failure(
+                status=status if status is not None else kwargs.get("status"),
+                error_type=error_type if error_type is not None else kwargs.get("error_type"),
+                error_message=(
+                    error_message
+                    if error_message is not None
+                    else kwargs.get("error_message")
+                ),
+                error=error,
+                result=result,
+                ok=kwargs.get("ok"),
+            )
             self.record_tool_outcome(
                 {
                     "tool": tool_name or kwargs.get("name") or "tool",
-                    "ok": ok,
-                    "error": error,
+                    "ok": not failed,
+                    "error": preview if failed else None,
                     "detail": preview,
-                }
+                },
+                session_id=session_id if session_id is not None else kwargs.get("session_id"),
+                task_id=task_id if task_id is not None else kwargs.get("task_id"),
             )
 
         return on_post_tool_call
