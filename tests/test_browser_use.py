@@ -1941,6 +1941,36 @@ class BrowserReliabilityTests(unittest.TestCase):
             self.assertEqual(result["attempted_request_count"], 0)
             self.assertEqual(client.calls, [])
 
+    def test_browser_profile_write_failure_raises_the_typed_error(self):
+        """A profile-write failure must raise the typed error, not a TypeError.
+
+        BrowserStartupError accepts a code alone, so the profile-write path
+        reports browser_profile_not_writable instead of failing inside the
+        constructor.
+        """
+        with (
+            mock.patch.object(
+                browser_use.destination_policy,
+                "default_resolver",
+                return_value=["93.184.216.34"],
+            ),
+            mock.patch.object(browser_use, "_browser_binary", return_value=Path("/usr/bin/chromium")),
+            mock.patch.object(
+                browser_use,
+                "_browser_binary_details",
+                return_value=(Path("/usr/bin/chromium"), "chromium", "none"),
+            ),
+            mock.patch.object(browser_use, "_is_snap_confined", return_value=False),
+            mock.patch.object(
+                browser_use,
+                "_write_profile_preferences",
+                side_effect=OSError("read-only profile"),
+            ),
+        ):
+            with self.assertRaises(BrowserStartupError) as caught:
+                browser_use.ChromiumSession("https://example.com")
+        self.assertEqual(caught.exception.code, "browser_profile_not_writable")
+
     def test_low_confidence_or_ambiguous_decision_abstains_before_dispatch(self):
         page = {
             "url": "https://example.org/",
