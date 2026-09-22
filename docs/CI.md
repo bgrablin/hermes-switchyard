@@ -1,6 +1,6 @@
 # CI and release verification
 
-This repository has three separate CI boundaries. Offline checks never call OpenRouter. Native compatibility uses the pinned Hermes checkout and the real loader. Live Jev checks are manual, source-allowlisted, and require a protected GitHub environment.
+This repository has three separate CI boundaries. Offline checks never call OpenRouter. Native compatibility uses the pinned Hermes checkout and the real loader. Live Jev checks are manual, source-allowlisted, and require a protected GitHub environment. A separate report-only workflow, `Upstream pin drift`, watches the pinned upstream commit and never gates a change.
 
 ## Offline compatibility
 
@@ -85,6 +85,19 @@ Use an authorized local Hermes profile only. Do not place a key in a command arg
 `.github/workflows/release-candidate.yml` remains `workflow_dispatch` only. It checks the dispatched SHA, runs the offline checks, builds the source-bound archive, and invokes `scripts/ci/verify_release_candidate.py` under the pinned Hermes environment. That verifier checks the exact Git blobs, extracts the archive, confirms the README setup and branding links resolve to packaged files, and runs the actual Hermes loader and tool-schema check on the extracted plugin.
 
 The workflow uploads the candidate ZIP and verification receipt as short-lived artifacts. It never creates tags, publishes releases, changes repository settings, or enables a plugin in a user profile. A successful archive build without source verification or native loader evidence is not a release claim.
+
+## Hermes upstream pin
+
+One full commit SHA pins the Hermes upstream source for every workflow that uses it: `switchyard-compatibility.yml`, `live-jev.yml`, `release-candidate.yml`, and `upstream-pin-drift.yml`. The value is the `HERMES_UPSTREAM_SHA` environment entry in each file, and the documented references in `docs/CI.md`, `docs/TEST-MATRIX.md`, and `THIRD_PARTY.md` must name the same commit. `tests/test_ci_contracts.py` fails when any copy diverges.
+
+To re-pin:
+
+1. Select the reviewed upstream commit.
+2. Update `HERMES_UPSTREAM_SHA` in every pinned workflow in one change.
+3. Update the SHA text in `docs/CI.md`, `docs/TEST-MATRIX.md`, and `THIRD_PARTY.md`.
+4. Run `python -m unittest tests.test_ci_contracts -v`.
+
+`upstream-pin-drift.yml` runs monthly and on manual dispatch. It compares the pin with the current `NousResearch/hermes-agent` default-branch head through `git ls-remote`, records the status and a compare link in the run summary, and never writes to the repository. Read a drift report as a prompt to re-pin deliberately; it is not a release gate.
 
 ## Action and credential boundary
 
