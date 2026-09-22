@@ -1,6 +1,7 @@
 """Offline tests for Jev adaptive reasoning-effort middleware (Hermes 0.21)."""
 from __future__ import annotations
 
+import json
 import unittest
 from types import SimpleNamespace
 
@@ -9,18 +10,22 @@ from hermes_switchyard.reasoning_effort_adapter import (
     ReasoningEffortController,
     apply_effort_to_request,
     choose_reasoning_effort,
+    clamp_effort_for_provider,
+    derive_tool_failure,
     last_receipt,
     last_registration,
     normalize_effort,
     probe_llm_request_middleware_seam,
     register_reasoning_effort_adapter,
+    wire_efforts_for_provider,
 )
 
 
-def _probs(winner: str) -> dict[str, float]:
+def _probs(winner: str, levels: tuple[str, ...] | None = None) -> dict[str, float]:
+    ladder = levels or HERMES_REASONING_EFFORTS
     remaining = 1.0 - 0.90
-    others = [level for level in HERMES_REASONING_EFFORTS if level != winner]
-    share = remaining / len(others)
+    others = [level for level in ladder if level != winner]
+    share = remaining / max(len(others), 1)
     out = {level: share for level in others}
     out[winner] = 0.90
     return out
@@ -37,13 +42,17 @@ class FakeClient:
         if self.error is not None:
             raise self.error
         winner = self.choice
+        criteria = questions["reasoning_effort"]["criteria"]
+        levels = tuple(criteria.keys()) if isinstance(criteria, dict) else HERMES_REASONING_EFFORTS
+        if winner not in levels and levels:
+            winner = levels[0]
         return {
             "model": "typesafe/jev-1.13",
             "answers": {
                 "reasoning_effort": {
                     "choice": winner,
                     "confidence": 0.90,
-                    "probabilities": _probs(winner),
+                    "probabilities": _probs(winner, levels),
                 }
             },
             "usage": {"cost": 0.0001},
@@ -66,6 +75,7 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
         request = {
             "model": "gpt-test",
             "messages": messages,
+            "reasoning_effort": "low",
             "extra_body": {"reasoning": {"effort": "low", "enabled": True}},
             "reasoning_config": {"effort": "low", "enabled": True},
         }
@@ -75,6 +85,20 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
         self.assertEqual(out["reasoning_config"]["effort"], "xhigh")
         self.assertEqual(out["messages"], messages)
         self.assertIsNot(out, request)
+
+    def test_apply_effort_preserves_responses_input(self):
+        payload = [{"role": "user", "content": "codex task"}]
+        request = {"model": "gpt-5.6", "input": payload, "reasoning": {"effort": "low", "enabled": True}}
+        out = apply_effort_to_request(
+            request,
+            "ultra",
+            provider="openai",
+            model="gpt-5.6",
+            api_mode="codex_responses",
+        )
+        self.assertEqual(out["input"], payload)
+        self.assertNotIn("reasoning_effort", out)
+        self.assertEqual(out["reasoning"]["effort"], "max")  # ultra clamped for gpt-5.6
 
     def test_choose_raises_when_stuck_signal_present(self):
         client = FakeClient(choice="xhigh")
@@ -125,7 +149,9 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
             default_effort="medium",
         )
         first = controller.on_llm_request(
-            {"messages": [{"role": "user", "content": "hi"}], "reasoning_effort": "medium"}
+            {"messages": [{"role": "user", "content": "hi"}], "reasoning_effort": "medium"},
+            session_id="s1",
+            turn_id="t1",
         )
         self.assertEqual(first["request"]["reasoning_effort"], "minimal")
         receipt = last_receipt()
@@ -133,12 +159,187 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
         self.assertEqual(receipt["reason_code"], "jev_selected")
 
         hook = controller.build_post_tool_call_hook()
-        hook(tool_name="shell", error="failed")
+        hook(
+            tool_name="shell",
+            status="error",
+            error_type="tool_error",
+            error_message="failed",
+            session_id="s1",
+        )
         client.choice = "max"
         second = controller.on_llm_request(
-            {"messages": [{"role": "user", "content": "try again"}]}
+            {"messages": [{"role": "user", "content": "try again"}]},
+            session_id="s1",
+            turn_id="t1",
         )
         self.assertEqual(second["request"]["reasoning_effort"], "max")
+        self.assertTrue(client.calls[-1][0]["stuck_signal"])
+
+    def test_per_session_state_is_isolated(self):
+        client = FakeClient(choice="low")
+        controller = ReasoningEffortController(
+            client_factory=lambda: client,
+            default_effort="medium",
+        )
+        controller.on_llm_request(
+            {"messages": [{"role": "user", "content": "a"}]},
+            session_id="alpha",
+            turn_id="t1",
+        )
+        hook = controller.build_post_tool_call_hook()
+        hook(
+            tool_name="shell",
+            status="error",
+            error_message="boom",
+            session_id="alpha",
+        )
+        client.choice = "high"
+        controller.on_llm_request(
+            {"messages": [{"role": "user", "content": "b"}]},
+            session_id="beta",
+            turn_id="t1",
+        )
+        # beta must not inherit alpha's stuck signal
+        beta_state = client.calls[-1][0]
+        self.assertFalse(beta_state["stuck_signal"])
+        self.assertEqual(beta_state["recent_tool_outcomes"], [])
+
+        client.choice = "xhigh"
+        controller.on_llm_request(
+            {"messages": [{"role": "user", "content": "a2"}]},
+            session_id="alpha",
+            turn_id="t1",
+        )
+        self.assertTrue(client.calls[-1][0]["stuck_signal"])
+
+    def test_responses_input_string_and_list_feed_jev_task(self):
+        client = FakeClient(choice="high")
+        controller = ReasoningEffortController(client_factory=lambda: client)
+        controller.on_llm_request(
+            {"input": "direct string task about hard debugging", "model": "gpt-5"},
+            session_id="s",
+            turn_id="t1",
+            api_mode="codex_responses",
+        )
+        self.assertIn("direct string task", client.calls[-1][0]["task"])
+
+        client.choice = "medium"
+        controller.on_llm_request(
+            {
+                "input": [
+                    {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "list form task"}]},
+                ],
+                "model": "gpt-5",
+            },
+            session_id="s",
+            turn_id="t2",
+            api_mode="codex_responses",
+        )
+        self.assertIn("list form task", client.calls[-1][0]["task"])
+
+    def test_provider_aware_clamp_drops_ultra_from_wire(self):
+        self.assertEqual(
+            clamp_effort_for_provider("ultra", model="gpt-5.6", api_mode="codex_responses"),
+            "max",
+        )
+        self.assertEqual(
+            clamp_effort_for_provider("ultra", provider="xai", api_mode="codex_responses", model="grok"),
+            "high",
+        )
+        self.assertEqual(
+            clamp_effort_for_provider("ultra", provider="openrouter", model="openai/gpt-4o"),
+            "max",
+        )
+        self.assertEqual(
+            clamp_effort_for_provider("minimal", api_mode="codex_responses"),
+            "low",
+        )
+        self.assertNotIn(
+            "ultra",
+            wire_efforts_for_provider(provider="openrouter", model="openai/o3", api_mode="chat_completions"),
+        )
+
+        out = apply_effort_to_request(
+            {"model": "gpt-4o"},
+            "ultra",
+            provider="openrouter",
+            model="openai/gpt-4o",
+            api_mode="chat_completions",
+        )
+        self.assertEqual(out["reasoning_effort"], "max")
+        self.assertNotEqual(out["reasoning_effort"], "ultra")
+
+        codex = apply_effort_to_request(
+            {"model": "gpt-5.6", "input": "hi"},
+            "ultra",
+            provider="openai",
+            model="gpt-5.6",
+            api_mode="codex_responses",
+        )
+        self.assertNotIn("reasoning_effort", codex)
+        self.assertEqual(codex["reasoning"]["effort"], "max")
+
+    def test_turn_id_invalidates_cache_retries_reuse(self):
+        client = FakeClient(choice="low")
+        controller = ReasoningEffortController(client_factory=lambda: client)
+        controller.on_llm_request(
+            {"messages": [{"role": "user", "content": "turn one"}]},
+            session_id="s",
+            turn_id="turn-1",
+        )
+        calls_after_first = len(client.calls)
+        # Same turn retry: cached, no new Jev call
+        controller.on_llm_request(
+            {"messages": [{"role": "user", "content": "turn one retry"}]},
+            session_id="s",
+            turn_id="turn-1",
+        )
+        self.assertEqual(len(client.calls), calls_after_first)
+        self.assertEqual(last_receipt()["reason_code"], "cached")
+
+        client.choice = "high"
+        controller.on_llm_request(
+            {"messages": [{"role": "user", "content": "turn two"}]},
+            session_id="s",
+            turn_id="turn-2",
+        )
+        self.assertEqual(len(client.calls), calls_after_first + 1)
+        self.assertEqual(last_receipt()["effort"], "high")
+        self.assertEqual(last_receipt()["reason_code"], "jev_selected")
+
+    def test_derive_tool_failure_from_hermes_fields_and_json_result(self):
+        failed, detail = derive_tool_failure(
+            status="error",
+            error_type="tool_error",
+            error_message="no such file",
+        )
+        self.assertTrue(failed)
+        self.assertIn("no such file", detail)
+
+        failed, _ = derive_tool_failure(result=json.dumps({"error": "boom", "ok": False}))
+        self.assertTrue(failed)
+
+        failed, detail = derive_tool_failure(result=json.dumps({"ok": True, "status": "done"}))
+        self.assertFalse(failed)
+        self.assertEqual(detail, "done")
+
+        controller = ReasoningEffortController(client_factory=lambda: FakeClient(choice="medium"))
+        hook = controller.build_post_tool_call_hook()
+        hook(
+            tool_name="browser",
+            result='{"error": "timeout waiting"}',
+            status="error",
+            error_type="tool_error",
+            error_message="timeout waiting",
+            session_id="s-fail",
+        )
+        client = FakeClient(choice="xhigh")
+        controller.client_factory = lambda: client
+        controller.on_llm_request(
+            {"messages": [{"role": "user", "content": "retry"}]},
+            session_id="s-fail",
+            turn_id="t1",
+        )
         self.assertTrue(client.calls[-1][0]["stuck_signal"])
 
     def test_probe_and_register_noop_without_middleware_seam(self):
