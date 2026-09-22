@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.5.2
+
+- Clamp adaptive `reasoning_effort` for Codex / Responses / Astra: map `none` and `minimal` to `low` (Astra accepts only `low|medium|high|xhigh|max`). `wire_efforts_for_provider` no longer offers `none` for those models, so middleware never writes `reasoning_effort: none` (provider HTTP 400). Fixes #63.
+
+
 - Publish tip-main with/without feature scorecard (skill select, multi-skill 5/5 via `select_many`, model route, assess, automatic local_only, computer-use DOM) in README and `docs/BENCHMARKS.md`; refresh live selector report to plugin hash on `c8e6008`; computer-use Felidae row re-bound to tip-main dual-gate (`goal_verified: false` on `local_predicate` early-stop).
 
 - DOM browser receipts dual-gate verification: `goal_verified` / `verified` are true only when Hermes agreed `DONE` (`completion_source: provider_decision`) **and** a local completion condition is satisfied; `verification_owner` is then `hermes_and_url`. A `local_predicate` early-stop (caller-supplied `completion_condition` or derived `derived_goal_title` / `derived_goal_url`) may still be `completion_candidate` but keeps `goal_verified` / `verified` false. Provider `DONE` without a satisfied condition stays unverified (`verification_owner: coordinator`). Derived predicates never self-certify alone.

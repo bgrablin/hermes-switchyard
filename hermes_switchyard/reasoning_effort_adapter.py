@@ -284,16 +284,21 @@ def clamp_effort_for_provider(
 
     Mirrors Hermes transport clamps so middleware never reinserts internal-only
     levels (especially ``ultra``) after the host has already shaped kwargs.
+
+    Codex / Responses / Astra reject ``none`` (and often ``minimal``) on the
+    wire — map those to ``low`` so adaptive effort never writes HTTP 400.
     """
     level = normalize_effort(effort)
-    if level == "none":
-        return "none"
 
     provider_s = str(provider or "").strip().lower()
     model_s = str(model or "").strip().lower()
     api_mode_s = str(api_mode or "").strip().lower()
 
     is_codex = api_mode_s in {"codex_responses", "responses"} or "codex" in provider_s
+    # gpt-6-astra and siblings: same wire set as Codex (low..max), even when
+    # api_mode/provider labels omit "codex".
+    is_astra = "astra" in model_s or "astra" in provider_s
+    is_codex_family = is_codex or is_astra
     is_xai = (
         provider_s in {"xai", "x-ai"}
         or "xai" in provider_s
@@ -309,7 +314,13 @@ def clamp_effort_for_provider(
     )
     is_lmstudio = provider_s in {"lmstudio", "lm-studio", "lm_studio"} or "lmstudio" in provider_s
 
-    if is_codex:
+    if level == "none":
+        if is_codex_family:
+            level = "low"
+        else:
+            return "none"
+
+    if is_codex_family:
         if level == "minimal":
             level = "low"
         if is_xai and level in {"xhigh", "max", "ultra"}:
