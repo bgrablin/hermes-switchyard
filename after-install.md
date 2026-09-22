@@ -37,3 +37,9 @@ Re-read this list anytime:
 ```text
 hermes switchyard guide
 ```
+
+Adaptive reasoning effort is on after install (Hermes ≥ 0.21 `llm_request` middleware).
+Jev chooses `reasoning_effort` per turn / after tools; failures keep the previous effort.
+Disable: `hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort false`.
+`jev_model_route` stays advisory — it does not switch models.
+
