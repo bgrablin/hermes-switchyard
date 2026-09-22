@@ -47,6 +47,11 @@
 - Adds [docs/DOM-BROWSER-BACKEND.md](docs/DOM-BROWSER-BACKEND.md).
 - Adds `hermes_switchyard.record_triage`, a bounded second demonstration of the `jev_assess` primitive. It qualifies public or synthetic records in bounded `jev_assess`-shaped batches with code-defined alternatives, an aggregate deadline, and request accounting; decides some records locally without a provider request; and feeds only accepted decisions to a deterministic consumer that writes a local work-queue artifact. `verify_artifact` re-checks that artifact from disk. It is a library module, not a registered tool, so the tool surface and `plugin.yaml` are unchanged. See `docs/RECORD-TRIAGE.md`.
 
+## 0.5.1
+
+- Adds `jev_session_search_rerank`: Jev Choice re-rank over a Hermes `session_search` FTS shortlist (compact redacted cards only). Fail-open returns the first FTS candidate when Jev is down or below confidence thresholds. Optional second Choice picks `match_message_id` among anchors. See `docs/SESSION-SEARCH-RERANK.md`.
+- Adaptive reasoning-effort picker remains enabled by default. Disable it with `adaptive_reasoning_effort: false` or `hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort false`; see [`docs/ADAPTIVE-REASONING-EFFORT.md`](docs/ADAPTIVE-REASONING-EFFORT.md).
+
 ## 0.5.0
 
 - Adaptive reasoning-effort picker (Codex-style): on by default after install. Jev chooses Hermes `reasoning_effort` (`none|minimal|low|medium|high|xhigh|max|ultra`) per turn / after tools; `llm_request` middleware applies it for the next generation; fail closed keeps the previous effort; prompt-cache friendly (messages untouched). Disable with `adaptive_reasoning_effort: false`. Receipts record effort, reason code, and whether applied. `jev_model_route` remains advisory (`applied: false`).
