@@ -16,6 +16,7 @@ from hermes_switchyard import browser_use
 from hermes_switchyard.browser_use import (
     BrowserStartupError,
     _browser_profile_dir,
+    _browser_receipt,
     _completion_status,
     _is_snap_chromium,
     _resolve_browser_binary,
@@ -1092,9 +1093,9 @@ class BrowserReliabilityTests(unittest.TestCase):
         self.assertTrue(result["completion"]["satisfied"])
         self.assertEqual(len(client.calls), 1)
         self.assertEqual(result["jev_request_count"], 1)
-        self.assertEqual(result["verified"], True)
-        self.assertEqual(result["verification_owner"], "local_completion_predicate")
-        self.assertTrue(result["goal_verified"])
+        self.assertEqual(result["verified"], False)
+        self.assertEqual(result["verification_owner"], "coordinator")
+        self.assertFalse(result["goal_verified"])
 
     def test_completion_predicate_is_never_sent_to_the_provider(self):
         session = StaticSession(
@@ -1131,6 +1132,111 @@ class BrowserReliabilityTests(unittest.TestCase):
         self.assertNotIn("Never Mentioned Target", payload)
         self.assertNotIn("completion", payload)
 
+    def test_dual_gate_provider_done_with_condition_verifies(self):
+        """Hermes DONE + satisfied local condition => verified / hermes_and_url."""
+        engine = "https://en.wikipedia.org/wiki/Analytical_Engine"
+        session = StaticSession(
+            {
+                "url": engine,
+                "title": "Analytical Engine",
+                "text": "The Analytical Engine was a proposed mechanical computer.",
+                "elements": [],
+            }
+        )
+        client = ScriptedClient(
+            [
+                {
+                    "operation": _choice(
+                        "DONE",
+                        {"SCROLL_DOWN": "s", "SCROLL_UP": "u", "WAIT": "w", "BLOCKED": "b", "DONE": "d"},
+                    ),
+                }
+            ]
+        )
+        # Start already on the goal URL with min_actions=0 would early-stop as
+        # local_predicate. Force the provider DONE path by deferring the local
+        # match until completion is evaluated on the DONE branch.
+        real_status = browser_use._completion_status
+        calls = {"n": 0}
+
+        def deferred(condition, page):
+            calls["n"] += 1
+            status = real_status(condition, page)
+            if status is None:
+                return None
+            # First evaluation is the pre-loop early-stop check: pretend unsatisfied
+            # so Hermes is asked. Later evaluation (DONE branch) reports the real match.
+            if calls["n"] == 1:
+                return {**status, "satisfied": False, "checks": {k: False for k in status.get("checks", {})}}
+            return status
+
+        with mock.patch.object(browser_use, "_completion_status", side_effect=deferred):
+            result = run_browser_goal(
+                goal="Read the Analytical Engine article",
+                session=session,
+                client=client,
+                max_steps=3,
+                min_actions_before_done=0,
+                completion_condition={"url_equals": engine},
+            )
+        self.assertEqual(result["status"], "completion_candidate")
+        self.assertEqual(result["completion_source"], "provider_decision")
+        self.assertTrue(result["completion"]["satisfied"])
+        self.assertTrue(result["goal_verified"])
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["verification_owner"], "hermes_and_url")
+
+    def test_dual_gate_receipt_helper_requires_both_gates(self):
+        page = {"url": "https://en.wikipedia.org/wiki/Felidae", "title": "Felidae", "text": "", "elements": []}
+        completion = {"satisfied": True, "source": "caller", "checks": {"url_contains": True}}
+        both = _browser_receipt(
+            operation_id="op",
+            goal="Open Felidae",
+            page=page,
+            actions=[],
+            decisions=[],
+            started=0.0,
+            status="completion_candidate",
+            failure_phase=None,
+            completion=completion,
+            completion_source="provider_decision",
+        )
+        self.assertTrue(both["goal_verified"])
+        self.assertTrue(both["verified"])
+        self.assertEqual(both["verification_owner"], "hermes_and_url")
+
+        local_only = _browser_receipt(
+            operation_id="op",
+            goal="Open Felidae",
+            page=page,
+            actions=[],
+            decisions=[],
+            started=0.0,
+            status="completion_candidate",
+            failure_phase=None,
+            completion=completion,
+            completion_source="local_predicate",
+        )
+        self.assertFalse(local_only["goal_verified"])
+        self.assertFalse(local_only["verified"])
+        self.assertEqual(local_only["verification_owner"], "coordinator")
+
+        done_only = _browser_receipt(
+            operation_id="op",
+            goal="Open Felidae",
+            page=page,
+            actions=[],
+            decisions=[],
+            started=0.0,
+            status="completion_candidate",
+            failure_phase=None,
+            completion={"satisfied": False, "source": "caller", "checks": {"url_contains": False}},
+            completion_source="provider_decision",
+        )
+        self.assertFalse(done_only["goal_verified"])
+        self.assertFalse(done_only["verified"])
+        self.assertEqual(done_only["verification_owner"], "coordinator")
+
     def test_derived_quoted_title_predicate_stops_before_any_request(self):
         session = StaticSession(
             {
@@ -1151,6 +1257,9 @@ class BrowserReliabilityTests(unittest.TestCase):
         self.assertEqual(result["completion_predicate"], {"source": "derived_goal_title", "title_contains": "Analytical Engine"})
         self.assertEqual(result["attempted_request_count"], 0)
         self.assertEqual(client.calls, [])
+        self.assertFalse(result["goal_verified"])
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["verification_owner"], "coordinator")
 
     def test_url_equals_predicate_skips_second_decide_after_click(self):
         """Wikipedia-shaped fixture: one CLICK, URL match, zero second DONE decide."""
@@ -1195,9 +1304,9 @@ class BrowserReliabilityTests(unittest.TestCase):
         self.assertEqual(result["jev_request_count"], 1)
         self.assertEqual([item["operation"] for item in result["decisions"]], ["CLICK"])
         self.assertFalse(any(item.get("operation") == "DONE" for item in result["decisions"]))
-        self.assertEqual(result["verified"], True)
-        self.assertEqual(result["verification_owner"], "local_completion_predicate")
-        self.assertTrue(result["goal_verified"])
+        self.assertEqual(result["verified"], False)
+        self.assertEqual(result["verification_owner"], "coordinator")
+        self.assertFalse(result["goal_verified"])
 
     def test_paired_fixture_fewer_decide_calls_with_local_predicate(self):
         """Identical public fixture with and without a predicate: prove fewer Jev calls."""
@@ -1261,9 +1370,9 @@ class BrowserReliabilityTests(unittest.TestCase):
         self.assertEqual(optimized["completion_source"], "local_predicate")
         self.assertEqual(optimized["jev_request_count"], 1)
         self.assertEqual([item["operation"] for item in optimized["decisions"]], ["CLICK"])
-        self.assertEqual(optimized["verified"], True)
-        self.assertEqual(optimized["verification_owner"], "local_completion_predicate")
-        self.assertTrue(optimized["goal_verified"])
+        self.assertEqual(optimized["verified"], False)
+        self.assertEqual(optimized["verification_owner"], "coordinator")
+        self.assertFalse(optimized["goal_verified"])
         self.assertFalse(baseline["goal_verified"])
         self.assertEqual(baseline["verification_owner"], "coordinator")
 
@@ -1321,6 +1430,9 @@ class BrowserReliabilityTests(unittest.TestCase):
         self.assertEqual(result["jev_request_count"], 1)
         self.assertEqual(client.calls, client.calls[:1])
         self.assertEqual(len(client.calls), 1)
+        self.assertFalse(result["goal_verified"])
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["verification_owner"], "coordinator")
 
     def test_unquoted_url_in_goal_does_not_invent_a_predicate(self):
         """Free-form URLs fall back to provider DONE; derivation stays quote-only."""
@@ -1433,9 +1545,9 @@ class BrowserReliabilityTests(unittest.TestCase):
         self.assertEqual(result["completion"]["checks"], {"url_contains": True})
         self.assertEqual(result["url"], un)
         self.assertEqual(len(client.calls), 1)
-        self.assertTrue(result["goal_verified"])
-        self.assertEqual(result["verified"], True)
-        self.assertEqual(result["verification_owner"], "local_completion_predicate")
+        self.assertFalse(result["goal_verified"])
+        self.assertEqual(result["verified"], False)
+        self.assertEqual(result["verification_owner"], "coordinator")
 
     def test_provider_timeout_after_a_click_keeps_partial_evidence(self):
         cat = "https://en.wikipedia.org/wiki/Cat"

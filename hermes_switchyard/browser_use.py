@@ -1684,21 +1684,22 @@ def _browser_receipt(
         for item in decisions
         if isinstance(item.get("latency_ms"), (int, float)) and not isinstance(item.get("latency_ms"), bool)
     ]
-    local_goal_verified = bool(
+    # Dual-gate: goal_verified / verified only when Hermes agreed DONE
+    # (completion_source == provider_decision) AND the local completion
+    # condition is satisfied. A local_predicate early-stop (caller or derived)
+    # may still be completion_candidate but never self-certifies. DONE without
+    # a satisfied condition stays unverified for the coordinator.
+    dual_gate_verified = bool(
         status == "completion_candidate"
-        and completion_source == "local_predicate"
+        and completion_source == "provider_decision"
         and isinstance(completion, dict)
         and completion.get("satisfied") is True
     )
-    # A satisfied caller completion_condition is tool-owned verification of that
-    # predicate. Jev DONE without a local predicate stays unverified so the
-    # coordinator must still check. Hermes-level whole-agent claims remain out
-    # of scope for this receipt.
     receipt: dict[str, Any] = {
         "status": status,
-        "verified": local_goal_verified,
+        "verified": dual_gate_verified,
         "verification_owner": (
-            "local_completion_predicate" if local_goal_verified else "coordinator"
+            "hermes_and_url" if dual_gate_verified else "coordinator"
         ),
         "executor": "browser_dom",
         "backend": DOM_BACKEND,
@@ -1723,7 +1724,7 @@ def _browser_receipt(
         "attempted_action_count": len(actions),
         "action_dispatched_count": dispatched,
         "effect_observed_count": observed_effects,
-        "goal_verified": local_goal_verified,
+        "goal_verified": dual_gate_verified,
         "click_count": click_count,
         "jev_request_count": len(decisions),
         "attempted_request_count": int(state.get("attempted_requests") or len(decisions)),
