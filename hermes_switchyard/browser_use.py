@@ -318,10 +318,6 @@ class BrowserSession(Protocol):
         ...
 
     def type_text(self, element_id: str, value: str, label: str = "") -> None:
-        ...
-
-
-    def type_text(self, element_id: str, value: str, label: str = "") -> None:
         """Fill one ordinary text field with a caller-supplied bounded value.
 
         Values are never sent to Jev. Password, file, and hidden inputs are refused.

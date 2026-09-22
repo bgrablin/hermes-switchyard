@@ -18,7 +18,6 @@ import hermes_switchyard
 from hermes_switchyard import receipt_state
 from hermes_switchyard.client import DecisionClient, PartialAccountingError
 from hermes_switchyard.computer_use import run_computer_goal
-from hermes_switchyard.routing import select_skill, select_skills
 
 
 # ---------------------------------------------------------------- helpers
@@ -523,8 +522,6 @@ class ReceiptContractTests(unittest.TestCase):
         # not depend on location inheritance; Hermes homes are
         # operator-configurable and the hosted matrix even uses a runner
         # temp directory.
-        from hermes_switchyard import _win_acl
-
         harness = _MemoryFileHarness()
         try:
             os.environ["HERMES_HOME"] = harness._tmp.name

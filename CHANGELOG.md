@@ -6,9 +6,14 @@
 
 - Clamp adaptive `reasoning_effort` for Codex / Responses / Astra: map `none` and `minimal` to `low` (Astra accepts only `low|medium|high|xhigh|max`). `wire_efforts_for_provider` no longer offers `none` for those models, so middleware never writes `reasoning_effort: none` (provider HTTP 400). Fixes #63.
 
+## 0.5.1
+
+- Adds `jev_session_search_rerank`: Jev Choice re-rank over a Hermes `session_search` FTS shortlist (compact redacted cards only). Fail-open returns the first FTS candidate when Jev is down or below confidence thresholds. Optional second Choice picks `match_message_id` among anchors. See `docs/SESSION-SEARCH-RERANK.md`.
+- Adaptive reasoning-effort picker remains enabled by default. Disable it with `adaptive_reasoning_effort: false` or `hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort false`; see [`docs/ADAPTIVE-REASONING-EFFORT.md`](docs/ADAPTIVE-REASONING-EFFORT.md).
+
+## 0.5.0
 
 - Publish tip-main with/without feature scorecard (skill select, multi-skill 5/5 via `select_many`, model route, assess, automatic local_only, computer-use DOM) in README and `docs/BENCHMARKS.md`; refresh live selector report to plugin hash on `c8e6008`; computer-use Felidae row re-bound to tip-main dual-gate (`goal_verified: false` on `local_predicate` early-stop).
-
 - DOM browser receipts dual-gate verification: `goal_verified` / `verified` are true only when Hermes agreed `DONE` (`completion_source: provider_decision`) **and** a local completion condition is satisfied; `verification_owner` is then `hermes_and_url`. A `local_predicate` early-stop (caller-supplied `completion_condition` or derived `derived_goal_title` / `derived_goal_url`) may still be `completion_candidate` but keeps `goal_verified` / `verified` false. Provider `DONE` without a satisfied condition stays unverified (`verification_owner: coordinator`). Derived predicates never self-certify alone.
 - Enable automatic features by default after install: `automatic_skill_routing_mode` → `hosted_sanitized`, `automatic_skill_consumer_mode` → `load`, `automatic_skill_public_or_sanitized_data_ack` → `true` (plugin.yaml + Python DEFAULT constants). Happy path is install --enable → `hermes switchyard setup` → fresh session; opt down to `local_only` / `advisory` for privacy.
 - Standing operator acknowledgement authorizes hosted construction when no host `turn_egress_policy` envelope is present and the local restricted-pattern scan is clean (`egress_authority: standing_ack`, `policy_reason: standing_ack_allowed`). Host allow envelopes record `egress_authority: host_envelope`. Explicit deny/unknown/malformed/restricted envelopes and restricted local scans still fail closed.
@@ -51,16 +56,7 @@
 - DOM browser backend: the profile now disables non-proxied WebRTC UDP (the `--force-webrtc-ip-handling-policy` switch did not stop a STUN datagram to loopback; profile preferences did), and QUIC and Chrome's background time query are disabled so the proxy sees only page traffic.
 - Adds [docs/DOM-BROWSER-BACKEND.md](docs/DOM-BROWSER-BACKEND.md).
 - Adds `hermes_switchyard.record_triage`, a bounded second demonstration of the `jev_assess` primitive. It qualifies public or synthetic records in bounded `jev_assess`-shaped batches with code-defined alternatives, an aggregate deadline, and request accounting; decides some records locally without a provider request; and feeds only accepted decisions to a deterministic consumer that writes a local work-queue artifact. `verify_artifact` re-checks that artifact from disk. It is a library module, not a registered tool, so the tool surface and `plugin.yaml` are unchanged. See `docs/RECORD-TRIAGE.md`.
-
-## 0.5.1
-
-- Adds `jev_session_search_rerank`: Jev Choice re-rank over a Hermes `session_search` FTS shortlist (compact redacted cards only). Fail-open returns the first FTS candidate when Jev is down or below confidence thresholds. Optional second Choice picks `match_message_id` among anchors. See `docs/SESSION-SEARCH-RERANK.md`.
-- Adaptive reasoning-effort picker remains enabled by default. Disable it with `adaptive_reasoning_effort: false` or `hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort false`; see [`docs/ADAPTIVE-REASONING-EFFORT.md`](docs/ADAPTIVE-REASONING-EFFORT.md).
-
-## 0.5.0
-
 - Adaptive reasoning-effort picker (Codex-style): on by default after install. Jev chooses Hermes `reasoning_effort` (`none|minimal|low|medium|high|xhigh|max|ultra`) per turn / after tools; `llm_request` middleware applies it for the next generation; fail closed keeps the previous effort; prompt-cache friendly (messages untouched). Disable with `adaptive_reasoning_effort: false`. Receipts record effort, reason code, and whether applied. `jev_model_route` remains advisory (`applied: false`).
-
 - Model-routing adapter for issue #11: `hermes_switchyard.model_route_adapter` makes the approved-registry path first-class with typed receipts (`applied: false`, `no_fallback`, account boundary, distinct empty/stale/budget/provider outcomes). `register_model_route_adapter` probes Hermes for a model-selection apply seam and records a safe no-op on Hermes 0.19 (no silent model swap). `accept_model_route` refuses apply unless the host supplies an explicit callback. Documents the Hermes 0.19 honesty boundary in `docs/MODEL-ROUTING.md`. Status JSON includes `model_route_adapter`.
 
 ## 0.4.2

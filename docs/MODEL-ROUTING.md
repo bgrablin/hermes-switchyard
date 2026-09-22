@@ -87,6 +87,28 @@ Switchyard does not apply it. The operator or coordinator must use Hermes' norma
 
 Offline tests prove registry validation, expiry, cheapest-qualified selection, provider-failure classification, and no automatic switch. They do not prove that a recommended model can complete an arbitrary task or that its account currently has quota.
 
+## Hermes model-selection apply seam
+
+### Checked upstream status
+
+The repository's reviewed Hermes Agent pin is commit `8503ee4459316ce092b5d69b7d396c27aa03d0be`. The official upstream `main` head checked for this change is commit `71a2fe399bbd7a219c71f9d9fca2b313b01f2057`. At both commits, `PluginContext` exposes registration for tools, hooks, middleware, skills, and providers, but no public model-selection registration or apply callback. Hermes has an internal `apply_model_selection` configuration helper for callers that already own the model-switch workflow. That helper is not a plugin seam. The checked upstream commits therefore have no model-selection apply seam for Switchyard to use.
+
+### Required host contract
+
+Switchyard needs a stable Hermes core API that can:
+
+1. enumerate the selectable model routes and the host-owned provider, account, quota, data-class, and capability constraints;
+2. apply one validated route through the normal Hermes model-selection path, with an explicit scope such as the next turn or the active session; and
+3. report the applied route and the active-route readback, or a typed refusal, without changing credentials or inventing a fallback.
+
+### Current Switchyard behavior
+
+Switchyard keeps model routing recommend-only. It validates the approved registry locally, asks Jev for bounded capability fit, returns a typed receipt with `applied: false`, and leaves the active Hermes model unchanged. `register_model_route_adapter` probes known names for a future seam and records a safe no-op when none is present. `accept_model_route` refuses to apply a recommendation unless the host supplies an explicit apply callback. No silent model change or fallback is allowed.
+
+### Behavior after the seam exists
+
+After Hermes exposes the contract, Switchyard can register the supported callback, retain its local registry and policy checks, and pass only an explicitly accepted route to the host apply operation. It must set `applied: true` only after Hermes reports success and the active-route readback matches. A missing, rejected, or ambiguous host result remains `applied: false` with a typed reason. The recommendation and account boundary stay unchanged.
+
 ## Policy-owned adapter (0.5.0)
 
 Hermes Agent **0.19** does not expose a plugin hook or `PluginContext` API that can change the active coordinator model. Switchyard therefore ships a policy-owned adapter that makes approved-registry routing mechanical without silently swapping models:
