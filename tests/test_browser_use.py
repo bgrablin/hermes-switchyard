@@ -2097,7 +2097,8 @@ class BrowserReliabilityTests(unittest.TestCase):
             self.assertEqual(family, "chromium")
             self.assertEqual(confinement, "none")
 
-            only_wrapper = lambda name: str(wrapper) if name == "chromium-browser" else None
+            def only_wrapper(name):
+                return str(wrapper) if name == "chromium-browser" else None
             with mock.patch.dict(os.environ, hidden, clear=False), mock.patch.object(browser_use.shutil, "which", side_effect=only_wrapper):
                 path, family, confinement = browser_use._browser_binary_details()
             self.assertEqual(path, wrapper)

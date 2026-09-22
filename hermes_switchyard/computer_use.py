@@ -965,10 +965,9 @@ def _run_computer_goal_impl(
             drag_source = None
             drag_source_answer: dict[str, Any] = {}
             drag_source_criteria: dict[str, str] = {}
-            target_receipts: list[dict[str, Any]] = []
             if operation in {"CLICK", "DOUBLE_CLICK", "RIGHT_CLICK", "MIDDLE_CLICK"}:
                 try:
-                    target, target_answer, target_criteria, target_receipts = _select_target(
+                    target, target_answer, target_criteria, _ = _select_target(
                         state=state, controls=controls, roles=click_roles, prefix="click_target",
                         instructions="Choose only an offered element index for the selected click operation.", client=client,
                         selected_operation=operation, target_role="target", decision_sink=decisions,
@@ -984,7 +983,7 @@ def _run_computer_goal_impl(
             elif operation == "TYPE_TEXT":
                 focused_controls = [item for item in controls if item["focused"] is True]
                 try:
-                    target, target_answer, target_criteria, target_receipts = _select_target(
+                    target, target_answer, target_criteria, _ = _select_target(
                         state=state, controls=focused_controls, roles=text_roles, prefix="text_target",
                         instructions="Choose the offered currently focused editable field for native text entry.", client=client,
                         selected_operation=operation, target_role="target", decision_sink=decisions,
@@ -999,7 +998,7 @@ def _run_computer_goal_impl(
                     raise
             elif operation == "SET_VALUE":
                 try:
-                    target, target_answer, target_criteria, target_receipts = _select_target(
+                    target, target_answer, target_criteria, _ = _select_target(
                         state=state, controls=controls, roles=value_roles, prefix="value_target",
                         instructions="Choose the offered control for setting a semantic value.", client=client,
                         selected_operation=operation, target_role="target", decision_sink=decisions,
@@ -1014,7 +1013,7 @@ def _run_computer_goal_impl(
                     raise
             elif operation == "DRAG":
                 try:
-                    drag_source, drag_source_answer, drag_source_criteria, source_receipts = _select_target(
+                    drag_source, drag_source_answer, drag_source_criteria, _ = _select_target(
                         state=state, controls=controls, roles=click_roles, prefix="drag_source",
                         instructions="Choose the offered drag source control.", client=client,
                         selected_operation=operation, target_role="source", decision_sink=decisions,
@@ -1034,7 +1033,7 @@ def _run_computer_goal_impl(
                         status="abstained", capture=capture, failure_phase="source_selection",
                     )
                 try:
-                    target, target_answer, target_criteria, destination_receipts = _select_target(
+                    target, target_answer, target_criteria, _ = _select_target(
                         state=state, controls=controls, roles=click_roles, prefix="drag_target",
                         instructions="Choose the offered drag destination control.", client=client,
                         selected_operation=operation, target_role="destination", decision_sink=decisions,
@@ -1048,7 +1047,6 @@ def _run_computer_goal_impl(
                             status="partial_failure", capture=capture, failure_phase="target_selection",
                         )
                     raise
-                target_receipts = source_receipts + destination_receipts
             if operation in {"CLICK", "DOUBLE_CLICK", "RIGHT_CLICK", "MIDDLE_CLICK", "TYPE_TEXT", "SET_VALUE"} and target is None:
                 return _operation_receipt(
                     operation_id=operation_id, goal=goal, app=app, actions=actions,
