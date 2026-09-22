@@ -2,7 +2,7 @@
 
 Automatic skill recommendations are implemented in `hermes_switchyard/automatic.py` and registered through Hermes' `pre_llm_call` plugin hook. The standalone per-turn contract is implemented in `hermes_switchyard/egress.py`.
 
-The feature is advisory by default, with an opt-in typed loader consumer:
+The feature defaults to hosted_sanitized + load with standing acknowledgement; opt down to advisory/local_only for privacy:
 
 - it recommends an exact skill identifier;
 - `advisory` mode does not load a skill;
@@ -29,7 +29,7 @@ The plugin never uses prior user or assistant messages, or the cached system pro
 Advisory skill recommendation: consider the exact skill identifier "..." if it fits this request. The plugin did not load it. Mandatory skills, explicit instructions, safety controls, and the user's preferences take precedence.
 ```
 
-The sentence is model-visible context, not a separate status message. Hermes keeps the system prompt unchanged. In opt-in `load` mode, the hook calls the normal `skill_view` path directly and returns the loaded skill body as turn context. It never substitutes its own file reader.
+The sentence is model-visible context, not a separate status message. Hermes keeps the system prompt unchanged. In `load` mode (install default), the hook calls the normal `skill_view` path directly and returns the loaded skill body as turn context. It never substitutes its own file reader.
 
 ## Local recommendation path
 
@@ -54,7 +54,7 @@ The automatic path has three explicit routing modes:
 | `local_only` | enabled | never |
 | `hosted_sanitized` | install default | requires `load` consumer mode and acknowledgement true; host allow envelope or standing ack + clean local scan |
 
-`local_only` is the product default. Ordinary turns do not construct hosted Jev. Set `automatic_skill_routing_mode` to `hosted_sanitized`, set `automatic_skill_consumer_mode` to `load`, and set `automatic_skill_public_or_sanitized_data_ack` to `true` to explicitly opt in; the attestation default is `false`, and advisory consumer mode cannot authorize hosted work (`consumer_contract_unmet`). The value is not Hermes-owned DLP.
+`hosted_sanitized` + `load` + standing acknowledgement are the product defaults after install. Ordinary turns may construct hosted Jev when a provider key is present and the local restricted-pattern scan is clean. Opt down to `local_only` / `advisory` / ack false for privacy; advisory consumer mode cannot authorize hosted work (`consumer_contract_unmet`). The acknowledgement is not Hermes-owned DLP.
 
 The hosted request uses the selected fixed Jev endpoint with OpenRouter fallbacks disabled. Automatic hosted routing uses a separate intervention deadline (default 20 seconds via `automatic_skill_deadline_seconds`) that stays below the typical Hermes plugin callback timeout (~30 seconds) and is distinct from the 60-second explicit decision / computer-use deadline and from the per-request provider I/O timeout (~25 seconds). Remaining budget is checked before every partition request and final reduction. When the host cannot cancel the callback, further requests are prevented and late provider results are discarded. Receipts record `deadline_exceeded`, `host_cancelled`, and `late_result_discarded` distinctly from generic transport failures.
  A transport failure is reported as `hosted_failure` when there is no local winner, or `hosted_failure_local_fallback` when a local winner is preserved; a valid hosted abstention remains abstention and does not fall back locally. Hosted metadata is retained only in the typed routing receipt and callback state; it is not a user-facing completion claim.
@@ -192,7 +192,7 @@ hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_can
 
 The config command parses list and mapping literals as YAML/JSON values. The list is still validated by the plugin and is not a permission grant.
 
-For hosted-path smokes, configure the account first. Start from the default advisory consumer to observe the contract gate:
+For hosted-path smokes, configure the account first. Install defaults already use load + hosted_sanitized; to observe the contract gate, temporarily set advisory:
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode hosted_sanitized
