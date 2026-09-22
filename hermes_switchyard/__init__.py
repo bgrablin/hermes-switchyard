@@ -1664,13 +1664,16 @@ def register(ctx):
                 active_client = client()
             except Exception:  # noqa: BLE001 -- missing key/route fails open to FTS
                 return json.dumps(
-                    fail_open_to_fts(
+                    rerank_session_search(
                         candidates=candidates,
                         query=query,
-                        reason="jev_unavailable",
-                        thresholds=thresholds,
+                        client=None,
+                        choice_confidence_threshold=choice_confidence_threshold,
+                        winning_probability_threshold=winning_probability_threshold,
                         max_card_chars=int(max_card_chars),
                         pick_match_message=bool(pick_match_message),
+                        public_or_sanitized_data_ack=ack,
+                        deadline_seconds=deadline_seconds,
                     )
                 )
             try:

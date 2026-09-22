@@ -1551,6 +1551,46 @@ class PluginEntryPointTests(unittest.TestCase):
                 hermes_switchyard.register(context)
                 self.assertFalse(context.checks["jev_computer_use"]())
 
+    def test_session_search_rerank_unavailable_client_still_validates_request(self):
+        import hermes_switchyard
+
+        class Context:
+            def __init__(self):
+                self.tools = {}
+
+            def get_config(self, _key, default=None):
+                return default
+
+            def register_auxiliary_task(self, *_args, **_kwargs):
+                pass
+
+            def register_tool(self, *, name, handler, **_kwargs):
+                self.tools[name] = handler
+
+            def register_skill(self, *_args, **_kwargs):
+                pass
+
+            def register_hook(self, *_args, **_kwargs):
+                pass
+
+            def register_system_prompt_section(self, *_args, **_kwargs):
+                pass
+
+        context = Context()
+        with mock.patch.object(hermes_switchyard, "_secret", side_effect=RuntimeError("missing key")):
+            hermes_switchyard.register(context)
+            result = json.loads(context.tools["jev_session_search_rerank"]({"candidates": [{"session_id": "sess-a"}]}))
+        self.assertEqual(
+            result,
+            {
+                "status": "error",
+                "error": {
+                    "code": "invalid_request",
+                    "reason": "request validation failed",
+                },
+            },
+        )
+
     def test_windows_prompt_keeps_computer_use_pilot_configurable(self):
         import hermes_switchyard
 
