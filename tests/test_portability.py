@@ -229,6 +229,36 @@ class PortabilityTests(unittest.TestCase):
                 check_portability._history_failures(Path("/repo"), set())
         self.assertEqual(run.call_args_list[1].args[0][4:8], ["-r", "-z", "--name-only", "commit"])
 
+    def test_history_exceptions_do_not_hide_new_content_in_known_paths(self):
+        from scripts.check_portability import _history_content_failures
+
+        self.assertTrue(any(
+            "credential-shaped token" in item
+            for item in _history_content_failures(
+                "tests/test_session_search_rerank.py",
+                b"api_key=sk-" + b"z" * 26,
+            )
+        ))
+        self.assertTrue(any(
+            "host-specific absolute path" in item
+            for item in _history_content_failures(
+                "docs/benchmarks/feature-battery-c8e6008.json",
+                b'{"source": "' + bytes((47, 116, 109, 112, 47)) + b'unknown-new-report"}',
+            )
+        ))
+        with mock.patch("scripts.check_portability.hashlib.sha256") as sha256:
+            sha256.return_value.hexdigest.return_value = (
+                "3b76ca9f7e4ee91030d61adc0a8fd049149a2b1d258687dd7a8972528eeaac61"
+            )
+            failures = _history_content_failures(
+                "docs/benchmarks/feature-battery-c8e6008.json",
+                b'{"source": "example.lan"}',
+            )
+        self.assertEqual(
+            failures,
+            ["private hostname suffix in docs/benchmarks/feature-battery-c8e6008.json"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
