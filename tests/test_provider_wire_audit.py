@@ -26,6 +26,17 @@ class CaptureClient:
 
 
 class ProviderWireAuditTests(unittest.TestCase):
+    def test_unmarked_responses_request_does_not_invent_reasoning(self):
+        request = {"model": "future-unknown", "input": []}
+        result = apply_effort_to_request(
+            request,
+            "high",
+            provider="openai-codex",
+            model="future-unknown",
+            api_mode="codex_responses",
+        )
+        self.assertEqual(result, request)
+
     def test_codex_responses_strips_unsupported_reasoning_aliases(self):
         payload = [{"role": "user", "content": "synthetic input"}]
         request = {
@@ -55,8 +66,8 @@ class ProviderWireAuditTests(unittest.TestCase):
         result = apply_effort_to_request(request, "high", provider="anthropic", model="future-claude", api_mode="anthropic_messages")
         self.assertEqual(result["output_config"], {"effort": "high"})
         self.assertEqual(result["thinking"], request["thinking"])
-        self.assertEqual(result["reasoning_effort"], "low")
-        self.assertEqual(result["reasoning_config"], {"enabled": True})
+        self.assertNotIn("reasoning_effort", result)
+        self.assertNotIn("reasoning_config", result)
         manual = {"model": "manual-claude", "thinking": {"type": "enabled", "budget_tokens": 8192}}
         self.assertEqual(apply_effort_to_request(manual, "high", provider="anthropic", api_mode="anthropic_messages"), manual)
 
