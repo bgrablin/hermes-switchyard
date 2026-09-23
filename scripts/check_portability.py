@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import ipaddress
 import json
@@ -58,6 +59,18 @@ SYNTHETIC_CREDENTIAL_VALUES = frozenset(
         "not-a-release-value",
     }
 )
+# These exact public historical blobs contain a redaction-test alphabet token
+# and a benchmark's synthetic /tmp/ path. Exempt only their known findings in
+# history, never the live tree, other blob bytes, or additional finding types.
+KNOWN_BENIGN_HISTORY = {
+    ("tests/test_session_search_rerank.py", "5bb8de4dbfb1d66cf6d069434b9075da12b0845fe4dff32af075e2b1126a5358"): frozenset({
+        "credential-shaped token in tests/test_session_search_rerank.py",
+        "credential-shaped assignment in tests/test_session_search_rerank.py",
+    }),
+    ("docs/benchmarks/feature-battery-c8e6008.json", "3b76ca9f7e4ee91030d61adc0a8fd049149a2b1d258687dd7a8972528eeaac61"): frozenset({
+        "host-specific absolute path in docs/benchmarks/feature-battery-c8e6008.json",
+    }),
+}
 CREDENTIAL_FILE_NAMES = frozenset({
     ".env",
     ".credentials",
@@ -206,6 +219,15 @@ def _text_from_bytes(data: bytes) -> str | None:
         return None
 
 
+def _history_content_failures(relative: str, data: bytes) -> list[str]:
+    text = _text_from_bytes(data)
+    if text is None:
+        return []
+    digest = hashlib.sha256(data).hexdigest()
+    allowed = KNOWN_BENIGN_HISTORY.get((relative, digest), frozenset())
+    return [failure for failure in _content_failures(relative, text) if failure not in allowed]
+
+
 def _manifest_failures(root: Path) -> list[str]:
     failures: list[str] = []
     manifest = root / "plugin.yaml"
@@ -317,10 +339,7 @@ def _history_failures(root: Path, text_suffixes: set[str]) -> list[str]:
                 raise RuntimeError("git history file read failed") from exc
             if shown.returncode != 0:
                 raise RuntimeError(f"git history blob read failed: {relative}")
-            text = _text_from_bytes(shown.stdout)
-            if text is None:
-                continue
-            for failure in _content_failures(relative, text):
+            for failure in _history_content_failures(relative, shown.stdout):
                 failures.append(f"history {commit[:12]}: {failure}")
     return failures
 
