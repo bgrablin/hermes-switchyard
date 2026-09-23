@@ -2,7 +2,7 @@
 
 Picks the right specialist skill for Hermes more often, sets the reasoning effort for each turn, and drives computer-use tasks with receipts. Cheap, fast, and careful not to invent one when you don’t need it.
 
-Version: 0.5.2
+Version: 0.5.3
 
 Hermes Switchyard is a plugin that helps Hermes choose skills, models, and computer-use actions. Under the hood it uses [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) for structured decisions; Switchyard applies local policy and keeps actions bounded. Flow: **Jev decides → Switchyard validates → Hermes executes and verifies**. Deployed surface: seven Jev-backed tools, two lifecycle hooks (`pre_llm_call` and `post_tool_call`), and one middleware (`llm_request`) that applies adaptive reasoning effort, which is on by default. After install, automatic skill routing defaults to **hosted_sanitized** + **load** with standing acknowledgement on: Switchyard can recommend and load one accepted skill per turn when a live Jev key is present. Model routing stays recommend+receipt (`applied: false` until a Hermes apply seam exists). For computer use, receipt-level dual-gate verification sets `goal_verified` only when Hermes agreed `DONE` **and** a local completion condition is satisfied (`verification_owner: hermes_and_url`); a `local_predicate` early-stop may still be `completion_candidate` but keeps both flags false. Switchyard does not modify Hermes core or silently change your active model. Opt down to `local_only` / `advisory` for privacy. Explicit deny/unknown/malformed/restricted host envelopes and restricted local scans still fail closed.
 
@@ -10,7 +10,7 @@ Hermes Switchyard is a plugin that helps Hermes choose skills, models, and compu
 
 ## Why install
 
-Feature scorecard last collected for **0.5.0**: selector and microbench rows were measured at commit `c8e6008c6314e182fd7b100a30efb384db542ee8`; computer-use DOM was re-bound to tip-main commit `a8dae196b0b9892eeb627829d97363ec3d4bb9c9` after #57+#58. It was **not re-collected for 0.5.1 or 0.5.2**. Comparison arms vary by row, not always “product without Switchyard.” Human-readable benefits first; verification hashes live under [Proof](#proof).
+Feature scorecard last collected for **0.5.0**: selector and microbench rows were measured at commit `c8e6008c6314e182fd7b100a30efb384db542ee8`; computer-use DOM was re-bound to tip-main commit `a8dae196b0b9892eeb627829d97363ec3d4bb9c9` after #57+#58. It was **not re-collected for 0.5.1, 0.5.2, or 0.5.3**. Comparison arms vary by row, not always “product without Switchyard.” Human-readable benefits first; verification hashes live under [Proof](#proof).
 
 | Feature | What this row measures | Comparison arm | Measured arm |
 | --- | --- | ---: | ---: |
