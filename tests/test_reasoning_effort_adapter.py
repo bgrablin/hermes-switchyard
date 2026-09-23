@@ -401,6 +401,30 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
             self.assertTrue(last_receipt()["applied"])
         self.assertEqual(len(client.calls), 1)
 
+    def test_no_jev_without_host_effort_does_not_invent_effort(self):
+        controller = ReasoningEffortController(client_factory=None)
+        for turn in ("turn-1", "turn-1", "turn-2"):
+            request = {"model": "future-chat", "messages": [{"role": "user", "content": "synthetic"}]}
+            original = dict(request)
+            result = controller.on_llm_request(
+                request, session_id="no-host-effort", turn_id=turn,
+                provider="custom", model="future-chat", api_mode="chat_completions",
+            )
+            self.assertIsNone(result)
+            self.assertEqual(request, original)
+            self.assertFalse(last_receipt()["applied"])
+
+    def test_disabled_controller_never_rewrites_host_effort(self):
+        controller = ReasoningEffortController(enabled=False)
+        request = {"model": "future-chat", "messages": [], "reasoning_effort": "high"}
+        result = controller.on_llm_request(
+            request, session_id="disabled", turn_id="turn-1",
+            provider="custom", model="future-chat", api_mode="chat_completions",
+        )
+        self.assertIsNone(result)
+        self.assertEqual(request["reasoning_effort"], "high")
+        self.assertFalse(last_receipt()["applied"])
+
     def test_turn_id_invalidates_cache_retries_reuse(self):
         client = FakeClient(choice="low")
         controller = ReasoningEffortController(client_factory=lambda: client)
