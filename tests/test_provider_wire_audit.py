@@ -109,6 +109,13 @@ class ProviderWireAuditTests(unittest.TestCase):
         self.assertEqual(request["output_config"]["effort"], "high")
         self.assertIn("none", wire_efforts_for_provider(provider="openrouter", model="anthropic/claude-future", api_mode="chat_completions"))
 
+    def test_openrouter_claude_names_do_not_trigger_native_anthropic_clamping(self):
+        route = {"provider": "openrouter", "model": "anthropic/claude-opus-4-6", "api_mode": "chat_completions"}
+        self.assertEqual(clamp_effort_for_provider("minimal", **route), "minimal")
+        self.assertEqual(clamp_effort_for_provider("xhigh", **route), "xhigh")
+        request = {"reasoning_effort": "xhigh"}
+        self.assertEqual(apply_effort_to_request(request, "xhigh", **route), request)
+
     def test_bedrock_and_generic_chat_without_host_effort_unchanged(self):
         bedrock = {"modelId": "some-model", "messages": [], "reasoning_effort": "high", "reasoning_config": {"enabled": True}}
         self.assertEqual(apply_effort_to_request(bedrock, "low", provider="bedrock", api_mode="bedrock_converse"), bedrock)
