@@ -884,17 +884,20 @@ class ReasoningEffortController:
             "kept_previous_on_jev_failure",
             "kept_previous_ack_required",
             "invalid_choice",
+            "disabled",
         }:
             host_effort = _explicit_effort(raw_request)
-            if host_effort is not None:
-                state = self._state_for(session_id=session_id, task_id=task_id)
-                with state.lock:
+            state = self._state_for(session_id=session_id, task_id=task_id)
+            with state.lock:
+                if host_effort is not None:
                     state.effort = host_effort
                     choice["effort"] = host_effort
-                    choice["applied"] = False
-                    choice["source"] = "host_request_preserved"
-                    self._publish(choice, state)
-                return None
+                choice["applied"] = False
+                choice["source"] = (
+                    "host_request_preserved" if host_effort is not None else "host_request_unchanged"
+                )
+                self._publish(choice, state)
+            return None
         effort = clamp_effort_for_provider(
             choice.get("effort"),
             provider=provider,
