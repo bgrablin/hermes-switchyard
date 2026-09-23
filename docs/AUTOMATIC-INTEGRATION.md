@@ -12,7 +12,7 @@ The feature defaults to hosted_sanitized + load with standing acknowledgement; o
 - the product defaults are `hosted_sanitized`, `automatic_skill_consumer_mode=load`, and standing acknowledgement true; hosted construction requires load mode, standing acknowledgement, the plugin-owned strict local per-turn scan, and either an allowed host `turn_egress_policy` envelope (`egress_authority: host_envelope`) or a clean local scan under standing ack (`egress_authority: standing_ack`); advisory mode records `consumer_contract_unmet` and never hosts;
 - persistent acknowledgement is required for standalone hosted mode, but local per-turn scanning remains mandatory and the acknowledgement never overrides restricted content or other controls.
 
-The current plugin manifest is version `0.5.0` and declares `pre_llm_call` in `provides_hooks`.
+The plugin manifest declares `pre_llm_call` in `provides_hooks`.
 
 ## Runtime flow
 
