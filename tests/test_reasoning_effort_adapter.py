@@ -168,7 +168,7 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
         )
         client.choice = "max"
         second = controller.on_llm_request(
-            {"messages": [{"role": "user", "content": "try again"}]},
+            {"messages": [{"role": "user", "content": "try again"}], "reasoning_effort": "medium"},
             session_id="s1",
             turn_id="t1",
         )
@@ -221,7 +221,8 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
             turn_id="t1",
             api_mode="codex_responses",
         )
-        self.assertIn("direct string task", client.calls[-1][0]["task"])
+        self.assertTrue(client.calls[-1][0]["task_present"])
+        self.assertNotIn("task", client.calls[-1][0])
 
         client.choice = "medium"
         controller.on_llm_request(
@@ -235,7 +236,8 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
             turn_id="t2",
             api_mode="codex_responses",
         )
-        self.assertIn("list form task", client.calls[-1][0]["task"])
+        self.assertTrue(client.calls[-1][0]["task_present"])
+        self.assertNotIn("task", client.calls[-1][0])
 
     def test_provider_aware_clamp_drops_ultra_from_wire(self):
         self.assertEqual(
@@ -266,8 +268,7 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
             model="openai/gpt-4o",
             api_mode="chat_completions",
         )
-        self.assertEqual(out["reasoning_effort"], "max")
-        self.assertNotEqual(out["reasoning_effort"], "ultra")
+        self.assertEqual(out, {"model": "gpt-4o"})
 
         codex = apply_effort_to_request(
             {"model": "gpt-5.6", "input": "hi"},
@@ -295,16 +296,21 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
                 self.assertNotIn("none", wire)
                 self.assertNotIn("minimal", wire)
                 self.assertIn("low", wire)
-                for level in ("low", "medium", "high", "xhigh", "max"):
+                for level in ("low", "medium", "high", "xhigh"):
                     self.assertIn(level, wire)
+                if "max" in clamp_effort_for_provider("max", **kwargs):
+                    self.assertIn("max", wire)
 
                 applied = apply_effort_to_request(
                     {"model": kwargs["model"], "reasoning_effort": "medium"},
                     "none",
                     **kwargs,
                 )
-                self.assertEqual(applied["reasoning_effort"], "low")
-                self.assertNotEqual(applied["reasoning_effort"], "none")
+                if kwargs.get("api_mode"):
+                    self.assertNotIn("reasoning_effort", applied)
+                    self.assertEqual(applied["reasoning"]["effort"], "low")
+                else:
+                    self.assertEqual(applied["reasoning_effort"], "low")
 
                 nested = apply_effort_to_request(
                     {"model": kwargs["model"], "input": "hi"},
@@ -352,7 +358,7 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
                     {"model": model, "extra_body": {"reasoning": {"enabled": True}}},
                     "high", provider="openai-codex", model=model, api_mode="codex_responses",
                 )
-                self.assertEqual(extra["extra_body"]["reasoning"], {"effort": "high"})
+                self.assertNotIn("extra_body", extra)
 
     def test_turn_id_invalidates_cache_retries_reuse(self):
         client = FakeClient(choice="low")
@@ -455,7 +461,7 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
 
         # Exercise the bound middleware callback.
         mw = next(cb for tag, kind, cb in calls if tag == "middleware")
-        out = mw({"messages": [{"role": "user", "content": "ping"}]})
+        out = mw({"messages": [{"role": "user", "content": "ping"}], "reasoning_effort": "medium"})
         self.assertEqual(out["request"]["reasoning_effort"], "low")
         codex = mw(
             {"model": "future-openai-model", "input": "ping", "reasoning": {"effort": "medium", "summary": "auto"}},
