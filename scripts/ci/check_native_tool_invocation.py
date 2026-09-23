@@ -240,7 +240,7 @@ _CASES: tuple[dict[str, Any], ...] = (
 )
 
 
-def _load_registered_tools(plugin_root: Path) -> tuple[Any, dict[str, Any], set[str]]:
+def _load_registered_tools(plugin_root: Path) -> tuple[Any, dict[str, Any], set[str], Any]:
     """Load the plugin with Hermes' real manager and return live registry entries."""
     from hermes_cli.plugins import PluginManager
     from tools.registry import registry
@@ -307,7 +307,7 @@ def _load_registered_tools(plugin_root: Path) -> tuple[Any, dict[str, Any], set[
             raise NativeInvocationError("invocation case table contains duplicate tool cases")
         _validate_case_coverage(manifest_tool_names, registered_tool_names, registry_tool_names, case_names)
         entries = {name: registry.get_entry(name, scope=manager.scope_key) for name in registered_tool_names}
-        return manager, entries, registered_tool_names
+        return manager, entries, registered_tool_names, registry
 
 
 def _validate_case_coverage(
@@ -397,9 +397,7 @@ def _validate_success(tool: str, parsed: dict[str, Any]) -> str:
 
 def run_invocation_checks(plugin_root: Path) -> dict[str, Any]:
     """Call each registered tool's real handler with a synthetic Jev transport."""
-    from tools.registry import registry
-
-    _manager, entries, expected_names = _load_registered_tools(plugin_root)
+    _manager, entries, expected_names, registry = _load_registered_tools(plugin_root)
     _validate_registered_entries(entries, expected_names)
     results: list[dict[str, Any]] = []
     failures: list[str] = []

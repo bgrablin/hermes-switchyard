@@ -61,6 +61,19 @@ class ProviderWireAuditTests(unittest.TestCase):
         self.assertEqual(result["extra_body"], {"safe_setting": "keep"})
         self.assertIn("reasoning_effort", request)
 
+    def test_codex_drops_nested_reasoning_config_without_losing_other_options(self):
+        request = {
+            "input": [],
+            "reasoning": {"effort": "medium"},
+            "extra_body": {"reasoning_config": {"enabled": True}, "marker": "keep"},
+        }
+        result = apply_effort_to_request(
+            request, "high", provider="openai-codex", model="future-codex", api_mode="codex_responses"
+        )
+        self.assertEqual(result["extra_body"], {"marker": "keep"})
+        self.assertEqual(result["reasoning"], {"effort": "high"})
+        self.assertIn("reasoning_config", request["extra_body"])
+
     def test_anthropic_adaptive_and_manual_thinking(self):
         request = {"model": "future-claude", "messages": [], "thinking": {"type": "adaptive", "display": "summarized"}, "output_config": {"effort": "medium"}, "reasoning_effort": "low", "reasoning_config": {"enabled": True}}
         result = apply_effort_to_request(request, "high", provider="anthropic", model="future-claude", api_mode="anthropic_messages")
@@ -70,6 +83,19 @@ class ProviderWireAuditTests(unittest.TestCase):
         self.assertNotIn("reasoning_config", result)
         manual = {"model": "manual-claude", "thinking": {"type": "enabled", "budget_tokens": 8192}}
         self.assertEqual(apply_effort_to_request(manual, "high", provider="anthropic", api_mode="anthropic_messages"), manual)
+
+    def test_anthropic_removes_nested_reasoning_config_without_losing_other_options(self):
+        request = {
+            "thinking": {"type": "adaptive"},
+            "output_config": {"effort": "medium"},
+            "extra_body": {"reasoning_config": {"enabled": True}, "marker": "keep"},
+        }
+        result = apply_effort_to_request(
+            request, "high", provider="anthropic", model="future-claude", api_mode="anthropic_messages"
+        )
+        self.assertEqual(result["extra_body"], {"marker": "keep"})
+        self.assertEqual(result["output_config"], {"effort": "high"})
+        self.assertIn("reasoning_config", request["extra_body"])
 
     def test_anthropic_adaptive_never_emits_none_as_output_effort(self):
         from hermes_switchyard.reasoning_effort_adapter import wire_efforts_for_provider

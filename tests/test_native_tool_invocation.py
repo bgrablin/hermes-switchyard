@@ -117,6 +117,14 @@ class CaseTableTests(unittest.TestCase):
         with self.assertRaisesRegex(NativeInvocationError, "jev_new_eighth_tool"):
             module._validate_case_coverage(loaded, loaded, loaded, handled)
 
+    def test_assess_without_fit_reports_named_validation_error(self):
+        from scripts.ci import check_native_tool_invocation as module
+
+        for payload in ({}, {"answers": {}}, {"answers": {"other": {"noul": 0.5}}}):
+            with self.subTest(payload=payload):
+                with self.assertRaisesRegex(NativeInvocationError, "jev_assess returned no valid typed fit score"):
+                    module._validate_success("jev_assess", payload)
+
     def test_non_error_without_a_success_terminal_state_is_rejected(self):
         from scripts.ci import check_native_tool_invocation as module
 
@@ -135,6 +143,21 @@ class CaseTableTests(unittest.TestCase):
 
 
 class HandlerFailureReportingTests(unittest.TestCase):
+    def test_mocked_loader_reports_failures_without_host_registry_import(self):
+        from scripts.ci import check_native_tool_invocation as module
+
+        def broken_handler(_args):
+            raise RuntimeError("synthetic break")
+
+        entries = {case["tool"]: _Entry(broken_handler) for case in _CASES}
+        fake_registry = mock.Mock()
+        with mock.patch.object(
+            module, "_load_registered_tools", return_value=(None, entries, set(entries), fake_registry)
+        ), mock.patch.dict("sys.modules", {"tools": None, "tools.registry": None}):
+            with self.assertRaisesRegex(NativeInvocationError, "jev_skill_select.*RuntimeError"):
+                module.run_invocation_checks(plugin_root=None)  # type: ignore[arg-type]
+        fake_registry.dispatch.assert_not_called()
+
     def test_missing_registered_handler_is_rejected(self):
         from scripts.ci import check_native_tool_invocation as module
 
@@ -172,7 +195,7 @@ class HandlerFailureReportingTests(unittest.TestCase):
             raise RuntimeError("negative-control break")
 
         entries["jev_skill_select"] = _Entry(broken_handler)
-        with mock.patch.object(module, "_load_registered_tools", return_value=(None, entries, {case["tool"] for case in _CASES})):
+        with mock.patch.object(module, "_load_registered_tools", return_value=(None, entries, {case["tool"] for case in _CASES}, mock.Mock())):
             with self.assertRaisesRegex(NativeInvocationError, "jev_skill_select.*RuntimeError"):
                 module.run_invocation_checks(plugin_root=None)  # type: ignore[arg-type]
         self.assertEqual(set(calls), {case["tool"] for case in _CASES} - {"jev_skill_select"})
@@ -185,7 +208,7 @@ class HandlerFailureReportingTests(unittest.TestCase):
 
         entries = {case["tool"]: _Entry(broken_handler) for case in _CASES}
         with mock.patch.object(
-            module, "_load_registered_tools", return_value=(None, entries, {case["tool"] for case in _CASES})
+            module, "_load_registered_tools", return_value=(None, entries, {case["tool"] for case in _CASES}, mock.Mock())
         ), mock.patch.dict("os.environ", {"OPENROUTER_API_KEY": "x", "TYPESAFE_API_KEY": ""}):
             with self.assertRaises(NativeInvocationError) as ctx:
                 module.run_invocation_checks(plugin_root=None)  # type: ignore[arg-type]
@@ -207,7 +230,7 @@ class HandlerFailureReportingTests(unittest.TestCase):
             return json.dumps({"status": "selected", "selected": "synthetic"})
 
         entries = {case["tool"]: _Entry(unexpected_handler) for case in _CASES}
-        with mock.patch.object(module, "_load_registered_tools", return_value=(None, entries, set(entries))):
+        with mock.patch.object(module, "_load_registered_tools", return_value=(None, entries, set(entries), registry)):
             with mock.patch.object(registry, "dispatch", side_effect=host_dispatch_trap):
                 with self.assertRaisesRegex(NativeInvocationError, "jev_skill_select.*AssertionError"):
                     module.run_invocation_checks(plugin_root=None)  # type: ignore[arg-type]
@@ -221,7 +244,7 @@ class HandlerFailureReportingTests(unittest.TestCase):
 
         entries = {case["tool"]: _Entry(erroring_handler) for case in _CASES}
         with mock.patch.object(
-            module, "_load_registered_tools", return_value=(None, entries, {case["tool"] for case in _CASES})
+            module, "_load_registered_tools", return_value=(None, entries, {case["tool"] for case in _CASES}, mock.Mock())
         ), mock.patch.dict("os.environ", {"OPENROUTER_API_KEY": "x", "TYPESAFE_API_KEY": ""}):
             with self.assertRaises(NativeInvocationError) as ctx:
                 module.run_invocation_checks(plugin_root=None)  # type: ignore[arg-type]

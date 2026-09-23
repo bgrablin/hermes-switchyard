@@ -452,6 +452,7 @@ def apply_effort_to_request(
         if isinstance(extra_body, Mapping):
             extra_out = dict(extra_body)
             extra_out.pop("reasoning_effort", None)
+            extra_out.pop("reasoning_config", None)
             extra_out.pop("reasoning", None)
             if extra_out:
                 out["extra_body"] = extra_out
@@ -477,6 +478,7 @@ def apply_effort_to_request(
         if isinstance(extra_body, Mapping):
             extra_out = dict(extra_body)
             extra_out.pop("reasoning_effort", None)
+            extra_out.pop("reasoning_config", None)
             extra_out.pop("reasoning", None)
             if extra_out:
                 out["extra_body"] = extra_out
