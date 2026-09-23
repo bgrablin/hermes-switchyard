@@ -71,6 +71,18 @@ class ProviderWireAuditTests(unittest.TestCase):
         manual = {"model": "manual-claude", "thinking": {"type": "enabled", "budget_tokens": 8192}}
         self.assertEqual(apply_effort_to_request(manual, "high", provider="anthropic", api_mode="anthropic_messages"), manual)
 
+    def test_anthropic_adaptive_never_emits_none_as_output_effort(self):
+        from hermes_switchyard.reasoning_effort_adapter import wire_efforts_for_provider
+
+        route = {"provider": "anthropic", "model": "future-claude", "api_mode": "anthropic_messages"}
+        self.assertNotIn("none", wire_efforts_for_provider(**route))
+        request = {"thinking": {"type": "adaptive"}, "output_config": {"effort": "high", "format": {"type": "json_schema"}}}
+        result = apply_effort_to_request(request, "none", **route)
+        self.assertEqual(result["thinking"], {"type": "adaptive"})
+        self.assertEqual(result["output_config"], {"effort": "low", "format": {"type": "json_schema"}})
+        self.assertEqual(request["output_config"]["effort"], "high")
+        self.assertIn("none", wire_efforts_for_provider(provider="openrouter", model="anthropic/claude-future", api_mode="chat_completions"))
+
     def test_bedrock_and_generic_chat_without_host_effort_unchanged(self):
         bedrock = {"modelId": "some-model", "messages": [], "reasoning_effort": "high", "reasoning_config": {"enabled": True}}
         self.assertEqual(apply_effort_to_request(bedrock, "low", provider="bedrock", api_mode="bedrock_converse"), bedrock)

@@ -315,7 +315,12 @@ def clamp_effort_for_provider(
     is_lmstudio = provider_s in {"lmstudio", "lm-studio", "lm_studio"} or "lmstudio" in provider_s
 
     if level == "none":
-        if is_codex_family:
+        # Anthropic Messages uses output_config.effort for adaptive thinking;
+        # unlike a host-side disabled reasoning_config, that wire field cannot
+        # carry "none". Do not change OpenRouter Chat Completions merely because
+        # its model id happens to include "claude".
+        is_anthropic_wire = api_mode_s in {"anthropic_messages", "anthropic"} or "anthropic" in provider_s or provider_s == "claude"
+        if is_codex_family or is_anthropic_wire:
             level = "low"
         else:
             return "none"
@@ -925,13 +930,37 @@ class ReasoningEffortController:
         state = self._state_for(session_id=session_id, task_id=task_id)
         receipt = dict(choice)
         receipt["effort"] = effort
-        receipt["applied"] = True
-        receipt["source"] = "llm_request_middleware"
+        # Removing an unsupported alias makes the payload different, but it
+        # does not mean the selected effort reached a provider-supported field.
+        api_mode_s = str(api_mode or "").strip().lower()
+        provider_s = str(provider or "").strip().lower()
+        if api_mode_s in {"anthropic_messages", "anthropic"} or provider_s in {"anthropic", "claude"} or "anthropic" in provider_s:
+            old_config = raw_request.get("output_config")
+            new_config = modified.get("output_config")
+            applied = (
+                isinstance(raw_request.get("thinking"), Mapping)
+                and raw_request["thinking"].get("type") == "adaptive"
+                and isinstance(old_config, Mapping)
+                and "effort" in old_config
+                and isinstance(new_config, Mapping)
+                and new_config.get("effort") != old_config["effort"]
+            )
+        elif api_mode_s in {"codex_responses", "responses"} or "codex" in provider_s:
+            old_reasoning = raw_request.get("reasoning")
+            new_reasoning = modified.get("reasoning")
+            applied = (
+                isinstance(old_reasoning, Mapping)
+                and isinstance(new_reasoning, Mapping)
+                and new_reasoning.get("effort") != old_reasoning.get("effort")
+            )
+        else:
+            applied = modified != dict(raw_request)
+        receipt["applied"] = applied
+        receipt["source"] = "llm_request_middleware" if applied else "wire_sanitization"
         receipt["session_id"] = _session_key(session_id=session_id, task_id=task_id)
         if turn_id is not None:
             receipt["turn_id"] = turn_id
         if modified == dict(raw_request):
-            receipt["applied"] = False
             receipt["source"] = "host_request_unchanged"
             self._publish(receipt, state)
             return None
