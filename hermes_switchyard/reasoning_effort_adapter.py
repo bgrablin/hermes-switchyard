@@ -321,14 +321,21 @@ def clamp_effort_for_provider(
             return "none"
 
     if is_codex_family:
-        if level == "minimal":
-            level = "low"
         if is_xai and level in {"xhigh", "max", "ultra"}:
             return "high"
-        if level == "ultra":
-            # Ultra is an internal tier, not a wire value.
-            return "max"
-        return level
+        # Ask the installed host's model capability policy; unknown models use
+        # its conservative legacy set, never a plugin-maintained model list.
+        try:
+            from agent.reasoning_effort import codex_supported_efforts, clamp_effort
+
+            supported = codex_supported_efforts(model_s or None)
+            return clamp_effort(level, supported)
+        except (ImportError, AttributeError, TypeError):
+            if level in {"none", "minimal"}:
+                return "low"
+            if level == "ultra":
+                return "xhigh"
+            return level
 
     if is_anthropic:
         if level == "minimal":
@@ -416,15 +423,48 @@ def apply_effort_to_request(
     byte-identical; only provider-facing effort twins change. Uses Hermes'
     provider/model/api-mode clamps so internal-only levels never hit the wire.
     """
-    level = clamp_effort_for_provider(
-        effort, provider=provider, model=model, api_mode=api_mode
-    )
     out = dict(request)
     api_mode_s = str(api_mode or "").strip().lower()
     provider_s = str(provider or "").strip().lower()
+    if api_mode_s == "bedrock_converse":
+        return out
+
+    level = clamp_effort_for_provider(
+        effort, provider=provider, model=model, api_mode=api_mode
+    )
     is_codex_wire = api_mode_s in {"codex_responses", "responses"} or "codex" in provider_s
 
+    is_anthropic_wire = (
+        api_mode_s in {"anthropic_messages", "anthropic"}
+        or provider_s in {"anthropic", "claude"}
+        or "anthropic" in provider_s
+    )
+    if is_anthropic_wire:
+        output_config = out.get("output_config")
+        thinking = out.get("thinking")
+        if (
+            isinstance(output_config, Mapping)
+            and "effort" in output_config
+            and isinstance(thinking, Mapping)
+            and thinking.get("type") == "adaptive"
+        ):
+            out["output_config"] = {**output_config, "effort": level}
+        return out
+
     touched = False
+
+    if is_codex_wire:
+        out.pop("reasoning_effort", None)
+        out.pop("reasoning_config", None)
+        extra_body = out.get("extra_body")
+        if isinstance(extra_body, Mapping):
+            extra_out = dict(extra_body)
+            extra_out.pop("reasoning_effort", None)
+            extra_out.pop("reasoning", None)
+            if extra_out:
+                out["extra_body"] = extra_out
+            else:
+                out.pop("extra_body", None)
 
     if "reasoning_effort" in out:
         out["reasoning_effort"] = level
@@ -463,19 +503,15 @@ def apply_effort_to_request(
             out["extra_body"] = extra_out
             touched = True
 
-    if not touched:
-        # Choose Hermes wire shape from api-mode / provider rather than always
-        # injecting a generic top-level reasoning_effort (Responses rejects it).
-        if is_codex_wire:
+    if is_codex_wire:
+        if "reasoning" not in out:
             out["reasoning"] = _set_codex_wire_effort({}, level)
-        elif (
-            api_mode_s in {"anthropic_messages", "anthropic"}
-            or provider_s in {"anthropic", "claude"}
-            or "anthropic" in provider_s
-        ):
-            out["reasoning_config"] = _set_effort_mapping({}, level)
         else:
-            out["reasoning_effort"] = level
+            out["reasoning"] = _set_codex_wire_effort(out["reasoning"], level)
+        return out
+
+    if not touched:
+        return out
 
     return out
 
@@ -515,13 +551,8 @@ def choose_reasoning_effort(
     for item in list(recent_tool_outcomes or [])[-MAX_TOOL_OUTCOMES:]:
         if not isinstance(item, Mapping):
             continue
-        outcomes.append(
-            {
-                "tool": _truncate(item.get("tool") or "tool", 64),
-                "status": _truncate(item.get("status") or "unknown", 32),
-                "detail": _truncate(item.get("detail") or "", MAX_OUTCOME_CHARS),
-            }
-        )
+        status = str(item.get("status") or "unknown").strip().lower()
+        outcomes.append({"status": status if status in {"ok", "error", "failed"} else "unknown"})
 
     stuck = any(item.get("status") in {"error", "failed"} for item in outcomes)
     candidates = [
@@ -529,7 +560,10 @@ def choose_reasoning_effort(
     ]
     criteria = _criteria(candidates, "id")
     state = {
-        "task": _truncate(task or "", MAX_TASK_CHARS),
+        "task_present": bool(task),
+        "task_length_bucket": (
+            "short" if len(task or "") < 80 else "medium" if len(task or "") < 400 else "long"
+        ),
         "prior_effort": prior,
         "recent_tool_outcomes": outcomes,
         "stuck_signal": stuck,
@@ -621,6 +655,22 @@ class _SessionEffortState:
             "applied": False,
             "source": "controller_init",
         }
+
+
+def _explicit_effort(request: Mapping[str, Any]) -> str | None:
+    """Read an explicit host effort from supported request containers."""
+    value = request.get("reasoning_effort")
+    if value is not None and not isinstance(value, Mapping):
+        return normalize_effort(value)
+    for key in ("reasoning", "reasoning_config", "output_config"):
+        config = request.get(key)
+        if isinstance(config, Mapping):
+            effort = config.get("effort")
+            if effort is not None:
+                return normalize_effort(effort)
+            if config.get("enabled") is False:
+                return "none"
+    return None
 
 
 class ReasoningEffortController:
@@ -794,7 +844,7 @@ class ReasoningEffortController:
         self,
         request: Mapping[str, Any] | None = None,
         **context: Any,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | None:
         """llm_request middleware: choose (if needed) and apply effort to kwargs."""
         raw_request = request if isinstance(request, Mapping) else {}
         session_id = context.get("session_id")
@@ -803,6 +853,8 @@ class ReasoningEffortController:
         provider = context.get("provider")
         model = context.get("model") or raw_request.get("model")
         api_mode = context.get("api_mode")
+        if api_mode == "bedrock_converse":
+            return None
         task = _extract_task_snippet(
             raw_request, context.get("task") or context.get("user_message")
         )
@@ -815,6 +867,17 @@ class ReasoningEffortController:
             model=model,
             api_mode=api_mode,
         )
+        if choice.get("reason_code") == "kept_previous_on_jev_failure":
+            host_effort = _explicit_effort(raw_request)
+            if host_effort is not None:
+                state = self._state_for(session_id=session_id, task_id=task_id)
+                with state.lock:
+                    state.effort = host_effort
+                    choice["effort"] = host_effort
+                    choice["applied"] = False
+                    choice["source"] = "host_request_preserved"
+                    self._publish(choice, state)
+                return None
         effort = clamp_effort_for_provider(
             choice.get("effort"),
             provider=provider,
