@@ -313,7 +313,7 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
                 )
                 self.assertNotIn("reasoning_effort", nested)
                 self.assertEqual(nested["reasoning"]["effort"], "low")
-                self.assertTrue(nested["reasoning"].get("enabled", True))
+                self.assertNotIn("enabled", nested["reasoning"])
 
         # Non-Codex / non-Astra may still keep internal none (disabled).
         self.assertEqual(
@@ -324,6 +324,35 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
             "none",
             wire_efforts_for_provider(provider="openrouter", model="openai/gpt-4o", api_mode="chat_completions"),
         )
+
+    def test_codex_wire_rewrite_does_not_forward_internal_enabled(self):
+        payload = [{"role": "user", "content": "ping"}]
+        for model in ("gpt-6-luna-900k", "unannounced-next-model-900k"):
+            with self.subTest(model=model):
+                request = {
+                    "model": model,
+                    "input": payload,
+                    "reasoning": {"effort": "medium", "summary": "auto", "enabled": True},
+                }
+                out = apply_effort_to_request(
+                    request, "high", provider="openai-codex",
+                    model=model, api_mode="codex_responses",
+                )
+                self.assertIs(out["input"], payload)
+                self.assertEqual(out["reasoning"], {"effort": "high", "summary": "auto"})
+                self.assertEqual(request["reasoning"]["enabled"], True)
+
+                injected = apply_effort_to_request(
+                    {"model": model, "input": payload}, "high",
+                    provider="openai-codex", model=model, api_mode="codex_responses",
+                )
+                self.assertEqual(injected["reasoning"], {"effort": "high"})
+
+                extra = apply_effort_to_request(
+                    {"model": model, "extra_body": {"reasoning": {"enabled": True}}},
+                    "high", provider="openai-codex", model=model, api_mode="codex_responses",
+                )
+                self.assertEqual(extra["extra_body"]["reasoning"], {"effort": "high"})
 
     def test_turn_id_invalidates_cache_retries_reuse(self):
         client = FakeClient(choice="low")
@@ -428,6 +457,12 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
         mw = next(cb for tag, kind, cb in calls if tag == "middleware")
         out = mw({"messages": [{"role": "user", "content": "ping"}]})
         self.assertEqual(out["request"]["reasoning_effort"], "low")
+        codex = mw(
+            {"model": "future-openai-model", "input": "ping", "reasoning": {"effort": "medium", "summary": "auto"}},
+            session_id="codex-wire", provider="openai-codex", model="future-openai-model",
+            api_mode="codex_responses",
+        )
+        self.assertEqual(codex["request"]["reasoning"], {"effort": "low", "summary": "auto"})
 
     def test_register_disabled(self):
         ctx = SimpleNamespace(register_middleware=lambda *a, **k: None)

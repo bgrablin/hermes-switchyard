@@ -295,7 +295,7 @@ def clamp_effort_for_provider(
     api_mode_s = str(api_mode or "").strip().lower()
 
     is_codex = api_mode_s in {"codex_responses", "responses"} or "codex" in provider_s
-    # gpt-6-astra and siblings: same wire set as Codex (low..max), even when
+    # Astra models: same wire set as Codex (low..max), even when
     # api_mode/provider labels omit "codex".
     is_astra = "astra" in model_s or "astra" in provider_s
     is_codex_family = is_codex or is_astra
@@ -326,8 +326,7 @@ def clamp_effort_for_provider(
         if is_xai and level in {"xhigh", "max", "ultra"}:
             return "high"
         if level == "ultra":
-            # Codex product tier; Responses wire value is max (gpt-5.6+) and
-            # the safest non-internal ceiling elsewhere.
+            # Ultra is an internal tier, not a wire value.
             return "max"
         return level
 
@@ -353,8 +352,6 @@ def clamp_effort_for_provider(
 
     # Chat Completions / OpenAI-compat / OpenRouter: ultra is internal-only.
     if level == "ultra":
-        if "gpt-5.6" in model_s:
-            return "max"
         return "max"
     return level
 
@@ -395,6 +392,16 @@ def _set_effort_mapping(mapping: dict[str, Any], level: str) -> dict[str, Any]:
     return out
 
 
+def _set_codex_wire_effort(mapping: Mapping[str, Any], level: str) -> dict[str, Any]:
+    """Codex Responses accepts reasoning.effort, not reasoning.enabled."""
+    out = dict(mapping)
+    out.pop("enabled", None)
+    out["effort"] = level
+    if level == "none":
+        out.pop("summary", None)
+    return out
+
+
 def apply_effort_to_request(
     request: Mapping[str, Any],
     effort: str,
@@ -415,6 +422,7 @@ def apply_effort_to_request(
     out = dict(request)
     api_mode_s = str(api_mode or "").strip().lower()
     provider_s = str(provider or "").strip().lower()
+    is_codex_wire = api_mode_s in {"codex_responses", "responses"} or "codex" in provider_s
 
     touched = False
 
@@ -424,7 +432,11 @@ def apply_effort_to_request(
 
     nested = out.get("reasoning")
     if isinstance(nested, Mapping):
-        out["reasoning"] = _set_effort_mapping(dict(nested), level)
+        out["reasoning"] = (
+            _set_codex_wire_effort(nested, level)
+            if is_codex_wire
+            else _set_effort_mapping(dict(nested), level)
+        )
         touched = True
 
     reasoning_config = out.get("reasoning_config")
@@ -438,7 +450,11 @@ def apply_effort_to_request(
         extra_touched = False
         reasoning = extra_out.get("reasoning")
         if isinstance(reasoning, Mapping):
-            extra_out["reasoning"] = _set_effort_mapping(dict(reasoning), level)
+            extra_out["reasoning"] = (
+                _set_codex_wire_effort(reasoning, level)
+                if is_codex_wire
+                else _set_effort_mapping(dict(reasoning), level)
+            )
             extra_touched = True
         if "reasoning_effort" in extra_out:
             extra_out["reasoning_effort"] = level
@@ -450,8 +466,8 @@ def apply_effort_to_request(
     if not touched:
         # Choose Hermes wire shape from api-mode / provider rather than always
         # injecting a generic top-level reasoning_effort (Responses rejects it).
-        if api_mode_s in {"codex_responses", "responses"} or "codex" in provider_s:
-            out["reasoning"] = _set_effort_mapping({}, level)
+        if is_codex_wire:
+            out["reasoning"] = _set_codex_wire_effort({}, level)
         elif (
             api_mode_s in {"anthropic_messages", "anthropic"}
             or provider_s in {"anthropic", "claude"}
