@@ -243,6 +243,17 @@ def import_plugin(plugin_path: Path) -> tuple[Any, Any, dict[str, str]]:
     plugin_path = plugin_path.expanduser().resolve()
     package = plugin_path / "hermes_switchyard"
     require(package.is_dir() and (package / "__init__.py").is_file(), "plugin_path_must_contain_hermes_switchyard")
+    loaded = sys.modules.get("hermes_switchyard")
+    loaded_file = getattr(loaded, "__file__", None)
+    if loaded_file and Path(loaded_file).resolve() == package / "__init__.py":
+        routing = importlib.import_module("hermes_switchyard.routing")
+        client_module = importlib.import_module("hermes_switchyard.client")
+        for module in (routing, client_module):
+            require(
+                Path(getattr(module, "__file__", "")).resolve().is_relative_to(package),
+                "plugin_import_outside_exact_path",
+            )
+        return routing, client_module, source_hashes(plugin_path)
     for name in list(sys.modules):
         if name == "hermes_switchyard" or name.startswith("hermes_switchyard."):
             del sys.modules[name]
