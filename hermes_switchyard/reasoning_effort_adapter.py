@@ -782,8 +782,13 @@ class ReasoningEffortController:
 
             if not force and not state.dirty and state.last_choice.get("effort"):
                 cached = dict(state.last_choice)
-                cached["reason_code"] = "cached"
                 cached["status"] = "cached"
+                if cached.get("reason_code") not in {
+                    "kept_previous_on_jev_failure",
+                    "kept_previous_ack_required",
+                    "invalid_choice",
+                }:
+                    cached["reason_code"] = "cached"
                 return self._publish(cached, state)
 
             prior = state.effort
@@ -875,7 +880,11 @@ class ReasoningEffortController:
             model=model,
             api_mode=api_mode,
         )
-        if choice.get("reason_code") == "kept_previous_on_jev_failure":
+        if choice.get("reason_code") in {
+            "kept_previous_on_jev_failure",
+            "kept_previous_ack_required",
+            "invalid_choice",
+        }:
             host_effort = _explicit_effort(raw_request)
             if host_effort is not None:
                 state = self._state_for(session_id=session_id, task_id=task_id)
