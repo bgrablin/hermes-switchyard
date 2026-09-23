@@ -345,7 +345,7 @@ def _apply_private_permissions(path: Path) -> None:
     can fail closed (an unprotected receipt must never be published).
     """
     if os.name == "nt":
-        from hermes_switchyard import _win_acl
+        from . import _win_acl
 
         _win_acl.set_private_dacl(path)
         return
