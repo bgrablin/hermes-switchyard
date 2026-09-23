@@ -344,8 +344,8 @@ def _validate_success(tool: str, parsed: dict[str, Any]) -> str:
         reason = f"{parsed.get('error')}"
         if tool == "jev_computer_use":
             raise NativeInvocationError(
-                "jev_computer_use cannot be declared successful: this offline gate has no safe "
-                f"synthetic native-action executor (handler result: {reason})"
+                "jev_computer_use did not complete with the synthetic native-action executor "
+                f"(handler result: {reason})"
             )
         raise NativeInvocationError(f"{tool} returned a structured error against synthetic input: {reason}")
     status = parsed.get("status")
@@ -388,8 +388,8 @@ def _validate_success(tool: str, parsed: dict[str, Any]) -> str:
             or not decisions
         ):
             raise NativeInvocationError(
-                "jev_computer_use has no safe synthetic native-action executor in this gate; "
-                "requires a completion_candidate with a confirmed action and decision evidence"
+                "jev_computer_use requires a completion_candidate with a confirmed synthetic "
+                "action and decision evidence"
             )
         return "completion_candidate_with_confirmed_action"
     raise NativeInvocationError(f"no success contract is defined for registered tool {tool!r}")
@@ -404,12 +404,8 @@ def run_invocation_checks(plugin_root: Path) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     failures: list[str] = []
     native_dispatcher = _SyntheticNativeDispatcher()
-    host_dispatch = registry.dispatch
-
     def dispatch_synthetic_native(tool_name: str, arguments: dict[str, Any], **kwargs: Any) -> Any:
-        if tool_name == "computer_use":
-            return native_dispatcher(tool_name, arguments, **kwargs)
-        return host_dispatch(tool_name, arguments, **kwargs)
+        return native_dispatcher(tool_name, arguments, **kwargs)
     with mock.patch.dict(
         "os.environ",
         {"OPENROUTER_API_KEY": "offline-only-synthetic-placeholder", "TYPESAFE_API_KEY": ""},

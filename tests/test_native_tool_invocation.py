@@ -122,9 +122,9 @@ class CaseTableTests(unittest.TestCase):
 
         with self.assertRaises(NativeInvocationError):
             module._validate_success("jev_skill_select", {"status": "abstained"})
-        with self.assertRaisesRegex(NativeInvocationError, "no safe synthetic native-action executor"):
+        with self.assertRaisesRegex(NativeInvocationError, "confirmed synthetic action"):
             module._validate_success("jev_computer_use", {"status": "completed"})
-        with self.assertRaisesRegex(NativeInvocationError, "no safe synthetic native-action executor"):
+        with self.assertRaisesRegex(NativeInvocationError, "confirmed synthetic action"):
             module._validate_success("jev_computer_use", {
                 "status": "completion_candidate",
                 "verified": False,
@@ -191,6 +191,27 @@ class HandlerFailureReportingTests(unittest.TestCase):
                 module.run_invocation_checks(plugin_root=None)  # type: ignore[arg-type]
         self.assertIn(_CASES[0]["tool"], str(ctx.exception))
         self.assertIn("RuntimeError", str(ctx.exception))
+
+    def test_unexpected_native_dispatch_never_reaches_host_registry(self):
+        from scripts.ci import check_native_tool_invocation as module
+        from tools.registry import registry
+
+        calls = []
+
+        def host_dispatch_trap(*args, **kwargs):
+            calls.append(args)
+            raise AssertionError("unsafe host dispatch")
+
+        def unexpected_handler(_args):
+            registry.dispatch("shell", {"command": "synthetic-should-not-run"})
+            return json.dumps({"status": "selected", "selected": "synthetic"})
+
+        entries = {case["tool"]: _Entry(unexpected_handler) for case in _CASES}
+        with mock.patch.object(module, "_load_registered_tools", return_value=(None, entries, set(entries))):
+            with mock.patch.object(registry, "dispatch", side_effect=host_dispatch_trap):
+                with self.assertRaisesRegex(NativeInvocationError, "jev_skill_select.*AssertionError"):
+                    module.run_invocation_checks(plugin_root=None)  # type: ignore[arg-type]
+        self.assertEqual(calls, [])
 
     def test_a_structured_error_response_fails_the_gate_with_its_reason(self):
         from scripts.ci import check_native_tool_invocation as module

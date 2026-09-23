@@ -384,6 +384,36 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
                     self.assertFalse(receipt["applied"])
                     self.assertEqual(receipt["effort"], effort)
 
+    def test_no_selection_receipt_tracks_nested_host_effort_across_cache(self):
+        for field in ("reasoning", "reasoning_effort"):
+            with self.subTest(field=field):
+                controller = ReasoningEffortController(client_factory=None)
+                for effort in ("high", "xhigh"):
+                    request = {"model": "future-chat", "extra_body": {field: {"effort": effort} if field == "reasoning" else effort}}
+                    result = controller.on_llm_request(
+                        request, session_id=field, turn_id="same-turn", provider="custom",
+                        model="future-chat", api_mode="chat_completions",
+                    )
+                    self.assertIsNone(result)
+                    self.assertEqual(request["extra_body"][field], {"effort": effort} if field == "reasoning" else effort)
+                    receipt = last_receipt()
+                    self.assertFalse(receipt["applied"])
+                    self.assertEqual(receipt["effort"], effort)
+
+    def test_selected_effort_is_not_reported_applied_without_a_wire_field(self):
+        client = FakeClient(choice="low")
+        controller = ReasoningEffortController(client_factory=lambda: client)
+        request = {"model": "future-chat", "messages": [{"role": "user", "content": "synthetic"}]}
+        for _ in range(2):
+            result = controller.on_llm_request(
+                request, session_id="no-wire", turn_id="same-turn", provider="custom",
+                model="future-chat", api_mode="chat_completions",
+            )
+            self.assertIsNone(result)
+            self.assertFalse(last_receipt()["applied"])
+            self.assertEqual(request, {"model": "future-chat", "messages": [{"role": "user", "content": "synthetic"}]})
+        self.assertEqual(len(client.calls), 1)
+
     def test_successful_selection_applies_and_cached_selection_remains_adaptive(self):
         client = FakeClient(choice="low")
         controller = ReasoningEffortController(client_factory=lambda: client)

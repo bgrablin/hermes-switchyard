@@ -678,6 +678,17 @@ def _explicit_effort(request: Mapping[str, Any]) -> str | None:
                 return normalize_effort(effort)
             if config.get("enabled") is False:
                 return "none"
+    extra = request.get("extra_body")
+    if isinstance(extra, Mapping):
+        value = extra.get("reasoning_effort")
+        if value is not None and not isinstance(value, Mapping):
+            return normalize_effort(value)
+        reasoning = extra.get("reasoning")
+        if isinstance(reasoning, Mapping):
+            if reasoning.get("effort") is not None:
+                return normalize_effort(reasoning["effort"])
+            if reasoning.get("enabled") is False:
+                return "none"
     return None
 
 
@@ -919,6 +930,11 @@ class ReasoningEffortController:
         receipt["session_id"] = _session_key(session_id=session_id, task_id=task_id)
         if turn_id is not None:
             receipt["turn_id"] = turn_id
+        if modified == dict(raw_request):
+            receipt["applied"] = False
+            receipt["source"] = "host_request_unchanged"
+            self._publish(receipt, state)
+            return None
         self._publish(receipt, state)
         return {
             "request": modified,
