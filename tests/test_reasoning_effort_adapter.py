@@ -414,6 +414,44 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
             self.assertEqual(request, {"model": "future-chat", "messages": [{"role": "user", "content": "synthetic"}]})
         self.assertEqual(len(client.calls), 1)
 
+    def test_alias_cleanup_is_not_reported_as_effort_applied(self):
+        cases = (
+            ("anthropic", "future-claude", "anthropic_messages", {"model": "future-claude", "thinking": {"type": "enabled", "budget_tokens": 8192}, "reasoning_effort": "high"}),
+            ("openai-codex", "future-codex", "codex_responses", {"model": "future-codex", "input": "hello", "reasoning_effort": "high"}),
+        )
+        for provider, model, api_mode, request in cases:
+            with self.subTest(provider=provider):
+                controller = ReasoningEffortController(client_factory=lambda: FakeClient(choice="low"))
+                result = controller.on_llm_request(
+                    request, session_id=provider, turn_id="turn-1",
+                    provider=provider, model=model, api_mode=api_mode,
+                )
+                self.assertIsNotNone(result)
+                assert result is not None
+                self.assertNotIn("reasoning_effort", result["request"])
+                self.assertFalse(last_receipt()["applied"])
+                self.assertEqual(last_receipt()["source"], "wire_sanitization")
+                self.assertEqual(request["reasoning_effort"], "high")
+
+    def test_supported_wire_effort_change_is_reported_applied(self):
+        cases = (
+            ("anthropic", "future-claude", "anthropic_messages", {"model": "future-claude", "thinking": {"type": "adaptive"}, "output_config": {"effort": "high", "format": {"type": "json_schema"}}, "reasoning_effort": "high"}),
+            ("openai-codex", "future-codex", "codex_responses", {"model": "future-codex", "input": "hello", "reasoning": {"effort": "high", "summary": "auto"}, "reasoning_effort": "high"}),
+        )
+        for provider, model, api_mode, request in cases:
+            with self.subTest(provider=provider):
+                controller = ReasoningEffortController(client_factory=lambda: FakeClient(choice="low"))
+                result = controller.on_llm_request(
+                    request, session_id=provider, turn_id="turn-1",
+                    provider=provider, model=model, api_mode=api_mode,
+                )
+                self.assertIsNotNone(result)
+                assert result is not None
+                wire_effort = result["request"]["output_config"]["effort"] if provider == "anthropic" else result["request"]["reasoning"]["effort"]
+                self.assertEqual(wire_effort, "low")
+                self.assertTrue(last_receipt()["applied"])
+                self.assertEqual(last_receipt()["source"], "llm_request_middleware")
+
     def test_successful_selection_applies_and_cached_selection_remains_adaptive(self):
         client = FakeClient(choice="low")
         controller = ReasoningEffortController(client_factory=lambda: client)
