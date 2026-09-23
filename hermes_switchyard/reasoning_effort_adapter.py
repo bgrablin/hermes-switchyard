@@ -440,6 +440,18 @@ def apply_effort_to_request(
         or "anthropic" in provider_s
     )
     if is_anthropic_wire:
+        out.pop("reasoning_effort", None)
+        out.pop("reasoning_config", None)
+        out.pop("reasoning", None)
+        extra_body = out.get("extra_body")
+        if isinstance(extra_body, Mapping):
+            extra_out = dict(extra_body)
+            extra_out.pop("reasoning_effort", None)
+            extra_out.pop("reasoning", None)
+            if extra_out:
+                out["extra_body"] = extra_out
+            else:
+                out.pop("extra_body", None)
         output_config = out.get("output_config")
         thinking = out.get("thinking")
         if (
@@ -504,10 +516,6 @@ def apply_effort_to_request(
             touched = True
 
     if is_codex_wire:
-        if "reasoning" not in out:
-            out["reasoning"] = _set_codex_wire_effort({}, level)
-        else:
-            out["reasoning"] = _set_codex_wire_effort(out["reasoning"], level)
         return out
 
     if not touched:

@@ -278,7 +278,7 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
             api_mode="codex_responses",
         )
         self.assertNotIn("reasoning_effort", codex)
-        self.assertEqual(codex["reasoning"]["effort"], "max")
+        self.assertNotIn("reasoning", codex)
 
     def test_codex_astra_maps_none_and_minimal_to_low(self):
         # openai-codex / Responses / Astra reject reasoning_effort=none (HTTP 400).
@@ -308,7 +308,7 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
                 )
                 if kwargs.get("api_mode"):
                     self.assertNotIn("reasoning_effort", applied)
-                    self.assertEqual(applied["reasoning"]["effort"], "low")
+                    self.assertNotIn("reasoning", applied)
                 else:
                     self.assertEqual(applied["reasoning_effort"], "low")
 
@@ -318,8 +318,7 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
                     **{**kwargs, "api_mode": kwargs.get("api_mode") or "codex_responses"},
                 )
                 self.assertNotIn("reasoning_effort", nested)
-                self.assertEqual(nested["reasoning"]["effort"], "low")
-                self.assertNotIn("enabled", nested["reasoning"])
+                self.assertNotIn("reasoning", nested)
 
         # Non-Codex / non-Astra may still keep internal none (disabled).
         self.assertEqual(
@@ -352,7 +351,7 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
                     {"model": model, "input": payload}, "high",
                     provider="openai-codex", model=model, api_mode="codex_responses",
                 )
-                self.assertEqual(injected["reasoning"], {"effort": "high"})
+                self.assertEqual(injected, {"model": model, "input": payload})
 
                 extra = apply_effort_to_request(
                     {"model": model, "extra_body": {"reasoning": {"enabled": True}}},
