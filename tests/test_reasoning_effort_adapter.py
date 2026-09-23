@@ -359,6 +359,48 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
                 )
                 self.assertNotIn("extra_body", extra)
 
+    def test_no_selection_never_rewrites_explicit_host_effort_across_cache(self):
+        cases = (
+            ("missing_client", lambda: None, "high", "xhigh"),
+            ("client_factory_failure", lambda: (_ for _ in ()).throw(RuntimeError("synthetic")), "high", "xhigh"),
+            ("jev_call_failure", lambda: FakeClient(error=RuntimeError("synthetic")), "high", "xhigh"),
+        )
+        for name, factory, first_effort, retry_effort in cases:
+            with self.subTest(name=name):
+                controller = ReasoningEffortController(client_factory=factory)
+                for effort in (first_effort, retry_effort):
+                    request = {
+                        "model": "future-chat",
+                        "messages": [{"role": "user", "content": "synthetic"}],
+                        "reasoning_effort": effort,
+                    }
+                    result = controller.on_llm_request(
+                        request, session_id="same", turn_id="turn-1",
+                        provider="custom", model="future-chat", api_mode="chat_completions",
+                    )
+                    self.assertIsNone(result)
+                    self.assertEqual(request["reasoning_effort"], effort)
+                    receipt = last_receipt()
+                    self.assertFalse(receipt["applied"])
+                    self.assertEqual(receipt["effort"], effort)
+
+    def test_successful_selection_applies_and_cached_selection_remains_adaptive(self):
+        client = FakeClient(choice="low")
+        controller = ReasoningEffortController(client_factory=lambda: client)
+        for effort in ("high", "xhigh"):
+            request = {
+                "model": "future-chat",
+                "messages": [{"role": "user", "content": "synthetic"}],
+                "reasoning_effort": effort,
+            }
+            result = controller.on_llm_request(
+                request, session_id="successful", turn_id="turn-1",
+                provider="custom", model="future-chat", api_mode="chat_completions",
+            )
+            self.assertEqual(result["request"]["reasoning_effort"], "low")
+            self.assertTrue(last_receipt()["applied"])
+        self.assertEqual(len(client.calls), 1)
+
     def test_turn_id_invalidates_cache_retries_reuse(self):
         client = FakeClient(choice="low")
         controller = ReasoningEffortController(client_factory=lambda: client)
