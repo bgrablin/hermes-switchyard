@@ -8,11 +8,9 @@ break: the synthetic transport must build a valid Jev response (so the gate
 never green-lights on a broken fixture instead of a broken plugin), and a
 failing handler must be reported by name, not swallowed.
 
-The end-to-end path (real Hermes loader + real registry + real handlers) is
-proven interactively against a pinned Hermes checkout as part of review, the
-same way ``check_native_hermes.py`` itself is -- both scripts import
-Hermes-only modules that are not installed in this repository's own test
-environment.
+The handler-unit tests exercise fixtures without the loader. The CLI gate itself
+loads the plugin through the pinned Hermes runtime; the invoking test suite also
+covers the pure response-fixture rules and an isolated broken-handler control.
 """
 from __future__ import annotations
 
@@ -99,15 +97,86 @@ class CaseTableTests(unittest.TestCase):
                 for marker in ("private", "confidential", "ssn", "password", "secret"):
                     self.assertNotIn(marker, serialized.lower())
 
-    def test_case_table_covers_every_jev_backed_tool_exercised_by_the_live_contract(self):
-        # These are exactly the tools live_jev_contract.py exercises with a
-        # real paid call; this offline gate should not silently narrow to
-        # fewer tools than the live contract already covers for free.
-        covered = {case["tool"] for case in _CASES}
-        self.assertTrue({"jev_skill_select", "jev_model_route"}.issubset(covered))
+    def test_case_table_covers_every_registered_tool(self):
+        expected = {
+            "jev_assess",
+            "jev_computer_use",
+            "jev_skill_select",
+            "jev_skill_select_many",
+            "jev_model_route",
+            "jev_model_route_approved",
+            "jev_session_search_rerank",
+        }
+        self.assertEqual({case["tool"] for case in _CASES}, expected)
+
+    def test_loaded_eighth_tool_is_not_hidden_by_case_table(self):
+        from scripts.ci import check_native_tool_invocation as module
+
+        handled = {case["tool"] for case in _CASES}
+        loaded = handled | {"jev_new_eighth_tool"}
+        with self.assertRaisesRegex(NativeInvocationError, "jev_new_eighth_tool"):
+            module._validate_case_coverage(loaded, loaded, loaded, handled)
+
+    def test_non_error_without_a_success_terminal_state_is_rejected(self):
+        from scripts.ci import check_native_tool_invocation as module
+
+        with self.assertRaises(NativeInvocationError):
+            module._validate_success("jev_skill_select", {"status": "abstained"})
+        with self.assertRaisesRegex(NativeInvocationError, "no safe synthetic native-action executor"):
+            module._validate_success("jev_computer_use", {"status": "completed"})
+        with self.assertRaisesRegex(NativeInvocationError, "no safe synthetic native-action executor"):
+            module._validate_success("jev_computer_use", {
+                "status": "completion_candidate",
+                "verified": False,
+                "completed_action_count": 1,
+                "actions": [{"effect_confirmed": False}],
+                "decisions": [{"phase": "operation_selection"}],
+            })
 
 
 class HandlerFailureReportingTests(unittest.TestCase):
+    def test_missing_registered_handler_is_rejected(self):
+        from scripts.ci import check_native_tool_invocation as module
+
+        entries = {name: _Entry(lambda _args: "{}") for name in {case["tool"] for case in _CASES}}
+        del entries["jev_computer_use"]
+        with self.assertRaisesRegex(NativeInvocationError, "jev_computer_use"):
+            module._validate_registered_entries(entries, {case["tool"] for case in _CASES})
+
+    def test_broken_replacement_handler_makes_the_gate_fail(self):
+        from scripts.ci import check_native_tool_invocation as module
+
+        calls = []
+
+        def ok_handler(args):
+            calls.append(args["_tool"])
+            tool = args["_tool"]
+            if tool == "jev_computer_use":
+                return json.dumps({
+                    "status": "completion_candidate",
+                    "verified": False,
+                    "completed_action_count": 1,
+                    "actions": [{"effect_confirmed": True}],
+                    "decisions": [{"synthetic": True}],
+                })
+            status = "selected"
+            selected_key = "selected_session_id" if tool == "jev_session_search_rerank" else "selected"
+            return json.dumps({"status": status, selected_key: "synthetic"})
+
+        entries = {
+            case["tool"]: _Entry(lambda args, tool=case["tool"]: ok_handler({**args, "_tool": tool}))
+            for case in _CASES
+        }
+
+        def broken_handler(_args):
+            raise RuntimeError("negative-control break")
+
+        entries["jev_skill_select"] = _Entry(broken_handler)
+        with mock.patch.object(module, "_load_registered_tools", return_value=(None, entries, {case["tool"] for case in _CASES})):
+            with self.assertRaisesRegex(NativeInvocationError, "jev_skill_select.*RuntimeError"):
+                module.run_invocation_checks(plugin_root=None)  # type: ignore[arg-type]
+        self.assertEqual(set(calls), {case["tool"] for case in _CASES} - {"jev_skill_select"})
+
     def test_a_handler_exception_is_reported_by_tool_name_not_swallowed(self):
         from scripts.ci import check_native_tool_invocation as module
 
@@ -116,7 +185,7 @@ class HandlerFailureReportingTests(unittest.TestCase):
 
         entries = {case["tool"]: _Entry(broken_handler) for case in _CASES}
         with mock.patch.object(
-            module, "_load_registered_tools", return_value=(None, entries)
+            module, "_load_registered_tools", return_value=(None, entries, {case["tool"] for case in _CASES})
         ), mock.patch.dict("os.environ", {"OPENROUTER_API_KEY": "x", "TYPESAFE_API_KEY": ""}):
             with self.assertRaises(NativeInvocationError) as ctx:
                 module.run_invocation_checks(plugin_root=None)  # type: ignore[arg-type]
@@ -131,7 +200,7 @@ class HandlerFailureReportingTests(unittest.TestCase):
 
         entries = {case["tool"]: _Entry(erroring_handler) for case in _CASES}
         with mock.patch.object(
-            module, "_load_registered_tools", return_value=(None, entries)
+            module, "_load_registered_tools", return_value=(None, entries, {case["tool"] for case in _CASES})
         ), mock.patch.dict("os.environ", {"OPENROUTER_API_KEY": "x", "TYPESAFE_API_KEY": ""}):
             with self.assertRaises(NativeInvocationError) as ctx:
                 module.run_invocation_checks(plugin_root=None)  # type: ignore[arg-type]
