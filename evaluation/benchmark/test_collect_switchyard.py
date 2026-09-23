@@ -10,6 +10,14 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+# Keep an optional PyYAML import in the module snapshot restored by patch.dict(sys.modules).
+# Loading its C extension for the first time inside that mock and then removing
+# it can leave a later Hermes manifest parse with an unusable CSafeLoader.
+try:
+    import yaml as _yaml  # noqa: F401
+except ImportError:  # PyYAML is optional in standalone benchmark tests.
+    _yaml = None
+
 import benchmark
 import collect_switchyard
 

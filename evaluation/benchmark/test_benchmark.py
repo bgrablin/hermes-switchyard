@@ -1,5 +1,7 @@
 import json
 import copy
+import importlib
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -18,6 +20,17 @@ class BenchmarkContractTests(unittest.TestCase):
     def setUpClass(cls):
         cls.book, cls.meta = benchmark.load_book()
         cls.routing, _client, cls.source = benchmark.import_plugin(PLUGIN)
+
+    def test_import_plugin_preserves_existing_exact_package_identity(self):
+        package = importlib.import_module("hermes_switchyard")
+        routing = importlib.import_module("hermes_switchyard.routing")
+        path_before = list(sys.path)
+
+        loaded_routing, _client, _source = benchmark.import_plugin(PLUGIN)
+
+        self.assertIs(loaded_routing, routing)
+        self.assertIs(sys.modules["hermes_switchyard"], package)
+        self.assertEqual(sys.path, path_before)
 
     def test_frozen_balanced_public_heldout_book(self):
         heldout = self.book["heldout_fixtures"]
