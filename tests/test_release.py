@@ -92,6 +92,11 @@ def _recompute_checksums(members: dict[str, bytes]) -> None:
 
 
 class ReleaseArchiveTests(unittest.TestCase):
+    def test_release_allowlist_covers_all_package_python_modules(self):
+        package_modules = {path.relative_to(ROOT).as_posix() for path in (ROOT / "hermes_switchyard").glob("*.py")}
+        packaged_modules = {path for path in RELEASE_FILES if path.startswith("hermes_switchyard/") and path.endswith(".py")}
+        self.assertEqual(packaged_modules, package_modules)
+
     def test_register_ast_check_accepts_reexports_and_rejects_text_mentions(self):
         self.assertTrue(_has_register_binding(ast.parse("from .hermes_switchyard import register")))
         self.assertTrue(_has_register_binding(ast.parse("def register(ctx):\n    return None\n")))
@@ -185,6 +190,7 @@ class ReleaseArchiveTests(unittest.TestCase):
             self.assertNotIn("local-evidence/RELEASE-HANDOFF.md", names)
             self.assertIn("plugin.yaml", names)
             self.assertIn("__init__.py", names)
+            self.assertIn("hermes_switchyard/_win_acl.py", names)
             self.assertIn("docs/SETUP.md", names)
             self.assertIn("docs/AUTOMATIC-SETUP.md", names)
             self.assertIn("docs/AUTOMATIC-INTEGRATION.md", names)
