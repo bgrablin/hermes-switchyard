@@ -217,8 +217,8 @@ class HandlerFailureReportingTests(unittest.TestCase):
 
     def test_unexpected_native_dispatch_never_reaches_host_registry(self):
         from scripts.ci import check_native_tool_invocation as module
-        from tools.registry import registry
 
+        registry = mock.Mock()
         calls = []
 
         def host_dispatch_trap(*args, **kwargs):
@@ -231,9 +231,10 @@ class HandlerFailureReportingTests(unittest.TestCase):
 
         entries = {case["tool"]: _Entry(unexpected_handler) for case in _CASES}
         with mock.patch.object(module, "_load_registered_tools", return_value=(None, entries, set(entries), registry)):
-            with mock.patch.object(registry, "dispatch", side_effect=host_dispatch_trap):
-                with self.assertRaisesRegex(NativeInvocationError, "jev_skill_select.*AssertionError"):
-                    module.run_invocation_checks(plugin_root=None)  # type: ignore[arg-type]
+            with mock.patch.dict("sys.modules", {"tools": None, "tools.registry": None}):
+                with mock.patch.object(registry, "dispatch", side_effect=host_dispatch_trap):
+                    with self.assertRaisesRegex(NativeInvocationError, "jev_skill_select.*AssertionError"):
+                        module.run_invocation_checks(plugin_root=None)  # type: ignore[arg-type]
         self.assertEqual(calls, [])
 
     def test_a_structured_error_response_fails_the_gate_with_its_reason(self):

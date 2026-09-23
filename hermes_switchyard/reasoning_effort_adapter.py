@@ -310,7 +310,6 @@ def clamp_effort_for_provider(
         api_mode_s in {"anthropic_messages", "anthropic"}
         or provider_s in {"anthropic", "claude"}
         or "anthropic" in provider_s
-        or "claude" in model_s
     )
     is_lmstudio = provider_s in {"lmstudio", "lm-studio", "lm_studio"} or "lmstudio" in provider_s
 
