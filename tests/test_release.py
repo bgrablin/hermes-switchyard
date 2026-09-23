@@ -209,6 +209,26 @@ class ReleaseArchiveTests(unittest.TestCase):
             self.assertTrue((extracted / "docs/AUTOMATIC-INTEGRATION.md").is_file())
             self.assertTrue((extracted / "docs/assets/hermes-switchyard-branding.png").is_file())
 
+    def test_packaged_changelog_references_resolve_inside_archive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            repo, source_sha = _fixture_repo(base)
+            archive = build_release(repo, base / "dist", source_sha)
+            with zipfile.ZipFile(archive) as opened:
+                names = set(opened.namelist())
+            self.assertIn("docs/SESSION-SEARCH-RERANK.md", names)
+            self.assertIn("docs/ADAPTIVE-REASONING-EFFORT.md", names)
+
+    def test_changelog_broken_relative_link_rejects_release_archive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            repo, _ = _fixture_repo(base)
+            changelog = repo / "CHANGELOG.md"
+            changelog.write_text(changelog.read_text(encoding="utf-8") + "\n[broken](docs/not-packaged.md)\n", encoding="utf-8")
+            source_sha = _commit_fixture(repo, "broken changelog reference")
+            with self.assertRaises(ReleaseVerificationError):
+                build_release(repo, base / "dist", source_sha)
+
     def test_archive_contains_importable_plugin_package(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)

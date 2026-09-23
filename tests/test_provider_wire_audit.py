@@ -109,6 +109,18 @@ class ProviderWireAuditTests(unittest.TestCase):
         self.assertEqual(request["output_config"]["effort"], "high")
         self.assertIn("none", wire_efforts_for_provider(provider="openrouter", model="anthropic/claude-future", api_mode="chat_completions"))
 
+    def test_native_anthropic_adaptive_xhigh_uses_version_independent_safe_effort(self):
+        from hermes_switchyard.reasoning_effort_adapter import wire_efforts_for_provider
+
+        for model in ("claude-opus-4-6", "future-claude-model"):
+            with self.subTest(model=model):
+                route = {"provider": "anthropic", "model": model, "api_mode": "anthropic_messages"}
+                self.assertEqual(clamp_effort_for_provider("xhigh", **route), "max")
+                self.assertNotIn("xhigh", wire_efforts_for_provider(**route))
+                request = {"thinking": {"type": "adaptive"}, "output_config": {"effort": "medium", "format": {"type": "json_schema"}}}
+                self.assertEqual(apply_effort_to_request(request, "xhigh", **route)["output_config"], {"effort": "max", "format": {"type": "json_schema"}})
+                self.assertEqual(request["output_config"]["effort"], "medium")
+
     def test_openrouter_claude_names_do_not_trigger_native_anthropic_clamping(self):
         route = {"provider": "openrouter", "model": "anthropic/claude-opus-4-6", "api_mode": "chat_completions"}
         self.assertEqual(clamp_effort_for_provider("minimal", **route), "minimal")

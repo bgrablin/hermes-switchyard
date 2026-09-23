@@ -5,6 +5,8 @@
 ## 0.5.3
 
 - Keep adaptive reasoning effort on the Codex Responses wire as `reasoning.effort`; never forward the internal `reasoning.enabled` flag. The fix selects the wire shape by provider/API mode, not by model version, and covers existing and future model IDs. Corrects the HTTP 400 that affected the default-on middleware in 0.5.2.
+- Use a version-independent safe `max` ceiling for native Anthropic adaptive `xhigh` decisions; OpenRouter Chat Completions keeps its own wire contract. This favors a common supported effort over model-name guesses.
+- Package the session-search and adaptive-reasoning docs referenced by the changelog, reject broken changelog links during release verification, and remove a stale current-version claim in the automatic-integration guide.
 
 ## 0.5.2
 

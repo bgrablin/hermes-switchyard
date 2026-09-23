@@ -346,13 +346,10 @@ def clamp_effort_for_provider(
             level = "low"
         if level == "ultra":
             level = "max"
-        no_xhigh = (
-            "claude-opus-4-6" in model_s
-            or "claude-opus-4.6" in model_s
-            or "claude-sonnet-4-6" in model_s
-            or "claude-sonnet-4.6" in model_s
-        )
-        if no_xhigh and level == "xhigh":
+        # Use the provider-wide adaptive subset instead of a model-version list.
+        # Some native Anthropic models reject xhigh; max is accepted by both
+        # those models and newer adaptive models without guessing their IDs.
+        if level == "xhigh":
             level = "max"
         return level
 

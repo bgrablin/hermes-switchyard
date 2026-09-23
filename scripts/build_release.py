@@ -44,6 +44,8 @@ RELEASE_FILES = (
     "docs/SETUP.md",
     "docs/AUTOMATIC-SETUP.md",
     "docs/AUTOMATIC-INTEGRATION.md",
+    "docs/ADAPTIVE-REASONING-EFFORT.md",
+    "docs/SESSION-SEARCH-RERANK.md",
     "docs/BENCHMARKS.md",
     "docs/DOM-BROWSER-BACKEND.md",
     "docs/MODEL-ROUTING.md",
@@ -396,7 +398,7 @@ def _verify_extracted_tree(destination: Path, manifest: dict[str, Any]) -> None:
         raise ReleaseVerificationError("extracted manifest does not match the source manifest")
     if not manifest_path.is_file():
         raise ReleaseVerificationError("extracted plugin manifest is missing")
-    _verify_readme_references(destination)
+    _verify_packaged_references(destination)
 
 
 def _has_register_binding(tree: ast.AST) -> bool:
@@ -424,30 +426,31 @@ def _bounded_archive_infos(infos: list[zipfile.ZipInfo]) -> None:
             raise ReleaseVerificationError("archive exceeds the cumulative uncompressed-size limit")
 
 
-def _verify_readme_references(destination: Path) -> None:
-    """Ensure every relative README link resolves inside the release tree."""
-    readme_path = destination / "README.md"
-    try:
-        readme = readme_path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        raise ReleaseVerificationError("extracted README is unreadable") from exc
-    references = re.findall(r"!?\[[^\]]*\]\(([^)]+)\)", readme)
+def _verify_packaged_references(destination: Path) -> None:
+    """Ensure relative links in packaged top-level guides resolve in the archive."""
     root = destination.resolve()
-    for raw_reference in references:
-        target = raw_reference.strip().split(maxsplit=1)[0].strip("<>")
-        parsed = urlsplit(target)
-        if parsed.scheme or parsed.netloc or target.startswith("#"):
-            continue
-        relative = unquote(parsed.path)
-        if not relative:
-            continue
-        candidate = (destination / PurePosixPath(relative)).resolve()
+    for document_name in ("README.md", "CHANGELOG.md"):
+        document = destination / document_name
         try:
-            candidate.relative_to(root)
-        except ValueError as exc:
-            raise ReleaseVerificationError("README contains a link outside the archive") from exc
-        if not candidate.is_file():
-            raise ReleaseVerificationError(f"README link target is not packaged: {relative}")
+            text = document.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise ReleaseVerificationError(f"extracted {document_name} is unreadable") from exc
+        references = re.findall(r"!?\[[^\]]*\]\(([^)]+)\)", text)
+        for raw_reference in references:
+            target = raw_reference.strip().split(maxsplit=1)[0].strip("<>")
+            parsed = urlsplit(target)
+            if parsed.scheme or parsed.netloc or target.startswith("#"):
+                continue
+            relative = unquote(parsed.path)
+            if not relative:
+                continue
+            candidate = (document.parent / PurePosixPath(relative)).resolve()
+            try:
+                candidate.relative_to(root)
+            except ValueError as exc:
+                raise ReleaseVerificationError(f"{document_name} contains a link outside the archive") from exc
+            if not candidate.is_file():
+                raise ReleaseVerificationError(f"{document_name} link target is not packaged: {relative}")
 
 
 def verify_archive(
