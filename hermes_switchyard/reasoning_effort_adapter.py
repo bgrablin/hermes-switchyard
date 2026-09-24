@@ -1014,12 +1014,14 @@ class ReasoningEffortController:
         )
         try:
             parts = str(raw_args or "").strip().lower().split()
-            if len(parts) < 1 or parts[0] != "effort":
+            if not parts or parts[0] != "effort" or len(parts) > 2:
                 return usage
             action = parts[1] if len(parts) > 1 else "status"
+            if action not in {"status", "pin", "auto"}:
+                return usage
             if action == "status":
                 return self._format_status(self.session_status())
-            if action in {"pin", "pinned", "auto"}:
+            if action in {"pin", "auto"}:
                 if not self.enabled:
                     return "Adaptive reasoning effort is disabled in the plugin settings."
                 result = self.set_mode(action)
