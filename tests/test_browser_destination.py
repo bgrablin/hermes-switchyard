@@ -296,6 +296,35 @@ class DestinationGuardTests(unittest.TestCase):
         self.assertEqual(wire.of("Fetch.failRequest"), [])
         self.assertEqual(guard.report()["redirect_hops"], 1)
 
+    def test_synthetic_https_follow_up_uses_one_server_redirect_hop(self):
+        guard, wire = self.guard(max_redirects=1)
+        guard.handle(paused("1", "https://www.iana.org/domains/example"))
+        guard.handle(paused("2", "http://www.iana.org/help/example-domains", redirected_from="1"))
+        self.assertEqual(len(wire.of("Fetch.fulfillRequest")), 1)
+        guard.handle(paused("3", "https://www.iana.org/help/example-domains", redirected_from="2"))
+        self.assertEqual([c["params"]["requestId"] for c in wire.of("Fetch.continueRequest")], ["1", "3"])
+        self.assertEqual(wire.of("Fetch.failRequest"), [])
+        self.assertEqual(guard.report()["redirect_hops"], 1)
+
+        guard.handle(paused("4", "https://www.iana.org/another", redirected_from="3"))
+        self.assertEqual([c["params"]["requestId"] for c in wire.of("Fetch.failRequest")], ["4"])
+        self.assertEqual(guard.violations()[0]["code"], "redirect_limit")
+
+    def test_only_exact_synthetic_https_follow_up_reuses_redirect_budget(self):
+        for url in (
+            "https://www.iana.org/other",
+            "https://other.example/help/example-domains",
+            "https://192.168.1.1/help/example-domains",
+            "http://www.iana.org/help/example-domains",
+        ):
+            with self.subTest(url=url):
+                guard, wire = self.guard(max_redirects=1)
+                guard.handle(paused("1", "https://www.iana.org/domains/example"))
+                guard.handle(paused("2", "http://www.iana.org/help/example-domains", redirected_from="1"))
+                guard.handle(paused("3", url, redirected_from="2"))
+                self.assertEqual([c["params"]["requestId"] for c in wire.of("Fetch.failRequest")], ["3"])
+                self.assertEqual([c["params"]["requestId"] for c in wire.of("Fetch.continueRequest")], ["1"])
+
     def test_http_downgrade_to_another_host_or_private_address_stays_blocked(self):
         for url in ("http://other.example/help", "http://127.0.0.1/help", "http://user@www.iana.org/help"):
             with self.subTest(url=url):
