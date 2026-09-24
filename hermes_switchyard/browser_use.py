@@ -2479,7 +2479,7 @@ _MAX_STDERR_REASONS = 4
 # text, paths, URLs, and any page or user data never leave this module.
 _STDERR_REASON_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"singletonlock|profile (?:appears to be )?in use|process_singleton", re.I), "profile_locked"),
-    (re.compile(r"no usable sandbox|setuid sandbox|sandbox_host|namespace sandbox|zygote_host", re.I), "sandbox_unavailable"),
+    (re.compile(r"no usable sandbox|sandbox helper|sandbox_host|namespace sandbox|zygote_host", re.I), "sandbox_unavailable"),
     (re.compile(r"missing x server|cannot open display|\$display|ozone_platform", re.I), "display_unavailable"),
     (re.compile(r"error while loading shared libraries|cannot open shared object", re.I), "shared_library_missing"),
     (re.compile(r"snap-confine|snap-update-ns|apparmor|cgroup", re.I), "snap_confinement"),

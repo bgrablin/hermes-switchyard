@@ -26,14 +26,13 @@ from hermes_switchyard.browser_use import _Candidate, run_browser_goal
 PUBLIC = "93.184.216.34"
 # Text a crashing browser might print. None of it may reach a diagnostic.
 PRIVATE_MARKERS = (
-    "/home/operator/private-profile",
     "https://private.example/secret?q=user-data",
     "user-typed-search-phrase",
     "operator-token-value",
 )
 
 _CRASH_TRAP = """#!/bin/sh
-echo "[1:1:FATAL:zygote_host_impl_linux.cc] No usable sandbox! /home/operator/private-profile" >&2
+echo "[1:1:FATAL:zygote_host_impl_linux.cc] No usable sandbox! __PRIVATE_PATH__" >&2
 echo "loading https://private.example/secret?q=user-data user-typed-search-phrase" >&2
 echo "operator-token-value" >&2
 echo "Trace/breakpoint trap (core dumped)" >&2
@@ -47,7 +46,7 @@ exit 127
 """
 
 _UNCLASSIFIED_EXIT = """#!/bin/sh
-echo "user-typed-search-phrase at /home/operator/private-profile" >&2
+echo "user-typed-search-phrase at __PRIVATE_PATH__" >&2
 exit 3
 """
 
@@ -77,6 +76,7 @@ class BrowserStartupTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
+        self.private_path = self.root / "private-profile"
         runtime = self.root / "runtime"
         runtime.mkdir(mode=0o700)
         # Per-run profiles land in this disposable directory, never the operator home.
@@ -89,7 +89,7 @@ class BrowserStartupTests(unittest.TestCase):
     def _script(self, name: str, body: str) -> Path:
         path = self.root / "bin" / name
         path.parent.mkdir(exist_ok=True)
-        path.write_text(body, encoding="utf-8")
+        path.write_text(body.replace("__PRIVATE_PATH__", str(self.private_path)), encoding="utf-8")
         path.chmod(path.stat().st_mode | stat.S_IXUSR)
         return path
 
@@ -105,6 +105,7 @@ class BrowserStartupTests(unittest.TestCase):
         text = json.dumps(diagnostic, sort_keys=True)
         for marker in PRIVATE_MARKERS:
             self.assertNotIn(marker, text)
+        self.assertNotIn(str(self.private_path), text)
         self.assertNotIn(str(self.root), text)
         self.assertNotIn("/", text.replace("\\/", ""))
         for attempt in diagnostic["attempts"]:
@@ -402,12 +403,13 @@ class StatusBrowserCliTests(unittest.TestCase):
         probe.assert_called_once_with(browser_executable="/opt/chrome/chrome")
 
     def test_probe_fault_does_not_hide_status(self):
-        with mock.patch.object(browser_use, "probe_browser_startup", side_effect=RuntimeError("/private/path")):
+        private_path = str(Path(tempfile.gettempdir()) / "synthetic-private-value")
+        with mock.patch.object(browser_use, "probe_browser_startup", side_effect=RuntimeError(private_path)):
             code, text = self._run(json_output=True, browser=True)
         self.assertEqual(code, 0)
         payload = json.loads(text)
         self.assertEqual(payload["browser_startup"]["reason"], "browser_probe_failed")
-        self.assertNotIn("/private/path", text)
+        self.assertNotIn(private_path, text)
 
 
 if __name__ == "__main__":
