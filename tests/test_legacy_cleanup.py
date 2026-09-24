@@ -234,13 +234,25 @@ class LegacyCleanupTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "applied", result)
         archive = self.home / result["archive"].removeprefix("$HERMES_HOME/")
-        self.assertEqual(stat.S_IMODE(archive.stat().st_mode), 0o700)
+        if os.name == "nt":
+            from hermes_switchyard import _win_acl
+
+            for private_path in (archive, archive / "config" / "config.yaml", archive / "manifest.json"):
+                shape = _win_acl.read_dacl(private_path)
+                self.assertTrue(shape["dacl_present"], private_path)
+                allowed = {_win_acl.current_user_sid(), _win_acl.SYSTEM_SID, _win_acl.ADMINISTRATORS_SID}
+                grants = {sid for sid, _, ace_type in shape["aces"] if ace_type == 0}
+                self.assertEqual(grants, allowed, private_path)
+                for principal in ("S-1-1-0", "S-1-5-11", "S-1-5-32-545"):
+                    self.assertEqual(_win_acl.effective_rights(private_path, principal), 0, private_path)
+        else:
+            self.assertEqual(stat.S_IMODE(archive.stat().st_mode), 0o700)
+            self.assertEqual(stat.S_IMODE(config.stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE((archive / "config" / "config.yaml").stat().st_mode), 0o600)
         # Config: only exact legacy entries are removed; unrelated values survive.
         self.assertEqual(
             self.enabled(), ["hermes-switchyard", "Jev-Decision", " jev-decision", "jev-decision-extra"]
         )
-        self.assertEqual(stat.S_IMODE(config.stat().st_mode), 0o600)
-        self.assertEqual(stat.S_IMODE((archive / "config" / "config.yaml").stat().st_mode), 0o600)
         self.assertEqual((archive / "config" / "config.yaml").read_text(encoding="utf-8"), original)
         # Skill moved, not deleted; bystander untouched.
         self.assertFalse(skill.exists())

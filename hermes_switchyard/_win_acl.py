@@ -28,6 +28,8 @@ DACL_SECURITY_INFORMATION = 0x00000004
 PROTECTED_DACL_SECURITY_INFORMATION = 0x80000000
 ACL_REVISION = 2
 ACCESS_ALLOWED_ACE_TYPE = 0x0
+OBJECT_INHERIT_ACE = 0x01
+CONTAINER_INHERIT_ACE = 0x02
 GENERIC_ALL = 0x10000000
 TOKEN_QUERY = 0x0008
 TOKEN_USER_CLASS = 1
@@ -191,10 +193,11 @@ def current_user_sid() -> str:
         kernel32.CloseHandle(token)
 
 
-def set_private_dacl(path: Path) -> None:
+def set_private_dacl(path: Path, *, inherit_to_children: bool = False) -> None:
     """Replace *path*'s DACL with a protected DACL granting full control to
-    the current user, SYSTEM, and Administrators only. Raises ``OSError`` on
-    failure so callers can fail closed."""
+    the current user, SYSTEM, and Administrators only. When protecting a
+    directory, optionally pass those grants to newly created children.
+    Raises ``OSError`` on failure so callers can fail closed."""
     _require_nt()
     sids = [
         _sid_from_string(SYSTEM_SID),
@@ -207,9 +210,10 @@ def set_private_dacl(path: Path) -> None:
         buffer = ctypes.create_string_buffer(acl_size)
         acl = ctypes.cast(buffer, ctypes.POINTER(ACL))
         _check(advapi32.InitializeAcl(acl, acl_size, ACL_REVISION), "InitializeAcl")
+        flags = (OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE) if inherit_to_children else 0
         for sid in sids:
             _check(
-                advapi32.AddAccessAllowedAceEx(acl, ACL_REVISION, 0, GENERIC_ALL, sid),
+                advapi32.AddAccessAllowedAceEx(acl, ACL_REVISION, flags, GENERIC_ALL, sid),
                 "AddAccessAllowedAceEx",
             )
         result = advapi32.SetNamedSecurityInfoW(

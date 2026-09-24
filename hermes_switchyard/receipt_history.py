@@ -282,16 +282,14 @@ def _trim(lines: list[str], max_records: int, max_bytes: int) -> list[str]:
 
 def _write_lines(path: Path, lines: list[str]) -> bool:
     temporary: Path | None = None
+    descriptor: int | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        fd, raw_path = tempfile.mkstemp(prefix=".receipt-history-", suffix=".tmp", dir=path.parent)
+        descriptor, raw_path = tempfile.mkstemp(prefix=".receipt-history-", suffix=".tmp", dir=path.parent)
         temporary = Path(raw_path)
-        try:
-            receipt_state._apply_private_permissions(temporary)
-        except OSError:
-            os.close(fd)
-            raise
-        with os.fdopen(fd, "w", encoding="ascii", newline="\n") as handle:
+        receipt_state._apply_private_permissions(temporary)
+        with os.fdopen(descriptor, "w", encoding="ascii", newline="\n") as handle:
+            descriptor = None  # The file object now owns and closes it.
             for line in lines:
                 handle.write(line)
                 handle.write("\n")
@@ -300,9 +298,14 @@ def _write_lines(path: Path, lines: list[str]) -> bool:
         os.replace(temporary, path)
         temporary = None
         return True
-    except (OSError, TypeError, ValueError):
+    except Exception:  # noqa: BLE001 -- history is diagnostic; never break a turn
         return False
     finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
         if temporary is not None:
             try:
                 temporary.unlink()

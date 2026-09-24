@@ -228,6 +228,10 @@ def _apply_config(home: Path, item: _Item, archive: Path) -> None:
     backup.parent.mkdir(mode=0o700)
     shutil.copy2(path, backup)
     os.chmod(backup, 0o600)
+    if os.name == "nt":
+        from . import _win_acl
+
+        _win_acl.set_private_dacl(backup)  # Copying can preserve the source ACL.
     item.archived_to = _display(home, backup)
     # Re-check after the backup: the backup must be of the exact file we rewrite.
     reason, st = _check_target(home, path, want_dir=False)
@@ -496,6 +500,17 @@ def _create_archive(home: Path, now: float) -> Path:
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(now))
     archive = base / f"{stamp}-{os.getpid()}"
     archive.mkdir(mode=0o700)  # exist_ok=False: never reuse or merge an archive.
+    if os.name == "nt":
+        try:
+            from . import _win_acl
+
+            _win_acl.set_private_dacl(archive, inherit_to_children=True)
+        except Exception as exc:  # noqa: BLE001 -- never archive into an unprotected directory
+            try:
+                archive.rmdir()
+            except OSError:
+                pass
+            raise OSError("private archive ACL unavailable") from exc
     return archive
 
 

@@ -16,7 +16,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from hermes_switchyard import receipt_state
+from hermes_switchyard import receipt_history, receipt_state
 from hermes_switchyard import automatic
 from hermes_switchyard.automatic import (
     AutomaticSkillRecommender,
@@ -132,6 +132,32 @@ class ReceiptWriteIsolationTests(unittest.TestCase):
         self.assertEqual(result["context"], "LOADED SKILL: docker-management")
         self.assertEqual(result["metadata"]["skill_recommendation"]["status"], "loaded")
         self.assertEqual(self._temporaries(), [])
+
+    def test_history_write_closes_descriptor_before_removing_failed_temporary(self):
+        created: list[tuple[int, Path]] = []
+        mkstemp = tempfile.mkstemp
+
+        def tracked_mkstemp(*args, **kwargs):
+            fd, path = mkstemp(*args, **kwargs)
+            created.append((fd, Path(path)))
+            return fd, path
+
+        with (
+            mock.patch.object(receipt_history.tempfile, "mkstemp", side_effect=tracked_mkstemp),
+            mock.patch.object(receipt_state, "_apply_private_permissions", side_effect=_INJECTED),
+        ):
+            self.assertFalse(receipt_history.append_receipt_history(_skipped_receipt()))
+        self.assertEqual(len(created), 1)
+        fd, temporary = created[0]
+        try:
+            self.assertFalse(temporary.exists())
+            with self.assertRaises(OSError):
+                os.fstat(fd)
+        finally:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
 
     def test_successful_write_sweeps_only_stale_temporaries(self):
         self.data_dir.mkdir(parents=True, exist_ok=True)
