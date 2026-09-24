@@ -43,6 +43,15 @@ HOSTED_ERROR_CODES = frozenset(
         "plugin_error",
     }
 )
+HOSTED_ERROR_DETAILS = frozenset({
+    "stale_connection", "connect_failed", "timeout", "http_401", "http_403",
+    "http_404", "http_429", "http_529", "http_4xx", "http_5xx",
+    "redirect", "invalid_response", "transport_failed", "validation_failure",
+    "request_budget_exhausted", "retry_budget_exhausted", "deadline_exceeded",
+    "host_cancelled", "late_result_discarded", "ack_required", "unknown",
+})
+# Optional so receipts written by older versions remain readable.
+OPTIONAL_RECEIPT_FIELDS = frozenset({"hosted_error_detail"})
 HOSTED_SKIP_REASONS = frozenset(
     {
         "disabled",
@@ -514,7 +523,7 @@ def validate_receipt(receipt: Any) -> bool:
     """Validate one canonical receipt exactly as supplied, nothing more."""
     if not isinstance(receipt, dict):
         return False
-    allowed_fields = RECEIPT_FIELDS | CONSUMER_RECEIPT_FIELDS | CONSUMPTION_CONTRACT_FIELDS
+    allowed_fields = RECEIPT_FIELDS | OPTIONAL_RECEIPT_FIELDS | CONSUMER_RECEIPT_FIELDS | CONSUMPTION_CONTRACT_FIELDS
     if set(receipt) - allowed_fields:
         # Undeclared fields are rejected (difference test, not superset).
         return False
@@ -586,6 +595,12 @@ def validate_receipt(receipt: Any) -> bool:
         return False
     if receipt["hosted_error"] is not None and receipt["hosted_error"] not in HOSTED_ERROR_CODES:
         return False
+    if "hosted_error_detail" in receipt:
+        detail = receipt["hosted_error_detail"]
+        if detail is not None and (
+            type(detail) is not str or detail not in HOSTED_ERROR_DETAILS or receipt["hosted_error"] is None
+        ):
+            return False
     skip_reason = receipt["hosted_skip_reason"]
     if skip_reason is not None and skip_reason not in HOSTED_SKIP_REASONS:
         return False

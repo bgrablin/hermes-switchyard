@@ -46,6 +46,7 @@ from .client import (
     LateResultDiscarded,
     PartialAccountingError,
     _validate_deadline_seconds,
+    hosted_error_detail as classify_hosted_error,
     host_cancel_scope,
 )
 from .egress import (
@@ -860,12 +861,14 @@ class AutomaticSkillRecommender:
                 logger.debug("automatic Jev skill recommendation unavailable: %s", type(exc).__name__)
                 result["hosted_error"] = _hosted_error_code(exc)
                 result["hosted_error_code"] = result["hosted_error"]
+                result["hosted_error_detail"] = classify_hosted_error(exc)
                 _copy_redacted_jev_metadata(result, _partial_accounting_metadata(exc.partial))
                 hosted = None
             except Exception as exc:  # noqa: BLE001 -- automatic hook must fail open
                 logger.debug("automatic Jev skill recommendation unavailable: %s", type(exc).__name__)
                 result["hosted_error"] = _hosted_error_code(exc)
                 result["hosted_error_code"] = result["hosted_error"]
+                result["hosted_error_detail"] = classify_hosted_error(exc)
                 hosted = None
             if isinstance(hosted, dict):
                 _copy_redacted_jev_metadata(result, hosted)
@@ -1015,7 +1018,7 @@ def redacted_routing_metadata(result: Mapping[str, Any]) -> dict[str, Any]:
     """Return status/reason metadata without task, payload, or provider text."""
     fields = (
         "routing_mode", "routing_status", "routing_reason", "status", "source",
-        "selected", "hosted_attempted", "hosted_skipped", "hosted_error_code",
+        "selected", "hosted_attempted", "hosted_skipped", "hosted_error_code", "hosted_error_detail",
         "candidate_count", "cache_hit", "policy_status", "policy_reason",
         "policy_data_class", "policy_version", "egress_authority",
         "intervention_deadline_seconds",
@@ -1023,6 +1026,10 @@ def redacted_routing_metadata(result: Mapping[str, Any]) -> dict[str, Any]:
     metadata: dict[str, Any] = {}
     for field in fields:
         value = result.get(field)
+        if field == "hosted_error_detail" and (
+            type(value) is not str or value not in receipt_state.HOSTED_ERROR_DETAILS
+        ):
+            continue
         if value is not None:
             metadata[field] = value
     return metadata
@@ -1152,11 +1159,16 @@ def build_routing_receipt(result: dict) -> dict:
     hosted_error = result.get("hosted_error")
     if hosted_error is not None and hosted_error not in HOSTED_ERROR_CODES:
         hosted_error = "transport_or_execution_failure"
+    detail = result.get("hosted_error_detail")
+    hosted_error_detail = (
+        detail if type(detail) is str and detail in receipt_state.HOSTED_ERROR_DETAILS else "unknown"
+    ) if hosted_error is not None else None
     terminal_state = _terminal_state(result)
     source = result.get("source") if result.get("source") in {"local", "jev", "none"} else "none"
     if result.get("cache_hit") is True:
         hosted_attempted = False
         hosted_error = None
+        hosted_error_detail = None
         selected = _safe_identifier(result.get("selected"))
         hosted_skip_reason = "cache_hit"
         jev_model = None
@@ -1193,6 +1205,7 @@ def build_routing_receipt(result: dict) -> dict:
         "hosted_attempted": hosted_attempted,
         "hosted_succeeded": hosted_succeeded,
         "hosted_error": hosted_error,
+        "hosted_error_detail": hosted_error_detail,
         "hosted_skip_reason": hosted_skip_reason,
         "abstention_reason": _safe_reason(result.get("abstention_reason")),
         "jev_model": jev_model,
