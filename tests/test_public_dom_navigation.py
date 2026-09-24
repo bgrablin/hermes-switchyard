@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import unittest
 from contextlib import nullcontext
 from html.parser import HTMLParser
 from pathlib import Path
+from unittest import mock
 
 from hermes_switchyard import browser_use
 
@@ -57,6 +59,38 @@ def choice(selected, criteria):
 
 
 class PublicFixtureTests(unittest.TestCase):
+    def test_production_snapshot_extracts_saved_public_links_offline(self):
+        """Execute the actual snapshot JS, then ChromiumSession's safety filter."""
+        runner = Path(__file__).parent / "fixtures/public_dom_snapshot_runner.cjs"
+        for fixture in PAGES:
+            with self.subTest(fixture=fixture["start"]):
+                html = fixture["html"]
+                if fixture["target_label"] == "Zeus":
+                    # Zero-size links ahead of Zeus used to exhaust the offer bound.
+                    zero_size = "".join(
+                        f'<a data-zero-size="1" href="https://en.wikipedia.org/wiki/Apollo">'
+                        f'Hidden public link {index}</a>' for index in range(60)
+                    )
+                    html = html.replace('<div class="mw-parser-output">',
+                                        '<div class="mw-parser-output">' + zero_size)
+                executed = subprocess.run(
+                    ["node", str(runner)],
+                    input=json.dumps({"html": html, "url": fixture["start"],
+                                      "script": browser_use._SNAPSHOT_JS}),
+                    text=True, capture_output=True, timeout=10, check=False,
+                )
+                self.assertEqual(executed.returncode, 0, executed.stderr)
+                snapshot = json.loads(executed.stdout)
+                with mock.patch.object(browser_use.ChromiumSession, "_evaluate", return_value=snapshot):
+                    session = object.__new__(browser_use.ChromiumSession)
+                    page = session.observe()
+                targets = [item for item in page["elements"]
+                           if item["href"] == fixture["destination"]]
+                self.assertTrue(targets, f"snapshot omitted {fixture['target_label']}")
+                self.assertEqual(targets[0]["label"], fixture["target_label"])
+                self.assertFalse(any(item["label"].startswith("Hidden public link")
+                                     for item in page["elements"]))
+
     def test_public_links_survive_safety_filter_and_reach_jev(self):
         for fixture in PAGES:
             with self.subTest(fixture=fixture["start"]):
