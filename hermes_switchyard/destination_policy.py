@@ -627,7 +627,7 @@ class DestinationGuard:
         self._subresource_blocks = 0
         self._redirect_hops = 0
         self._cross_origin_redirects = 0
-        self._hops: OrderedDict[tuple[str | None, str], tuple[int, tuple[str, str, int | None], bool]] = OrderedDict()
+        self._hops: OrderedDict[tuple[str | None, str], tuple[int, tuple[str, str, int | None], bool, str | None]] = OrderedDict()
         self._setup: dict[int, str | None] = {}
         self.integrity_reasons: list[str] = []
         self._unexpected_target = False
@@ -738,17 +738,26 @@ class DestinationGuard:
         redirected = previous is not None
         prior_origin = ("", "", None)
         prior_approved = False
+        synthetic_follow_up = False
         with self._lock:
             self._checked += 1
             if redirected:
-                prior_hop, prior_origin, prior_approved = self._hops.get(
-                    (session_id, str(previous)), (0, ("", "", None), False)
+                prior_key = (session_id, str(previous))
+                prior_hop, prior_origin, prior_approved, expected_follow_up = self._hops.get(
+                    prior_key, (0, ("", "", None), False, None)
                 )
-                hop = prior_hop + 1
-                self._redirect_hops += 1
+                # Fetch.fulfillRequest's local 307 causes another paused event.
+                # It is not another server redirect, but only the exact HTTPS
+                # Location we approved may reuse the previous hop budget.
+                synthetic_follow_up = prior_approved and navigation and url == expected_follow_up
+                hop = prior_hop if synthetic_follow_up else prior_hop + 1
+                if synthetic_follow_up:
+                    self._hops[prior_key] = (prior_hop, prior_origin, prior_approved, None)
+                else:
+                    self._redirect_hops += 1
                 if origin != prior_origin:
                     self._cross_origin_redirects += 1
-            self._hops[(session_id, request_id)] = (hop, origin, False)
+            self._hops[(session_id, request_id)] = (hop, origin, False, None)
             while len(self._hops) > MAX_TRACKED_REQUESTS:
                 self._hops.popitem(last=False)
         code: str | None
@@ -782,7 +791,9 @@ class DestinationGuard:
                 )
                 return
             with self._lock:
-                self._hops[(session_id, request_id)] = (hop, _origin(upgraded_url) if upgraded_url else origin, True)
+                self._hops[(session_id, request_id)] = (
+                    hop, _origin(upgraded_url) if upgraded_url else origin, True, upgraded_url
+                )
                 while len(self._hops) > MAX_TRACKED_REQUESTS:
                     self._hops.popitem(last=False)
             if upgraded_url is not None:
