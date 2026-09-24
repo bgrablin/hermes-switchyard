@@ -623,6 +623,8 @@ def unsupported_dom_capabilities(goal: Any, text_inputs: Any, allowed_hotkeys: A
 
 def _failure_reason(exc: BaseException) -> str:
     """Map one exception to a bounded local failure code without provider text."""
+    if isinstance(exc, BrowserTargetCrashedError):
+        return exc.code
     if isinstance(exc, TimeoutError):
         return "provider_timeout"
     if isinstance(exc, TypeError):
@@ -688,7 +690,7 @@ def _gate_decision(answer: Any) -> str | None:
 
 def _startup_failure_reason(exc: BaseException) -> str:
     """Map one browser startup failure to a bounded local diagnostic code."""
-    if isinstance(exc, (BrowserStartupError, DestinationPolicyError)):
+    if isinstance(exc, (BrowserStartupError, DestinationPolicyError, BrowserTargetCrashedError)):
         return exc.code
     text = f"{exc}".casefold()
     if "singletonlock" in text or "permission denied" in text:
@@ -710,6 +712,15 @@ class BrowserStartupError(RuntimeError):
         self.code = code
         # Redacted startup diagnostic: closed-set codes and numbers only.
         self.diagnostic: dict[str, Any] | None = None
+
+
+class BrowserTargetCrashedError(RuntimeError):
+    """The page renderer crashed; its pending protocol commands cannot complete."""
+
+    code = "renderer_crashed"
+
+    def __init__(self) -> None:
+        super().__init__("browser page renderer crashed")
 
 
 def _safe_elements(raw: Any) -> list[dict[str, Any]]:
@@ -1921,6 +1932,7 @@ class ChromiumSession:
         self._responses: dict[int, dict[str, Any]] = {}
         self._reader: threading.Thread | None = None
         self._reader_stopped = False
+        self._target_crashed = False
         self._pool: ThreadPoolExecutor | None = None
         self._guard: DestinationGuard | None = None
         self._proxy: ValidatingProxy | None = None
@@ -1974,7 +1986,7 @@ class ChromiumSession:
                 "about:blank",
             ]
             if os.name != "nt":
-                command[1:1] = ["--disable-gpu", "--disable-dev-shm-usage"]
+                command[1:1] = _posix_launch_flags()
             if not headed:
                 command.insert(1, "--headless=new")
             else:
@@ -2163,18 +2175,30 @@ class ChromiumSession:
                 if guard.tracks_ack(message_id):
                     guard.submit(message)
                 continue
+            if message.get("method") == "Inspector.targetCrashed" and not message.get("sessionId"):
+                # The page renderer is gone; a pending command will never be
+                # answered. Wake every waiter so it fails now, not at timeout.
+                with self._responses_ready:
+                    self._target_crashed = True
+                    self._responses_ready.notify_all()
             guard.submit(message)
 
     def _cdp(self, method: str, **params: Any) -> dict[str, Any]:
         message_id = self._transmit(method, params, wait=True)
         with self._responses_ready:
             arrived = self._responses_ready.wait_for(
-                lambda: message_id in self._responses or self._reader_stopped or self._closing,
+                lambda: message_id in self._responses
+                or self._reader_stopped
+                or self._closing
+                or self._target_crashed,
                 timeout=15,
             )
             message = self._responses.pop(message_id, None)
             self._awaiting.discard(message_id)
+            crashed = self._target_crashed
         if message is None:
+            if crashed:
+                raise BrowserTargetCrashedError()
             if not arrived:
                 raise TimeoutError("browser command timed out")
             raise RuntimeError("browser session is closed")
@@ -2479,6 +2503,8 @@ STARTUP_ATTEMPT_OUTCOMES = (
 )
 MAX_STARTUP_ATTEMPTS = 5
 DEBUGGER_START_SECONDS = 12.0
+# Docker's default /dev/shm is 64 MiB; below this Chromium is told to use the temp dir.
+_MIN_DEV_SHM_BYTES = 512 * 1024 * 1024
 _STDERR_TAIL_BYTES = 16384
 _STDERR_TAIL_LINES = 40
 _MAX_STDERR_REASONS = 4
@@ -2941,6 +2967,27 @@ def _cleanup_profile(tmpdir: tempfile.TemporaryDirectory[str] | None) -> None:
         time.sleep(0.2)
 
 
+def _posix_launch_flags(shm_path: str = "/dev/shm") -> list[str]:
+    """Return POSIX launch flags; keep /dev/shm unless it is actually constrained.
+
+    ``--disable-dev-shm-usage`` moves renderer shared memory to the temp
+    directory. Under Snap Chromium that reproducibly crashed the Wikipedia
+    renderer (Inspector.targetCrashed, status crashed, code 132) while the same
+    browser without the flag loaded it cleanly. The flag exists for container
+    hosts with a tiny /dev/shm, so apply it only there.
+    """
+    flags = ["--disable-gpu"]
+    try:
+        stats = os.statvfs(shm_path)
+        usable = os.access(shm_path, os.W_OK | os.X_OK)
+        size = stats.f_frsize * stats.f_blocks
+    except (OSError, AttributeError):
+        usable, size = False, 0
+    if not usable or size < _MIN_DEV_SHM_BYTES:
+        flags.append("--disable-dev-shm-usage")
+    return flags
+
+
 def _probe_command(candidate: _Candidate, profile: Path, port: int, blackhole_port: int) -> list[str]:
     """Headless launch on about:blank. All browser traffic goes to a closed loopback port."""
     command = [
@@ -2961,7 +3008,7 @@ def _probe_command(candidate: _Candidate, profile: Path, port: int, blackhole_po
         "about:blank",
     ]
     if os.name != "nt":
-        command[1:1] = ["--disable-gpu", "--disable-dev-shm-usage"]
+        command[1:1] = _posix_launch_flags()
     return command
 
 

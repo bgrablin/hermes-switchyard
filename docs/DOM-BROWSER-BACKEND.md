@@ -247,6 +247,18 @@ always preferred when both are present, and a startup failure returns a bounded
 local reason code such as `browser_profile_not_writable` or
 `snap_profile_unavailable`.
 
+On POSIX hosts the browser keeps renderer shared memory in `/dev/shm` when that
+mount is writable and at least 512 MiB. `--disable-dev-shm-usage` is added only
+for a smaller or unusable `/dev/shm`, such as a default container. With that flag
+always on, Snap Chromium's Wikipedia renderer crashed on load; without it the same
+page loaded cleanly.
+
+A page renderer crash (`Inspector.targetCrashed` on the page target) fails every
+pending and later protocol command at once with the bounded code
+`renderer_crashed`, instead of a generic 15-second command timeout. A crash
+before the first page is ready reports `failure_phase: browser_startup` and spends
+no provider request. A crashed page is never retried automatically.
+
 ## Action evidence
 
 Each action record separates three claims that are not interchangeable:
