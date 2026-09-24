@@ -45,6 +45,8 @@ from .client import (
     HostCancelled,
     LateResultDiscarded,
     PartialAccountingError,
+    _defer_hosted_warning,
+    _warn_hosted_failure,
     _validate_deadline_seconds,
     hosted_error_detail as classify_hosted_error,
     host_cancel_scope,
@@ -853,7 +855,7 @@ class AutomaticSkillRecommender:
             # computer-use deadline and from the per-request provider I/O timeout.
             result["intervention_deadline_seconds"] = self.deadline_seconds
             try:
-                with host_cancel_scope(self.cancel_check):
+                with host_cancel_scope(self.cancel_check), _defer_hosted_warning():
                     hosted = select_skill(
                         task=evaluation.allowed_payload if evaluation is not None else "",
                         candidates=hosted_candidates,
@@ -867,12 +869,14 @@ class AutomaticSkillRecommender:
                 result["hosted_error_code"] = result["hosted_error"]
                 result["hosted_error_detail"] = classify_hosted_error(exc)
                 _copy_redacted_jev_metadata(result, _partial_accounting_metadata(exc.partial))
+                _warn_hosted_failure(result["hosted_error_detail"])
                 hosted = None
             except Exception as exc:  # noqa: BLE001 -- automatic hook must fail open
                 logger.debug("automatic Jev skill recommendation unavailable: %s", type(exc).__name__)
                 result["hosted_error"] = _hosted_error_code(exc)
                 result["hosted_error_code"] = result["hosted_error"]
                 result["hosted_error_detail"] = classify_hosted_error(exc)
+                _warn_hosted_failure(result["hosted_error_detail"])
                 hosted = None
             if isinstance(hosted, dict):
                 _copy_redacted_jev_metadata(result, hosted)

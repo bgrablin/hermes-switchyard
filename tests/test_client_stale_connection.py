@@ -1,9 +1,8 @@
-"""Pooled keep-alive connection reuse after a server-side idle close (issue #92).
+"""Synthetic pooled-connection reuse after a server-side idle close (issue #92).
 
-A live probe showed the hosted Jev route closes an idle keep-alive connection
-after 300-480 s. The pooled client then reused the dead socket and failed with
-``RemoteDisconnected`` before any response byte, and nothing retried. These
-tests use in-memory fake connections only; no test reaches the network.
+These in-memory connections simulate ``RemoteDisconnected`` before any response
+byte on reuse. They test the fallback and conservative idle threshold; they do
+not measure the hosted route's real idle-close timing or reach the network.
 """
 from __future__ import annotations
 

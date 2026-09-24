@@ -16,6 +16,7 @@ from unittest import mock
 
 from hermes_switchyard import client as module
 from hermes_switchyard import routing
+from hermes_switchyard.automatic import AutomaticSkillRecommender
 from hermes_switchyard.client import (
     HOSTED_ERROR_DETAILS,
     DecisionClient,
@@ -143,6 +144,30 @@ class RateLimitRetryTests(unittest.TestCase):
         self.assertEqual(result["transport_retries"], {"http_529": 2})
         self.assertAlmostEqual(sum(harness.clock.sleeps), 0.5 + 1.0)
 
+    def test_retryable_status_does_not_parse_or_read_provider_error_body(self):
+        for status, body, headers in (
+            (429, b"{broken", {}),
+            (529, b"private-error", {"Content-Length": str(module.MAX_ERROR_BYTES + 1)}),
+        ):
+            with self.subTest(status=status):
+                response = _Response(status, body=body, headers=headers)
+                response.close = mock.Mock()
+                harness = _Harness([response, _Response()])
+                client = DecisionClient(api_key="fixture")
+                with mock.patch.object(response, "read", side_effect=AssertionError("retryable body read")):
+                    result = _run(harness, lambda: _decide(client))
+                self.assertEqual(result["transport_retries"], {f"http_{status}": 1})
+                self.assertEqual(harness.http_requests, 2)
+                response.close.assert_called_once_with()
+
+    def test_terminal_error_still_validates_malformed_json(self):
+        harness = _Harness([_Response(500, body=b"{broken"), _Response()])
+        client = DecisionClient(api_key="fixture")
+        with self.assertRaises(JevRequestError) as raised:
+            _run(harness, lambda: _decide(client))
+        self.assertEqual(raised.exception.detail, "invalid_response")
+        self.assertEqual(harness.http_requests, 1)
+
     def test_numeric_retry_after_is_honored(self):
         harness = _Harness([_Response(429, headers={"Retry-After": "3"}), _Response()])
         client = DecisionClient(api_key="fixture")
@@ -235,6 +260,43 @@ class RateLimitRetryTests(unittest.TestCase):
         self.assertEqual(harness.http_requests, 1)
         self.assertLess(sum(harness.clock.sleeps), 4.0)
 
+
+class AutomaticPreDecisionWarningTests(unittest.TestCase):
+    def setUp(self):
+        module._reset_warning_rate_limit()
+
+    def _recommend(self, factory):
+        recommender = AutomaticSkillRecommender(
+            configured_candidates=[{"name": "docker-management", "description": "Manage containers"}],
+            routing_mode="hosted_sanitized",
+            hosted_mode="always",
+            adoption_capable=True,
+            client_factory=factory,
+        )
+        return recommender.recommend("manage containers")
+
+    def test_client_construction_failure_warns_once_without_exception_text(self):
+        def fail_factory():
+            raise TimeoutError("SYNTHETIC_PRIVATE_MARKER")
+
+        with self.assertLogs(module.logger, level=logging.WARNING) as captured:
+            result = self._recommend(fail_factory)
+        self.assertEqual(result["hosted_error_detail"], "timeout")
+        warnings = [record.getMessage() for record in captured.records]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("(timeout)", warnings[0])
+        self.assertNotIn("SYNTHETIC_PRIVATE_MARKER", warnings[0])
+
+    def test_decision_failure_is_not_counted_twice(self):
+        def fail_transport(_payload):
+            raise TimeoutError("SYNTHETIC_PRIVATE_MARKER")
+
+        with self.assertLogs(module.logger, level=logging.WARNING) as captured:
+            result = self._recommend(lambda: DecisionClient(api_key="fixture", transport=fail_transport))
+        self.assertEqual(result["hosted_error_detail"], "timeout")
+        warnings = [record.getMessage() for record in captured.records]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("(timeout); 0 similar", warnings[0])
 
 class StaleRetryAccountingTests(unittest.TestCase):
     def setUp(self):
