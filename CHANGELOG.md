@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Make routing-receipt persistence best-effort: a receipt write error of any type is logged once as a WARNING (exception class only) and never stops skill recommendation or skill loading. A failed write now closes its temporary file before removing it, and a successful write removes `.receipt-*.tmp` files older than one hour left by earlier failures. Refs #91.
+- Make routing-receipt persistence best-effort: a receipt write error of any type is logged once as a WARNING (exception class only) and never stops skill recommendation or skill loading. A failed save sets `receipt_persist_failed: true` in the in-memory routing metadata for that turn. A failed write closes its temporary file on every path before removing it. Receipt writes and `hermes switchyard receipt` remove `.receipt-*.tmp` regular files older than one hour; symlinks, directories, and other names are never removed, and cleanup errors never change the result. Refs #91.
 
 ## 0.5.3
 
