@@ -1154,7 +1154,7 @@ def _cli_handler(args):
                 print("--since requires a window such as 30m, 24h, 7d, or 2w.")
                 return 2
         stats = receipt_history.routing_stats(since=since)
-        stats["adaptive_reasoning_effort"] = effort_stats(since=since)
+        stats["reasoning_effort"] = effort_stats(since=since)
         indent = None if getattr(args, "json_output", False) else 2
         print(json.dumps(stats, ensure_ascii=False, sort_keys=True, indent=indent, allow_nan=False))
         return 0

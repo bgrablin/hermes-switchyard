@@ -1,10 +1,9 @@
 """Jev adaptive reasoning-effort picker for Hermes llm_request middleware.
 
-Codex-style: per turn / after tools, Jev chooses a Hermes-supported reasoning
-effort (none|minimal|low|medium|high|xhigh|max|ultra). Raise when stuck, lower
-for routine work. Apply by rewriting only request-scoped effort fields so the
-prompt-cache prefix stays untouched. Fail closed: keep the previous effort when
-Jev fails. Model apply stays out of scope — jev_model_route remains advisory.
+Jev chooses a wire-safe effort at or below the user's requested level; an
+explicit allow_raise setting permits one higher level after a failed tool.
+Only request-scoped effort fields change, preserving the prompt-cache prefix.
+Jev failures keep the user's level. Model routing stays advisory.
 """
 from __future__ import annotations
 
@@ -614,9 +613,9 @@ def choose_reasoning_effort(
 ) -> dict[str, Any]:
     """Ask Jev for one effort among *allowed_efforts*; fail closed to the requested level.
 
-    ``allowed_efforts`` is the candidate list. Callers pass only levels at or below
-    the user's cap, so Jev can never pick more than the user allows. ``prior_effort``
-    is a deprecated alias of ``requested_effort``.
+    ``allowed_efforts`` is the candidate list. The controller normally caps it at
+    the user's level; explicit allow_raise can extend it one wire level while
+    the latest tool failed. ``prior_effort`` is a deprecated alias.
     """
     requested = normalize_effort(requested_effort if requested_effort is not None else prior_effort)
     levels = [
@@ -626,6 +625,10 @@ def choose_reasoning_effort(
     ]
     if not levels:
         levels = list(HERMES_REASONING_EFFORTS)
+    raised_ceiling = any(
+        HERMES_REASONING_EFFORTS.index(level) > HERMES_REASONING_EFFORTS.index(requested)
+        for level in levels
+    )
 
     base = {
         "applied": False,
@@ -663,7 +666,7 @@ def choose_reasoning_effort(
         "recent_tool_outcomes": outcomes,
         "stuck_signal": stuck,
         "policy": {
-            "ceiling_is_user_level": True,
+            "ceiling_is_user_level": not raised_ceiling,
             "lower_for_routine": True,
             "fail_closed_keep_user_level": True,
             "prompt_cache_friendly": True,
@@ -674,7 +677,12 @@ def choose_reasoning_effort(
             "type": "choice",
             "instructions": (
                 "Pick the Hermes reasoning_effort for the next model generation. The "
-                "candidates stop at the level the user selected. Choose a lower level only "
+                + (
+                    "candidates may include one wire level above the user selection after a failed tool call. "
+                    if raised_ceiling else
+                    "candidates stop at the level the user selected. "
+                )
+                + "Choose a lower level only "
                 "when the next step is clearly routine. Keep the highest candidate when the "
                 "task is hard, when the latest tool call failed, or when you are not sure."
             ),
@@ -694,11 +702,18 @@ def choose_reasoning_effort(
         answers = result.get("answers") if isinstance(result, Mapping) else None
         if not isinstance(answers, Mapping):
             raise TypeError("Jev response has no answers object")
-        selected, confidence, probabilities = _choice_metrics(
-            answers.get("reasoning_effort"),
-            criteria,
-            "reasoning_effort",
-        )
+        try:
+            selected, confidence, probabilities = _choice_metrics(
+                answers.get("reasoning_effort"), criteria, "reasoning_effort"
+            )
+        except (TypeError, ValueError):
+            return {
+                **base,
+                "status": "kept_requested",
+                "effort": requested,
+                "reason_code": "invalid_choice",
+                "jev_latency_ms": round((time.perf_counter() - started) * 1000, 1),
+            }
         latency = round((time.perf_counter() - started) * 1000, 1)
         effort = normalize_effort(selected, default=requested)
         if effort not in criteria:
@@ -868,15 +883,14 @@ class ReasoningEffortController:
         """Return the state for *key*, map the session key, and apply a pending mode."""
         session_key = self.session_env("HERMES_SESSION_KEY")
         with self._registry_lock:
-            created = key not in self._sessions
             state = self._state_for(session_id=key)
             if session_key:
                 self._key_to_session[session_key] = key
-            if created:
-                pending = self._pending_modes.pop(key, None)
-                if session_key:
-                    pending = self._pending_modes.pop(session_key, None) or pending
-                if pending:
+            pending = self._pending_modes.pop(key, None)
+            if session_key:
+                pending = self._pending_modes.pop(session_key, None) or pending
+            if pending:
+                with state.lock:
                     state.mode = pending
             return state
 
@@ -988,11 +1002,15 @@ class ReasoningEffortController:
 
     def handle_command(self, raw_args: str = "") -> str:
         """``/switchyard effort auto|pin|status`` handler; never raises."""
+        auto_limit = (
+            "may go one level higher after a failed tool call"
+            if self.allow_raise else "never above your level"
+        )
         usage = (
             "Usage: /switchyard effort status | /switchyard effort pin | /switchyard effort auto\n"
             "  status  show the adaptive reasoning mode for this session\n"
             "  pin     send your selected /reasoning level unchanged\n"
-            "  auto    let Switchyard lower effort for routine steps (never above your level)"
+            "  auto    let Switchyard lower effort for routine steps (" + auto_limit + ")"
         )
         try:
             parts = str(raw_args or "").strip().lower().split()
@@ -1014,9 +1032,15 @@ class ReasoningEffortController:
                     else ""
                 )
                 if label == "auto":
+                    ceiling = (
+                        "may send one level above it after a failed tool call because "
+                        "adaptive_reasoning_effort_allow_raise is on."
+                        if self.allow_raise else
+                        "never sends more than your /reasoning level."
+                    )
                     return (
                         "Adaptive reasoning effort: auto. Switchyard may lower effort for routine "
-                        "steps and never sends more than your /reasoning level." + note
+                        "steps and " + ceiling + note
                     )
                 return "Adaptive reasoning effort: pinned. Your /reasoning level is sent unchanged." + note
             return usage
@@ -1041,6 +1065,7 @@ class ReasoningEffortController:
         excluded = ", ".join(status.get("exclude_models") or []) or "none"
         lines.append(f"  excluded models: {excluded}")
         lines.append(f"  allow raise: {'yes' if status.get('allow_raise') else 'no'}")
+        lines.append(f"  deadline: {status.get('deadline_seconds')} seconds")
         return "\n".join(lines)
 
     # -- middleware ------------------------------------------------------------
@@ -1098,8 +1123,6 @@ class ReasoningEffortController:
             requested = _explicit_effort(raw_request)
             if requested is None:
                 return self._unchanged(state, reason="no_host_effort", requested=None, base=base)
-            if requested == "none":
-                return self._unchanged(state, reason="reasoning_disabled", requested=requested, base=base)
 
             # Turn boundary: stored outcomes belong to the previous turn.
             turn_key = _turn_key(turn_id)
@@ -1127,6 +1150,11 @@ class ReasoningEffortController:
                 state.dirty = True
                 reason_prefix = "pinned_by_user_change"
             base["mode"] = state.mode
+
+            if requested == "none":
+                return self._unchanged(
+                    state, reason=reason_prefix or "reasoning_disabled", requested=requested, base=base
+                )
 
             if state.mode == "pinned":
                 return self._unchanged(
@@ -1160,8 +1188,8 @@ class ReasoningEffortController:
             jev_called = False
             if state.dirty or state.choice_cap != cap:
                 choice = self._ask_jev(state, raw_request, context, requested_wire, candidates)
-                jev_called = True
-                state.jev_calls += 1
+                jev_called = choice.get("jev_called") is True
+                state.jev_calls += int(jev_called)
                 state.dirty = False
                 state.choice_cap = cap
                 if choice.get("reason_code") in _JEV_FAILURE_REASONS:
@@ -1172,7 +1200,7 @@ class ReasoningEffortController:
                         requested=requested,
                         base=base,
                         extra={
-                            "jev_called": True,
+                            "jev_called": jev_called,
                             "jev_latency_ms": choice.get("jev_latency_ms"),
                             "error_type": choice.get("error_type"),
                             "stuck_signal": state.stuck,
@@ -1229,17 +1257,19 @@ class ReasoningEffortController:
         requested_wire: str,
         candidates: Sequence[str],
     ) -> dict[str, Any]:
+        if not self.public_or_sanitized_data_ack:
+            return {"reason_code": "kept_requested_ack_required", "jev_called": False}
         if self.client_factory is None:
-            return {"reason_code": "kept_requested_on_jev_failure", "error_type": "client_unavailable"}
+            return {"reason_code": "kept_requested_on_jev_failure", "error_type": "client_unavailable", "jev_called": False}
         try:
             client = self.client_factory()
         except Exception as exc:  # noqa: BLE001
-            return {"reason_code": "kept_requested_on_jev_failure", "error_type": type(exc).__name__}
+            return {"reason_code": "kept_requested_on_jev_failure", "error_type": type(exc).__name__, "jev_called": False}
         if client is None:
-            return {"reason_code": "kept_requested_on_jev_failure", "error_type": "client_unavailable"}
+            return {"reason_code": "kept_requested_on_jev_failure", "error_type": "client_unavailable", "jev_called": False}
         task = _extract_task_snippet(raw_request, context.get("task") or context.get("user_message"))
         try:
-            return choose_reasoning_effort(
+            choice = choose_reasoning_effort(
                 task=task,
                 recent_tool_outcomes=list(state.outcomes),
                 requested_effort=requested_wire,
@@ -1249,6 +1279,7 @@ class ReasoningEffortController:
                 allowed_efforts=candidates,
                 turn_phase="after_tool" if state.outcomes else "new_turn",
             )
+            return {**choice, "jev_called": True}
         finally:
             close = getattr(client, "close", None)
             if callable(close):
@@ -1414,16 +1445,15 @@ def append_effort_record(
                 before = None
             if before is not None and (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1):
                 return False
+            lines = receipt_history._read_lines(path, max_bytes) if before is not None else []
             if (
                 before is not None
                 and before.st_size + len(encoded) + 1 <= max_bytes
                 and receipt_history._ends_with_newline(path, before.st_size)
                 and (os.name == "nt" or not before.st_mode & 0o077)
+                and len(lines) < max_records
             ):
-                lines_estimate = before.st_size // max(1, len(encoded))
-                if lines_estimate < max_records:
-                    return receipt_history._append_line(path, encoded, before)
-            lines = receipt_history._read_lines(path, max_bytes) if before is not None else []
+                return receipt_history._append_line(path, encoded, before)
             lines.append(encoded)
             return receipt_history._write_lines(path, receipt_history._trim(lines, max_records, max_bytes))
     except Exception:  # noqa: BLE001 -- diagnostic only

@@ -81,12 +81,13 @@ A successful native check proves discovery and registration, not model quality, 
 ## Adaptive reasoning effort (Hermes ≥ 0.21)
 
 After install, adaptive reasoning effort is **on** in `auto` mode. Your
-`/reasoning` level is the cap: Switchyard registers Hermes `llm_request`
-middleware and may ask Jev to pick a lower level for routine steps. It never
-sends more than your level, and it sends your level unchanged when Jev fails,
-when no lower level exists, or after you change `/reasoning` mid-session (that
-pins the session). The middleware rewrites only request-scoped effort fields;
-messages stay untouched for prompt-cache friendliness.
+`/reasoning` level is the cap by default: Switchyard registers Hermes `llm_request`
+middleware and may ask Jev to pick a lower level for routine steps. It sends
+your level unchanged when Jev fails, when no lower level exists, or after you
+change `/reasoning` mid-session (that pins the session). The middleware rewrites only request-scoped effort fields;
+messages stay untouched for prompt-cache friendliness. The optional
+`adaptive_reasoning_effort_allow_raise` setting lets auto mode raise one wire
+level while the latest tool call failed; the next successful call clears it.
 
 In a session:
 

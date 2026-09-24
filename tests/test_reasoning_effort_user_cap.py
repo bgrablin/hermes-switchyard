@@ -3,8 +3,12 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import io
+import json
+from contextlib import redirect_stdout
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 from hermes_switchyard.reasoning_effort_adapter import (
     ReasoningEffortController,
@@ -153,10 +157,13 @@ class EffortReplayTests(unittest.TestCase):
         client.choice = "high"
         self.assertEqual(self.call(controller, codex_request("medium")), "high")
         self.assertEqual(list(client.calls[-1][1]["reasoning_effort"]["criteria"])[-1], "high")
+        self.assertFalse(client.calls[-1][0]["policy"]["ceiling_is_user_level"])
+        self.assertIn("one wire level above", client.calls[-1][1]["reasoning_effort"]["instructions"])
         self.ok_tool(controller)
         client.choice = "medium"
         self.assertEqual(self.call(controller, codex_request("medium")), "medium")
         self.assertEqual(list(client.calls[-1][1]["reasoning_effort"]["criteria"])[-1], "medium")
+        self.assertTrue(client.calls[-1][0]["policy"]["ceiling_is_user_level"])
 
     def test_allow_raise_off_by_default(self):
         controller, client, _ = self.make(choice="medium")
@@ -174,6 +181,48 @@ class EffortReplayTests(unittest.TestCase):
         self.call(controller, codex_request("high"), turn="t2")
         self.assertFalse(client.calls[-1][0]["stuck_signal"])
         self.assertEqual(client.calls[-1][0]["recent_tool_outcomes"], [])
+
+    def test_successful_tool_loop_reuses_one_choice_per_turn(self):
+        controller, client, _ = self.make(choice="low")
+        self.call(controller, codex_request("high"))
+        for _ in range(10):
+            self.ok_tool(controller)
+            self.assertEqual(self.call(controller, codex_request("high")), "low")
+        self.assertEqual(len(client.calls), 1)
+        self.call(controller, codex_request("high"), turn="t2")
+        self.assertEqual(len(client.calls), 2)
+
+    def test_reasoning_none_is_a_baseline_and_manual_change_pins(self):
+        controller, client, _ = self.make(choice="low")
+        self.assertEqual(self.call(controller, codex_request("none")), "none")
+        self.assertEqual(self.call(controller, codex_request("high")), "high")
+        self.assertEqual(controller.session_status("s1")["mode"], "pinned")
+        self.assertEqual(last_receipt()["reason_code"], "pinned_by_user_change")
+        self.assertEqual(client.calls, [])
+
+    def test_missing_client_and_missing_ack_are_not_jev_calls(self):
+        for ack in (True, False):
+            with self.subTest(ack=ack):
+                controller = ReasoningEffortController(
+                    client_factory=None if ack else lambda: FakeClient(),
+                    public_or_sanitized_data_ack=ack,
+                )
+                controller.on_llm_request(codex_request("high"), session_id="s1", turn_id="t1", **ASTRA)
+                self.assertFalse(last_receipt()["jev_called"])
+                self.assertEqual(controller.session_status("s1")["jev_calls"], 0)
+
+    def test_invalid_jev_choice_is_reported_separately(self):
+        class InvalidClient:
+            def decide(self, state, questions, **kwargs):
+                return {"answers": {"reasoning_effort": {
+                    "choice": "max", "confidence": 0.9,
+                    "probabilities": {level: 1 / len(questions["reasoning_effort"]["criteria"])
+                                      for level in questions["reasoning_effort"]["criteria"]},
+                }}}
+
+        controller = ReasoningEffortController(client_factory=InvalidClient)
+        self.assertEqual(self.call(controller, codex_request("medium")), "medium")
+        self.assertEqual(last_receipt()["reason_code"], "invalid_choice")
 
     def test_jev_failure_sends_the_user_level(self):
         controller, client, _ = self.make()
@@ -204,6 +253,14 @@ class EffortReplayTests(unittest.TestCase):
         self.assertIn("last sent: low", status)
         self.assertIn("Usage", controller.handle_command("bogus"))
 
+    def test_auto_command_discloses_raise_setting(self):
+        env = Env(HERMES_SESSION_ID="s1")
+        controller, _, _ = self.make(allow_raise=True, session_env=env)
+        self.call(controller, codex_request("medium"))
+        message = controller.handle_command("effort auto")
+        self.assertIn("one level above", message)
+        self.assertIn("deadline: 1.5", controller.handle_command("effort status"))
+
     def test_command_maps_gateway_session_key(self):
         env = Env(HERMES_SESSION_KEY="agent:main:discord:dm:1")
         controller, client, _ = self.make(choice="low", session_env=env)
@@ -211,6 +268,15 @@ class EffortReplayTests(unittest.TestCase):
         env.values = {"HERMES_SESSION_KEY": "agent:main:discord:dm:1"}
         self.assertIn("pinned", controller.handle_command("effort pin"))
         self.assertEqual(controller.session_status("real-session")["mode"], "pinned")
+
+    def test_pending_mode_applies_when_tool_hook_precedes_first_request(self):
+        env = Env(HERMES_SESSION_KEY="synthetic-session-key")
+        controller, client, _ = self.make(choice="low", session_env=env)
+        self.assertTrue(controller.set_mode("pin")["pending"])
+        controller.build_post_tool_call_hook()(session_id="real-session", result='{"ok": true}')
+        self.assertEqual(self.call(controller, codex_request("high"), session="real-session"), "high")
+        self.assertEqual(controller.session_status("real-session")["mode"], "pinned")
+        self.assertEqual(client.calls, [])
 
     def test_command_without_session_context_uses_the_only_live_session(self):
         controller, client, _ = self.make(choice="low")
@@ -248,6 +314,39 @@ class EffortReplayTests(unittest.TestCase):
             record = build_effort_record({"mode": "weird", "effort": "ultra-max", "reason_code": "x" * 500})
             self.assertIsNone(record["mode"])
             self.assertIsNone(record["sent"])
+
+    def test_history_count_bound_with_varying_record_lengths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for session in ("a", "b", "c", "a-longer-session-id"):
+                self.assertTrue(append_effort_record({
+                    "session_id": session, "mode": "auto", "requested_effort": "high",
+                    "effort": "low", "reason_code": "jev_selected",
+                }, data_dir=tmp, max_records=3))
+            self.assertEqual(len(read_effort_history(data_dir=tmp)), 3)
+
+    def test_stats_cli_exposes_reasoning_effort_object(self):
+        from hermes_switchyard import _cli_handler
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(_cli_handler(SimpleNamespace(
+                switchyard_command="stats", since=None, json_output=True,
+            )), 0)
+        self.assertIn("reasoning_effort", json.loads(output.getvalue()))
+
+    def test_history_since_and_writer_failure(self):
+        from datetime import datetime, timezone
+
+        with tempfile.TemporaryDirectory() as tmp:
+            receipt = {"session_id": "s1", "mode": "auto", "requested_effort": "high",
+                       "effort": "low", "reason_code": "jev_selected", "jev_called": True}
+            self.assertTrue(append_effort_record(receipt, data_dir=tmp,
+                                                 now=datetime(2020, 1, 1, tzinfo=timezone.utc)))
+            self.assertEqual(effort_stats(data_dir=tmp, since=timedelta(days=1))["records"], 0)
+            # An existing file cannot be the data directory; recording is best-effort.
+            self.assertFalse(append_effort_record(
+                receipt, data_dir=Path(tmp) / "effort-history.jsonl",
+            ))
 
 
 if __name__ == "__main__":
