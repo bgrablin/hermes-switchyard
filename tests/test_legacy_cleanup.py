@@ -5,7 +5,10 @@ config helpers. No test reads or writes the operator's Hermes home.
 """
 from __future__ import annotations
 
+import argparse
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import stat
@@ -15,6 +18,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import hermes_switchyard as switchyard
 from hermes_switchyard import legacy_cleanup as lc
 
 HAVE_HERMES = importlib.util.find_spec("hermes_cli") is not None and importlib.util.find_spec("hermes_constants") is not None
@@ -98,6 +102,55 @@ class LegacyCleanupTests(unittest.TestCase):
         from hermes_cli.config import read_user_config_raw
 
         return read_user_config_raw(self.home / "config.yaml")["plugins"]["enabled"]
+
+    def run_cli(self, *argv: str) -> tuple[int, str]:
+        parser = argparse.ArgumentParser()
+        switchyard._setup_cli(parser)
+        args = parser.parse_args(argv)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            result = args.func(args)
+        return result, output.getvalue()
+
+    def test_cli_status_warns_about_legacy_artifacts(self):
+        self.write_config()
+        self.make_skill()
+        with (
+            mock.patch.object(switchyard, "_secret", return_value=""),
+            mock.patch.object(switchyard, "_tool_exposure_report", return_value=switchyard._unavailable_exposure("test")),
+        ):
+            code, output = self.run_cli("status", "--json")
+        self.assertEqual(code, 0)
+        warnings = json.loads(output)["legacy_warnings"]
+        self.assertTrue(any("jev-decision" in line for line in warnings))
+        self.assertNotIn(str(self.home), output)
+
+    def test_cli_cleanup_dry_run_then_apply_archives_exact_targets(self):
+        self.write_config()
+        skill = self.make_skill()
+        code, output = self.run_cli("cleanup")
+        self.assertEqual(code, 0)
+        self.assertIn("Dry run", output)
+        self.assertIn("Nothing was changed", output)
+        self.assertTrue(skill.is_dir())
+        self.assertIn("jev-decision", self.enabled())
+        code, output = self.run_cli("cleanup", "--apply")
+        self.assertEqual(code, 0)
+        self.assertIn("Apply", output)
+        self.assertIn("Archive:", output)
+        self.assertFalse(skill.exists())
+        self.assertNotIn("jev-decision", self.enabled())
+
+    def test_cli_reports_completed_archive_when_manifest_write_fails(self):
+        skill = self.make_skill()
+        with mock.patch.object(lc, "_write_manifest", side_effect=OSError("private failure detail")):
+            code, output = self.run_cli("cleanup", "--apply")
+        self.assertEqual(code, 1)
+        self.assertIn("Archive:", output)
+        self.assertIn("manifest could not be written", output)
+        self.assertIn("applied", output)
+        self.assertNotIn("private failure detail", output)
+        self.assertFalse(skill.exists())
 
     # -- detection ----------------------------------------------------------
 
