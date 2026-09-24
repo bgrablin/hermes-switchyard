@@ -292,7 +292,9 @@ class SessionCleanupTests(unittest.TestCase):
         before = {t.name for t in threading.enumerate()}
         with mock.patch.object(browser_use.subprocess, "Popen", side_effect=OSError("cannot launch")):
             with mock.patch.object(destination_policy, "default_resolver", return_value=[PUBLIC]):
-                with self.assertRaises(OSError):
+                # A failed exec is a recorded startup attempt; the typed error
+                # carries the redacted diagnostic instead of the raw OSError.
+                with self.assertRaises(browser_use.BrowserStartupError):
                     browser_use.ChromiumSession("https://example.com")
         deadline = time.monotonic() + 2
         while time.monotonic() < deadline and any(
