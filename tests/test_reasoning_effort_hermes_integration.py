@@ -94,7 +94,7 @@ def _isolated_replay(plugin_dir: Path) -> None:
         return httpx.Response(200, json={"id": "resp_synthetic", "object": "response", "model": model,
                                           "created_at": 0, "output": [], "status": "completed"})
 
-    with openai.OpenAI(api_key="fixture-key", base_url="https://example.invalid/v1",
+    with openai.OpenAI(api_key="test-key", base_url="https://example.invalid/v1",
                        http_client=httpx.Client(transport=httpx.MockTransport(capture_codex))) as client:
         client.responses.create(**lowered.payload)
     assert codex_wire[0]["reasoning"] == {"effort": "low", "summary": "auto"}
@@ -118,7 +118,7 @@ def _isolated_replay(plugin_dir: Path) -> None:
                                           "model": "claude-opus-5-5", "content": [], "stop_reason": "end_turn",
                                           "stop_sequence": None, "usage": {"input_tokens": 1, "output_tokens": 1}})
 
-    with anthropic.Anthropic(api_key="fixture-key", base_url="https://example.invalid",
+    with anthropic.Anthropic(api_key="test-key", base_url="https://example.invalid",
                              http_client=httpx.Client(transport=httpx.MockTransport(capture_anthropic))) as client:
         client.messages.create(**result.payload)
     assert anthropic_wire[0]["output_config"]["effort"] == "low"
