@@ -86,6 +86,10 @@ def _isolated_replay(plugin_dir: Path) -> None:
     assert len(fake.calls) == 1
     with scoped_current_session_id("s1"):
         assert "mode: pinned" in command("effort status")
+    with scoped_current_session_id("s-low"):
+        for invalid in ("effort pin garbage", "effort auto garbage", "effort status garbage", "effort unknown", "effort pinned"):
+            assert command(invalid).startswith("Usage: /switchyard"), invalid
+        assert controller.session_status("s-low")["mode"] == "auto"
 
     codex_wire = []
 
