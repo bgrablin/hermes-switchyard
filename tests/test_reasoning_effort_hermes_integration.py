@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from scripts.build_release import RELEASE_FILES
+
 
 def _isolated_replay(plugin_dir: Path) -> None:
     # Imports happen only after the child has an isolated HOME and HERMES_HOME.
@@ -135,10 +137,12 @@ class InstalledHermesEffortIntegrationTests(unittest.TestCase):
             workspace = Path(temporary)
             home = workspace / "home"
             plugin = home / "plugins" / "hermes-switchyard"
-            plugin.parent.mkdir(parents=True)
-            shutil.copytree(root, plugin, ignore=shutil.ignore_patterns(
-                ".git", ".worktrees", "dist", "__pycache__", "HANDOFF*.md", ".venv",
-            ))
+            for relative in RELEASE_FILES:
+                source = root / relative
+                self.assertTrue(source.is_file() and not source.is_symlink(), relative)
+                target = plugin / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, target)
             (home / "config.yaml").write_text(
                 "plugins:\n  enabled: [hermes-switchyard]\n  entries:\n    hermes-switchyard:\n"
                 "      settings:\n        automatic_skill_recommendation: false\n"
