@@ -1549,8 +1549,10 @@ def build_pre_llm_call_hook(
             )
             receipt = _attach_consumption_contract(build_routing_receipt(result), contract)
             recommender.last_receipt = receipt
-            receipt_state.store_latest_receipt(receipt)
+            persist_failed = not _persist_receipt(receipt)
+            record_history(receipt)
             metadata = redacted_routing_metadata(result)
+            _mark_persist_failure(metadata, persist_failed)
             metadata["skill_recommendation"] = {
                 "status": "platform_skipped",
                 "selected": None,
@@ -1562,7 +1564,12 @@ def build_pre_llm_call_hook(
             setattr(on_pre_llm_call, "last_receipt", dict(receipt))
             setattr(on_pre_llm_call, "last_metadata", dict(metadata))
             setattr(on_pre_llm_call, "last_routing_metadata", dict(metadata))
-            return {"metadata": metadata}
+            response = {"metadata": metadata}
+            if turn_key is not None:
+                consumed_turns[turn_key] = dict(response)
+                while len(consumed_turns) > DEFAULT_CACHE_SIZE:
+                    consumed_turns.popitem(last=False)
+            return response
         # Hermes' conversation_history does not include the cached system prompt
         # that advertises skills. Discover the active profile registry directly.
         del conversation_history  # local-only input; never part of an egress payload

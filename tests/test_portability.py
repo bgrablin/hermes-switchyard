@@ -229,6 +229,25 @@ class PortabilityTests(unittest.TestCase):
                 check_portability._history_failures(Path("/repo"), set())
         self.assertEqual(run.call_args_list[1].args[0][4:8], ["-r", "-z", "--name-only", "commit"])
 
+    def test_historical_fixture_exceptions_are_exact_blob_and_finding_pairs(self):
+        from scripts.check_portability import KNOWN_BENIGN_HISTORY, _history_content_failures
+
+        cases = {
+            ("tests/test_two_stage_routing.py", "7cc4c0fb4a27ab6b77139ef5b3b7496cc42dbe42fd68fd9ee68b6ed9c7fd3b6c"):
+                "credential-shaped assignment in tests/test_two_stage_routing.py",
+            ("tests/test_two_stage_wiring.py", "f942f86240ba81d9667d5635eb2d9dab2f1169df61f7c7755ec6c22f08bcb6b0"):
+                "credential-shaped assignment in tests/test_two_stage_wiring.py",
+            ("tests/test_browser_startup.py", "9ec7d92dae3a6376afaf5ca25bb575d82674c4b6592aabaf8d01b507c2ab77d1"):
+                "host-specific absolute path in tests/test_browser_startup.py",
+        }
+        for key, finding in cases.items():
+            with self.subTest(path=key[0]):
+                self.assertEqual(KNOWN_BENIGN_HISTORY.get(key), frozenset({finding}))
+                # A different blob at the same path must still be checked.
+                data = b"api_key='not-a-release-value'\naccess_token=sk-" + b"z" * 26
+                failures = _history_content_failures(key[0], data)
+                self.assertIn(f"credential-shaped token in {key[0]}", failures)
+
     def test_history_exceptions_do_not_hide_new_content_in_known_paths(self):
         from scripts.check_portability import _history_content_failures
 

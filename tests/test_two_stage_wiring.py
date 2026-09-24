@@ -8,10 +8,13 @@ import json
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import yaml
 
+from hermes_switchyard import receipt_history, receipt_state
 from hermes_switchyard.automatic import build_pre_llm_call_hook
+from test_support import HermesHomeTestCase
 from hermes_switchyard.client import EXPECTED_MODEL, DecisionClient
 from hermes_switchyard.two_stage_routing import (
     HOSTED_DETAIL_DESCRIPTIONS,
@@ -65,7 +68,7 @@ def hook(transport, *, two_stage=None, environ=None):
     )
 
 
-class TwoStageWiringTests(unittest.TestCase):
+class TwoStageWiringTests(HermesHomeTestCase):
     def test_noninteractive_platform_skips_with_zero_requests(self):
         transport = Transport()
         callback = hook(transport, two_stage=TwoStageConfig())
@@ -75,6 +78,37 @@ class TwoStageWiringTests(unittest.TestCase):
             self.assertEqual(response["metadata"]["skill_recommendation"]["status"], "platform_skipped")
         self.assertEqual(transport.payloads, [])
         self.assertEqual(callback.last_receipt["hosted_skip_reason"], "noninteractive_platform")
+
+    def test_platform_skip_records_history_and_replays_one_turn(self):
+        transport = Transport()
+        callback = hook(transport, two_stage=TwoStageConfig())
+        kwargs = {
+            "user_message": "A synthetic machine-generated poll",
+            "platform": "cron",
+            "session_id": "synthetic-session",
+            "turn_id": "synthetic-turn",
+        }
+        first = callback(**kwargs)
+        records = receipt_history.read_history(session_id="synthetic-session")
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["turn_id"], "synthetic-turn")
+        self.assertEqual(records[0]["receipt"]["hosted_skip_reason"], "noninteractive_platform")
+        with mock.patch.object(receipt_history, "record_turn_receipt", side_effect=AssertionError("replayed turn")):
+            self.assertEqual(callback(**kwargs), first)
+        self.assertEqual(len(receipt_history.read_history(session_id="synthetic-session")), 1)
+        self.assertEqual(transport.payloads, [])
+
+    def test_platform_skip_reports_persistence_failure(self):
+        callback = hook(Transport(), two_stage=TwoStageConfig())
+        with mock.patch.object(receipt_state, "store_latest_receipt", return_value=False):
+            result = callback(
+                user_message="A synthetic machine-generated poll", platform="cron",
+                session_id="synthetic-session", turn_id="failed-save",
+            )
+        self.assertIs(result["metadata"].get("receipt_persist_failed"), True)
+        self.assertIs(callback.last_metadata.get("receipt_persist_failed"), True)
+        self.assertIs(callback.last_routing_metadata.get("receipt_persist_failed"), True)
+        self.assertEqual(len(receipt_history.read_history(session_id="synthetic-session")), 1)
 
     def test_kanban_worker_skips_and_platform_override_routes(self):
         transport = Transport()
