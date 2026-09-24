@@ -2,7 +2,7 @@
 
 Hermes Switchyard helps [Hermes Agent](https://github.com/NousResearch/hermes-agent) choose a relevant skill, adjust reasoning effort, and work through browser or desktop tasks. It uses [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) for bounded decisions. Hermes remains in charge of actions and the final result.
 
-![A map of Hermes Switchyard's skill, model, and computer-use features](docs/assets/hermes-switchyard-overview.png)
+![Rail-yard map of Hermes Switchyard: Jev decisions pass policy before Hermes acts; typed assessment, skill selection and loading, adaptive effort, model advice, computer use, session re-ranking, and receipts are distinct capabilities](docs/assets/hermes-switchyard-overview.png)
 
 Version: 0.5.3
 
