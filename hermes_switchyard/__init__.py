@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from . import receipt_state, schemas
+from . import receipt_history, receipt_state, schemas
 from .automatic import _config_float, build_pre_llm_call_hook, discover_mandatory_skills
 from .client import (
     DEFAULT_AUTOMATIC_ROUTING_DEADLINE_SECONDS,
@@ -1052,12 +1052,41 @@ def _cli_handler(args):
         }, sort_keys=True))
         return 0
     if command == "receipt":
-        receipt = receipt_state.read_latest_receipt()
-        if receipt is None:
-            print(json.dumps({"status": "unavailable", "reason": "no_receipt"}, sort_keys=True))
-            return 1
         indent = None if getattr(args, "json_output", False) else 2
-        print(json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=indent))
+        session = getattr(args, "session", None)
+        last = getattr(args, "last", None)
+        if session is None and last is None:
+            receipt = receipt_state.read_latest_receipt()
+            if receipt is None:
+                print(json.dumps({"status": "unavailable", "reason": "no_receipt"}, sort_keys=True))
+                return 1
+            print(json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=indent))
+            return 0
+        # History mode: per-session lookup and/or the newest N turn records.
+        if last is not None and (type(last) is not int or last <= 0):
+            print("--last requires a positive integer.")
+            return 2
+        if session is not None and receipt_history.sanitize_session_id(session) is None:
+            print("--session requires a bounded ASCII session identifier.")
+            return 2
+        records = receipt_history.read_history(session_id=session, last=last)
+        if not records:
+            reason = "no_matching_receipts" if session is not None else "no_receipt_history"
+            print(json.dumps({"status": "unavailable", "reason": reason}, sort_keys=True))
+            return 1
+        print(json.dumps(records, ensure_ascii=False, sort_keys=True, indent=indent))
+        return 0
+    if command == "stats":
+        since = None
+        since_value = getattr(args, "since", None)
+        if since_value is not None:
+            since = receipt_history.parse_since(since_value)
+            if since is None:
+                print("--since requires a window such as 30m, 24h, 7d, or 2w.")
+                return 2
+        stats = receipt_history.routing_stats(since=since)
+        indent = None if getattr(args, "json_output", False) else 2
+        print(json.dumps(stats, ensure_ascii=False, sort_keys=True, indent=indent, allow_nan=False))
         return 0
     if command == "ensure-toolsets":
         result = ensure_platform_toolsets()
@@ -1109,7 +1138,7 @@ def _cli_handler(args):
     if command != "setup":
 
         print(
-            "Usage: hermes switchyard <status|guide|setup|ensure-toolsets|receipt|test> "
+            "Usage: hermes switchyard <status|guide|setup|ensure-toolsets|receipt|stats|test> "
             "[--provider ...|--json]"
         )
         return 2
@@ -1157,6 +1186,27 @@ def _setup_cli(parser):
     setup.add_argument("--provider", required=True, choices=("typesafe", "openrouter"))
     receipt = commands.add_parser("receipt", help="Show the latest automatic-routing receipt")
     receipt.add_argument("--json", action="store_true", dest="json_output", help="Emit compact JSON")
+    receipt.add_argument(
+        "--session",
+        default=None,
+        metavar="ID",
+        help="Show retained history records for one session id, optionally capped with --last N",
+    )
+    receipt.add_argument(
+        "--last",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Show the newest N retained history records instead of the latest receipt",
+    )
+    stats = commands.add_parser("stats", help="Summarize the retained routing-history statistics")
+    stats.add_argument(
+        "--since",
+        default=None,
+        metavar="WINDOW",
+        help="Only count records newer than this window, e.g. 30m, 24h, 7d, or 2w",
+    )
+    stats.add_argument("--json", action="store_true", dest="json_output", help="Emit compact JSON")
     status = commands.add_parser("status", help="Show local readiness without network access")
     status.add_argument("--json", action="store_true", dest="json_output")
     status.add_argument(
