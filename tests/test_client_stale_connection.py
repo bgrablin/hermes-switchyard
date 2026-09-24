@@ -160,6 +160,22 @@ class StaleConnectionRetryTests(unittest.TestCase):
         self.assertEqual(factory.call_count, 1)
         self.assertEqual(first.requests, 2)
 
+    def test_idle_limit_is_configurable_and_bounded(self):
+        self.assertEqual(module.MAX_CONNECTION_IDLE_SECONDS, 60.0)
+        clock = [1000.0]
+        factory = mock.Mock(side_effect=[_Connection(), _Connection()])
+        with mock.patch.object(module.http.client, "HTTPSConnection", factory), \
+                mock.patch.object(module.time, "monotonic", side_effect=lambda: clock[0]):
+            client = DecisionClient(api_key="fixture", max_connection_idle_seconds=5)
+            _decide(client)
+            clock[0] += 6
+            _decide(client)
+        self.assertEqual(factory.call_count, 2)
+        with self.assertRaises(ValueError):
+            DecisionClient(api_key="fixture", max_connection_idle_seconds=float("inf"))
+        with self.assertRaises(ValueError):
+            DecisionClient(api_key="fixture", max_connection_idle_seconds=0)
+
 
 if __name__ == "__main__":
     unittest.main()

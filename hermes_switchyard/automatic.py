@@ -608,7 +608,11 @@ class AutomaticSkillRecommender:
     def _record_receipt(self, result: dict[str, Any]) -> None:
         receipt = build_routing_receipt(result)
         self.last_receipt = receipt
-        receipt_state.store_latest_receipt(receipt)
+        # Persistence is best-effort. A failure is reported in memory only
+        # and never changes the recommendation.
+        result.pop(RECEIPT_PERSIST_FAILED_KEY, None)
+        if not _persist_receipt(receipt):
+            result[RECEIPT_PERSIST_FAILED_KEY] = True
 
     @staticmethod
     def _empty_result(
@@ -1021,7 +1025,7 @@ def redacted_routing_metadata(result: Mapping[str, Any]) -> dict[str, Any]:
         "selected", "hosted_attempted", "hosted_skipped", "hosted_error_code", "hosted_error_detail",
         "candidate_count", "cache_hit", "policy_status", "policy_reason",
         "policy_data_class", "policy_version", "egress_authority",
-        "intervention_deadline_seconds",
+        "intervention_deadline_seconds", "receipt_persist_failed",
     )
     metadata: dict[str, Any] = {}
     for field in fields:
@@ -1350,6 +1354,29 @@ def _mandatory_skill_conflict(selected: str, mandatory_skills: Any) -> bool:
     return bool(names) and selected not in names
 
 
+RECEIPT_PERSIST_FAILED_KEY = "receipt_persist_failed"
+
+
+def _persist_receipt(receipt: dict[str, Any]) -> bool:
+    """Save a receipt without ever breaking routing; return True when saved."""
+    try:
+        return receipt_state.store_latest_receipt(receipt) is True
+    except Exception as exc:  # noqa: BLE001 -- receipt I/O must never break routing
+        logger.warning(
+            "Switchyard routing receipt was not saved (%s); skill routing continues.",
+            type(exc).__name__,
+        )
+        return False
+
+
+def _mark_persist_failure(metadata: dict[str, Any], failed: bool) -> None:
+    """Report the final receipt save outcome for this turn in memory only."""
+    if failed:
+        metadata[RECEIPT_PERSIST_FAILED_KEY] = True
+    else:
+        metadata.pop(RECEIPT_PERSIST_FAILED_KEY, None)
+
+
 def build_pre_llm_call_hook(
     *,
     enabled: bool = True,
@@ -1471,8 +1498,9 @@ def build_pre_llm_call_hook(
                     }
                 )
             recommender.last_receipt = receipt
-            receipt_state.store_latest_receipt(receipt)
+            persist_failed = not _persist_receipt(receipt)
             metadata = redacted_routing_metadata(result)
+            _mark_persist_failure(metadata, persist_failed)
             metadata["skill_recommendation"] = {
                 "status": "explicit_override",
                 "selected": None,
@@ -1519,7 +1547,8 @@ def build_pre_llm_call_hook(
             )
             receipt = _attach_consumption_contract(dict(recommender.last_receipt or {}), contract)
             recommender.last_receipt = receipt
-            receipt_state.store_latest_receipt(receipt)
+            persist_failed = not _persist_receipt(receipt)
+            _mark_persist_failure(metadata, persist_failed)
             setattr(on_pre_llm_call, "last_receipt", dict(receipt))
             metadata["skill_recommendation"] = {
                 "status": "abstained",
@@ -1536,7 +1565,8 @@ def build_pre_llm_call_hook(
             )
             receipt = _attach_consumption_contract(dict(recommender.last_receipt or {}), contract)
             recommender.last_receipt = receipt
-            receipt_state.store_latest_receipt(receipt)
+            persist_failed = not _persist_receipt(receipt)
+            _mark_persist_failure(metadata, persist_failed)
             setattr(on_pre_llm_call, "last_receipt", dict(receipt))
             metadata["skill_recommendation"] = {
                 "status": "advisory",
@@ -1592,7 +1622,8 @@ def build_pre_llm_call_hook(
             )
             receipt = _attach_consumption_contract(receipt, contract)
             recommender.last_receipt = receipt
-            receipt_state.store_latest_receipt(receipt)
+            persist_failed = not _persist_receipt(receipt)
+            _mark_persist_failure(metadata, persist_failed)
             setattr(on_pre_llm_call, "last_receipt", dict(receipt))
             # Receipt must match observable delivery: skipped/suppressed
             # mandatory conflicts omit recommendation context (same as
@@ -1604,6 +1635,12 @@ def build_pre_llm_call_hook(
                     "context": loaded_context or _format_recommendation(selected),
                     "metadata": metadata,
                 }
+        # The routing snapshots were taken before the final receipt save.
+        # Refresh only the save outcome so they report it accurately.
+        for name in ("last_metadata", "last_routing_metadata"):
+            snapshot = dict(getattr(on_pre_llm_call, name, None) or {})
+            _mark_persist_failure(snapshot, bool(metadata.get(RECEIPT_PERSIST_FAILED_KEY)))
+            setattr(on_pre_llm_call, name, snapshot)
         if turn_key is not None:
             consumed_turns[turn_key] = dict(response)
             while len(consumed_turns) > DEFAULT_CACHE_SIZE:

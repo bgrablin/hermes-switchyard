@@ -2,16 +2,26 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import re
+import stat
 import tempfile
+import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 PLUGIN_NAME = "hermes-switchyard"
 SOURCE_MANIFEST_NAME = "SOURCE-MANIFEST.json"
+RECEIPT_TEMPORARY_PREFIX = ".receipt-"
+RECEIPT_TEMPORARY_SUFFIX = ".tmp"
+# A receipt write finishes in milliseconds. A temporary file older than this
+# was left by a crashed or failed write and is safe to remove.
+STALE_TEMPORARY_SECONDS = 3600
 RECEIPT_SOURCE_SHA_UNAVAILABLE = "unavailable"
 RECEIPT_VERSION_UNAVAILABLE = "unavailable"
 SOURCE_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -367,22 +377,32 @@ def _write_canonical_receipt(path: Path, canonical: dict[str, Any], *, no_clobbe
     ``no_clobber=True`` publishes with an atomic no-replace link so a
     destination created concurrently is never overwritten; the caller keeps
     whatever landed first.
+
+    Best-effort: every failure returns ``False`` and the temporary file is
+    closed before it is removed, so a failed write leaves no open handle and
+    no ``.receipt-*.tmp`` file behind (an open handle blocks the unlink on
+    Windows).
     """
     temporary: Path | None = None
+    descriptor: int | None = None
+    handle: Any = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        fd, raw_path = tempfile.mkstemp(prefix=".receipt-", suffix=".tmp", dir=path.parent)
+        descriptor, raw_path = tempfile.mkstemp(
+            prefix=RECEIPT_TEMPORARY_PREFIX, suffix=RECEIPT_TEMPORARY_SUFFIX, dir=path.parent
+        )
         temporary = Path(raw_path)
-        try:
-            _apply_private_permissions(temporary)
-        except OSError:
-            os.close(fd)
-            raise
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(canonical, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
+        handle = os.fdopen(descriptor, "w", encoding="utf-8")
+        # The file object now owns the descriptor and closes it.
+        descriptor = None
+        # Protect the file before any content is written to it.
+        _apply_private_permissions(temporary)
+        json.dump(canonical, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+        handle.close()
+        handle = None
         if no_clobber:
             try:
                 os.link(temporary, path)
@@ -397,30 +417,129 @@ def _write_canonical_receipt(path: Path, canonical: dict[str, Any], *, no_clobbe
         os.replace(temporary, path)
         temporary = None
         return True
-    except (OSError, TypeError, ValueError):
+    except Exception as exc:  # receipt I/O must never break skill routing
+        _log_persist_failure(exc)
         return False
     finally:
+        # Close before unlink on every path: an open handle blocks the
+        # unlink on Windows and leaks a descriptor everywhere.
+        _close_quietly(handle, descriptor)
         if temporary is not None:
             try:
                 temporary.unlink()
-            except OSError:
+            except Exception:  # noqa: BLE001 -- cleanup is best-effort
                 pass
 
+
+def _close_quietly(handle: Any, descriptor: int | None) -> None:
+    if handle is not None:
+        try:
+            handle.close()
+        except Exception:  # noqa: BLE001 -- cleanup is best-effort
+            pass
+    elif descriptor is not None:
+        try:
+            os.close(descriptor)
+        except Exception:  # noqa: BLE001 -- cleanup is best-effort
+            pass
+
+
+def _log_persist_failure(exc: BaseException) -> None:
+    # Log the exception class only: messages can carry local paths.
+    logger.warning(
+        "Switchyard routing receipt was not saved (%s); skill routing continues.",
+        type(exc).__name__,
+    )
+
+
+_WINDOWS_REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+
+
+def _is_stale_temporary(entry: os.DirEntry, cutoff: float) -> bool:
+    name = entry.name
+    if not (
+        name.startswith(RECEIPT_TEMPORARY_PREFIX)
+        and name.endswith(RECEIPT_TEMPORARY_SUFFIX)
+        and len(name) > len(RECEIPT_TEMPORARY_PREFIX) + len(RECEIPT_TEMPORARY_SUFFIX)
+    ):
+        return False
+    if entry.is_symlink():
+        return False
+    status = entry.stat(follow_symlinks=False)
+    if not stat.S_ISREG(status.st_mode):
+        return False
+    if getattr(status, "st_file_attributes", 0) & _WINDOWS_REPARSE_POINT:
+        return False
+    return status.st_mtime < cutoff
+
+
+def _sweep_stale_temporaries(directory: Path | None) -> None:
+    """Remove temporary receipt files left by earlier failed writes.
+
+    Only regular files that match the receipt temporary name and are older
+    than ``STALE_TEMPORARY_SECONDS`` are removed. Symlinks, reparse points,
+    directories, and other names are never touched, even when their name
+    matches. Never raises and never logs a path.
+    """
+    if directory is None:
+        return
+    try:
+        cutoff = time.time() - STALE_TEMPORARY_SECONDS
+        with os.scandir(directory) as entries:
+            candidates = list(entries)
+    except Exception:  # noqa: BLE001 -- cleanup must never break routing
+        return
+    for entry in candidates:
+        try:
+            if not _is_stale_temporary(entry, cutoff):
+                continue
+            # Re-check right before removal; the entry may have been
+            # replaced by a symlink since the directory scan.
+            current = os.lstat(entry.path)
+            if stat.S_ISREG(current.st_mode) and not (
+                getattr(current, "st_file_attributes", 0) & _WINDOWS_REPARSE_POINT
+            ):
+                os.unlink(entry.path)
+        except Exception:  # noqa: BLE001 -- cleanup must never break routing
+            continue
+
+
 def store_latest_receipt(receipt: dict[str, Any]) -> bool:
-    """Atomically retain the latest valid receipt for the diagnostic command."""
-    canonical = canonicalize_receipt(receipt)
-    if canonical is None:
-        return False
-    path = _receipt_state_file()
-    if path is None:
-        return False
-    return _write_canonical_receipt(path, canonical)
+    """Atomically retain the latest valid receipt for the diagnostic command.
+
+    Best-effort: this function never raises. It returns ``True`` only when
+    this receipt is now the saved receipt. Any other outcome (invalid
+    receipt, no profile directory, or a write error of any type) returns
+    ``False``; the caller's recommendation and skill load continue
+    unchanged. Stale temporary files from earlier failed writes are swept
+    on every call where the profile directory is known.
+    """
+    path: Path | None = None
+    stored = False
+    try:
+        canonical = canonicalize_receipt(receipt)
+        if canonical is not None:
+            path = _receipt_state_file()
+            if path is not None:
+                stored = _write_canonical_receipt(path, canonical)
+    except Exception as exc:  # receipt I/O must never break skill routing
+        _log_persist_failure(exc)
+        stored = False
+    try:
+        _sweep_stale_temporaries(path.parent if path is not None else None)
+    except Exception:  # noqa: BLE001 -- cleanup must never change the result
+        pass
+    return stored
 
 
 def read_latest_receipt() -> dict[str, Any] | None:
     """Read the profile-owned receipt and migrate one valid legacy record."""
     path = _receipt_state_file()
     if path is not None:
+        try:
+            _sweep_stale_temporaries(path.parent)
+        except Exception:  # noqa: BLE001 -- cleanup must never break readback
+            pass
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, TypeError, ValueError):
