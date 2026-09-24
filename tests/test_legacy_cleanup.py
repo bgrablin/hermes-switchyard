@@ -237,7 +237,7 @@ class LegacyCleanupTests(unittest.TestCase):
         if os.name == "nt":
             from hermes_switchyard import _win_acl
 
-            for private_path in (archive, archive / "config" / "config.yaml", archive / "manifest.json"):
+            def assert_private_acl(private_path: Path) -> None:
                 shape = _win_acl.read_dacl(private_path)
                 self.assertTrue(shape["dacl_present"], private_path)
                 allowed = {_win_acl.current_user_sid(), _win_acl.SYSTEM_SID, _win_acl.ADMINISTRATORS_SID}
@@ -245,6 +245,9 @@ class LegacyCleanupTests(unittest.TestCase):
                 self.assertEqual(grants, allowed, private_path)
                 for principal in ("S-1-1-0", "S-1-5-11", "S-1-5-32-545"):
                     self.assertEqual(_win_acl.effective_rights(private_path, principal), 0, private_path)
+
+            for private_path in (archive, archive / "config" / "config.yaml", archive / "manifest.json"):
+                assert_private_acl(private_path)
         else:
             self.assertEqual(stat.S_IMODE(archive.stat().st_mode), 0o700)
             self.assertEqual(stat.S_IMODE(config.stat().st_mode), 0o600)
@@ -263,6 +266,16 @@ class LegacyCleanupTests(unittest.TestCase):
         # Stale temps moved; the fresh temp remains for its writer.
         self.assertFalse(temp_a.exists() or temp_b.exists())
         self.assertTrue(fresh.exists())
+        if os.name == "nt":
+            for private_path in (
+                moved,
+                moved / "SKILL.md",
+                moved / "references",
+                moved / "references" / "note.md",
+                archive / "files" / temp_a.relative_to(self.home),
+                archive / "files" / temp_b.relative_to(self.home),
+            ):
+                assert_private_acl(private_path)
         manifest = json.loads((archive / "manifest.json").read_text(encoding="utf-8"))
         applied = [a for a in manifest["actions"] if a["status"] == "applied"]
         self.assertEqual(len(applied), 4)
@@ -271,6 +284,26 @@ class LegacyCleanupTests(unittest.TestCase):
         again = lc.cleanup_legacy_artifacts(self.home, apply=True, now=self.now)
         self.assertIsNone(again["archive"])
         self.assertNotIn("planned", {a["status"] for a in again["actions"]})
+
+    @unittest.skipUnless(os.name == "nt", "Windows ACL failure recovery")
+    def test_failed_moved_skill_acl_restores_source(self):
+        from hermes_switchyard import _win_acl
+
+        skill = self.make_skill()
+        apply_acl = _win_acl.set_private_dacl
+
+        def fail_on_skill_file(path, **kwargs):
+            if Path(path).name == "SKILL.md":
+                raise OSError("synthetic ACL failure")
+            return apply_acl(path, **kwargs)
+
+        with mock.patch.object(_win_acl, "set_private_dacl", side_effect=fail_on_skill_file):
+            result = lc.cleanup_legacy_artifacts(self.home, apply=True, now=self.now)
+        [item] = self.by_kind(result, lc.KIND_SKILL)
+        self.assertEqual((item["status"], item.get("reason")), ("failed", "archive_acl_failed"))
+        self.assertTrue(skill.is_dir())
+        self.assertEqual((skill / "SKILL.md").read_text(encoding="utf-8"), SKILL_MD)
+        self.assertIsNone(item.get("archived_to"))
 
     def test_apply_preserves_comments_or_refuses_without_rewriting_config(self):
         config = self.write_config()

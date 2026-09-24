@@ -475,6 +475,37 @@ def _apply_move(home: Path, item: _Item, archive: Path) -> None:
     except OSError as exc:
         raise _Failure("cross_device" if getattr(exc, "errno", None) == 18 else "move_failed") from None
     item.archived_to = _display(home, destination)
+    if os.name == "nt":
+        try:
+            _protect_moved_windows(destination)
+        except Exception:  # noqa: BLE001 -- never mark an unprotected move as applied
+            try:
+                os.rename(destination, path)
+            except OSError:
+                pass  # Preserve archived_to for recovery if rollback failed.
+            else:
+                item.archived_to = None
+            raise _Failure("archive_acl_failed") from None
+
+
+def _protect_moved_windows(path: Path) -> None:
+    """Secure renamed contents; Windows renames preserve the source ACL."""
+    from . import _win_acl
+
+    pending = [path]
+    while pending:
+        current = pending.pop()
+        info = current.lstat()
+        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+            raise OSError("archived reparse point")
+        if stat.S_ISDIR(info.st_mode):
+            _win_acl.set_private_dacl(current, inherit_to_children=True)
+            with os.scandir(current) as entries:
+                pending.extend(Path(entry.path) for entry in entries)
+        elif stat.S_ISREG(info.st_mode) and info.st_nlink == 1:
+            _win_acl.set_private_dacl(current)
+        else:
+            raise OSError("unsupported archived file")
 
 
 def _mkdir_private(archive: Path, directory: Path) -> None:
