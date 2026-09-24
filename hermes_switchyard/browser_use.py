@@ -1982,8 +1982,12 @@ class ChromiumSession:
             candidate, tmpdir, proc, ws_url, port, attempts = _launch_with_fallback(
                 plan, command_for=command_for, profile_overrides=_profile_overrides
             )
-        except BrowserStartupError:
-            self.close()  # stops the proxy; each failed attempt removed its own profile
+        except Exception:
+            # The proxy is already listening even if startup fails before a browser launches.
+            try:
+                self.close()
+            except Exception:
+                pass
             raise
         self._tmpdir = tmpdir
         self._proc = proc
@@ -2598,6 +2602,13 @@ def _playwright_candidates(limit: int = 4) -> list[Path]:
     return [path for _revision, path in found[:limit]]
 
 
+def _executable_key(path: Path) -> str:
+    try:
+        return os.path.normcase(str(path.resolve()))
+    except (OSError, RuntimeError):
+        return os.path.normcase(str(path))
+
+
 def _discovered_candidates() -> list[_Candidate]:
     """Return every discovered browser in startup fallback order, without duplicates."""
     unconfined: dict[str, list[_Candidate]] = {"chrome": [], "chromium": [], "edge": []}
@@ -2609,7 +2620,7 @@ def _discovered_candidates() -> list[_Candidate]:
         if resolved is None:
             return
         chosen = resolved
-        key = str(chosen)
+        key = _executable_key(chosen)
         if key in seen:
             return
         seen.add(key)
@@ -2656,7 +2667,7 @@ def _discovered_candidates() -> list[_Candidate]:
                 add(app_path, family)
     ordered = [*unconfined["chrome"], *unconfined["chromium"], *unconfined["edge"]]
     for bundled in _playwright_candidates():
-        key = str(bundled)
+        key = _executable_key(bundled)
         if key not in seen:
             seen.add(key)
             ordered.append(_Candidate(bundled, "chromium", "none", "discovered", bundled=True))
@@ -2693,19 +2704,20 @@ def _startup_plan(browser_executable: Any = None) -> list[_Candidate]:
     configured = _configured_candidate(browser_executable)
     if configured is not None:
         plan.append(configured)
-    seen = {str(item.path) for item in plan if item.available}
+    seen = {_executable_key(item.path) for item in plan if item.available}
     primary = _browser_binary()
-    if primary is not None and str(primary) not in seen:
+    if primary is not None and _executable_key(primary) not in seen:
         selected, family, confinement = _browser_binary_details()
         if _is_snap_confined(primary):
             confinement = "snap"
         elif primary != selected:
             confinement = "none"
         plan.append(_Candidate(primary, family or _family_from_name(primary), confinement, "discovered"))
-        seen.add(str(primary))
+        seen.add(_executable_key(primary))
     for candidate in _discovered_candidates():
-        if str(candidate.path) not in seen:
-            seen.add(str(candidate.path))
+        key = _executable_key(candidate.path)
+        if key not in seen:
+            seen.add(key)
             plan.append(candidate)
     return plan[:MAX_STARTUP_ATTEMPTS]
 
@@ -2843,15 +2855,19 @@ def _launch_with_fallback(
             error = BrowserStartupError("browser_profile_not_writable")
             error.diagnostic = startup_diagnostic(attempts, reason="browser_profile_not_writable")
             raise error from exc
-        port = _free_localhost_port()
-        command = command_for(candidate, profile, port)
-        log_path = Path(tmpdir.name) / "browser.log"
-        proc: subprocess.Popen[str] | None = None
-        with open(log_path, "w", encoding="utf-8") as log_file:
-            try:
-                proc = subprocess.Popen(command, stdout=log_file, stderr=log_file, text=True)
-            except OSError:
-                proc = None
+        try:
+            port = _free_localhost_port()
+            command = command_for(candidate, profile, port)
+            log_path = Path(tmpdir.name) / "browser.log"
+            proc: subprocess.Popen[str] | None = None
+            with open(log_path, "w", encoding="utf-8") as log_file:
+                try:
+                    proc = subprocess.Popen(command, stdout=log_file, stderr=log_file, text=True)
+                except OSError:
+                    proc = None
+        except Exception:
+            _cleanup_profile(tmpdir)
+            raise
         if proc is None:
             attempts.append(_attempt_record(candidate, "launch_failed", elapsed=time.perf_counter() - attempt_started))
             _cleanup_profile(tmpdir)

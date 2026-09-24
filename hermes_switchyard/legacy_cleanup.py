@@ -32,6 +32,7 @@ import json
 import os
 import shutil
 import stat
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -236,6 +237,19 @@ def _apply_config(home: Path, item: _Item, archive: Path) -> None:
     raw["plugins"]["enabled"] = [
         entry for entry in enabled if not (type(entry) is str and entry in LEGACY_PLUGIN_NAMES)
     ]
+    comments = [line for line in backup.read_text(encoding="utf-8").splitlines() if "#" in line]
+    if comments:
+        # Older Hermes writers discard YAML comments. Probe a private copy first
+        # so the real config is never rewritten by a lossy writer.
+        with tempfile.TemporaryDirectory(prefix=".config-probe-", dir=archive) as scratch:
+            probe = Path(scratch) / "config.yaml"
+            shutil.copy2(backup, probe)
+            helpers.atomic_config_write(probe, raw)
+            written = probe.read_text(encoding="utf-8").splitlines()
+            if any(line not in written for line in comments):
+                raise _Refusal("config_writer_drops_comments")
+            if helpers.read_user_config_raw(probe) != raw:
+                raise _Refusal("config_writer_changed_fields")
     helpers.atomic_config_write(path, raw)
     # Readback through the same raw reader the plan used.
     if _matching_entries(helpers.read_user_config_raw(path)):
