@@ -41,7 +41,7 @@ from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 POLICY_NAME = "public_https_only"
 POLICY_VERSION = 1
@@ -627,7 +627,7 @@ class DestinationGuard:
         self._subresource_blocks = 0
         self._redirect_hops = 0
         self._cross_origin_redirects = 0
-        self._hops: OrderedDict[tuple[str | None, str], tuple[int, tuple[str, str, int | None]]] = OrderedDict()
+        self._hops: OrderedDict[tuple[str | None, str], tuple[int, tuple[str, str, int | None], bool]] = OrderedDict()
         self._setup: dict[int, str | None] = {}
         self.integrity_reasons: list[str] = []
         self._unexpected_target = False
@@ -736,21 +736,38 @@ class DestinationGuard:
         origin = _origin(url)
         hop = 0
         redirected = previous is not None
+        prior_origin = ("", "", None)
+        prior_approved = False
         with self._lock:
             self._checked += 1
             if redirected:
-                prior_hop, prior_origin = self._hops.get((session_id, str(previous)), (0, ("", "", None)))
+                prior_hop, prior_origin, prior_approved = self._hops.get(
+                    (session_id, str(previous)), (0, ("", "", None), False)
+                )
                 hop = prior_hop + 1
                 self._redirect_hops += 1
                 if origin != prior_origin:
                     self._cross_origin_redirects += 1
-            self._hops[(session_id, request_id)] = (hop, origin)
+            self._hops[(session_id, request_id)] = (hop, origin, False)
             while len(self._hops) > MAX_TRACKED_REQUESTS:
                 self._hops.popitem(last=False)
         code: str | None
         decision: DestinationDecision | None = None
+        upgraded_url: str | None = None
         try:
-            decision = check_destination(url, resource_type=resource_type, resolve=True, resolver=self._lookup)
+            # A same-host redirect may advertise HTTP even though its HTTPS
+            # endpoint exists. Rewrite only the pending request; never send HTTP.
+            # The ordinary destination policy still validates the exact upgraded
+            # host/path/query and the validating proxy pins the connection.
+            if redirected and prior_approved and navigation and hop <= self._max_redirects:
+                parts = urlsplit(url)
+                if parts.scheme == "http" and parts.netloc and parts.port is None:
+                    candidate = urlunsplit(("https", parts.netloc, parts.path, parts.query, parts.fragment))
+                    if _origin(candidate) == prior_origin:
+                        upgraded_url = candidate
+            decision = check_destination(
+                upgraded_url or url, resource_type=resource_type, resolve=True, resolver=self._lookup
+            )
             code = None if decision.allowed else decision.code
         except Exception:  # noqa: BLE001 -- no decision is a refusal
             code = "policy_error"
@@ -764,7 +781,21 @@ class DestinationGuard:
                     session_id,
                 )
                 return
-            self._answer("Fetch.continueRequest", {"requestId": request_id}, session_id)
+            with self._lock:
+                self._hops[(session_id, request_id)] = (hop, _origin(upgraded_url) if upgraded_url else origin, True)
+                while len(self._hops) > MAX_TRACKED_REQUESTS:
+                    self._hops.popitem(last=False)
+            if upgraded_url is not None:
+                # Continuing with a URL override fetches HTTPS but leaves the
+                # address bar at HTTP. A local redirect changes both without
+                # allowing a plaintext HTTP request onto the wire.
+                self._answer("Fetch.fulfillRequest", {
+                    "requestId": request_id,
+                    "responseCode": 307,
+                    "responseHeaders": [{"name": "Location", "value": upgraded_url}],
+                }, session_id)
+            else:
+                self._answer("Fetch.continueRequest", {"requestId": request_id}, session_id)
             return
         scheme = decision.scheme if decision is not None else ""
         host = decision.host if decision is not None else ""

@@ -86,8 +86,10 @@ done" stays visible. Independent verification remains coordinator-owned.
 
 ## Target offering and progress
 
-Snapshots offer up to 48 targets. Candidate scanning is windowed around the
-current viewport: only targets within a bounded window (three viewport heights)
+Snapshots offer up to 48 targets. Elements with zero rendered width or height
+are excluded before ranking, so hidden article links cannot crowd out a nearby
+visible link. Candidate scanning is windowed around the current viewport: only
+targets within a bounded window (three viewport heights)
 above or below the viewport are considered, so on a long page the scan follows
 the viewport instead of stopping at a fixed document-order prefix. Offering is
 scroll-relative: targets in the viewport come first, then targets within one
@@ -134,7 +136,14 @@ any host whose resolution fails, returns nothing, or includes one non-public
 address. A non-document subresource may also be `data` or `blob`, which carry no
 network destination. A redirect chain is bounded at 10 hops and each hop is decided
 on its own, so a chain that starts public and drifts to a private or credentialed
-hop is refused at the hop that drifts.
+hop is refused at the hop that drifts. One narrow exception upgrades a
+same-host HTTP **document redirect** from an already approved HTTPS request:
+the guard validates the exact HTTPS target with the ordinary host/resolution
+policy, then fulfills the pending HTTP request locally with a 307 pointing to
+HTTPS. It never dispatches HTTP to the network. Initial HTTP URLs, cross-host
+downgrades, credentialed/private targets, subresources, and redirects beyond
+the existing hop limit remain blocked. The upgraded target must still answer
+over HTTPS; this is not an HTTP fallback.
 
 The browser starts on `about:blank` and loads the start URL only after interception
 is installed, so the first load and its redirects are covered. Interception that
