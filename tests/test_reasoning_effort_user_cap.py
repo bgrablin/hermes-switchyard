@@ -5,10 +5,12 @@ import tempfile
 import unittest
 import io
 import json
+import sys
 from contextlib import redirect_stdout
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from hermes_switchyard.reasoning_effort_adapter import (
     ReasoningEffortController,
@@ -171,6 +173,32 @@ class EffortReplayTests(unittest.TestCase):
         self.fail_tool(controller)
         self.assertEqual(self.call(controller, codex_request("medium")), "medium")
         self.assertEqual(list(client.calls[-1][1]["reasoning_effort"]["criteria"])[-1], "medium")
+
+    def test_auto_never_offers_host_exposed_ultra_even_after_failure(self):
+        # A future Codex capability may accept ultra internally; it is not an auto choice.
+        host = SimpleNamespace(
+            codex_supported_efforts=lambda model: ("low", "medium", "high", "xhigh", "max", "ultra"),
+            clamp_effort=lambda level, supported: level if level in supported else supported[0],
+        )
+        with patch.dict(sys.modules, {"agent.reasoning_effort": host}):
+            controller, client, _ = self.make(choice="max", allow_raise=True)
+            self.assertEqual(self.call(controller, codex_request("max")), "max")
+            self.assertNotIn("ultra", client.calls[-1][1]["reasoning_effort"]["criteria"])
+            self.fail_tool(controller)
+            self.assertEqual(self.call(controller, codex_request("max")), "max")
+            self.assertNotIn("ultra", client.calls[-1][1]["reasoning_effort"]["criteria"])
+            self.assertEqual(list(client.calls[-1][1]["reasoning_effort"]["criteria"])[-1], "max")
+
+            # Explicit ultra stays the user's request rather than being offered to Jev.
+            calls = len(client.calls)
+            request = codex_request("ultra")
+            self.assertEqual(self.call(controller, request, session="ultra"), "ultra")
+            self.assertEqual(last_receipt()["reason_code"], "no_room")
+            self.assertEqual(len(client.calls), calls)
+            self.assertEqual(request["reasoning"]["effort"], "ultra")
+            pinned, pinned_client, _ = self.make(mode="pinned")
+            self.assertEqual(self.call(pinned, codex_request("ultra")), "ultra")
+            self.assertEqual(pinned_client.calls, [])
 
     def test_new_turn_clears_the_stuck_flag(self):
         controller, client, _ = self.make(choice="medium")
