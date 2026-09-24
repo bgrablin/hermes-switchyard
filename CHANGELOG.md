@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Retry a hosted Jev request once on a new connection when a reused keep-alive connection was closed by the server while idle (`RemoteDisconnected`, connection reset or abort, broken pipe before any response byte). Replace a pooled connection that has been idle for more than 120 seconds before reuse. Timeouts, failures on a new connection, and failures after a response starts are not retried. Refs #92.
+- Retry hosted Jev HTTP 429 and 529 responses at most twice per request, with exponential backoff that honors a numeric or HTTP-date `Retry-After` up to 8 seconds. A retry does not start when its wait would not fit in the routing deadline, and the wait stops on deadline or host cancel. One operation allows at most 4 transport retries in total. Also treat `ssl.SSLEOFError` on a reused connection as a stale connection. Refs #92.
+- Hosted request failures now carry a closed-set diagnostic sub-code (for example `stale_connection`, `connect_failed`, `timeout`, `http_429`, `http_5xx`, `invalid_response`) and never provider text. Call metadata records closed-set retry counts (`transport_retries`). A failure logs one WARNING per sub-code per 5 minutes and counts suppressed repeats. Refs #92.
 
 ## 0.5.3
 

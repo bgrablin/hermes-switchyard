@@ -1,11 +1,13 @@
 """Fixed-route OpenRouter Decisions API client for Jev."""
 from __future__ import annotations
 
+import email.utils
 import http.client
 import inspect
 import json
 import logging
 import math
+import ssl
 import threading
 import time
 import urllib.error
@@ -57,7 +59,57 @@ _STALE_CONNECTION_ERRORS = (
     ConnectionResetError,
     ConnectionAbortedError,
     BrokenPipeError,
+    ssl.SSLEOFError,
 )
+# HTTP 429 (rate limited) and 529 (overloaded) mean the provider did not run
+# the request. A decision request is a pure function of its inputs, so a
+# bounded replay is safe. Each retry waits for the larger of the exponential
+# backoff and a numeric or HTTP-date ``Retry-After`` value. A retry is not
+# started when the wait exceeds MAX_RETRY_AFTER_SECONDS or would leave less
+# than MIN_RETRY_REMAINING_SECONDS of the operation deadline.
+RETRYABLE_HTTP_STATUSES = frozenset({429, 529})
+MAX_RATE_LIMIT_RETRIES = 2
+RATE_LIMIT_BACKOFF_BASE_SECONDS = 0.5
+MAX_RETRY_AFTER_SECONDS = 8.0
+MIN_RETRY_REMAINING_SECONDS = 1.0
+_RETRY_SLEEP_SLICE_SECONDS = 0.25
+# Transport retries (stale connection plus 429/529) across one bounded
+# operation scope. Each logical request also has its own per-request bound.
+MAX_OPERATION_RETRIES = 4
+# Closed set of safe diagnostic sub-codes for a hosted request failure. No
+# provider text, header value, URL, or payload data is ever part of a code.
+HOSTED_ERROR_DETAILS = frozenset(
+    {
+        "stale_connection",
+        "connect_failed",
+        "timeout",
+        "http_401",
+        "http_403",
+        "http_404",
+        "http_429",
+        "http_529",
+        "http_4xx",
+        "http_5xx",
+        "redirect",
+        "invalid_response",
+        "transport_failed",
+        "validation_failure",
+        "request_budget_exhausted",
+        "retry_budget_exhausted",
+        "deadline_exceeded",
+        "host_cancelled",
+        "late_result_discarded",
+        "ack_required",
+        "unknown",
+    }
+)
+# Closed set of retry reasons recorded in call metadata.
+TRANSPORT_RETRY_REASONS = frozenset({"stale_connection", "http_429", "http_529"})
+# A default log shows at most one WARNING per failure sub-code per interval.
+HOSTED_FAILURE_WARNING_INTERVAL_SECONDS = 300.0
+_WARNING_LOCK = threading.Lock()
+_WARNING_LAST: dict[str, float] = {}
+_WARNING_SUPPRESSED: dict[str, int] = {}
 
 _RESPONSE_FIELDS = frozenset({"model", "answers", "usage", "latency_ms", "request_id"})
 _OPERATION_DEADLINE: ContextVar[float | None] = ContextVar(
@@ -78,6 +130,122 @@ class LateResultDiscarded(TimeoutError):
 
 class HostCancelled(TimeoutError):
     """Host abandoned the plugin callback; stop further requests."""
+
+
+class JevRequestError(RuntimeError):
+    """A hosted request failure with a closed-set diagnostic sub-code.
+
+    The message keeps the stable local wording used before. ``detail`` is one
+    member of HOSTED_ERROR_DETAILS and never carries provider text.
+    """
+
+    def __init__(self, message: str, *, detail: str) -> None:
+        super().__init__(message)
+        self.detail = detail if detail in HOSTED_ERROR_DETAILS else "unknown"
+
+
+def _http_status_detail(status: int) -> str:
+    if status in (401, 403, 404, 429, 529):
+        return f"http_{status}"
+    if 300 <= status < 400:
+        return "redirect"
+    if 400 <= status < 500:
+        return "http_4xx"
+    return "http_5xx"
+
+
+def hosted_error_detail(exc: BaseException | None) -> str:
+    """Map a hosted failure to one closed-set diagnostic sub-code.
+
+    This is a pure function of the exception type and of the typed ``detail``
+    set by this module. It never reads provider text.
+    """
+    seen = 0
+    while exc is not None and seen < 8:
+        seen += 1
+        if isinstance(exc, PartialAccountingError) and exc.__cause__ is not None:
+            exc = exc.__cause__
+            continue
+        if isinstance(exc, JevRequestError):
+            return exc.detail
+        if isinstance(exc, HostCancelled):
+            return "host_cancelled"
+        if isinstance(exc, LateResultDiscarded):
+            return "late_result_discarded"
+        if isinstance(exc, DeadlineExceeded):
+            return "deadline_exceeded"
+        if isinstance(exc, PermissionError):
+            return "ack_required"
+        if isinstance(exc, TimeoutError):
+            return "timeout"
+        if isinstance(exc, ValueError):
+            if "budget exceeded" in str(exc):
+                return "request_budget_exhausted"
+            return "validation_failure"
+        if isinstance(exc, TypeError):
+            return "invalid_response"
+        if isinstance(exc, (ConnectionError, ssl.SSLError)):
+            return "connect_failed"
+        return "unknown"
+    return "unknown"
+
+
+def _warn_hosted_failure(detail: str) -> None:
+    """Log one WARNING per sub-code per interval; count the suppressed ones."""
+    if detail == "host_cancelled":
+        return
+    now = time.monotonic()
+    with _WARNING_LOCK:
+        last = _WARNING_LAST.get(detail)
+        if last is not None and now - last < HOSTED_FAILURE_WARNING_INTERVAL_SECONDS:
+            _WARNING_SUPPRESSED[detail] = _WARNING_SUPPRESSED.get(detail, 0) + 1
+            return
+        suppressed = _WARNING_SUPPRESSED.pop(detail, 0)
+        _WARNING_LAST[detail] = now
+    logger.warning(
+        "Jev hosted request failed (%s); %d similar failures suppressed since the last warning.",
+        detail,
+        suppressed,
+    )
+
+
+def _reset_warning_rate_limit() -> None:
+    """Clear warning rate-limit state (tests only)."""
+    with _WARNING_LOCK:
+        _WARNING_LAST.clear()
+        _WARNING_SUPPRESSED.clear()
+
+
+def parse_retry_after(value: Any, *, now: float | None = None) -> float | None:
+    """Return a non-negative Retry-After delay in seconds, or None if invalid.
+
+    Accepts delta-seconds or an HTTP-date. The value is parsed locally and is
+    never logged or stored.
+    """
+    if type(value) is not str:
+        return None
+    text = value.strip()
+    if not text or len(text) > 64:
+        return None
+    if text.isascii() and text.isdigit():
+        return float(int(text))
+    try:
+        when = email.utils.parsedate_to_datetime(text)
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return None
+    if when is None or when.tzinfo is None:
+        return None
+    current = time.time() if now is None else now
+    return max(0.0, when.timestamp() - current)
+
+
+def merge_transport_retries(total: dict[str, int], retries: Any) -> None:
+    """Add closed-set retry counts from ``retries`` into ``total``."""
+    if not isinstance(retries, dict):
+        return
+    for reason, count in retries.items():
+        if reason in TRANSPORT_RETRY_REASONS and type(count) is int and 0 < count <= MAX_OPERATION_RETRIES * 1024:
+            total[reason] = total.get(reason, 0) + count
 
 
 def _validate_deadline_seconds(value: Any) -> float:
@@ -326,9 +494,19 @@ class DecisionClient:
         self._connection_last_used: float | None = None
         # Count of requests replayed after a pooled connection was found closed.
         self.stale_connection_retries = 0
+        # Count of requests replayed after HTTP 429 or 529.
+        self.rate_limit_retries = 0
         self._connection_lock = threading.RLock()
         self._request_budget: ContextVar[int | None] = ContextVar(
             f"jev_request_budget_{id(self)}", default=None
+        )
+        # Transport retries left in the current bounded operation scope.
+        self._retry_budget: ContextVar[list[int] | None] = ContextVar(
+            f"jev_retry_budget_{id(self)}", default=None
+        )
+        # Closed-set retry counts for the logical request in progress.
+        self._call_retries: ContextVar[dict[str, int] | None] = ContextVar(
+            f"jev_call_retries_{id(self)}", default=None
         )
         self._operation_deadline: ContextVar[float | None] = ContextVar(
             f"jev_operation_deadline_{id(self)}", default=None
@@ -354,6 +532,7 @@ class DecisionClient:
             yield
             return
         token = self._request_budget.set(max_requests)
+        retry_token = self._retry_budget.set([MAX_OPERATION_RETRIES])
         deadline_token = self._operation_deadline.set(
             time.monotonic() + float(deadline_seconds)
             if deadline_seconds is not None
@@ -363,6 +542,7 @@ class DecisionClient:
             yield
         finally:
             self._request_budget.reset(token)
+            self._retry_budget.reset(retry_token)
             self._operation_deadline.reset(deadline_token)
 
     def _remaining_deadline(self) -> float | None:
@@ -387,15 +567,36 @@ class DecisionClient:
         last_used = self._connection_last_used
         return last_used is not None and time.monotonic() - last_used > MAX_CONNECTION_IDLE_SECONDS
 
-    def _send_request(self, path: str, body: bytes, headers: dict[str, str]) -> Any:
-        """Send one POST and return the response object; call with the lock held.
+    def _take_retry(self, reason: str) -> bool:
+        """Reserve one transport retry from the operation budget and record it."""
+        budget = self._retry_budget.get()
+        if budget is not None:
+            if budget[0] <= 0:
+                return False
+            budget[0] -= 1
+        call_retries = self._call_retries.get()
+        if call_retries is not None:
+            call_retries[reason] = call_retries.get(reason, 0) + 1
+        return True
 
-        A pooled keep-alive connection that the server closed while idle fails
-        before any response byte arrives. Only that case is retried, once, on a
-        new connection. A decision request changes no provider state, so the
-        replay is safe. A failure on a new connection, a timeout, and any
-        failure after the response started are raised unchanged.
+    def _send_request(
+        self,
+        path: str,
+        body: bytes,
+        headers: dict[str, str],
+        *,
+        allow_stale_retry: bool = True,
+    ) -> tuple[Any, bool]:
+        """Send one POST; return the response and whether a stale retry ran.
+
+        Call with the connection lock held. A pooled keep-alive connection
+        that the server closed while idle fails before any response byte
+        arrives. Only that case is retried, once, on a new connection. A
+        decision request changes no provider state, so the replay is safe. A
+        failure on a new connection, a timeout, and any failure after the
+        response started are raised unchanged.
         """
+        stale_retried = False
         for attempt in range(2):
             remaining = self._remaining_deadline()
             timeout = self.timeout if remaining is None else min(self.timeout, remaining)
@@ -405,7 +606,7 @@ class DecisionClient:
             if self._connection is None:
                 host = self._url.hostname
                 if not host:
-                    raise RuntimeError("Jev endpoint has no host")
+                    raise JevRequestError("Jev endpoint has no host", detail="transport_failed")
                 self._connection = http.client.HTTPSConnection(
                     host,
                     self._url.port,
@@ -415,17 +616,24 @@ class DecisionClient:
                 self._connection.sock.settimeout(timeout)
             try:
                 self._connection.request("POST", path, body=body, headers=headers)
-                return self._connection.getresponse()
+                return self._connection.getresponse(), stale_retried
             except _STALE_CONNECTION_ERRORS as exc:
-                if not reused or attempt:
-                    raise
                 self._close_connection()
+                if stale_retried:
+                    raise JevRequestError(
+                        f"Jev connection failed: {type(exc).__name__}", detail="stale_connection"
+                    ) from None
+                if not reused or not allow_stale_retry or attempt or not self._take_retry("stale_connection"):
+                    raise JevRequestError(
+                        f"Jev connection failed: {type(exc).__name__}", detail="connect_failed"
+                    ) from None
+                stale_retried = True
                 self.stale_connection_retries += 1
                 logger.info(
                     "Jev pooled connection was closed by the server (%s); retrying once on a new connection.",
                     type(exc).__name__,
                 )
-        raise RuntimeError("Jev connection retry did not complete")
+        raise JevRequestError("Jev connection retry did not complete", detail="stale_connection")
 
     @staticmethod
     def _read_bounded(response: Any, limit: int) -> bytes:
@@ -454,6 +662,93 @@ class DecisionClient:
             raise RuntimeError("Jev provider response exceeded the bounded body limit")
         return bytes(raw)
 
+    def _retry_delay(self, status: int, retry_after: Any, retries_done: int) -> float | None:
+        """Return a bounded wait before a 429/529 retry, or None to stop."""
+        if retries_done >= MAX_RATE_LIMIT_RETRIES:
+            return None
+        delay = RATE_LIMIT_BACKOFF_BASE_SECONDS * (2 ** retries_done)
+        parsed = parse_retry_after(retry_after)
+        if parsed is not None:
+            if parsed > MAX_RETRY_AFTER_SECONDS:
+                return None
+            delay = max(delay, parsed)
+        delay = min(delay, MAX_RETRY_AFTER_SECONDS)
+        remaining = self._remaining_deadline()
+        if remaining is not None and delay + MIN_RETRY_REMAINING_SECONDS > remaining:
+            return None
+        return delay
+
+    def _sleep_before_retry(self, delay: float) -> None:
+        """Sleep in short slices so a deadline or host cancel stops the wait."""
+        end = time.monotonic() + delay
+        while True:
+            self._remaining_deadline()
+            left = end - time.monotonic()
+            if left <= 0:
+                return
+            time.sleep(min(_RETRY_SLEEP_SLICE_SECONDS, left))
+
+    def _post_attempt(
+        self, path: str, body: bytes, headers: dict[str, str], *, allow_stale_retry: bool
+    ) -> tuple[bytes | None, int | None, Any, bool]:
+        """Run one HTTP exchange under the connection lock.
+
+        Returns ``(raw, None, None, stale_retried)`` on success, or
+        ``(None, status, retry_after, stale_retried)`` for a retryable 429/529.
+        """
+        with self._connection_lock:
+            stale_retried = False
+            try:
+                response, stale_retried = self._send_request(
+                    path, body, headers, allow_stale_retry=allow_stale_retry
+                )
+                status = response.status
+                if 300 <= status < 400:
+                    _parse_error_body(self._read_bounded(response, MAX_ERROR_BYTES))
+                    raise JevRequestError(
+                        "Jev provider returned an unexpected redirect", detail="redirect"
+                    )
+                if status >= 400:
+                    _parse_error_body(self._read_bounded(response, MAX_ERROR_BYTES))
+                    if status in RETRYABLE_HTTP_STATUSES:
+                        retry_after = None
+                        response_headers = getattr(response, "headers", None)
+                        if response_headers is not None:
+                            try:
+                                retry_after = response_headers.get("Retry-After")
+                            except AttributeError:
+                                retry_after = None
+                        # The provider may close after an error; start clean.
+                        self._close_connection()
+                        return None, status, retry_after, stale_retried
+                    raise JevRequestError(
+                        f"Jev provider returned HTTP {status}",
+                        detail=_http_status_detail(status),
+                    )
+                raw = self._read_bounded(response, MAX_RESPONSE_BYTES)
+                self._connection_last_used = time.monotonic()
+                if getattr(response, "will_close", False):
+                    self._close_connection()
+                close_response = getattr(response, "close", None)
+                if callable(close_response):
+                    close_response()
+                return raw, None, None, stale_retried
+            except JevRequestError:
+                self._close_connection()
+                raise
+            except RuntimeError as exc:
+                self._close_connection()
+                raise JevRequestError(str(exc), detail="invalid_response") from None
+            except TimeoutError:
+                self._close_connection()
+                raise
+            except (OSError, http.client.HTTPException) as exc:
+                self._close_connection()
+                detail = "invalid_response" if isinstance(exc, http.client.HTTPException) else "connect_failed"
+                raise JevRequestError(
+                    f"Jev connection failed: {type(exc).__name__}", detail=detail
+                ) from None
+
     def _post(self, payload: dict) -> dict:
         self._remaining_deadline()
         if self.transport is not None:
@@ -464,7 +759,9 @@ class DecisionClient:
             except TimeoutError:
                 raise
             except Exception as exc:  # noqa: BLE001 - never expose transport/payload details
-                raise RuntimeError(f"Jev transport failed: {type(exc).__name__}") from None
+                raise JevRequestError(
+                    f"Jev transport failed: {type(exc).__name__}", detail="transport_failed"
+                ) from None
             try:
                 self._remaining_deadline()
             except DeadlineExceeded as exc:
@@ -490,29 +787,36 @@ class DecisionClient:
         }
         if self.endpoint == DEFAULT_ENDPOINT:
             headers.update(OPENROUTER_APP_HEADERS)
-        with self._connection_lock:
-            try:
-                response = self._send_request(path, body, headers)
-                status = response.status
-                if 300 <= status < 400:
-                    _parse_error_body(self._read_bounded(response, MAX_ERROR_BYTES))
-                    raise RuntimeError("Jev provider returned an unexpected redirect")
-                if status >= 400:
-                    _parse_error_body(self._read_bounded(response, MAX_ERROR_BYTES))
-                    raise RuntimeError(f"Jev provider returned HTTP {status}")
-                raw = self._read_bounded(response, MAX_RESPONSE_BYTES)
-                self._connection_last_used = time.monotonic()
-                if getattr(response, "will_close", False):
-                    self._close_connection()
-                close_response = getattr(response, "close", None)
-                if callable(close_response):
-                    close_response()
-            except (RuntimeError, TimeoutError):
-                self._close_connection()
-                raise
-            except (OSError, TimeoutError, http.client.HTTPException) as exc:
-                self._close_connection()
-                raise RuntimeError(f"Jev connection failed: {type(exc).__name__}") from None
+        allow_stale_retry = True
+        rate_retries = 0
+        while True:
+            raw, status, retry_after, stale_retried = self._post_attempt(
+                path, body, headers, allow_stale_retry=allow_stale_retry
+            )
+            if stale_retried:
+                # At most one stale-connection replay per logical request.
+                allow_stale_retry = False
+            if raw is not None:
+                break
+            assert status is not None
+            detail = _http_status_detail(status)
+            delay = self._retry_delay(status, retry_after, rate_retries)
+            if delay is None:
+                raise JevRequestError(f"Jev provider returned HTTP {status}", detail=detail)
+            if not self._take_retry(detail):
+                raise JevRequestError(
+                    f"Jev provider returned HTTP {status}", detail="retry_budget_exhausted"
+                )
+            rate_retries += 1
+            self.rate_limit_retries += 1
+            logger.info(
+                "Jev provider returned HTTP %d; retry %d of %d after %.2f s.",
+                status,
+                rate_retries,
+                MAX_RATE_LIMIT_RETRIES,
+                delay,
+            )
+            self._sleep_before_retry(delay)
         try:
             self._remaining_deadline()
         except DeadlineExceeded as exc:
@@ -522,7 +826,9 @@ class DecisionClient:
         try:
             result = _strict_json_loads(raw)
         except (TypeError, ValueError, json.JSONDecodeError):
-            raise RuntimeError("Jev provider returned invalid JSON") from None
+            raise JevRequestError(
+                "Jev provider returned invalid JSON", detail="invalid_response"
+            ) from None
         if not isinstance(result, dict):
             raise TypeError("Jev provider returned a non-object response")
         return _strip_response_controls(result)
@@ -600,7 +906,12 @@ class DecisionClient:
 
     def _decide_single(self, state: Any, questions: dict[str, dict[str, Any]]) -> dict:
         started = time.perf_counter()
-        result = self._post(self._payload(state, questions))
+        call_retries: dict[str, int] = {}
+        retries_token = self._call_retries.set(call_retries)
+        try:
+            result = self._post(self._payload(state, questions))
+        finally:
+            self._call_retries.reset(retries_token)
         if not isinstance(result, dict):
             raise TypeError("Jev response must be an object")
         result["model"] = self._validate_resolved_model(result.get("model"))
@@ -650,6 +961,8 @@ class DecisionClient:
         elif type(latency) not in (int, float) or not math.isfinite(latency) or latency < 0:
             raise ValueError("Invalid Jev latency")
         result["latency_ms"] = float(latency)
+        if call_retries:
+            result["transport_retries"] = dict(call_retries)
         return result
 
     def decide(
@@ -699,6 +1012,7 @@ class DecisionClient:
             try:
                 call = self._decide_single(state, batch)
             except Exception as exc:
+                _warn_hosted_failure(hosted_error_detail(exc))
                 if partial:
                     raise PartialAccountingError(
                         "Jev provider request failed after "
@@ -716,6 +1030,11 @@ class DecisionClient:
                     "total_latency_ms": call.get("total_latency_ms", call.get("latency_ms")),
                     "total_usage": call.get("total_usage", call.get("usage") or {}),
                     "usage": call.get("usage") or {},
+                    **(
+                        {"transport_retries": dict(call["transport_retries"])}
+                        if call.get("transport_retries")
+                        else {}
+                    ),
                 }
             )
         if len(calls) == 1:
@@ -726,11 +1045,13 @@ class DecisionClient:
         answers: dict[str, Any] = {}
         usage: dict[str, Any] = {}
         latency = 0.0
+        retries: dict[str, int] = {}
         for call in calls:
             answers.update(call["answers"])
             self._merge_usage(usage, call["usage"])
             latency += call["latency_ms"]
-        return {
+            merge_transport_retries(retries, call.get("transport_retries"))
+        combined = {
             "model": calls[-1]["model"],
             "answers": answers,
             "usage": usage,
@@ -739,6 +1060,9 @@ class DecisionClient:
             "total_latency_ms": latency,
             "total_usage": usage,
         }
+        if retries:
+            combined["transport_retries"] = retries
+        return combined
 
     @staticmethod
     def _validate_choice(name: str, answer: dict, criteria: dict) -> None:
