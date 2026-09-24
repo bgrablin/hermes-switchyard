@@ -103,6 +103,37 @@ Registration does not guarantee that a session can call a tool. `hermes switchya
 
 Settings are profile-scoped under `plugins.entries.hermes-switchyard.settings`. The [setup guide](docs/SETUP.md) covers keys, provider routes, opt-down settings, and plugin checks. The [adaptive-effort guide](docs/ADAPTIVE-REASONING-EFFORT.md) explains the effort levels and request behavior.
 
+## Migrating from jev-decision
+
+Hermes Switchyard replaces the older `jev-decision` plugin. A profile that ran the older plugin can keep these artifacts:
+
+- a `jev-decision` entry, or its underscore spelling, in `plugins.enabled`, with no matching plugin directory;
+- the `jev-decision-operations` skill, which competes with the bundled `hermes-switchyard-operations` skill during automatic routing;
+- the pre-0.4.3 receipt at `$HERMES_HOME/plugins/hermes-switchyard/receipt.json`;
+- stale `.receipt-*.tmp` files from an interrupted receipt write.
+
+`hermes switchyard status` lists each artifact it finds. To clean them up:
+
+1. Review the plan. This is a dry run and changes nothing:
+
+   ```text
+   hermes switchyard cleanup
+   ```
+
+2. Apply it:
+
+   ```text
+   hermes switchyard cleanup --apply
+   ```
+
+3. Start a fresh Hermes session.
+
+The cleanup touches only exact matches. Config entries must match `jev-decision` or its underscore spelling exactly; case and whitespace variants stay. A skill directory moves only when its `SKILL.md` declares `name: jev-decision-operations`. The legacy receipt stays until `hermes switchyard receipt` has migrated it to `plugin-data`. A temp file stays until it is at least one hour old.
+
+`--apply` deletes nothing. It creates a private archive at `$HERMES_HOME/plugin-data/hermes-switchyard/legacy-cleanup/<timestamp>/`, copies `config.yaml` into it, and moves each skill, receipt, and temp file into it. It then removes the config entries through the Hermes config writer, which keeps your comments. `manifest.json` in the archive lists each original path, so you can move an item back by hand. The command prints every action and its result.
+
+The cleanup refuses an item and leaves it in place when the item is a symlink, is below a symlinked directory in the Hermes home, belongs to another user, or changed after the plan. It also refuses a managed config. It does not scan or remove old workspaces, worktrees, or backups that contain the retired package. Remove those yourself after you confirm you do not need them.
+
 ## Documentation
 
 - [Setup and troubleshooting](docs/SETUP.md)
