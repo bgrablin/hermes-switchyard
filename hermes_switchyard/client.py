@@ -50,7 +50,7 @@ DEFAULT_AUTOMATIC_ROUTING_DEADLINE_SECONDS = 20.0
 # The hosted route closes an idle keep-alive connection after 300-480 s
 # (live probe, issue #92). A pooled connection idle longer than this is
 # replaced before reuse instead of sending on a socket the server closed.
-MAX_CONNECTION_IDLE_SECONDS = 120.0
+MAX_CONNECTION_IDLE_SECONDS = 60.0
 # Errors that mean the server closed a reused keep-alive connection before it
 # sent any response. RemoteDisconnected is a ConnectionResetError; it is listed
 # for clarity. Timeouts are not in this set and are never replayed.
@@ -451,6 +451,7 @@ class DecisionClient:
         model: str = EXPECTED_MODEL,
         timeout: float = 25,
         transport: Callable[[dict], dict] | None = None,
+        max_connection_idle_seconds: float = MAX_CONNECTION_IDLE_SECONDS,
     ):
         if type(api_key) is not str or not api_key.strip():
             raise ValueError("Jev API key is required")
@@ -460,10 +461,17 @@ class DecisionClient:
             raise ValueError("Jev model is not an evidence-backed allowed alias for this endpoint")
         if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0:
             raise ValueError("timeout must be a finite positive number")
+        if (
+            type(max_connection_idle_seconds) not in (int, float)
+            or not math.isfinite(max_connection_idle_seconds)
+            or not 0 < max_connection_idle_seconds <= 3600
+        ):
+            raise ValueError("max_connection_idle_seconds must be between 0 and 3600")
         self.api_key = api_key
         self.endpoint = endpoint
         self.model = model
         self.timeout = float(timeout)
+        self.max_connection_idle_seconds = float(max_connection_idle_seconds)
         self.transport = transport
         self._url = urllib.parse.urlsplit(endpoint)
         self._connection: http.client.HTTPSConnection | None = None
@@ -541,7 +549,7 @@ class DecisionClient:
 
     def _connection_idle_too_long(self) -> bool:
         last_used = self._connection_last_used
-        return last_used is not None and time.monotonic() - last_used > MAX_CONNECTION_IDLE_SECONDS
+        return last_used is not None and time.monotonic() - last_used > self.max_connection_idle_seconds
 
     def _take_retry(self, reason: str) -> bool:
         """Reserve one transport retry from the operation budget and record it."""
