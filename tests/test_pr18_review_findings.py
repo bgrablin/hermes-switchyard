@@ -18,6 +18,7 @@ import hermes_switchyard
 from hermes_switchyard import receipt_state
 from hermes_switchyard.client import DecisionClient, PartialAccountingError
 from hermes_switchyard.computer_use import run_computer_goal
+from test_support import HermesHomeTestCase
 
 
 # ---------------------------------------------------------------- helpers
@@ -239,7 +240,7 @@ def _base_advisory():
     return build_routing_receipt(result)
 
 
-class ReceiptContractTests(unittest.TestCase):
+class ReceiptContractTests(HermesHomeTestCase):
     """C1 unknown fields, C2 canonical persistence, C3 load evidence, cost=None."""
 
     def _store_read(self, receipt, harness):
@@ -247,7 +248,11 @@ class ReceiptContractTests(unittest.TestCase):
         try:
             stored = receipt_state.store_latest_receipt(receipt)
             path = receipt_state._receipt_state_file()
-            on_disk = json.loads(open(path, encoding="utf-8").read()) if stored else None
+            if stored:
+                assert path is not None
+                on_disk = json.loads(path.read_text(encoding="utf-8"))
+            else:
+                on_disk = None
             readback = receipt_state.read_latest_receipt() if stored else None
             return stored, on_disk, readback
         finally:
@@ -416,7 +421,7 @@ class ReceiptContractTests(unittest.TestCase):
             )
             self.assertEqual(migrated, receipt_state.canonicalize_receipt(receipt))
             self.assertTrue(new_path.is_file())
-            self.assertTrue(legacy.is_file())
+            self.assertFalse(legacy.exists(), "verified migration must retire the legacy artifact")
             self.assertNotEqual(new_path.parent, legacy.parent)
         finally:
             os.environ.pop("HERMES_HOME", None)
@@ -437,6 +442,51 @@ class ReceiptContractTests(unittest.TestCase):
 
             self.assertIsNone(receipt_state.read_latest_receipt())
             self.assertEqual(new_path.read_text(encoding="utf-8"), '{"unrelated": true}\n')
+        finally:
+            os.environ.pop("HERMES_HOME", None)
+            harness.close()
+
+    def test_valid_distinct_legacy_receipt_is_not_retired(self):
+        harness = _MemoryFileHarness()
+        try:
+            os.environ["HERMES_HOME"] = harness._tmp.name
+            current = _base_advisory()
+            current["candidate_count"] = 3
+            self.assertIsNotNone(receipt_state.canonicalize_receipt(current))
+            new_path = receipt_state._receipt_state_file()
+            assert new_path is not None
+            new_path.parent.mkdir(parents=True, exist_ok=True)
+            new_path.write_text(json.dumps(current), encoding="utf-8")
+            legacy = Path(harness._tmp.name) / "plugins" / receipt_state.PLUGIN_NAME / "receipt.json"
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text(json.dumps(_base_advisory()), encoding="utf-8")
+
+            self.assertEqual(receipt_state.read_latest_receipt(), receipt_state.canonicalize_receipt(current))
+            self.assertTrue(legacy.is_file(), "an unrelated legacy receipt was not migrated")
+        finally:
+            os.environ.pop("HERMES_HOME", None)
+            harness.close()
+
+    def test_symlinked_new_receipt_cannot_retire_legacy(self):
+        harness = _MemoryFileHarness()
+        try:
+            os.environ["HERMES_HOME"] = harness._tmp.name
+            receipt = _base_advisory()
+            outside = Path(harness._tmp.name) / "other-receipt.json"
+            outside.write_text(json.dumps(receipt), encoding="utf-8")
+            new_path = receipt_state._receipt_state_file()
+            assert new_path is not None
+            new_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                new_path.symlink_to(outside)
+            except OSError:
+                self.skipTest("symlinks are unavailable on this host")
+            legacy = Path(harness._tmp.name) / "plugins" / receipt_state.PLUGIN_NAME / "receipt.json"
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text(json.dumps(receipt), encoding="utf-8")
+
+            receipt_state.read_latest_receipt()
+            self.assertTrue(legacy.is_file())
         finally:
             os.environ.pop("HERMES_HOME", None)
             harness.close()
