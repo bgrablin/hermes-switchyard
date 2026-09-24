@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import hermes_switchyard
-from hermes_switchyard import receipt_state
+from hermes_switchyard import receipt_history, receipt_state
 from hermes_switchyard.automatic import (
     AutomaticSkillRecommender,
     build_routing_receipt,
@@ -89,8 +89,12 @@ class ReceiptSchemaTests(unittest.TestCase):
         self.assertEqual(receipt["total_latency_ms"], 0.0)
         self.assertEqual(receipt["total_usage"], {})
         self.assertIsInstance(receipt["plugin_identity"], dict)
-        self.assertEqual(receipt["source_sha"], "unavailable")
-        self.assertEqual(receipt["plugin_identity"]["source_sha"], "unavailable")
+        self.assertEqual(receipt["source_sha"], receipt_history.process_source_sha())
+        self.assertEqual(receipt["plugin_identity"]["source_sha"], receipt["source_sha"])
+        self.assertTrue(
+            receipt["source_sha"] == receipt_state.RECEIPT_SOURCE_SHA_UNAVAILABLE
+            or receipt_state.SOURCE_SHA_RE.fullmatch(receipt["source_sha"]) is not None
+        )
         self.assertTrue(receipt_state.validate_receipt(receipt))
 
     def test_local_selection_is_distinct_from_hosted_skip(self):

@@ -223,11 +223,27 @@ def resolve_plugin_version(repo_dir: Path | str | None = None) -> str:
 
 
 def plugin_identity(repo_dir: Path | str | None = None) -> dict[str, str]:
-    """Return the stable plugin/version/source identity used in receipts."""
+    """Return the stable plugin/version/source identity used in receipts.
+
+    The source SHA prefers a validated release manifest and falls back to the
+    checked-out git commit read from ``.git`` files with no subprocess, so a
+    git install reports an exact SHA instead of ``unavailable``. The
+    no-argument path is cached per process so a later ``hermes plugins
+    update`` cannot retroactively re-stamp receipts produced by older code.
+    """
+    if repo_dir is None:
+        # Imported lazily: receipt_history builds on this module at import time.
+        from .receipt_history import process_source_sha
+
+        source_sha = process_source_sha()
+    else:
+        from .receipt_history import resolve_receipt_source_sha
+
+        source_sha = resolve_receipt_source_sha(repo_dir)
     return {
         "plugin": PLUGIN_NAME,
         "version": resolve_plugin_version(repo_dir),
-        "source_sha": resolve_source_sha(repo_dir),
+        "source_sha": source_sha,
     }
 
 

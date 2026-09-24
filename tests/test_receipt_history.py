@@ -422,6 +422,25 @@ class GitSourceShaTests(unittest.TestCase):
         with mock.patch.object(receipt_state, "resolve_source_sha", return_value=SHA_B):
             self.assertEqual(rh.resolve_receipt_source_sha(self.root), SHA_B)
 
+    def test_plugin_identity_prefers_manifest_then_git(self):
+        (self.git / "HEAD").write_text("ref: refs/heads/main\n")
+        (self.git / "refs" / "heads" / "main").write_text(SHA_A + "\n")
+        self.assertEqual(receipt_state.plugin_identity(self.root)["source_sha"], SHA_A)
+        (self.root / "SOURCE-MANIFEST.json").write_text(
+            json.dumps(
+                {
+                    "files": [],
+                    "format": 1,
+                    "manifest_version": 1,
+                    "plugin": "hermes-switchyard",
+                    "source_sha": SHA_B,
+                    "version": "0.5.3",
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.assertEqual(receipt_state.plugin_identity(self.root)["source_sha"], SHA_B)
+
     def test_matches_real_checkout(self):
         repo = Path(rh.__file__).resolve().parent.parent
         if not (repo / ".git").exists() or shutil.which("git") is None:

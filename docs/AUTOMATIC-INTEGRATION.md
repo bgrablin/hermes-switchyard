@@ -95,18 +95,25 @@ When present, the host must forward only a typed envelope; the plugin still enfo
 
 Every automatic recommendation ends by creating one typed receipt. The terminal state is one of `local_selection`, `hosted_selection`, `hosted_abstention`, `hosted_failure`, `hosted_failure_local_fallback`, `hosted_skipped`, or `cache_hit`. A cache-hit receipt reports no hosted attempt, request, latency, usage, or request ID for that attempt; the selected source remains the origin of the cached result.
 
+Every finished turn also appends one record to `receipt-history.jsonl`, the bounded per-turn history next to the latest-receipt file in the profile plugin-data directory. Each record holds the canonical receipt plus `session_id`, `turn_id`, `platform`, and a UTC `recorded_at` timestamp. Task text, conversation history, candidate descriptions, and provider text are never stored. The file is append-only JSONL bounded to the last 500 records and 1 MiB; each append rewrites the retained tail atomically under a bounded-wait lock with private permissions.
+
 The supported operator diagnostic commands are:
 
 ```text
 hermes switchyard status --json
 hermes switchyard receipt --json
+hermes switchyard receipt --session <id>
+hermes switchyard receipt --last <n>
+hermes switchyard stats [--since 24h]
 ```
 
 `status` is local and network-free. After the plugin registers in a fresh process, it reports the effective `routing_mode`, `consumer_mode`, standing acknowledgement, `automatic_skill_jev_mode`, and `hosted_construction_allowed`. Credential presence remains a separate readiness field. It also reports `plugin_version` and a `tool_exposure` object that separates whether Hermes holds this plugin's registration for each tool from whether the tool is in the callable catalog for a session; see [Confirm what a session exposes](SETUP.md#confirm-what-a-session-exposes). A process started before a config change can retain the previous hook and values.
 
-`receipt` prints the latest receipt retained by the plugin. The receipt contains stable source, selection, attempt, error/skip, model, request, latency, usage, candidate-count, and shortlist-policy fields. In load mode it also records `consumer_status`, `loaded_skill`, `loaded_source`, and `skill_load_verified`. `consumer_status` may be `loaded`, `load_failed`, `explicit_override`, or `mandatory_conflict`. `verified` remains `false`: the receipt does not prove recommendation correctness, a model change, or GUI completion. If no attempt has produced a receipt, the command prints a structured `no_receipt` diagnostic and exits non-zero.
+`receipt` prints the latest receipt retained by the plugin. The receipt contains stable source, selection, attempt, error/skip, model, request, latency, usage, candidate-count, and shortlist-policy fields. In load mode it also records `consumer_status`, `loaded_skill`, `loaded_source`, and `skill_load_verified`. `consumer_status` may be `loaded`, `load_failed`, `explicit_override`, or `mandatory_conflict`. `verified` remains `false`: the receipt does not prove recommendation correctness, a model change, or GUI completion. If no attempt has produced a receipt, the command prints a structured `no_receipt` diagnostic and exits non-zero. `receipt --session <id>` prints the retained history records for one session and `receipt --last <n>` the newest n records; the two combine, and an empty lookup prints a structured `no_matching_receipts` or `no_receipt_history` diagnostic and exits non-zero.
 
-Receipts include the plugin version and an exact source SHA when a validated `SOURCE-MANIFEST.json` is present, such as in a release archive. Source checkouts without that release manifest use the explicit `unavailable` value rather than guessing from Git state. Task text, candidate descriptions, conversation history, credentials, local paths, and provider exception text are not serialized.
+`stats` summarizes the retained history: turns, sessions, selection / no-selection / abstention counts and rates, hosted attempts, successes, and failures broken down by sub-code, hosted skip reasons, skill load rate, p50/p95 turn latency, request counts and requests per turn, and known cost per turn and in total. `--since` accepts a window such as `30m`, `24h`, `7d`, or `2w`. Cost totals include only turns whose cost is known; the unknown-cost turn count is reported alongside so a partial total is never presented as complete.
+
+Receipts include the plugin version and an exact source SHA. A validated `SOURCE-MANIFEST.json`, such as in a release archive, takes precedence. Without a manifest, the checked-out git commit is read directly from `.git/HEAD` and its loose or packed ref with no subprocess (linked worktrees included), so git installs report an exact SHA. Sources that resolve neither way use the explicit `unavailable` value. Task text, candidate descriptions, conversation history, credentials, local paths, and provider exception text are not serialized.
 
 ## Configuration
 
@@ -221,6 +228,7 @@ Denied, unknown, malformed, or restricted envelopes still fail closed. A hosted 
 - `hermes_switchyard/automatic.py` — profile-scoped registry discovery, local ranking, routing modes, policy gating, redacted metadata, cache, receipts, and hook callback
 - `hermes_switchyard/egress.py` — standalone versioned per-turn envelope contract and fail-closed evaluator
 - `hermes_switchyard/receipt_state.py` — source identity, receipt contract validation, and plugin-owned diagnostic state
+- `hermes_switchyard/receipt_history.py` — bounded per-turn receipt history, routing statistics, and git source SHA resolution
 - `hermes_switchyard/__init__.py` — plugin settings and `ctx.register_hook("pre_llm_call", ...)`
 - `plugin.yaml` — manifest hook declaration and configuration defaults
 - Hermes `tools/skills_tool.py` — public profile-scoped `skills_list()` response used for catalog discovery

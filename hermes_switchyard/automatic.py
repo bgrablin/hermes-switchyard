@@ -38,7 +38,7 @@ from collections import OrderedDict
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from . import receipt_state
+from . import receipt_history, receipt_state
 from .client import (
     DEFAULT_AUTOMATIC_ROUTING_DEADLINE_SECONDS,
     DeadlineExceeded,
@@ -1435,8 +1435,15 @@ def build_pre_llm_call_hook(
         egress_policy: Any = None,
         session_id: Any = None,
         turn_id: Any = None,
+        platform: Any = None,
         **_: Any,
     ) -> dict[str, Any] | None:
+        def record_history(receipt: dict[str, Any]) -> None:
+            """Retain one sanitized turn record in the bounded history."""
+            receipt_history.record_turn_receipt(
+                receipt, session_id=session_id, turn_id=turn_id, platform=platform
+            )
+
         turn_key = (
             (str(session_id), str(turn_id))
             if isinstance(session_id, str) and session_id and isinstance(turn_id, str) and turn_id
@@ -1499,6 +1506,7 @@ def build_pre_llm_call_hook(
                 )
             recommender.last_receipt = receipt
             persist_failed = not _persist_receipt(receipt)
+            record_history(receipt)
             metadata = redacted_routing_metadata(result)
             _mark_persist_failure(metadata, persist_failed)
             metadata["skill_recommendation"] = {
@@ -1548,6 +1556,7 @@ def build_pre_llm_call_hook(
             receipt = _attach_consumption_contract(dict(recommender.last_receipt or {}), contract)
             recommender.last_receipt = receipt
             persist_failed = not _persist_receipt(receipt)
+            record_history(receipt)
             _mark_persist_failure(metadata, persist_failed)
             setattr(on_pre_llm_call, "last_receipt", dict(receipt))
             metadata["skill_recommendation"] = {
@@ -1566,6 +1575,7 @@ def build_pre_llm_call_hook(
             receipt = _attach_consumption_contract(dict(recommender.last_receipt or {}), contract)
             recommender.last_receipt = receipt
             persist_failed = not _persist_receipt(receipt)
+            record_history(receipt)
             _mark_persist_failure(metadata, persist_failed)
             setattr(on_pre_llm_call, "last_receipt", dict(receipt))
             metadata["skill_recommendation"] = {
@@ -1623,6 +1633,7 @@ def build_pre_llm_call_hook(
             receipt = _attach_consumption_contract(receipt, contract)
             recommender.last_receipt = receipt
             persist_failed = not _persist_receipt(receipt)
+            record_history(receipt)
             _mark_persist_failure(metadata, persist_failed)
             setattr(on_pre_llm_call, "last_receipt", dict(receipt))
             # Receipt must match observable delivery: skipped/suppressed
