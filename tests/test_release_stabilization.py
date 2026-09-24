@@ -4,6 +4,9 @@ from __future__ import annotations
 import io
 import json
 import math
+import os
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -684,6 +687,29 @@ class NamespaceAndAckTests(unittest.TestCase):
         self.assertIn("hermes switchyard", readme)
         self.assertNotIn("hermes jev-decision", readme)
 
+    def test_canonical_scan_checks_tracked_files_but_not_ignored_results(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            forbidden = "jev" + "_decision"
+            (root / "plugin.yaml").write_text("version: 0.5.3\n", encoding="utf-8")
+            (root / "README.md").write_text("hermes switchyard\n", encoding="utf-8")
+            skill = root / "hermes_switchyard/skills/hermes-switchyard-operations/SKILL.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text("fixture skill\n", encoding="utf-8")
+            tracked = root / "scan-check.txt"
+            tracked.write_text(forbidden + "\n", encoding="utf-8")
+            (root / ".gitignore").write_text("evaluation/*results*.json\n", encoding="utf-8")
+            subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+            subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+            ignored = root / "evaluation/results.json"
+            ignored.parent.mkdir()
+            ignored.write_text(forbidden + "\n", encoding="utf-8")
+            with mock.patch(f"{__name__}.__file__", str(root / "tests/test_release_stabilization.py")):
+                with self.assertRaises(AssertionError):
+                    self.test_release_is_canonical_only()
+                tracked.write_text("canonical text\n", encoding="utf-8")
+                self.test_release_is_canonical_only()
+
     def test_release_is_canonical_only(self):
         root = Path(__file__).resolve().parent.parent
         forbidden = "jev" + "_decision"
@@ -692,8 +718,15 @@ class NamespaceAndAckTests(unittest.TestCase):
         self.assertTrue(
             (root / "hermes_switchyard/skills/hermes-switchyard-operations/SKILL.md").is_file()
         )
-        for path in root.rglob("*"):
-            if ".git" in path.parts or not path.is_file():
+        tracked = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"],
+            check=True,
+            stdout=subprocess.PIPE,
+        ).stdout
+        paths = set(RELEASE_FILES) | {os.fsdecode(entry) for entry in tracked.split(b"\0") if entry}
+        for relative in sorted(paths):
+            path = root / relative
+            if not path.is_file():
                 continue
             self.assertNotIn(forbidden, path.as_posix())
             try:
