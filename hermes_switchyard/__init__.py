@@ -23,7 +23,7 @@ from .client import (
     PartialAccountingError,
     request_budget_scope,
 )
-from . import browser_use
+from . import browser_use, legacy_cleanup
 from .computer_use import StaleTargetError, run_computer_goal
 from .egress import (
     DEFAULT_AUTOMATIC_PUBLIC_OR_SANITIZED_DATA_ACK,
@@ -1013,6 +1013,11 @@ def _cli_handler(args):
             "tool_exposure": exposure,
             "toolset_composition": _toolset_composition(),
         }
+        try:
+            legacy_warnings = legacy_cleanup.status_warnings()
+        except Exception:  # noqa: BLE001 -- keep the rest of local status available
+            legacy_warnings = ["Legacy artifact scan unavailable (local check failed)."]
+        payload["legacy_warnings"] = legacy_warnings
         browser_diagnostic = None
         if getattr(args, "browser", False) is True:
             # Opt-in: launches one headless browser on about:blank, checks its
@@ -1052,7 +1057,18 @@ def _cli_handler(args):
         if browser_diagnostic is not None:
             for line in _browser_status_lines(browser_diagnostic):
                 print(line)
+        for line in legacy_warnings:
+            print(line)
         return 0
+    if command == "cleanup":
+        try:
+            result = legacy_cleanup.cleanup_legacy_artifacts(apply=getattr(args, "apply", False) is True)
+        except Exception:  # noqa: BLE001 -- never expose raw config or filesystem errors
+            print("Legacy cleanup failed before a report could be prepared.")
+            return 1
+        for line in legacy_cleanup.format_cleanup_report(result):
+            print(line)
+        return 0 if result["status"] in {"clean", "planned", "applied"} else 1
     if command == "guide":
         print(_after_install_text())
         return 0
@@ -1157,7 +1173,7 @@ def _cli_handler(args):
     if command != "setup":
 
         print(
-            "Usage: hermes switchyard <status|guide|setup|ensure-toolsets|receipt|test> "
+            "Usage: hermes switchyard <status|cleanup|guide|setup|ensure-toolsets|receipt|test> "
             "[--provider ...|--json]"
         )
         return 2
@@ -1224,6 +1240,8 @@ def _setup_cli(parser):
             "and report the redacted startup diagnostic (no network access)"
         ),
     )
+    cleanup = commands.add_parser("cleanup", help="Review or archive exact legacy jev-decision artifacts")
+    cleanup.add_argument("--apply", action="store_true", help="Back up and archive the planned artifacts")
     ensure = commands.add_parser(
         "ensure-toolsets",
         help=(

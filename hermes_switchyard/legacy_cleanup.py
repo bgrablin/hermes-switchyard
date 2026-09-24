@@ -588,8 +588,13 @@ def cleanup_legacy_artifacts(
             item.status, item.reason = STATUS_FAILED, exc.reason
         except Exception:  # noqa: BLE001 -- config writer and filesystem faults fail closed
             item.status, item.reason = STATUS_FAILED, "apply_failed"
-    _write_manifest(home, archive, items, now)
-    result["status"] = _overall(items, apply)
+    try:
+        _write_manifest(home, archive, items, now)
+    except Exception:  # noqa: BLE001 -- report completed moves even if the manifest write fails
+        result["manifest_status"] = "failed"
+        result["status"] = "failed"
+    else:
+        result["status"] = _overall(items, apply)
     result["actions"] = [item.public() for item in items]
     return result
 
@@ -646,6 +651,8 @@ def format_cleanup_report(result: dict[str, Any]) -> list[str]:
     lines = [f"Legacy jev-decision cleanup ({heading}): {result['status']}"]
     if result.get("archive"):
         lines.append(f"Archive: {result['archive']}")
+    if result.get("manifest_status") == "failed":
+        lines.append("Archive manifest could not be written; inspect the archive before restoring files.")
     lines.extend(_line(action, " ") for action in result["actions"])
     if not result["actions"]:
         lines.append("  No legacy jev-decision artifacts found.")
