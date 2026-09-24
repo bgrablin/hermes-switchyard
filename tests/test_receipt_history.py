@@ -215,6 +215,37 @@ class HistoryStorageTests(_Isolated):
         self.assertNotIn("SYNTHETIC_TASK_MARKER", text)
         self.assertEqual(len(text.splitlines()), 2)
 
+    def test_deeply_nested_invalid_line_does_not_block_reads_or_repair(self):
+        self.assertTrue(self.append(_receipt(), session_id="s", turn_id="t1"))
+        nested = "[" * 1200 + "0" + "]" * 1200
+        with open(self.path, "a", encoding="ascii") as handle:
+            handle.write(nested + "\n")
+        self.assertEqual([r["turn_id"] for r in rh.read_history(data_dir=self.data)], ["t1"])
+        self.assertTrue(self.append(_receipt(), session_id="s", turn_id="t2"))
+        self.assertNotIn(nested, self.path.read_text(encoding="ascii"))
+        self.assertEqual([r["turn_id"] for r in rh.read_history(data_dir=self.data)], ["t1", "t2"])
+
+    def test_ordinary_appends_do_not_rewrite_or_fsync_the_retained_tail(self):
+        self.assertTrue(self.append(_receipt(), session_id="s", turn_id="t0", max_records=100))
+        with mock.patch.object(rh, "_write_lines", side_effect=AssertionError("unexpected compaction")), mock.patch.object(
+            rh.os, "fsync", side_effect=AssertionError("unexpected per-turn fsync")
+        ):
+            for index in range(1, 8):
+                self.assertTrue(self.append(_receipt(), session_id="s", turn_id=f"t{index}", max_records=100))
+        self.assertEqual(len(rh.read_history(data_dir=self.data)), 8)
+
+    @unittest.skipIf(os.name == "nt", "symlink privileges vary on Windows")
+    def test_append_rejects_a_symlinked_history_path(self):
+        self.assertTrue(self.append(_receipt(), session_id="s", turn_id="t0"))
+        outside = Path(self._tmp.name) / "outside.jsonl"
+        original = self.path.read_bytes()
+        outside.write_bytes(original)
+        self.path.unlink()
+        self.path.symlink_to(outside)
+        self.assertFalse(self.append(_receipt(), session_id="s", turn_id="t1"))
+        self.assertEqual(rh.read_history(data_dir=self.data), [])
+        self.assertEqual(outside.read_bytes(), original)
+
     @unittest.skipIf(os.name == "nt", "POSIX mode bits")
     def test_private_permissions_and_no_temp_leftovers(self):
         self.append(_receipt(), session_id="s", turn_id="t")
@@ -333,6 +364,14 @@ class StatsTests(_Isolated):
         self.assertEqual(stats["cost_unknown_turns"], 2)
         self.assertAlmostEqual(stats["cost_per_turn_known"], 0.00075)
         json.dumps(stats, allow_nan=False)
+
+    def test_failure_stats_prefer_closed_set_subcode_with_legacy_fallback(self):
+        detailed = _hosted_failure("transport_or_execution_failure")
+        detailed["hosted_error_detail"] = "http_429"
+        self.assertTrue(self.append(detailed, session_id="s", turn_id="t1"))
+        self.assertTrue(self.append(_hosted_failure("deadline_exceeded"), session_id="s", turn_id="t2"))
+        stats = rh.routing_stats(data_dir=self.data)
+        self.assertEqual(stats["hosted_failures_by_code"], {"http_429": 1, "deadline_exceeded": 1})
 
     def test_stats_session_filter(self):
         self.append(_hosted_selection(), session_id="a", turn_id="1")

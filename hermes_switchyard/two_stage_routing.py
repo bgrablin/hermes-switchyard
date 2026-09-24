@@ -151,7 +151,7 @@ _NEEDS_SKILL_QUESTION = {
 
 @dataclass(frozen=True)
 class TwoStageConfig:
-    """Validated two-stage settings. Invalid input falls back to safe defaults."""
+    """Validated settings. Invalid platform overrides fail closed."""
 
     enabled: bool = True
     platform_policy: str = PLATFORM_POLICY_INTERACTIVE
@@ -221,7 +221,9 @@ def _normalize_platform(value: Any) -> str:
 
 
 def _parse_platforms(value: Any) -> tuple[str, frozenset[str]]:
-    if value is None or value == PLATFORM_POLICY_INTERACTIVE:
+    # The manifest uses [] for the default interactive policy. Any non-empty
+    # override that cannot be parsed must not silently expand that policy.
+    if value is None or value == PLATFORM_POLICY_INTERACTIVE or (type(value) is list and not value):
         return PLATFORM_POLICY_INTERACTIVE, frozenset()
     if value == PLATFORM_POLICY_ALL:
         return PLATFORM_POLICY_ALL, frozenset()
@@ -229,11 +231,9 @@ def _parse_platforms(value: Any) -> tuple[str, frozenset[str]]:
         names = frozenset(_normalize_platform(item) for item in value) - {_UNKNOWN_PLATFORM}
         if names == {PLATFORM_POLICY_ALL}:
             return PLATFORM_POLICY_ALL, frozenset()
-        if PLATFORM_POLICY_ALL in names:
-            return PLATFORM_POLICY_INTERACTIVE, frozenset()
-        if names:
+        if PLATFORM_POLICY_ALL not in names and names:
             return "allowlist", names
-    return PLATFORM_POLICY_INTERACTIVE, frozenset()
+    return "allowlist", frozenset()
 
 
 def detect_kanban_worker(environ: Mapping[str, str]) -> bool:

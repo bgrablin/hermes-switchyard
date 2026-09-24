@@ -137,10 +137,17 @@ class PlatformGateTests(unittest.TestCase):
         with_kanban = TwoStageConfig.from_mapping({"automatic_skill_platforms": ["cli", "kanban"]})
         self.assertTrue(platform_decision("cli", with_kanban, kanban_worker=True)[0])
 
-    def test_invalid_platform_config_falls_back_to_interactive_default(self):
-        for raw in ([], [1], "sometimes", {"cli": True}, [""]):
+    def test_empty_platform_default_remains_interactive(self):
+        config = TwoStageConfig.from_mapping({"automatic_skill_platforms": []})
+        self.assertTrue(platform_decision("cli", config)[0])
+        self.assertFalse(platform_decision("cron", config)[0])
+
+    def test_explicit_invalid_platforms_do_not_enable_interactive_routing(self):
+        for raw in ([1], "sometimes", {"cli": True}, [""], ["all", "cli"]):
             config = TwoStageConfig.from_mapping({"automatic_skill_platforms": raw})
-            self.assertEqual(config.platform_policy, TwoStageConfig().platform_policy, raw)
+            self.assertEqual(config.platform_policy, "allowlist", raw)
+            self.assertFalse(platform_decision("cli", config)[0], raw)
+            self.assertFalse(platform_decision("cron", config)[0], raw)
 
 
 class ConfigTests(unittest.TestCase):
