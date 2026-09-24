@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Retry a hosted Jev request once on a new connection when a reused keep-alive connection was closed by the server while idle (`RemoteDisconnected`, connection reset or abort, broken pipe before any response byte). Replace a pooled connection that has been idle for more than 120 seconds before reuse. Timeouts, failures on a new connection, and failures after a response starts are not retried. Refs #92.
+
 ## 0.5.3
 
 - Keep adaptive reasoning effort on the Codex Responses wire as `reasoning.effort`; never forward the internal `reasoning.enabled` flag. The fix selects the wire shape by provider/API mode, not by model version, and covers existing and future model IDs. Corrects the HTTP 400 that affected the default-on middleware in 0.5.2.
