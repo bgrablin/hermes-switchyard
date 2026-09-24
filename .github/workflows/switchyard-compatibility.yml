@@ -177,6 +177,16 @@ jobs:
           set -euo pipefail
           UV_NO_CONFIG=1 uvx --from ruff==0.11.13 ruff check .
 
+      - name: Populate the required Hermes job with an installed skill
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          skill_dir="$HERMES_HOME/skills/devops/docker-management"
+          mkdir -p "$skill_dir"
+          cp evaluation/automatic_e2e/fixtures/skills/devops/docker-management/SKILL.md "$skill_dir/SKILL.md"
+          test -s "$skill_dir/SKILL.md"
+
       - name: Run offline plugin checks
         shell: bash
         run: |

@@ -23,6 +23,7 @@ from hermes_switchyard.automatic import (
 )
 from hermes_switchyard.client import DecisionClient
 from hermes_switchyard.egress import evaluate_turn_egress_policy
+from test_support import HermesHomeTestCase
 
 
 class _Context:
@@ -47,7 +48,7 @@ class _Context:
         pass
 
 
-class AutomaticRecommendationTests(unittest.TestCase):
+class AutomaticRecommendationTests(HermesHomeTestCase):
     def test_recommender_defaults_to_hosted_sanitized(self):
         calls = []
 
@@ -138,11 +139,18 @@ class AutomaticRecommendationTests(unittest.TestCase):
 
         context = _Context({
             "automatic_skill_routing_mode": "local_only",
+            "automatic_skill_consumer_mode": "advisory",
             "automatic_skill_candidates": [
                 {"name": "docker-management", "description": "Manage Docker containers and Compose services."},
                 {"name": "network-printer-operations", "description": "Operate network printers and scanners."},
             ]
         })
+        loader_guard = mock.patch.object(
+            hermes_switchyard, "_load_skill_context",
+            side_effect=AssertionError("the lifecycle fixture must not load operator skills"),
+        )
+        loader_guard.start()
+        self.addCleanup(loader_guard.stop)
         with mock.patch.object(hermes_switchyard, "_secret", side_effect=AssertionError("hosted path must stay off")):
             hermes_switchyard.register(context)
         hook = context.hooks["pre_llm_call"]
@@ -266,7 +274,10 @@ class AutomaticRecommendationTests(unittest.TestCase):
             "name": "docker-management",
             "content": "NORMAL SKILL LOADER CONTENT",
         })
-        with mock.patch.object(self._skills_api(), "skill_view", return_value=payload) as loader:
+        with (
+            mock.patch.object(hermes_switchyard, "_load_skill_context", self._real_skill_loader),
+            mock.patch.object(self._skills_api(), "skill_view", return_value=payload) as loader,
+        ):
             hermes_switchyard.register(context)
             result = context.hooks["pre_llm_call"](
                 user_message="Diagnose a Docker container",

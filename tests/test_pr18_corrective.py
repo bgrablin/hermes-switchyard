@@ -21,6 +21,7 @@ from hermes_switchyard.automatic import (
 from hermes_switchyard.client import DecisionClient, PartialAccountingError
 from hermes_switchyard.computer_use import run_computer_goal
 from hermes_switchyard.routing import select_skills
+from test_support import HermesHomeTestCase
 
 
 # ------------------------------------------------------------------ helpers
@@ -120,7 +121,7 @@ class _EgressLike:
 
 # ================================================================= F1 receipt
 
-class F1ConsumerReceiptTests(unittest.TestCase):
+class F1ConsumerReceiptTests(HermesHomeTestCase):
     def test_consumer_receipt_survives_disk_round_trip(self):
         with tempfile.TemporaryDirectory() as directory:
             with mock.patch.dict(os.environ, {"HERMES_HOME": directory}, clear=False):

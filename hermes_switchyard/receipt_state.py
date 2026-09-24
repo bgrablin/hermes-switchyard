@@ -532,6 +532,31 @@ def store_latest_receipt(receipt: dict[str, Any]) -> bool:
     return stored
 
 
+def _retire_legacy_receipt(legacy_path: Path, current_path: Path, expected: dict[str, Any] | None = None) -> None:
+    """Remove only a regular legacy record after a valid new-file readback."""
+    try:
+        previous = legacy_path.lstat()
+        if not stat.S_ISREG(previous.st_mode):
+            return  # never unlink a symlink or directory
+        if not stat.S_ISREG(current_path.lstat().st_mode):
+            return  # a symlink is not a verified profile-owned migration target
+        current = canonicalize_receipt(json.loads(current_path.read_text(encoding="utf-8")))
+        if current is None or (expected is not None and current != expected):
+            return
+        legacy = canonicalize_receipt(json.loads(legacy_path.read_text(encoding="utf-8")))
+        if legacy != current:
+            return  # a distinct or invalid legacy record was not migrated
+        now = legacy_path.lstat()
+        def identity(item):
+            return (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns)
+
+        if stat.S_ISREG(now.st_mode) and identity(now) == identity(previous):
+            legacy_path.unlink()
+    except (OSError, TypeError, ValueError):
+        # A failed cleanup must not discard the valid profile-owned record.
+        return
+
+
 def read_latest_receipt() -> dict[str, Any] | None:
     """Read the profile-owned receipt and migrate one valid legacy record."""
     path = _receipt_state_file()
@@ -546,6 +571,9 @@ def read_latest_receipt() -> dict[str, Any] | None:
             record = None
         canonical = canonicalize_receipt(record)
         if canonical is not None:
+            legacy_path = _legacy_receipt_state_file()
+            if legacy_path is not None:
+                _retire_legacy_receipt(legacy_path, path, canonical)
             return canonical
 
     legacy_path = _legacy_receipt_state_file()
@@ -554,18 +582,24 @@ def read_latest_receipt() -> dict[str, Any] | None:
     try:
         record = json.loads(legacy_path.read_text(encoding="utf-8"))
     except (OSError, TypeError, ValueError):
+        # Another reader may have migrated and retired the legacy file after
+        # our first new-file check. Return its verified profile-owned record.
+        if path is not None:
+            try:
+                return canonicalize_receipt(json.loads(path.read_text(encoding="utf-8")))
+            except (OSError, TypeError, ValueError):
+                pass
         return None
     canonical = canonicalize_receipt(record)
     if canonical is None:
         return None
 
-    # Do not replace an unrelated or malformed new file. A successful first
-    # read creates the new profile-owned copy; the legacy file remains intact
-    # as a rollback aid and is no longer consulted on later reads. The
-    # publication is atomically non-clobbering: a destination created
-    # concurrently after the existence check wins and is never overwritten.
+    # Never replace an unrelated or malformed new file. Publish with atomic
+    # no-clobber semantics; delete the regular legacy artifact only after the
+    # new profile-owned record is read back and matches this migration.
     if path is not None and not path.exists():
-        _write_canonical_receipt(path, canonical, no_clobber=True)
+        if _write_canonical_receipt(path, canonical, no_clobber=True):
+            _retire_legacy_receipt(legacy_path, path, canonical)
     return canonical
 
 
