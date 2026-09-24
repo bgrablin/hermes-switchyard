@@ -83,7 +83,7 @@ def run_installed(plugin: Path, source_sha: str, tree: str, provider: str, secre
     if not scope.get(key_name):
         raise ReplayError(f"approved profile scope has no {key_name}")
     set_multiplex_active(True)
-    token = set_secret_scope(scope, profile_home=str(secret_home))
+    token = set_secret_scope(scope)
     try:
         if not get_secret(key_name):
             raise ReplayError("native scoped secret resolution failed")

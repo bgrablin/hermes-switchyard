@@ -1171,7 +1171,7 @@ class ReasoningEffortController:
                     api_mode=api_mode,
                     allowed_efforts=self.allowed_efforts,
                 )
-                if level != "none"
+                if level not in {"none", "ultra"}
             ]
             requested_wire = clamp_effort_for_provider(
                 requested, provider=provider, model=model, api_mode=api_mode
