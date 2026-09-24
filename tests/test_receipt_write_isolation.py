@@ -154,7 +154,10 @@ class ReceiptWriteIsolationTests(unittest.TestCase):
     def _make_stale(self, *paths: Path) -> None:
         old = time.time() - 2 * receipt_state.STALE_TEMPORARY_SECONDS
         for path in paths:
-            os.utime(path, (old, old), follow_symlinks=False)
+            if path.is_symlink():
+                os.utime(path, (old, old), follow_symlinks=False)
+            else:
+                os.utime(path, (old, old))
 
     def test_stale_matching_name_symlinks_and_directories_are_never_removed(self):
         self.data_dir.mkdir(parents=True, exist_ok=True)
