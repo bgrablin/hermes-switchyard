@@ -290,8 +290,77 @@ class BrowserStartupTests(unittest.TestCase):
         self.assertIn("--disable-quic", argv)
         self._assert_profiles_removed()
 
+    def test_port_allocation_failure_closes_pinning_proxy_and_profile(self):
+        candidate = self._script("chromium", _EXIT_CODE)
+        proxy = mock.Mock()
+        proxy.start.return_value = 31234
+        with (
+            self._discovery(_Candidate(candidate, "chromium", "none", "discovered")),
+            mock.patch.object(destination_policy, "default_resolver", return_value=[PUBLIC]),
+            mock.patch.object(browser_use, "ValidatingProxy", return_value=proxy),
+            mock.patch.object(browser_use, "_free_localhost_port", side_effect=OSError("port unavailable")),
+        ):
+            with self.assertRaisesRegex(OSError, "port unavailable"):
+                browser_use.ChromiumSession("https://example.org/")
+        proxy.stop.assert_called_once()
+        self._assert_profiles_removed()
+
+    def test_log_open_failure_closes_pinning_proxy_and_profile(self):
+        candidate = self._script("chromium", _EXIT_CODE)
+        proxy = mock.Mock()
+        proxy.start.return_value = 31234
+        with (
+            self._discovery(_Candidate(candidate, "chromium", "none", "discovered")),
+            mock.patch.object(destination_policy, "default_resolver", return_value=[PUBLIC]),
+            mock.patch.object(browser_use, "ValidatingProxy", return_value=proxy),
+            mock.patch.object(browser_use, "open", create=True, side_effect=OSError("log unavailable")),
+        ):
+            with self.assertRaisesRegex(OSError, "log unavailable"):
+                browser_use.ChromiumSession("https://example.org/")
+        proxy.stop.assert_called_once()
+        self._assert_profiles_removed()
+
+    def test_profile_creation_failure_closes_pinning_proxy(self):
+        candidate = self._script("chromium", _EXIT_CODE)
+        proxy = mock.Mock()
+        proxy.start.return_value = 31234
+        with (
+            self._discovery(_Candidate(candidate, "chromium", "none", "discovered")),
+            mock.patch.object(destination_policy, "default_resolver", return_value=[PUBLIC]),
+            mock.patch.object(browser_use, "ValidatingProxy", return_value=proxy),
+            mock.patch.object(browser_use, "_browser_profile_dir", side_effect=OSError("profile unavailable")),
+        ):
+            with self.assertRaisesRegex(OSError, "profile unavailable"):
+                browser_use.ChromiumSession("https://example.org/")
+        proxy.stop.assert_called_once()
+        self._assert_profiles_removed()
+
 
 class DiscoveryOrderTests(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "creating symlinks requires elevated Windows privileges")
+    def test_executable_aliases_share_one_fallback_slot(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            chrome = root / "google-chrome-stable"
+            chrome.write_bytes(b"\x7fELF\x00binary")
+            chrome.chmod(0o755)
+            alias = root / "google-chrome"
+            alias.symlink_to(chrome)
+            edge = root / "msedge"
+            edge.write_bytes(b"\x7fELF\x00binary")
+            edge.chmod(0o755)
+            located = {"google-chrome-stable": chrome, "google-chrome": alias, "msedge": edge}
+            with (
+                mock.patch.object(browser_use.shutil, "which", side_effect=lambda n: str(located[n]) if n in located else None),
+                mock.patch.object(browser_use, "_playwright_candidates", return_value=[]),
+                mock.patch.object(browser_use, "_browser_binary", return_value=chrome),
+                mock.patch.object(browser_use, "_browser_binary_details", return_value=(chrome, "chrome", "none")),
+            ):
+                discovered = browser_use._discovered_candidates()
+                plan = browser_use._startup_plan(str(alias))
+        self.assertEqual([candidate.path for candidate in discovered], [chrome, edge])
+        self.assertEqual([candidate.path for candidate in plan], [alias, edge])
+
     def test_order_is_chrome_chromium_edge_playwright_then_snap(self):
         with tempfile.TemporaryDirectory() as raw:
             base = Path(raw)

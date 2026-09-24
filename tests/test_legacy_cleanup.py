@@ -126,7 +126,7 @@ class LegacyCleanupTests(unittest.TestCase):
         self.assertNotIn(str(self.home), output)
 
     def test_cli_cleanup_dry_run_then_apply_archives_exact_targets(self):
-        self.write_config()
+        self.write_config(CONFIG.replace("# operator comment survives\n", ""))
         skill = self.make_skill()
         code, output = self.run_cli("cleanup")
         self.assertEqual(code, 0)
@@ -221,7 +221,7 @@ class LegacyCleanupTests(unittest.TestCase):
     # -- apply ---------------------------------------------------------------
 
     def test_apply_archives_exact_targets_with_backup_and_manifest(self):
-        config = self.write_config()
+        config = self.write_config(CONFIG.replace("# operator comment survives\n", ""))
         original = config.read_text(encoding="utf-8")
         skill = self.make_skill()
         temp_a = self.make_temp(self.install_tree())
@@ -235,11 +235,10 @@ class LegacyCleanupTests(unittest.TestCase):
         self.assertEqual(result["status"], "applied", result)
         archive = self.home / result["archive"].removeprefix("$HERMES_HOME/")
         self.assertEqual(stat.S_IMODE(archive.stat().st_mode), 0o700)
-        # Config: only the exact legacy entries are removed; comments and the rest survive.
+        # Config: only exact legacy entries are removed; unrelated values survive.
         self.assertEqual(
             self.enabled(), ["hermes-switchyard", "Jev-Decision", " jev-decision", "jev-decision-extra"]
         )
-        self.assertIn("# operator comment survives", config.read_text(encoding="utf-8"))
         self.assertEqual(stat.S_IMODE(config.stat().st_mode), 0o600)
         self.assertEqual(stat.S_IMODE((archive / "config" / "config.yaml").stat().st_mode), 0o600)
         self.assertEqual((archive / "config" / "config.yaml").read_text(encoding="utf-8"), original)
@@ -260,6 +259,38 @@ class LegacyCleanupTests(unittest.TestCase):
         again = lc.cleanup_legacy_artifacts(self.home, apply=True, now=self.now)
         self.assertIsNone(again["archive"])
         self.assertNotIn("planned", {a["status"] for a in again["actions"]})
+
+    def test_apply_preserves_comments_or_refuses_without_rewriting_config(self):
+        config = self.write_config()
+        original = config.read_bytes()
+        result = lc.cleanup_legacy_artifacts(self.home, apply=True, now=self.now)
+        [cfg] = self.by_kind(result, lc.KIND_CONFIG)
+        if cfg["status"] == "applied":
+            self.assertIn("# operator comment survives", config.read_text(encoding="utf-8"))
+            self.assertNotIn("jev-decision", self.enabled())
+        else:
+            self.assertEqual((cfg["status"], cfg["reason"]), ("refused", "config_writer_drops_comments"))
+            self.assertEqual(config.read_bytes(), original)
+
+    def test_apply_refuses_a_writer_that_would_erase_comments(self):
+        config = self.write_config()
+        original = config.read_bytes()
+        helpers = lc._config_helpers()
+        writer = helpers.atomic_config_write
+
+        def stripping_writer(path, data):
+            if path == config:
+                self.fail("the real config must not be rewritten by this writer")
+            writer(path, data)
+            path.write_text(path.read_text(encoding="utf-8").replace("# operator comment survives\n", ""), encoding="utf-8")
+
+        with mock.patch.object(helpers, "atomic_config_write", side_effect=stripping_writer):
+            result = lc.cleanup_legacy_artifacts(self.home, apply=True, now=self.now)
+        [cfg] = self.by_kind(result, lc.KIND_CONFIG)
+        self.assertEqual((cfg["status"], cfg["reason"]), ("refused", "config_writer_drops_comments"))
+        self.assertEqual(config.read_bytes(), original)
+        backup = self.home / result["archive"].removeprefix("$HERMES_HOME/") / "config" / "config.yaml"
+        self.assertEqual(backup.read_bytes(), original)
 
     def test_apply_refuses_a_home_other_than_the_active_one(self):
         self.make_skill()
