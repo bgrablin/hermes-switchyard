@@ -18,6 +18,7 @@ from .client import (
     MAX_QUESTIONS_PER_REQUEST,
     MAX_REQUEST_BYTES,
     PartialAccountingError,
+    merge_transport_retries,
     operation_remaining_deadline,
     request_budget_scope,
 )
@@ -147,7 +148,7 @@ def _decision_metadata(result: Any) -> dict[str, Any]:
     total_usage = result.get("total_usage", usage)
     if not isinstance(total_usage, dict):
         raise TypeError("Jev response total_usage must be an object")
-    return {
+    metadata = {
         "model": result.get("model"),
         "request_id": result.get("request_id"),
         "latency_ms": result.get("latency_ms"),
@@ -156,10 +157,16 @@ def _decision_metadata(result: Any) -> dict[str, Any]:
         "total_latency_ms": result.get("total_latency_ms", result.get("latency_ms")),
         "total_usage": receipt_state.safe_usage(total_usage),
     }
+    retries: dict[str, int] = {}
+    merge_transport_retries(retries, result.get("transport_retries"))
+    if retries:
+        metadata["transport_retries"] = retries
+    return metadata
 
 
 def _aggregate_metadata(calls: list[dict[str, Any]]) -> dict[str, Any]:
     usage: dict[str, Any] = {}
+    retries: dict[str, int] = {}
     latency = 0.0
     request_count = 0
     for call in calls:
@@ -168,7 +175,15 @@ def _aggregate_metadata(calls: list[dict[str, Any]]) -> dict[str, Any]:
             latency += float(value)
         request_count += int(call.get("request_count") or 1)
         receipt_state.merge_usage(usage, call.get("usage") or {})
-    return {"total_latency_ms": latency, "total_usage": usage, "request_count": request_count}
+        merge_transport_retries(retries, call.get("transport_retries"))
+    aggregate: dict[str, Any] = {
+        "total_latency_ms": latency,
+        "total_usage": usage,
+        "request_count": request_count,
+    }
+    if retries:
+        aggregate["transport_retries"] = retries
+    return aggregate
 
 
 def _skill_request_parts(
@@ -535,6 +550,7 @@ def _select_skill_impl(
         "latency_ms": result.get("latency_ms"),
         "usage": result.get("usage") or {},
         "request_count": int(result.get("request_count") or 1),
+        "transport_retries": result.get("transport_retries"),
     }
     result.update(_aggregate_metadata(reduction_metadata + [final_metadata]))
     return result
