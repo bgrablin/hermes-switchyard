@@ -47,9 +47,9 @@ DEFAULT_OPERATION_DEADLINE_SECONDS = 60.0
 # callback budget (~30s). Keep this comfortably below that host timeout and
 # separate from explicit decision / computer-use deadlines (60s).
 DEFAULT_AUTOMATIC_ROUTING_DEADLINE_SECONDS = 20.0
-# The hosted route closes an idle keep-alive connection after 300-480 s
-# (live probe, issue #92). A pooled connection idle longer than this is
-# replaced before reuse instead of sending on a socket the server closed.
+# Conservatively replace a pooled connection after 60 s idle to avoid reusing
+# a socket that may have closed server-side. No live idle-close threshold has
+# been measured for this route (issue #92).
 MAX_CONNECTION_IDLE_SECONDS = 60.0
 # Errors that mean the server closed a reused keep-alive connection before it
 # sent any response. RemoteDisconnected is a ConnectionResetError; it is listed
@@ -93,6 +93,9 @@ _OPERATION_DEADLINE: ContextVar[float | None] = ContextVar(
 )
 _HOST_CANCEL_CHECK: ContextVar[Any] = ContextVar(
     "jev_host_cancel_check", default=None
+)
+_DEFER_HOSTED_WARNING: ContextVar[bool] = ContextVar(
+    "jev_defer_hosted_warning", default=False
 )
 
 
@@ -190,6 +193,16 @@ def _reset_warning_rate_limit() -> None:
     with _WARNING_LOCK:
         _WARNING_LAST.clear()
         _WARNING_SUPPRESSED.clear()
+
+
+@contextmanager
+def _defer_hosted_warning():
+    """Let an enclosing automatic turn warn once, including pre-decision failures."""
+    token = _DEFER_HOSTED_WARNING.set(True)
+    try:
+        yield
+    finally:
+        _DEFER_HOSTED_WARNING.reset(token)
 
 
 def parse_retry_after(value: Any, *, now: float | None = None) -> float | None:
@@ -693,7 +706,6 @@ class DecisionClient:
                         "Jev provider returned an unexpected redirect", detail="redirect"
                     )
                 if status >= 400:
-                    _parse_error_body(self._read_bounded(response, MAX_ERROR_BYTES))
                     if status in RETRYABLE_HTTP_STATUSES:
                         retry_after = None
                         response_headers = getattr(response, "headers", None)
@@ -702,9 +714,16 @@ class DecisionClient:
                                 retry_after = response_headers.get("Retry-After")
                             except AttributeError:
                                 retry_after = None
-                        # The provider may close after an error; start clean.
-                        self._close_connection()
+                        # Status and headers suffice. Do not parse an untrusted
+                        # error body before a bounded 429/529 retry.
+                        try:
+                            close_response = getattr(response, "close", None)
+                            if callable(close_response):
+                                close_response()
+                        finally:
+                            self._close_connection()
                         return None, status, retry_after, stale_retried
+                    _parse_error_body(self._read_bounded(response, MAX_ERROR_BYTES))
                     raise JevRequestError(
                         f"Jev provider returned HTTP {status}",
                         detail=_http_status_detail(status),
@@ -996,7 +1015,8 @@ class DecisionClient:
             try:
                 call = self._decide_single(state, batch)
             except Exception as exc:
-                _warn_hosted_failure(hosted_error_detail(exc))
+                if not _DEFER_HOSTED_WARNING.get():
+                    _warn_hosted_failure(hosted_error_detail(exc))
                 if partial:
                     raise PartialAccountingError(
                         "Jev provider request failed after "
