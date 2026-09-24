@@ -21,7 +21,7 @@ from hermes_switchyard.automatic import (
     AutomaticSkillRecommender,
     build_routing_receipt,
 )
-from hermes_switchyard.client import DecisionClient
+from hermes_switchyard.client import DecisionClient, JevRequestError
 
 
 # The stable terminal-state enum the receipt surface exposes.
@@ -213,6 +213,24 @@ class ReceiptSchemaTests(unittest.TestCase):
         self.assertFalse(receipt["hosted_succeeded"])
         self.assertEqual(receipt["hosted_error"], "transport_or_execution_failure")
 
+    def test_hosted_failure_receipt_keeps_only_closed_set_subcode(self):
+        result = {
+            "status": "abstained", "selected": None, "source": "none",
+            "hosted_attempted": True,
+            "hosted_error": "transport_or_execution_failure",
+            "hosted_error_detail": "http_429",
+            "cache_hit": False,
+            "candidate_count": 1,
+        }
+        receipt = build_routing_receipt(result)
+        self.assertEqual(receipt["hosted_error_detail"], "http_429")
+        self.assertTrue(receipt_state.validate_receipt(receipt))
+        self.assertEqual(
+            build_routing_receipt({**result, "hosted_error_detail": "private-path-marker"})
+            .get("hosted_error_detail"),
+            "unknown",
+        )
+
 
 class ReceiptPrivacyTests(unittest.TestCase):
     def test_receipt_never_carries_forbidden_markers(self):
@@ -351,6 +369,27 @@ class ReceiptEndToEndTests(unittest.TestCase):
         self.assertFalse(receipt["hosted_succeeded"])
         self.assertEqual(receipt["hosted_error"], "transport_or_execution_failure")
         self.assertFalse(receipt["verified"])
+
+    def test_typed_hosted_failure_subcode_reaches_receipt_without_exception_text(self):
+        recommender = AutomaticSkillRecommender(
+            configured_candidates=[{"name": "docker-management", "description": "Docker"}],
+            hosted_enabled=True,
+            public_or_sanitized_data_ack=True,
+            client_factory=lambda: DecisionClient(api_key="fixture-key", transport=self._small_transport()),
+        )
+        with mock.patch(
+            "hermes_switchyard.automatic.select_skill",
+            side_effect=JevRequestError("SYNTHETIC_CREDENTIAL_MARKER", detail="http_429"),
+        ):
+            result = recommender.recommend(
+                "Diagnose a Docker container", turn_egress_policy=_allowed_policy(),
+            )
+        self.assertEqual(result["hosted_error_detail"], "http_429")
+        receipt = recommender.last_receipt
+        assert receipt is not None
+        self.assertEqual(receipt["hosted_error_detail"], "http_429")
+        self.assertTrue(receipt_state.validate_receipt(receipt))
+        self.assertNotIn("SYNTHETIC_CREDENTIAL_MARKER", json.dumps(receipt))
 
     def test_partial_hosted_accounting_survives_later_batch_failure(self):
         calls = {"count": 0}

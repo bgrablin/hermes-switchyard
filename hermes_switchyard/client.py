@@ -78,31 +78,7 @@ _RETRY_SLEEP_SLICE_SECONDS = 0.25
 MAX_OPERATION_RETRIES = 4
 # Closed set of safe diagnostic sub-codes for a hosted request failure. No
 # provider text, header value, URL, or payload data is ever part of a code.
-HOSTED_ERROR_DETAILS = frozenset(
-    {
-        "stale_connection",
-        "connect_failed",
-        "timeout",
-        "http_401",
-        "http_403",
-        "http_404",
-        "http_429",
-        "http_529",
-        "http_4xx",
-        "http_5xx",
-        "redirect",
-        "invalid_response",
-        "transport_failed",
-        "validation_failure",
-        "request_budget_exhausted",
-        "retry_budget_exhausted",
-        "deadline_exceeded",
-        "host_cancelled",
-        "late_result_discarded",
-        "ack_required",
-        "unknown",
-    }
-)
+HOSTED_ERROR_DETAILS = receipt_state.HOSTED_ERROR_DETAILS
 # Closed set of retry reasons recorded in call metadata.
 TRANSPORT_RETRY_REASONS = frozenset({"stale_connection", "http_429", "http_529"})
 # A default log shows at most one WARNING per failure sub-code per interval.
