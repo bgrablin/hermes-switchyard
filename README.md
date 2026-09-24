@@ -8,9 +8,9 @@ Version: 0.5.3
 
 Switchyard can:
 
-- **Find a skill:** suggest one or several skills for a task. With the install defaults, it can load one accepted skill through Hermes' normal loader.
+- **Find skills:** recommend one skill or several for the same task. `jev_skill_select_many` returns a set of recommendations. Separately, the default automatic hook can load one accepted skill for the current turn and choose another on a later turn.
 - **Adjust reasoning effort:** choose an effort level for each request, and reconsider it after tool results. If Jev makes no usable decision, Switchyard keeps the existing effort.
-- **Recommend a model:** compare approved candidates against your requirements and leave a receipt. It does **not** switch the active model.
+- **Recommend a model:** compare candidates you supply or read a profile-approved registry, then leave a receipt. It does **not** switch the active model.
 - **Guide computer use:** choose browser or desktop actions one step at a time. A proposed finish is not proof that the task is complete.
 - **Assess or re-rank:** answer a bounded typed question or re-rank a shortlist from Hermes session search.
 
@@ -72,11 +72,11 @@ The [setup guide](docs/SETUP.md) covers provider selection and further privacy s
 | Hooks (2) | `pre_llm_call` for automatic skill routing; `post_tool_call` for effort reconsideration | On after install |
 | Middleware (1) | `llm_request` for per-request reasoning effort | On after install |
 
-A skill suggestion is not a correctness guarantee. The default skill consumer can load one accepted skill; individual skill-selection tools are advisory. Model-routing tools recommend but do not apply a model change. Computer use returns a receipt: an action, a local condition, and completion of the whole goal are separate claims. See [computer-use receipts](docs/DOM-BROWSER-BACKEND.md) for the exact verification rules.
+A skill suggestion is not a correctness guarantee. The automatic hook can load at most one accepted skill **per identified turn**; it can consider many skills and choose again on later turns. The separate multi-skill tool recommends a set but does not load it. Model-routing tools recommend but do not apply a model change. Computer use returns a receipt: an action, a local condition, and completion of the whole goal are separate claims. See [computer-use receipts](docs/DOM-BROWSER-BACKEND.md) for the exact verification rules.
 
 ## Automatic skill recommendations
 
-Switchyard checks the active profile's skills before Hermes answers. The install defaults permit a bounded hosted Jev decision for an eligible task and allow one accepted skill to load through Hermes. Explicit skill instructions, abstention, restricted data, or a loader error can prevent that load. Choose `local_only` and `advisory` above to use local suggestions without a hosted skill-routing call or automatic load. [Routing details](docs/AUTOMATIC-INTEGRATION.md) explain the settings and fail-closed cases.
+Switchyard checks the active profile's skills before Hermes answers. The install defaults permit a bounded hosted Jev decision for an eligible task. When the decision passes the checks, it can load the selected skill through Hermes for that turn; a later turn can select a different one. Explicit skill instructions, abstention, restricted data, or a loader error can prevent a load. Choose `local_only` and `advisory` above to use local suggestions without a hosted skill-routing call or automatic load. [Routing details](docs/AUTOMATIC-INTEGRATION.md) explain the settings and fail-closed cases.
 
 ## Computer use
 
