@@ -28,6 +28,7 @@ or hosted selection and suppress routing with zero provider requests.
 from __future__ import annotations
 
 import hashlib
+import os
 import json
 import logging
 import math
@@ -58,6 +59,12 @@ from .egress import (
     is_routing_mode,
 )
 from .routing import select_skill
+from .two_stage_routing import (
+    TwoStageConfig,
+    detect_kanban_worker,
+    platform_decision,
+    run_two_stage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -452,6 +459,8 @@ class AutomaticSkillRecommender:
         prefilter_no_skill_threshold: float = DEFAULT_PREFILTER_NO_SKILL_THRESHOLD,
         prefilter_min_score: float = DEFAULT_PREFILTER_MIN_SCORE,
         prefilter_cutoff_margin: float = DEFAULT_PREFILTER_CUTOFF_MARGIN,
+        two_stage: TwoStageConfig | None = None,
+        excerpt_loader: Callable[[str], Any] | None = None,
     ) -> None:
         self.configured_candidates = (
             _validate_candidates(configured_candidates, limit=None)
@@ -499,6 +508,10 @@ class AutomaticSkillRecommender:
         self._lock = threading.RLock()
         self._client: Any | None = None
         self._client_identity: str | None = None
+        # None keeps the legacy select_skill path for direct library callers.
+        self.two_stage = two_stage
+        self.excerpt_loader = excerpt_loader
+        self._extra_clients: list[Any] = []
         self.last_receipt: dict[str, Any] | None = None
 
     def _route_identity_digest(self) -> str:
@@ -529,21 +542,40 @@ class AutomaticSkillRecommender:
         with self._lock:
             if self._client is not None and self._client_identity == identity:
                 return self._client
-            if self._client is not None:
-                close = getattr(self._client, "close", None)
+            for stale in [self._client, *self._extra_clients]:
+                close = getattr(stale, "close", None)
                 if callable(close):
                     close()
+            self._extra_clients = []
             self._client = self.client_factory()
             self._client_identity = identity
             return self._client
 
+    def _extra_pooled_clients(self, count: int) -> list[Any]:
+        """Return ``count`` extra clients for parallel stage-1 partitions.
+
+        Each DecisionClient serializes on its own connection lock, so true
+        parallelism needs one client per in-flight request. Extras follow the
+        primary client's route identity and are closed with it.
+        """
+        primary = self._pooled_client()
+        with self._lock:
+            if self._client is not primary:
+                return []
+            while len(self._extra_clients) < count and self.client_factory is not None:
+                self._extra_clients.append(self.client_factory())
+            return list(self._extra_clients[:count])
+
     def close(self) -> None:
         """Close the explicitly owned pooled client."""
         with self._lock:
-            client = self._client
+            clients = [self._client, *self._extra_clients]
             self._client = None
             self._client_identity = None
-            if client is not None:
+            self._extra_clients = []
+            for client in clients:
+                if client is None:
+                    continue
                 close = getattr(client, "close", None)
                 if callable(close):
                     close()
@@ -565,6 +597,16 @@ class AutomaticSkillRecommender:
             "candidates": [(item["name"], item["description"]) for item in candidate_set],
             "routing_mode": self.routing_mode,
             "hosted_mode": self.hosted_mode,
+            "two_stage": (
+                None
+                if self.two_stage is None
+                else [
+                    self.two_stage.enabled,
+                    self.two_stage.hosted_detail,
+                    self.two_stage.recheck_top_k,
+                    self.two_stage.early_stop,
+                ]
+            ),
             "policy": policy_key,
             "route_identity": self._route_identity_digest(),
         }
@@ -849,13 +891,30 @@ class AutomaticSkillRecommender:
             result["intervention_deadline_seconds"] = self.deadline_seconds
             try:
                 with host_cancel_scope(self.cancel_check):
-                    hosted = select_skill(
-                        task=evaluation.allowed_payload if evaluation is not None else "",
-                        candidates=hosted_candidates,
-                        client=self._pooled_client(),
-                        public_or_sanitized_data_ack=True,
-                        deadline_seconds=self.deadline_seconds,
-                    )
+                    if self.two_stage is not None and self.two_stage.enabled:
+                        # Stage 1 sends names only. Local descriptions reach
+                        # stage 2 only when hosted_detail opts in, and only
+                        # for the top-K finalists after a local scan.
+                        by_name = {item["name"]: item for item in candidate_set}
+                        hosted = run_two_stage(
+                            task=(evaluation.allowed_payload or "") if evaluation is not None else "",
+                            candidates=[by_name[item["name"]] for item in hosted_candidates],
+                            client=self._pooled_client(),
+                            client_pool=self._extra_pooled_clients(
+                                self.two_stage.parallel_requests - 1
+                            ),
+                            config=self.two_stage,
+                            excerpt_loader=self.excerpt_loader,
+                            deadline_seconds=self.deadline_seconds,
+                        )
+                    else:
+                        hosted = select_skill(
+                            task=(evaluation.allowed_payload or "") if evaluation is not None else "",
+                            candidates=hosted_candidates,
+                            client=self._pooled_client(),
+                            public_or_sanitized_data_ack=True,
+                            deadline_seconds=self.deadline_seconds,
+                        )
             except PartialAccountingError as exc:
                 logger.debug("automatic Jev skill recommendation unavailable: %s", type(exc).__name__)
                 result["hosted_error"] = _hosted_error_code(exc)
@@ -1355,6 +1414,9 @@ def build_pre_llm_call_hook(
     consumer_mode: str = DEFAULT_CONSUMER_MODE,
     skill_loader: Callable[..., str] | None = None,
     mandatory_skills: Any = (),
+    two_stage: TwoStageConfig | None = None,
+    excerpt_loader: Callable[[str], Any] | None = None,
+    environ: Mapping[str, str] | None = None,
 ) -> Callable[..., dict[str, Any] | None] | None:
     """Build a genuine Hermes ``pre_llm_call`` callback, or disable it."""
     if enabled is not True:
@@ -1379,6 +1441,8 @@ def build_pre_llm_call_hook(
             cache_seconds=cache_seconds,
             deadline_seconds=deadline_seconds,
             adoption_capable=(consumer_mode == "load"),
+            two_stage=two_stage,
+            excerpt_loader=excerpt_loader,
         )
     except (TypeError, ValueError) as exc:
         logger.warning("automatic skill recommendation disabled by invalid configuration: %s", type(exc).__name__)
@@ -1395,6 +1459,7 @@ def build_pre_llm_call_hook(
         egress_policy: Any = None,
         session_id: Any = None,
         turn_id: Any = None,
+        platform: Any = None,
         **_: Any,
     ) -> dict[str, Any] | None:
         turn_key = (
@@ -1404,6 +1469,50 @@ def build_pre_llm_call_hook(
         )
         if turn_key is not None and turn_key in consumed_turns:
             return dict(consumed_turns[turn_key])
+        # Non-interactive turns (API server, cron, batch, webhook, Kanban
+        # worker) skip routing before discovery, scanning, or any request.
+        gate = two_stage if two_stage is not None else TwoStageConfig()
+        route_turn, platform_reason = platform_decision(
+            platform,
+            gate,
+            kanban_worker=detect_kanban_worker(environ if environ is not None else os.environ),
+        )
+        if not route_turn:
+            result = {
+                "status": "abstained",
+                "selected": None,
+                "source": "none",
+                "abstention_reason": platform_reason,
+                "routing_mode": recommender.routing_mode,
+                "routing_status": "hosted_skipped",
+                "routing_reason": platform_reason,
+                "hosted_attempted": False,
+                "hosted_skipped": platform_reason,
+                "candidate_count": 0,
+                "candidates_considered": [],
+                "cache_hit": False,
+                "request_count": 0,
+            }
+            contract = build_consumption_contract(
+                delivery_status="not_delivered",
+                adoption_status="not_applicable",
+            )
+            receipt = _attach_consumption_contract(build_routing_receipt(result), contract)
+            recommender.last_receipt = receipt
+            receipt_state.store_latest_receipt(receipt)
+            metadata = redacted_routing_metadata(result)
+            metadata["skill_recommendation"] = {
+                "status": "platform_skipped",
+                "selected": None,
+                "source": "none",
+                "loaded_once": False,
+                **contract,
+            }
+            setattr(on_pre_llm_call, "last_result", dict(result))
+            setattr(on_pre_llm_call, "last_receipt", dict(receipt))
+            setattr(on_pre_llm_call, "last_metadata", dict(metadata))
+            setattr(on_pre_llm_call, "last_routing_metadata", dict(metadata))
+            return {"metadata": metadata}
         # Hermes' conversation_history does not include the cached system prompt
         # that advertises skills. Discover the active profile registry directly.
         del conversation_history  # local-only input; never part of an egress payload

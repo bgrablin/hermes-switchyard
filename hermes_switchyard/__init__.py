@@ -36,6 +36,7 @@ from .model_route_adapter import register_model_route_adapter
 from .reasoning_effort_adapter import register_reasoning_effort_adapter
 from .routing import route_model, select_skill, select_skills
 from .session_search_rerank import rerank_session_search
+from .two_stage_routing import TWO_STAGE_CONFIG_KEYS, TwoStageConfig, skill_excerpt
 
 from .host_compat import ctx_get_config, register_auxiliary_task as register_host_auxiliary_task
 
@@ -1284,6 +1285,11 @@ def _require_public_data_ack(args, standing=True):
         )
 
 
+def _load_skill_excerpt(name: str) -> str | None:
+    """Bounded SKILL.md excerpt for opt-in stage-2 detail (hosted_detail=excerpt)."""
+    return skill_excerpt(_load_skill_context(name))
+
+
 def _load_skill_context(name: str, *, task_id: str | None = None) -> str:
     """Load one exact skill through Hermes' supported skill loader."""
     from tools.skills_tool import skill_view
@@ -1476,6 +1482,13 @@ def register(ctx):
         mandatory_skills=discover_mandatory_skills(
             ctx_get_config(ctx, "automatic_skill_mandatory_skills", default=[])
         ),
+        two_stage=TwoStageConfig.from_mapping(
+            {
+                key: ctx_get_config(ctx, key, default=None)
+                for key in TWO_STAGE_CONFIG_KEYS
+            }
+        ),
+        excerpt_loader=_load_skill_excerpt,
     )
     _publish_runtime_status(
         routing_mode=configured_routing_mode,

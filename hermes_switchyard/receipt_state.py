@@ -73,6 +73,9 @@ HOSTED_SKIP_REASONS = frozenset(
         "explicit_override",
         "consumer_contract_unmet",
         "diagnostic_value_unavailable",
+        "noninteractive_platform",
+        "platform_not_listed",
+        "kanban_worker",
     }
 )
 USAGE_NUMERIC_KEYS = frozenset(
