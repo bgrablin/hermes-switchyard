@@ -33,7 +33,11 @@ from .egress import (
 )
 from .model_policy import recommend_approved_model
 from .model_route_adapter import register_model_route_adapter
-from .reasoning_effort_adapter import register_reasoning_effort_adapter
+from .reasoning_effort_adapter import (
+    append_effort_record,
+    effort_stats,
+    register_reasoning_effort_adapter,
+)
 from .routing import route_model, select_skill, select_skills
 from .session_search_rerank import rerank_session_search
 from .two_stage_routing import TWO_STAGE_CONFIG_KEYS, TwoStageConfig, skill_excerpt
@@ -1150,6 +1154,7 @@ def _cli_handler(args):
                 print("--since requires a window such as 30m, 24h, 7d, or 2w.")
                 return 2
         stats = receipt_history.routing_stats(since=since)
+        stats["adaptive_reasoning_effort"] = effort_stats(since=since)
         indent = None if getattr(args, "json_output", False) else 2
         print(json.dumps(stats, ensure_ascii=False, sort_keys=True, indent=indent, allow_nan=False))
         return 0
@@ -1647,12 +1652,16 @@ def register(ctx):
             ctx_get_config(
                 ctx,
                 "adaptive_reasoning_effort_deadline_seconds",
-                default=8.0,
+                default=1.5,
             ),
-            8.0,
+            1.5,
             minimum=0.5,
             maximum=DEFAULT_OPERATION_DEADLINE_SECONDS,
         ),
+        mode=str(ctx_get_config(ctx, "adaptive_reasoning_effort_mode", default="auto") or "auto"),
+        exclude_models=ctx_get_config(ctx, "adaptive_reasoning_effort_exclude_models", default=None),
+        allow_raise=ctx_get_config(ctx, "adaptive_reasoning_effort_allow_raise", default=False),
+        record_decision=append_effort_record,
     )
 
     def assess_handler(args, **kwargs):
