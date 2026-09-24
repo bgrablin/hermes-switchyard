@@ -7,6 +7,9 @@ from __future__ import annotations
 import json
 import threading
 import unittest
+from pathlib import Path
+
+import yaml
 
 from hermes_switchyard.automatic import build_pre_llm_call_hook
 from hermes_switchyard.client import EXPECTED_MODEL, DecisionClient
@@ -134,6 +137,29 @@ class TwoStageWiringTests(unittest.TestCase):
         self.assertIn("automatic_skill_hosted_detail", two_stage_routing.TWO_STAGE_CONFIG_KEYS)
         parsed = TwoStageConfig.from_mapping({key: None for key in two_stage_routing.TWO_STAGE_CONFIG_KEYS})
         self.assertEqual(parsed, TwoStageConfig())
+
+    def test_manifest_exposes_every_runtime_two_stage_setting(self):
+        from hermes_switchyard.two_stage_routing import TWO_STAGE_CONFIG_KEYS
+
+        manifest = yaml.safe_load((Path(__file__).resolve().parents[1] / "plugin.yaml").read_text(encoding="utf-8"))
+        schema = manifest["config_schema"]
+        expected_types = {
+            "automatic_skill_two_stage": "bool",
+            "automatic_skill_platforms": "list",
+            "automatic_skill_hosted_detail": "str",
+            "automatic_skill_recheck_top_k": "int",
+            "automatic_skill_early_stop": "bool",
+            "automatic_skill_early_stop_threshold": "float",
+            "automatic_skill_stage1_min_probability": "float",
+            "automatic_skill_parallel_requests": "int",
+        }
+        self.assertEqual(set(TWO_STAGE_CONFIG_KEYS), set(expected_types))
+        for key, expected_type in expected_types.items():
+            with self.subTest(key=key):
+                self.assertIn(key, schema)
+                self.assertEqual(schema[key]["type"], expected_type)
+        defaults = {key: schema[key]["default"] for key in TWO_STAGE_CONFIG_KEYS}
+        self.assertEqual(TwoStageConfig.from_mapping(defaults), TwoStageConfig())
 
 
 if __name__ == "__main__":

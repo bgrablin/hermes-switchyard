@@ -227,6 +227,10 @@ def _parse_platforms(value: Any) -> tuple[str, frozenset[str]]:
         return PLATFORM_POLICY_ALL, frozenset()
     if isinstance(value, (list, tuple)) and value and all(type(item) is str for item in value):
         names = frozenset(_normalize_platform(item) for item in value) - {_UNKNOWN_PLATFORM}
+        if names == {PLATFORM_POLICY_ALL}:
+            return PLATFORM_POLICY_ALL, frozenset()
+        if PLATFORM_POLICY_ALL in names:
+            return PLATFORM_POLICY_INTERACTIVE, frozenset()
         if names:
             return "allowlist", names
     return PLATFORM_POLICY_INTERACTIVE, frozenset()
