@@ -62,7 +62,8 @@ def prepare(archive: Path, source_root: Path, source_sha: str, home: Path) -> st
     return tree
 
 
-def run_installed(plugin: Path, source_sha: str, tree: str, provider: str, secret_home: Path) -> dict:
+def run_installed(plugin: Path, source_sha: str, tree: str, provider: str, secret_home: Path,
+                  *, synthetic_client_factory=None) -> dict:
     """Run native middleware and real Jev in a subprocess with isolated plugin state."""
     import anthropic
     import httpx
@@ -102,6 +103,9 @@ def run_installed(plugin: Path, source_sha: str, tree: str, provider: str, secre
             raise ReplayError("unsafe adaptive effort settings")
         if controller.deadline_seconds > 1.5:
             raise ReplayError("candidate deadline exceeds 1.5 seconds")
+        if synthetic_client_factory is not None:
+            # Offline test seam only: the CLI child never supplies this argument.
+            controller.client_factory = synthetic_client_factory
         if "switchyard" not in manager._plugin_commands:
             raise ReplayError("registered switchyard command missing")
         command = manager._plugin_commands["switchyard"]["handler"]
@@ -148,7 +152,7 @@ def run_installed(plugin: Path, source_sha: str, tree: str, provider: str, secre
             session = f"replay-{label}"
             hook = controller.build_post_tool_call_hook()
             def step(name: str, effort: str, turn: str) -> dict:
-                before = controller.session_status(session)["jev_calls"]
+                before = controller.session_status(session).get("jev_calls", 0)
                 start = time.monotonic()
                 original = request_for(effort)
                 result = apply_llm_request_middleware(original, provider=route, model=model,
@@ -176,7 +180,7 @@ def run_installed(plugin: Path, source_sha: str, tree: str, provider: str, secre
             if not probe["jev_called"] or probe["jev_status"] != "selected":
                 return {"ok": False, "source_sha": source_sha, "source_tree": tree,
                     "jev_provider": provider, "error": f"{label}: hosted Jev decision did not succeed",
-                    "receipts": receipts}
+                    "jev_transport": "synthetic" if synthetic_client_factory else "hosted", "receipts": receipts}
             controller.set_mode("auto", session_id=session)
             receipts.append(step("1-first", "low", "t1"))
             hook(tool_name="shell", status="error", error_message="synthetic failure", session_id=session)
@@ -200,7 +204,8 @@ def run_installed(plugin: Path, source_sha: str, tree: str, provider: str, secre
                     raise ReplayError(f"{label}: registered command state disagrees")
         manager.unload()
         return {"ok": True, "source_sha": source_sha, "source_tree": tree,
-            "jev_provider": provider, "receipts": receipts}
+            "jev_provider": provider, "jev_transport": "synthetic" if synthetic_client_factory else "hosted",
+            "receipts": receipts}
     finally:
         reset_secret_scope(token)
         set_multiplex_active(False)
@@ -253,6 +258,8 @@ def main(argv: list[str] | None = None) -> int:
             report = child_report
             if report.get("source_sha") != args.source_sha or report.get("source_tree") != tree:
                 raise ReplayError("child source receipt does not match verified archive")
+            if report.get("jev_transport") != "hosted":
+                raise ReplayError("installed child did not use hosted Jev")
     except (ReplayError, OSError, subprocess.SubprocessError, ValueError, KeyError) as exc:
         report = {"ok": False, "error": str(exc) if isinstance(exc, ReplayError) else type(exc).__name__}
     args.report.parent.mkdir(parents=True, exist_ok=True)

@@ -4,6 +4,8 @@ from __future__ import annotations
 import io
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -47,7 +49,8 @@ class LiveEffortReplayTests(unittest.TestCase):
             def child(command, **kwargs):
                 captured.update(command=command, **kwargs)
                 receipt = {"ok": True, "source_sha": source_sha,
-                    "source_tree": replay._git(ROOT, "rev-parse", "HEAD^{tree}"), "receipts": []}
+                    "source_tree": replay._git(ROOT, "rev-parse", "HEAD^{tree}"),
+                    "jev_transport": "hosted", "receipts": []}
                 from types import SimpleNamespace
                 return SimpleNamespace(returncode=0, stdout=json.dumps(receipt), stderr="")
 
@@ -89,6 +92,51 @@ class LiveEffortReplayTests(unittest.TestCase):
             self.assertEqual(outcome, 1)
             self.assertIn("no TYPESAFE_API_KEY", report.read_text())
             self.assertNotIn("Traceback", report.read_text())
+
+    def test_real_installed_seven_step_wire_replay_with_synthetic_jev(self):
+        source_sha = replay._git(ROOT, "rev-parse", "HEAD")
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            archive = build_release(ROOT, work / "archive", source_sha)
+            home = work / "hermes"
+            tree = replay.prepare(archive, ROOT, source_sha, home)
+            (home / "config.yaml").write_text(
+                "plugins:\n  enabled: [hermes-switchyard]\n  entries:\n    hermes-switchyard:\n"
+                "      settings:\n        jev_provider: openrouter\n"
+                "        automatic_skill_recommendation: false\n", encoding="utf-8")
+            secret_home = work / "synthetic-profile"
+            secret_home.mkdir()
+            (secret_home / ".env").write_text("OPENROUTER_API_KEY=test-key\n", encoding="utf-8")
+            bundled = work / "bundled"
+            bundled.mkdir()
+            code = """
+import json, sys
+from pathlib import Path
+from scripts.live_effort_replay import run_installed
+class FakeJev:
+    def decide(self, state, questions, **kwargs):
+        levels = list(questions['reasoning_effort']['criteria'])
+        return {'answers': {'reasoning_effort': {'choice': levels[0],
+                'confidence': 0.9, 'probabilities': {level: 1.0 / len(levels) for level in levels}}}}
+result = run_installed(Path(sys.argv[1]), sys.argv[2], sys.argv[3], 'openrouter',
+                       Path(sys.argv[4]), synthetic_client_factory=FakeJev)
+print(json.dumps(result))
+"""
+            env = {key: os.environ[key] for key in ("PATH", "LANG", "TMPDIR") if key in os.environ}
+            env.update({"HOME": str(work), "HERMES_HOME": str(home),
+                "HERMES_BUNDLED_PLUGINS": str(bundled), "PYTHONPATH": str(ROOT)})
+            result = subprocess.run([sys.executable, "-c", code,
+                str(home / "plugins" / "hermes-switchyard"), source_sha, tree, str(secret_home)],
+                cwd=work, env=env, capture_output=True, text=True, timeout=90)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            proof = json.loads(result.stdout.splitlines()[-1])
+            self.assertTrue(proof["ok"])
+            self.assertEqual(proof["jev_transport"], "synthetic")
+            self.assertEqual(len(proof["receipts"]), 16)
+            self.assertEqual(sum(row["jev_called"] for row in proof["receipts"]), 2)
+            self.assertEqual({row["provider"] for row in proof["receipts"]}, {"openai-codex", "anthropic"})
+            self.assertTrue(all(row["source_sha"] == source_sha and row["source_tree"] == tree
+                for row in proof["receipts"]))
 
 
 if __name__ == "__main__":
