@@ -49,6 +49,15 @@ class _Context:
 
 
 class AutomaticRecommendationTests(HermesHomeTestCase):
+    def test_hook_classes_share_disposable_home_boundary(self):
+        for case in (
+            ProcessRestartAndMandatorySkillTests,
+            AutomaticAdoptionContractTests,
+            CopilotAdoptionContractFollowupTests,
+        ):
+            with self.subTest(case=case.__name__):
+                self.assertTrue(issubclass(case, HermesHomeTestCase))
+
     def test_recommender_defaults_to_hosted_sanitized(self):
         calls = []
 
@@ -1160,7 +1169,7 @@ class AutomaticRecommendationTests(HermesHomeTestCase):
                     manager.unload()
 
 
-class ProcessRestartAndMandatorySkillTests(unittest.TestCase):
+class ProcessRestartAndMandatorySkillTests(HermesHomeTestCase):
     def test_fresh_recommender_does_not_inherit_cache(self):
         first = AutomaticSkillRecommender(
             configured_candidates=[{"name": "docker-management", "description": "Docker"}],
@@ -1237,7 +1246,7 @@ class ProcessRestartAndMandatorySkillTests(unittest.TestCase):
         self.assertTrue(result["metadata"]["skill_recommendation"]["loaded_once"])
 
 
-class AutomaticAdoptionContractTests(unittest.TestCase):
+class AutomaticAdoptionContractTests(HermesHomeTestCase):
     """Issue #19: delivery/adoption/outcome and pre-routing explicit override."""
 
     def test_explicit_override_is_pre_routing_skip_with_zero_provider_requests(self):
@@ -1364,7 +1373,7 @@ class AutomaticAdoptionContractTests(unittest.TestCase):
 
 
 
-class CopilotAdoptionContractFollowupTests(unittest.TestCase):
+class CopilotAdoptionContractFollowupTests(HermesHomeTestCase):
     """PR #44 Copilot threads: registry override, mandatory preflight, receipt pairs."""
 
     def test_explicit_override_consults_full_registry_not_routing_subset(self):
