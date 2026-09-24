@@ -67,6 +67,7 @@ RELEASE_FILES = (
     "hermes_switchyard/computer_use.py",
     "hermes_switchyard/destination_policy.py",
     "hermes_switchyard/host_compat.py",
+    "hermes_switchyard/legacy_cleanup.py",
     "hermes_switchyard/model_policy.py",
     "hermes_switchyard/model_route_adapter.py",
     "hermes_switchyard/model_registry.py",

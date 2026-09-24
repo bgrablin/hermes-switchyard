@@ -33,6 +33,7 @@ config_schema:
   jev_provider: {type: str, default: "auto", description: auto prefers direct TypeSafe when TYPESAFE_API_KEY is available; also accepts typesafe or openrouter}
   api_endpoint: {type: str, default: "https://openrouter.ai/api/alpha/decisions", description: Fixed TypeSafe or OpenRouter Jev endpoint; arbitrary endpoints fail closed}
   jev_model: {type: str, default: "", description: Provider-specific Jev alias; empty selects jev-latest for TypeSafe or typesafe/jev-1.13 for OpenRouter}
+  browser_executable: {type: str, default: "", description: "Optional absolute path to a Chromium-family browser for public-page DOM runs. Tried first; on a startup crash the discovered order follows (Google Chrome, non-snap Chromium, Edge, Playwright bundled Chromium, Snap Chromium)"}
   computer_max_steps: {type: int, default: 100, description: Full computer-use action budget; callers may choose a smaller per-call bound}
   approved_model_registry: {type: list, default: [], description: Profile-owned approved model records for jev_model_route_approved; provider account authorization and cost metadata are code-owned, never inferred}
   approved_model_registry_version: {type: str, default: "", description: Required operator-managed version identifier for the approved model registry}

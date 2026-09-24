@@ -70,7 +70,7 @@ git cat-file -e "$RELEASE_SHA^{commit}"
 hermes plugins install bgrablin/hermes-switchyard --ref "$RELEASE_SHA" --enable
 ```
 
-This uses a commit SHA, not a moving branch or tag. The plugin ID is `hermes-switchyard` for enable, disable, list, update, and configuration commands. Version 0.4.0 installations using the legacy `jev-decision` ID must be removed before the renamed plugin is installed.
+This uses a commit SHA, not a moving branch or tag. The plugin ID is `hermes-switchyard` for enable, disable, list, update, and configuration commands.
 
 The catalog name form is for a future catalog admission. Until admission, use the repository form above.
 

@@ -23,7 +23,7 @@ from .client import (
     PartialAccountingError,
     request_budget_scope,
 )
-from . import browser_use
+from . import browser_use, legacy_cleanup
 from .computer_use import StaleTargetError, run_computer_goal
 from .egress import (
     DEFAULT_AUTOMATIC_PUBLIC_OR_SANITIZED_DATA_ACK,
@@ -878,6 +878,40 @@ def _effective_provider() -> str | None:
     return provider if provider in PROVIDERS else None
 
 
+def _configured_browser_executable() -> Any:
+    """Return the operator's optional ``browser_executable`` setting, or None."""
+    reader = _ROUTE_STATUS.get("browser_executable")
+    if reader is None:
+        return None
+    try:
+        return reader()
+    except Exception:  # noqa: BLE001 -- an unreadable setting falls back to discovery
+        return None
+
+
+def _browser_status_lines(diagnostic: dict[str, Any]) -> list[str]:
+    """Render the redacted startup diagnostic. It holds only closed-set codes and numbers."""
+    lines = [
+        f"Browser startup: {diagnostic.get('outcome')}"
+        + (f" ({diagnostic['reason']})" if diagnostic.get("reason") else "")
+        + (" after fallback" if diagnostic.get("fallback_used") else "")
+    ]
+    for index, attempt in enumerate(diagnostic.get("attempts") or [], start=1):
+        exit_text = ""
+        if attempt.get("exit_signal"):
+            exit_text = f", signal {attempt['exit_signal']}"
+        elif attempt.get("exit_code") is not None:
+            exit_text = f", exit code {attempt['exit_code']}"
+        timing = f", {attempt['startup_ms']} ms" if attempt.get("startup_ms") is not None else ""
+        reasons = attempt.get("stderr_reasons") or []
+        reason_text = f", stderr: {', '.join(reasons)}" if reasons else ""
+        lines.append(
+            f"  {index}. {attempt.get('browser_family')} ({attempt.get('executable_class')}, "
+            f"{attempt.get('source')}): {attempt.get('outcome')}{exit_text}{timing}{reason_text}"
+        )
+    return lines
+
+
 def _credential_ready(credential_presence: dict[str, bool], effective_provider: str | None) -> bool:
     """Return whether the key the configured route needs exists.
 
@@ -979,6 +1013,22 @@ def _cli_handler(args):
             "tool_exposure": exposure,
             "toolset_composition": _toolset_composition(),
         }
+        try:
+            legacy_warnings = legacy_cleanup.status_warnings()
+        except Exception:  # noqa: BLE001 -- keep the rest of local status available
+            legacy_warnings = ["Legacy artifact scan unavailable (local check failed)."]
+        payload["legacy_warnings"] = legacy_warnings
+        browser_diagnostic = None
+        if getattr(args, "browser", False) is True:
+            # Opt-in: launches one headless browser on about:blank, checks its
+            # DevTools endpoint, and closes it. No page load and no network.
+            try:
+                browser_diagnostic = browser_use.probe_browser_startup(
+                    browser_executable=_configured_browser_executable()
+                )
+            except Exception:  # noqa: BLE001 -- a probe fault must not hide the rest of status
+                browser_diagnostic = browser_use.startup_diagnostic([], reason="browser_probe_failed")
+            payload["browser_startup"] = browser_diagnostic
         if getattr(args, "json_output", False):
             print(json.dumps(payload, sort_keys=True))
             return 0
@@ -1004,7 +1054,21 @@ def _cli_handler(args):
         print(composition["plugin_doctor"])
         if status != "credential_required" and credential_missing:
             print(f"Credential: credential_required. {setup_hint}")
+        if browser_diagnostic is not None:
+            for line in _browser_status_lines(browser_diagnostic):
+                print(line)
+        for line in legacy_warnings:
+            print(line)
         return 0
+    if command == "cleanup":
+        try:
+            result = legacy_cleanup.cleanup_legacy_artifacts(apply=getattr(args, "apply", False) is True)
+        except Exception:  # noqa: BLE001 -- never expose raw config or filesystem errors
+            print("Legacy cleanup failed before a report could be prepared.")
+            return 1
+        for line in legacy_cleanup.format_cleanup_report(result):
+            print(line)
+        return 0 if result["status"] in {"clean", "planned", "applied"} else 1
     if command == "guide":
         print(_after_install_text())
         return 0
@@ -1109,7 +1173,7 @@ def _cli_handler(args):
     if command != "setup":
 
         print(
-            "Usage: hermes switchyard <status|guide|setup|ensure-toolsets|receipt|test> "
+            "Usage: hermes switchyard <status|cleanup|guide|setup|ensure-toolsets|receipt|test> "
             "[--provider ...|--json]"
         )
         return 2
@@ -1168,6 +1232,16 @@ def _setup_cli(parser):
             "default is the selection Hermes' CLI uses when --toolsets is not given"
         ),
     )
+    status.add_argument(
+        "--browser",
+        action="store_true",
+        help=(
+            "Also launch one headless browser on about:blank, check it, close it, "
+            "and report the redacted startup diagnostic (no network access)"
+        ),
+    )
+    cleanup = commands.add_parser("cleanup", help="Review or archive exact legacy jev-decision artifacts")
+    cleanup.add_argument("--apply", action="store_true", help="Back up and archive the planned artifacts")
     ensure = commands.add_parser(
         "ensure-toolsets",
         help=(
@@ -1377,6 +1451,7 @@ def register(ctx):
             return None
 
     _ROUTE_STATUS["effective_provider"] = effective_provider
+    _ROUTE_STATUS["browser_executable"] = lambda: ctx_get_config(ctx, "browser_executable", default=None)
 
     def computer_route_available():
         # Catalog visibility matches the native computer-use surface. Jev
@@ -1557,6 +1632,7 @@ def register(ctx):
                         completion_condition=args.get("completion_condition"),
                         text_inputs=args.get("text_inputs"),
                         allowed_hotkeys=args.get("allowed_hotkeys"),
+                        browser_executable=_configured_browser_executable(),
                     )
                 return json.dumps(with_client(run_dom))
             def native_dispatch(tool_name, tool_args):

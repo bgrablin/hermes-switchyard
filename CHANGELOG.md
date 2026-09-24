@@ -91,8 +91,7 @@
 - Resolves provider, model, endpoint, and profile-scoped secret settings at each invocation.
 - Adds local `status` and `guide` commands plus an explicit `test --live` billed-request gate.
 - Adds the separate typed `jev_skill_select_many` catalog-selection contract without loading or mutating skills.
-- Renames the package, command, bundled skill, auxiliary task, and prompt-section surfaces from `jev-decision` to `hermes-switchyard`; Jev tool names remain stable.
-- Adds migration guidance: remove the legacy `jev-decision` installation before installing `hermes-switchyard` so duplicate registrations cannot load together.
+- Renames the internal prototype package, command, bundled skill, auxiliary task, and prompt-section surfaces under `hermes-switchyard`; Jev tool names remain stable.
 
 ## 0.4.1
 

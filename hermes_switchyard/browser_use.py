@@ -692,6 +692,8 @@ def _startup_failure_reason(exc: BaseException) -> str:
         return "browser_profile_not_writable"
     if "no chromium-family browser is installed" in text:
         return "browser_not_installed"
+    if isinstance(exc, _BrowserExited):
+        return "browser_crashed"
     if isinstance(exc, TimeoutError):
         return "browser_start_timeout"
     return "browser_start_failed"
@@ -703,6 +705,8 @@ class BrowserStartupError(RuntimeError):
     def __init__(self, code: str, message: str = ""):
         super().__init__(message or code)
         self.code = code
+        # Redacted startup diagnostic: closed-set codes and numbers only.
+        self.diagnostic: dict[str, Any] | None = None
 
 
 def _safe_elements(raw: Any) -> list[dict[str, Any]]:
@@ -767,6 +771,7 @@ def run_browser_goal(
     completion_condition: Any = None,
     text_inputs: Any = None,
     allowed_hotkeys: Any = None,
+    browser_executable: Any = None,
 ) -> dict[str, Any]:
     """Run one in-process Jev browser loop. The coordinator does not sit between clicks."""
     if type(goal) is not str or not goal.strip():
@@ -816,10 +821,18 @@ def run_browser_goal(
                 if not isinstance(start_url, str) or not _public_http_url(start_url):
                     raise ValueError("start_url must be a public https URL")
                 try:
-                    manager = open_browser_session(start_url)
+                    if browser_executable is None:
+                        manager = open_browser_session(start_url)
+                    else:
+                        manager = open_browser_session(start_url, browser_executable=browser_executable)
                     owned = manager.__enter__()
                 except Exception as exc:  # noqa: BLE001 -- startup diagnostics stay local and bounded
                     refused = isinstance(exc, DestinationPolicyError)
+                    if not refused:
+                        diagnostic = getattr(exc, "diagnostic", None)
+                        if not isinstance(diagnostic, dict):
+                            diagnostic = startup_diagnostic([], reason=_startup_failure_reason(exc))
+                        progress["browser_startup"] = diagnostic
                     if refused:
                         progress["destination"] = getattr(exc, "report", None) or destination_policy.static_report(
                             "pre_launch_check"
@@ -923,6 +936,9 @@ def _describe_backend(progress: dict[str, Any], session: BrowserSession) -> None
         return
     progress["browser"] = info.get("browser")
     progress["confinement"] = info.get("confinement")
+    startup = info.get("startup")
+    if isinstance(startup, dict):
+        progress["browser_startup"] = startup
     setup_ms = info.get("setup_ms")
     if isinstance(setup_ms, (int, float)) and not isinstance(setup_ms, bool):
         progress["session_setup_ms"] = round(float(setup_ms), 1)
@@ -1731,6 +1747,8 @@ def _browser_receipt(
         "reconcile_before_retry": reconcile_before_retry or bool(actions and status not in {"completion_candidate"}),
         "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
     }
+    if isinstance(state.get("browser_startup"), dict):
+        receipt["browser_startup"] = state["browser_startup"]
     if state.get("session_setup_ms") is not None:
         receipt["session_setup_ms"] = state.get("session_setup_ms")
     if failure_reason:
@@ -1869,6 +1887,7 @@ class ChromiumSession:
         start_url: str,
         *,
         headed: bool = False,
+        browser_executable: Any = None,
         # Test seams. Production callers use the defaults: pinning on, system resolver.
         _pin_connections: bool = True,
         _guard_resolver: Any = None,
@@ -1882,18 +1901,13 @@ class ChromiumSession:
         if not decision.allowed:
             raise DestinationPolicyError(decision.code)
         started = time.perf_counter()
-        binary = _browser_binary()
-        if binary is None:
-            raise RuntimeError("no Chromium-family browser is installed")
-        _selected, family, confinement = _browser_binary_details()
-        if _is_snap_confined(binary):
-            confinement = "snap"
-        elif binary != _selected:
-            confinement = "none"
-        self.browser_family = family
-        self.confinement = confinement
+        plan = _startup_plan(browser_executable)
+        self.browser_family: str | None = None
+        self.confinement: str | None = None
+        self.executable_class: str | None = None
+        self.startup: dict[str, Any] | None = None
         self.setup_ms: float | None = None
-        self._tmpdir = _browser_profile_dir(binary)
+        self._tmpdir: tempfile.TemporaryDirectory[str] | None = None
         self._proc: subprocess.Popen[str] | None = None
         self._ws: _ChromeWebSocket | None = None
         self._next_id = 0
@@ -1912,19 +1926,7 @@ class ChromiumSession:
         self._pinned = bool(_pin_connections)
         self._guard_resolver = _guard_resolver
         self._target_id = ""
-        self._port = _free_localhost_port()
-        port = self._port
-        profile = Path(self._tmpdir.name) / "profile"
-        profile.mkdir(parents=True, exist_ok=True)
-        try:
-            os.chmod(profile, 0o700)
-        except OSError:
-            pass
-        try:
-            _write_profile_preferences(profile, _profile_overrides)
-        except OSError as exc:
-            self._tmpdir.cleanup()
-            raise BrowserStartupError("browser_profile_not_writable") from exc
+        self._port = 0
         proxy_args: list[str] = []
         if self._pinned:
             # Every browser connection goes through a loopback proxy that resolves a
@@ -1941,7 +1943,7 @@ class ChromiumSession:
             try:
                 proxy_port = self._proxy.start()
             except OSError as exc:
-                self._tmpdir.cleanup()
+                self._proxy = None
                 raise DestinationPolicyError("pinning_unavailable") from exc
             proxy_args = [
                 f"--proxy-server=http://127.0.0.1:{proxy_port}",
@@ -1951,42 +1953,50 @@ class ChromiumSession:
                 # Chrome's own time query is plain HTTP and would be refused at the proxy.
                 "--disable-features=NetworkTimeServiceQuerying",
             ]
-        # The browser starts on about:blank. Starting it on the start URL would
-        # load that page, and follow its redirects, before interception exists.
-        command = [
-            str(binary),
-            f"--remote-debugging-port={port}",
-            "--remote-debugging-address=127.0.0.1",
-            f"--user-data-dir={profile}",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--block-new-web-contents",
-            f"--remote-allow-origins=http://127.0.0.1:{port}",
-            *proxy_args,
-            *(_extra_args or []),
-            "about:blank",
-        ]
-        if os.name != "nt":
-            command[1:1] = ["--disable-gpu", "--disable-dev-shm-usage"]
-        if not headed:
-            command.insert(1, "--headless=new")
-        else:
-            command.extend(["--window-position=40,40", "--window-size=1400,1000"])
-        log_path = Path(self._tmpdir.name) / "browser.log"
-        log_file = open(log_path, "w", encoding="utf-8")
+
+        def command_for(candidate: _Candidate, profile: Path, port: int) -> list[str]:
+            # The browser starts on about:blank. Starting it on the start URL would
+            # load that page, and follow its redirects, before interception exists.
+            command = [
+                str(candidate.path),
+                f"--remote-debugging-port={port}",
+                "--remote-debugging-address=127.0.0.1",
+                f"--user-data-dir={profile}",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--block-new-web-contents",
+                f"--remote-allow-origins=http://127.0.0.1:{port}",
+                *proxy_args,
+                *(_extra_args or []),
+                "about:blank",
+            ]
+            if os.name != "nt":
+                command[1:1] = ["--disable-gpu", "--disable-dev-shm-usage"]
+            if not headed:
+                command.insert(1, "--headless=new")
+            else:
+                command.extend(["--window-position=40,40", "--window-size=1400,1000"])
+            return command
+
         try:
-            self._proc = subprocess.Popen(
-                command,
-                stdout=log_file,
-                stderr=log_file,
-                text=True,
+            candidate, tmpdir, proc, ws_url, port, attempts = _launch_with_fallback(
+                plan, command_for=command_for, profile_overrides=_profile_overrides
             )
         except Exception:
-            log_file.close()
-            self.close()  # stops the proxy and removes the profile this call created
+            # The proxy is already listening even if startup fails before a browser launches.
+            try:
+                self.close()
+            except Exception:
+                pass
             raise
+        self._tmpdir = tmpdir
+        self._proc = proc
+        self._port = port
+        self.browser_family = candidate.family
+        self.confinement = candidate.confinement
+        self.executable_class = candidate.executable_class
+        self.startup = startup_diagnostic(attempts)
         try:
-            ws_url = _wait_debugger_url(port, proc=self._proc, log_path=log_path)
             self._target_id = urlsplit(ws_url).path.rsplit("/", 1)[-1]
             self._ws = _ChromeWebSocket(ws_url)
             self._ws.set_blocking()
@@ -2009,7 +2019,6 @@ class ChromiumSession:
             self._cdp("Page.navigate", url=start_url)
             self._wait_ready()
         except Exception as exc:
-            log_file.close()
             if isinstance(exc, DestinationPolicyError) and self._guard is not None:
                 exc.report = self._policy_report()  # type: ignore[attr-defined]
             try:
@@ -2017,7 +2026,6 @@ class ChromiumSession:
             except Exception:
                 pass
             raise
-        log_file.close()
         self.setup_ms = round((time.perf_counter() - started) * 1000, 1)
 
     def backend_info(self) -> dict[str, Any]:
@@ -2027,6 +2035,8 @@ class ChromiumSession:
             "session_mode": DOM_SESSION_MODE,
             "browser": self.browser_family,
             "confinement": self.confinement,
+            "executable_class": self.executable_class,
+            "startup": self.startup,
             "setup_ms": self.setup_ms,
             "destination_enforcement": destination_policy.ENFORCEMENT,
             "connection_pinning": self._pinned,
@@ -2099,15 +2109,7 @@ class ChromiumSession:
         # Snap Chromium's helper processes can hold the profile briefly after
         # the main process exits. Retry bounded cleanup so the per-run
         # directory is removed exactly instead of being silently left behind.
-        deadline = time.monotonic() + 5
-        while True:
-            try:
-                self._tmpdir.cleanup()
-            except OSError:
-                pass
-            if not Path(self._tmpdir.name).exists() or time.monotonic() >= deadline:
-                break
-            time.sleep(0.2)
+        _cleanup_profile(self._tmpdir)
 
     def __enter__(self) -> ChromiumSession:
         return self
@@ -2441,32 +2443,206 @@ def _write_profile_preferences(profile: Path, overrides: dict[str, Any] | None =
 
 
 def _browser_binary_details() -> tuple[Path | None, str | None, str]:
-    """Return the browser path, family, and confinement class.
+    """Return the first discovered browser path, family, and confinement class.
 
-    An unsandboxed install is preferred. Snap detection uses the merged
-    identity rules plus a bounded ``snap run`` wrapper check.
+    The order is the startup fallback order: Google Chrome, non-snap
+    Chromium, Microsoft Edge, Playwright's bundled Chromium, then a Snap
+    Chromium entry point. Snap detection uses the merged identity rules plus a
+    bounded ``snap run`` wrapper check.
     """
+    candidates = _discovered_candidates()
+    if not candidates:
+        return None, None, "none"
+    first = candidates[0]
+    return first.path, first.family, first.confinement
+
+
+def _browser_binary() -> Path | None:
+    """Return the selected browser path without confinement details."""
+    return _browser_binary_details()[0]
+
+
+# --- Browser startup: ordered fallback and redacted diagnostics -------------
+
+BROWSER_EXECUTABLE_CLASSES = ("snap", "system", "bundled")
+BROWSER_FAMILIES = ("chrome", "chromium", "edge", "unknown")
+STARTUP_ATTEMPT_OUTCOMES = (
+    "started",
+    "exited",
+    "launch_failed",
+    "timeout",
+    "unavailable",
+    "profile_unavailable",
+)
+MAX_STARTUP_ATTEMPTS = 5
+DEBUGGER_START_SECONDS = 12.0
+_STDERR_TAIL_BYTES = 16384
+_STDERR_TAIL_LINES = 40
+_MAX_STDERR_REASONS = 4
+# Closed allowlist. A stderr line is reported only as one of these codes; its
+# text, paths, URLs, and any page or user data never leave this module.
+_STDERR_REASON_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"singletonlock|profile (?:appears to be )?in use|process_singleton", re.I), "profile_locked"),
+    (re.compile(r"no usable sandbox|sandbox helper|sandbox_host|namespace sandbox|zygote_host", re.I), "sandbox_unavailable"),
+    (re.compile(r"missing x server|cannot open display|\$display|ozone_platform", re.I), "display_unavailable"),
+    (re.compile(r"error while loading shared libraries|cannot open shared object", re.I), "shared_library_missing"),
+    (re.compile(r"snap-confine|snap-update-ns|apparmor|cgroup", re.I), "snap_confinement"),
+    (re.compile(r"/dev/shm|shared memory|shm_open", re.I), "shared_memory_unavailable"),
+    (re.compile(r"gpu process|gpu_init|gpu_process_host|viz_main", re.I), "gpu_process_failed"),
+    (re.compile(r"out of memory|cannot allocate memory|\boom\b", re.I), "out_of_memory"),
+    (re.compile(r"address already in use|devtools.*(?:port|address).*(?:in use|failed)", re.I), "debug_port_unavailable"),
+    (re.compile(r"trace/breakpoint trap|sigtrap", re.I), "trap_signal"),
+    (re.compile(r"permission denied|operation not permitted", re.I), "permission_denied"),
+    (re.compile(r"check failed|\bfatal\b", re.I), "fatal_check"),
+)
+STDERR_REASONS = tuple(code for _pattern, code in _STDERR_REASON_PATTERNS)
+
+
+class _Candidate:
+    """One browser executable the startup plan may try."""
+
+    __slots__ = ("path", "family", "confinement", "source", "bundled", "available")
+
+    def __init__(
+        self,
+        path: Path,
+        family: str,
+        confinement: str,
+        source: str,
+        *,
+        bundled: bool = False,
+        available: bool = True,
+    ):
+        self.path = path
+        self.family = family if family in BROWSER_FAMILIES else "unknown"
+        self.confinement = "snap" if confinement == "snap" else "none"
+        self.source = source
+        self.bundled = bundled
+        self.available = available
+
+    @property
+    def executable_class(self) -> str:
+        if self.confinement == "snap":
+            return "snap"
+        return "bundled" if self.bundled else "system"
+
+
+class _BrowserExited(RuntimeError):
+    """The browser process exited before its DevTools endpoint answered."""
+
+    def __init__(self, returncode: int | None):
+        super().__init__(f"browser exited before debugger listen {returncode}")
+        self.returncode = returncode
+
+
+def _is_executable_file(path: Path) -> bool:
+    try:
+        if not path.is_file():
+            return False
+    except OSError:
+        return False
+    return os.name == "nt" or os.access(path, os.X_OK)
+
+
+def _family_from_name(path: Path) -> str:
+    """Map an executable name to the closed family set; the name is not reported."""
+    name = path.name.casefold()
+    if "edge" in name:
+        return "edge"
+    if "chromium" in name:
+        return "chromium"
+    if "chrome" in name:
+        return "chrome"
+    return "unknown"
+
+
+def _playwright_roots() -> list[Path]:
+    configured = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
+    if configured and configured != "0":
+        return [Path(configured)]
+    roots: list[Path] = []
+    if os.name == "nt":
+        local = os.environ.get("LOCALAPPDATA")
+        if local:
+            roots.append(Path(local) / "ms-playwright")
+    else:
+        roots.append(Path.home() / ".cache" / "ms-playwright")
+        roots.append(Path.home() / "Library" / "Caches" / "ms-playwright")
+    return roots
+
+
+_PLAYWRIGHT_RELATIVES = (
+    Path("chrome-linux64/chrome"),
+    Path("chrome-linux/chrome"),
+    Path("chrome-win64/chrome.exe"),
+    Path("chrome-win/chrome.exe"),
+    Path("chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium"),
+    Path("chrome-mac/Chromium.app/Contents/MacOS/Chromium"),
+)
+
+
+def _playwright_candidates(limit: int = 4) -> list[Path]:
+    """Return Playwright bundled Chromium executables, newest revision first."""
+    found: list[tuple[int, Path]] = []
+    for root in _playwright_roots():
+        try:
+            entries = list(root.glob("chromium-*"))
+        except OSError:
+            continue
+        for entry in entries:
+            revision = entry.name.rsplit("-", 1)[-1]
+            if not revision.isdigit():
+                continue
+            for relative in _PLAYWRIGHT_RELATIVES:
+                candidate = entry / relative
+                if _is_executable_file(candidate):
+                    found.append((int(revision), candidate))
+                    break
+    found.sort(key=lambda item: item[0], reverse=True)
+    return [path for _revision, path in found[:limit]]
+
+
+def _executable_key(path: Path) -> str:
+    try:
+        return os.path.normcase(str(path.resolve()))
+    except (OSError, RuntimeError):
+        return os.path.normcase(str(path))
+
+
+def _discovered_candidates() -> list[_Candidate]:
+    """Return every discovered browser in startup fallback order, without duplicates."""
+    unconfined: dict[str, list[_Candidate]] = {"chrome": [], "chromium": [], "edge": []}
+    confined: list[_Candidate] = []
+    seen: set[str] = set()
+
+    def add(candidate_path: Path, family: str) -> None:
+        resolved = _resolve_browser_binary(candidate_path)
+        if resolved is None:
+            return
+        chosen = resolved
+        key = _executable_key(chosen)
+        if key in seen:
+            return
+        seen.add(key)
+        if _is_snap_confined(candidate_path) or _is_snap_confined(chosen):
+            confined.append(_Candidate(chosen if chosen.is_file() else candidate_path, family, "snap", "discovered"))
+            return
+        unconfined[family].append(_Candidate(chosen, family, "none", "discovered"))
+
     names = (
-        ("chromium-browser", "chromium"),
         ("google-chrome-stable", "chrome"),
         ("google-chrome", "chrome"),
-        ("msedge", "edge"),
         ("chrome", "chrome"),
         ("chromium", "chromium"),
+        ("chromium-browser", "chromium"),
+        ("microsoft-edge-stable", "edge"),
+        ("microsoft-edge", "edge"),
+        ("msedge", "edge"),
     )
-    confined: tuple[Path, str, str] | None = None
     for name, family in names:
         found = shutil.which(name)
-        if not found:
-            continue
-        candidate = Path(found)
-        resolved = _resolve_browser_binary(candidate)
-        chosen = resolved if resolved is not None else candidate
-        if _is_snap_confined(candidate) or _is_snap_confined(chosen):
-            if confined is None:
-                confined = (chosen if chosen.is_file() else candidate, family, "snap")
-            continue
-        return chosen, family, "none"
+        if found:
+            add(Path(found), family)
     roots = [
         os.environ.get("PROGRAMFILES", ""),
         os.environ.get("PROGRAMFILES(X86)", ""),
@@ -2474,26 +2650,351 @@ def _browser_binary_details() -> tuple[Path | None, str | None, str]:
     ]
     relatives = (
         (Path("Google/Chrome/Application/chrome.exe"), "chrome"),
-        (Path("Microsoft/Edge/Application/msedge.exe"), "edge"),
         (Path("Google/Chrome/Application/chrome"), "chrome"),
+        (Path("Microsoft/Edge/Application/msedge.exe"), "edge"),
     )
     for root in roots:
         if not root:
             continue
-        base = Path(root)
         for relative, family in relatives:
-            candidate = base / relative
-            resolved = _resolve_browser_binary(candidate)
-            if resolved is not None:
-                return resolved, family, "none"
-    if confined is not None:
-        return confined
-    return None, None, "none"
+            add(Path(root) / relative, family)
+    if os.name != "nt":
+        for app_path, family in (
+            (Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"), "chrome"),
+            (Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"), "edge"),
+        ):
+            if app_path.is_file():
+                add(app_path, family)
+    ordered = [*unconfined["chrome"], *unconfined["chromium"], *unconfined["edge"]]
+    for bundled in _playwright_candidates():
+        key = _executable_key(bundled)
+        if key not in seen:
+            seen.add(key)
+            ordered.append(_Candidate(bundled, "chromium", "none", "discovered", bundled=True))
+    ordered.extend(confined)
+    return ordered
 
 
-def _browser_binary() -> Path | None:
-    """Return the selected browser path without confinement details."""
-    return _browser_binary_details()[0]
+def _configured_candidate(value: Any) -> _Candidate | None:
+    """Validate the optional ``browser_executable`` setting.
+
+    Unset or empty selects discovery only. A malformed value fails closed. An
+    absolute path that is not an executable file is recorded as unavailable so
+    the ordered discovery list still runs.
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if not isinstance(value, str) or "\x00" in value or len(value) > 4096:
+        raise BrowserStartupError("browser_executable_invalid", "browser_executable must be an absolute path")
+    path = Path(value.strip()).expanduser()
+    if not path.is_absolute():
+        raise BrowserStartupError("browser_executable_invalid", "browser_executable must be an absolute path")
+    family = _family_from_name(path)
+    bundled = "ms-playwright" in path.parts
+    if not _is_executable_file(path):
+        return _Candidate(path, family, "none", "configured", bundled=bundled, available=False)
+    resolved = _resolve_browser_binary(path) or path
+    confinement = "snap" if (_is_snap_confined(path) or _is_snap_confined(resolved)) else "none"
+    return _Candidate(resolved, family, confinement, "configured", bundled=bundled)
+
+
+def _startup_plan(browser_executable: Any = None) -> list[_Candidate]:
+    """Return the bounded, ordered startup plan: configured first, then discovery."""
+    plan: list[_Candidate] = []
+    configured = _configured_candidate(browser_executable)
+    if configured is not None:
+        plan.append(configured)
+    seen = {_executable_key(item.path) for item in plan if item.available}
+    primary = _browser_binary()
+    if primary is not None and _executable_key(primary) not in seen:
+        selected, family, confinement = _browser_binary_details()
+        if _is_snap_confined(primary):
+            confinement = "snap"
+        elif primary != selected:
+            confinement = "none"
+        plan.append(_Candidate(primary, family or _family_from_name(primary), confinement, "discovered"))
+        seen.add(_executable_key(primary))
+    for candidate in _discovered_candidates():
+        key = _executable_key(candidate.path)
+        if key not in seen:
+            seen.add(key)
+            plan.append(candidate)
+    return plan[:MAX_STARTUP_ATTEMPTS]
+
+
+def _stderr_reasons(log_path: Path | None) -> list[str]:
+    """Classify the stderr tail through the closed allowlist. No text is returned."""
+    if log_path is None:
+        return []
+    try:
+        with open(log_path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - _STDERR_TAIL_BYTES))
+            raw = handle.read(_STDERR_TAIL_BYTES)
+    except OSError:
+        return []
+    lines = raw.decode("utf-8", errors="replace").splitlines()[-_STDERR_TAIL_LINES:]
+    reasons: list[str] = []
+    for line in lines:
+        for pattern, code in _STDERR_REASON_PATTERNS:
+            if pattern.search(line):
+                if code not in reasons:
+                    reasons.append(code)
+                break
+        if len(reasons) >= _MAX_STDERR_REASONS:
+            break
+    return reasons
+
+
+def _exit_fields(returncode: int | None) -> tuple[int | None, str | None]:
+    """Return a bounded exit code and a signal name for a finished process."""
+    if not isinstance(returncode, int) or isinstance(returncode, bool):
+        return None, None
+    if returncode < 0:
+        number = -returncode
+        try:
+            import signal as _signal
+
+            return None, _signal.Signals(number).name
+        except (ValueError, AttributeError):
+            return None, "SIGNAL_UNKNOWN"
+    if returncode > 0xFFFFFFFF:
+        return None, None
+    return returncode, None
+
+
+def _attempt_record(
+    candidate: _Candidate,
+    outcome: str,
+    *,
+    elapsed: float | None = None,
+    returncode: int | None = None,
+    reasons: list[str] | None = None,
+) -> dict[str, Any]:
+    exit_code, exit_signal = _exit_fields(returncode)
+    return {
+        "executable_class": candidate.executable_class,
+        "browser_family": candidate.family,
+        "source": candidate.source,
+        "outcome": outcome,
+        "exit_code": exit_code,
+        "exit_signal": exit_signal,
+        "startup_ms": round(elapsed * 1000, 1) if isinstance(elapsed, (int, float)) else None,
+        "stderr_reasons": list(reasons or [])[:_MAX_STDERR_REASONS],
+    }
+
+
+def _failure_code_for(attempts: list[dict[str, Any]]) -> str:
+    tried = [item for item in attempts if item["outcome"] != "unavailable"]
+    if not tried:
+        return "browser_not_installed"
+    last = tried[-1]
+    outcome = last["outcome"]
+    if outcome == "exited":
+        if "profile_locked" in last["stderr_reasons"]:
+            return "browser_profile_not_writable"
+        return "browser_crashed"
+    if outcome == "timeout":
+        return "browser_start_timeout"
+    if outcome == "profile_unavailable":
+        return "snap_profile_unavailable"
+    return "browser_launch_failed"
+
+
+def startup_diagnostic(attempts: list[dict[str, Any]], *, reason: str | None = None) -> dict[str, Any]:
+    """Build the bounded, redacted ``browser_startup`` diagnostic."""
+    bounded = [dict(item) for item in attempts[:MAX_STARTUP_ATTEMPTS]]
+    started = bool(bounded) and bounded[-1]["outcome"] == "started"
+    return {
+        "outcome": "started" if started else "failed",
+        "reason": None if started else (reason or _failure_code_for(bounded)),
+        "fallback_used": started and len(bounded) > 1,
+        "attempt_count": len(bounded),
+        "attempts": bounded,
+    }
+
+
+def _launch_with_fallback(
+    plan: list[_Candidate],
+    *,
+    command_for: Any,
+    profile_overrides: dict[str, Any] | None = None,
+) -> tuple[_Candidate, tempfile.TemporaryDirectory[str], subprocess.Popen[str], str, int, list[dict[str, Any]]]:
+    """Start the first plan candidate whose DevTools endpoint answers.
+
+    A startup crash, a failed exec, or an unavailable Snap profile moves to the
+    next candidate. A debugger timeout stops the plan: the process did not
+    crash, and trying more browsers would multiply a slow start. Every failure
+    raises ``BrowserStartupError`` carrying the redacted diagnostic.
+    """
+    attempts: list[dict[str, Any]] = []
+    for candidate in plan:
+        if not candidate.available:
+            attempts.append(_attempt_record(candidate, "unavailable"))
+            continue
+        attempt_started = time.perf_counter()
+        try:
+            tmpdir = _browser_profile_dir(candidate.path)
+        except BrowserStartupError:
+            attempts.append(
+                _attempt_record(candidate, "profile_unavailable", elapsed=time.perf_counter() - attempt_started)
+            )
+            continue
+        profile = Path(tmpdir.name) / "profile"
+        try:
+            profile.mkdir(parents=True, exist_ok=True)
+            try:
+                os.chmod(profile, 0o700)
+            except OSError:
+                pass
+            _write_profile_preferences(profile, profile_overrides)
+        except OSError as exc:
+            tmpdir.cleanup()
+            attempts.append(_attempt_record(candidate, "launch_failed", elapsed=time.perf_counter() - attempt_started))
+            error = BrowserStartupError("browser_profile_not_writable")
+            error.diagnostic = startup_diagnostic(attempts, reason="browser_profile_not_writable")
+            raise error from exc
+        try:
+            port = _free_localhost_port()
+            command = command_for(candidate, profile, port)
+            log_path = Path(tmpdir.name) / "browser.log"
+            proc: subprocess.Popen[str] | None = None
+            with open(log_path, "w", encoding="utf-8") as log_file:
+                try:
+                    proc = subprocess.Popen(command, stdout=log_file, stderr=log_file, text=True)
+                except OSError:
+                    proc = None
+        except Exception:
+            _cleanup_profile(tmpdir)
+            raise
+        if proc is None:
+            attempts.append(_attempt_record(candidate, "launch_failed", elapsed=time.perf_counter() - attempt_started))
+            _cleanup_profile(tmpdir)
+            continue
+        try:
+            ws_url = _wait_debugger_url(port, proc=proc, log_path=log_path)
+        except _BrowserExited as exc:
+            reasons = _stderr_reasons(log_path)
+            attempts.append(
+                _attempt_record(
+                    candidate,
+                    "exited",
+                    elapsed=time.perf_counter() - attempt_started,
+                    returncode=exc.returncode,
+                    reasons=reasons,
+                )
+            )
+            _stop_process(proc)
+            _cleanup_profile(tmpdir)
+            continue
+        except Exception as exc:  # noqa: BLE001 -- a slow start ends the plan with a bounded code
+            reasons = _stderr_reasons(log_path)
+            _stop_process(proc)
+            attempts.append(
+                _attempt_record(
+                    candidate, "timeout", elapsed=time.perf_counter() - attempt_started, reasons=reasons
+                )
+            )
+            _cleanup_profile(tmpdir)
+            error = BrowserStartupError("browser_start_timeout")
+            error.diagnostic = startup_diagnostic(attempts, reason="browser_start_timeout")
+            raise error from exc
+        attempts.append(_attempt_record(candidate, "started", elapsed=time.perf_counter() - attempt_started))
+        return candidate, tmpdir, proc, ws_url, port, attempts
+    code = _failure_code_for(attempts)
+    error = BrowserStartupError(code)
+    error.diagnostic = startup_diagnostic(attempts, reason=code)
+    raise error
+
+
+def _stop_process(proc: subprocess.Popen[str] | None) -> None:
+    if proc is None:
+        return
+    try:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=2)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def _cleanup_profile(tmpdir: tempfile.TemporaryDirectory[str] | None) -> None:
+    """Remove a per-run profile with a bounded retry for lingering helpers."""
+    if tmpdir is None:
+        return
+    deadline = time.monotonic() + 5
+    while True:
+        try:
+            tmpdir.cleanup()
+        except OSError:
+            pass
+        if not Path(tmpdir.name).exists() or time.monotonic() >= deadline:
+            break
+        time.sleep(0.2)
+
+
+def _probe_command(candidate: _Candidate, profile: Path, port: int, blackhole_port: int) -> list[str]:
+    """Headless launch on about:blank. All browser traffic goes to a closed loopback port."""
+    command = [
+        str(candidate.path),
+        "--headless=new",
+        f"--remote-debugging-port={port}",
+        "--remote-debugging-address=127.0.0.1",
+        f"--user-data-dir={profile}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--block-new-web-contents",
+        f"--remote-allow-origins=http://127.0.0.1:{port}",
+        f"--proxy-server=http://127.0.0.1:{blackhole_port}",
+        "--proxy-bypass-list=<-loopback>",
+        "--disable-quic",
+        "--disable-background-networking",
+        "--disable-features=NetworkTimeServiceQuerying",
+        "about:blank",
+    ]
+    if os.name != "nt":
+        command[1:1] = ["--disable-gpu", "--disable-dev-shm-usage"]
+    return command
+
+
+def probe_browser_startup(*, browser_executable: Any = None) -> dict[str, Any]:
+    """Launch, check, and close a browser with the same plan and diagnostic as a run.
+
+    The probe is always headless, starts on about:blank, never navigates, and
+    routes every browser connection to a bound loopback port that does not
+    listen, so it makes no network request.
+    """
+    started = time.perf_counter()
+    try:
+        plan = _startup_plan(browser_executable)
+    except BrowserStartupError as exc:
+        diagnostic = startup_diagnostic([], reason=exc.code)
+        diagnostic["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 1)
+        return diagnostic
+    blackhole = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        blackhole.bind(("127.0.0.1", 0))
+        blackhole_port = int(blackhole.getsockname()[1])
+        try:
+            _candidate, tmpdir, proc, _ws_url, _port, attempts = _launch_with_fallback(
+                plan,
+                command_for=lambda candidate, profile, port: _probe_command(candidate, profile, port, blackhole_port),
+            )
+        except BrowserStartupError as exc:
+            diagnostic = getattr(exc, "diagnostic", None) or startup_diagnostic([], reason=exc.code)
+        else:
+            _stop_process(proc)
+            _cleanup_profile(tmpdir)
+            diagnostic = startup_diagnostic(attempts)
+    finally:
+        blackhole.close()
+    diagnostic["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 1)
+    return diagnostic
 
 
 def _free_localhost_port() -> int:
@@ -2504,14 +3005,12 @@ def _free_localhost_port() -> int:
 
 def _wait_debugger_url(port: int, *, proc: subprocess.Popen[str] | None = None, log_path: Path | None = None) -> str:
     url = f"http://127.0.0.1:{port}/json/list"
-    deadline = time.monotonic() + 12
-    last_error = "browser debugger did not start"
+    deadline = time.monotonic() + DEBUGGER_START_SECONDS
     while time.monotonic() < deadline:
         if proc is not None and proc.poll() is not None:
-            detail = ""
-            if log_path is not None and log_path.is_file():
-                detail = log_path.read_text(encoding="utf-8", errors="replace")[-1200:]
-            raise RuntimeError(f"browser exited before debugger listen {proc.returncode} {detail}".strip())
+            # The log is classified by the caller through a closed allowlist;
+            # its text never enters an exception message.
+            raise _BrowserExited(proc.returncode)
         try:
             with urlopen(url, timeout=1) as response:
                 pages = json.loads(response.read().decode("utf-8"))
@@ -2533,15 +3032,17 @@ def _wait_debugger_url(port: int, *, proc: subprocess.Popen[str] | None = None, 
                 if chosen:
                     parts = urlsplit(chosen)
                     return f"ws://127.0.0.1:{port}{parts.path}"
-        except (OSError, json.JSONDecodeError, TimeoutError) as exc:
-            last_error = str(exc)
+        except (OSError, json.JSONDecodeError, TimeoutError):
+            pass
         time.sleep(0.1)
-    raise RuntimeError(last_error)
+    raise TimeoutError("browser debugger did not start")
 
 
 @contextmanager
-def open_browser_session(start_url: str, *, headed: bool = False) -> Iterator[ChromiumSession]:
-    session = ChromiumSession(start_url, headed=headed)
+def open_browser_session(
+    start_url: str, *, headed: bool = False, browser_executable: Any = None
+) -> Iterator[ChromiumSession]:
+    session = ChromiumSession(start_url, headed=headed, browser_executable=browser_executable)
     try:
         yield session
     finally:
