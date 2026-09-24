@@ -2,16 +2,26 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import re
+import stat
 import tempfile
+import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 PLUGIN_NAME = "hermes-switchyard"
 SOURCE_MANIFEST_NAME = "SOURCE-MANIFEST.json"
+RECEIPT_TEMPORARY_PREFIX = ".receipt-"
+RECEIPT_TEMPORARY_SUFFIX = ".tmp"
+# A receipt write finishes in milliseconds. A temporary file older than this
+# was left by a crashed or failed write and is safe to remove.
+STALE_TEMPORARY_SECONDS = 3600
 RECEIPT_SOURCE_SHA_UNAVAILABLE = "unavailable"
 RECEIPT_VERSION_UNAVAILABLE = "unavailable"
 SOURCE_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -358,18 +368,27 @@ def _write_canonical_receipt(path: Path, canonical: dict[str, Any], *, no_clobbe
     ``no_clobber=True`` publishes with an atomic no-replace link so a
     destination created concurrently is never overwritten; the caller keeps
     whatever landed first.
+
+    Best-effort: every failure returns ``False`` and the temporary file is
+    closed before it is removed, so a failed write leaves no open handle and
+    no ``.receipt-*.tmp`` file behind (an open handle blocks the unlink on
+    Windows).
     """
     temporary: Path | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        fd, raw_path = tempfile.mkstemp(prefix=".receipt-", suffix=".tmp", dir=path.parent)
+        fd, raw_path = tempfile.mkstemp(
+            prefix=RECEIPT_TEMPORARY_PREFIX, suffix=RECEIPT_TEMPORARY_SUFFIX, dir=path.parent
+        )
         temporary = Path(raw_path)
         try:
-            _apply_private_permissions(temporary)
-        except OSError:
+            handle = os.fdopen(fd, "w", encoding="utf-8")
+        except BaseException:
             os.close(fd)
             raise
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with handle:
+            # Protect the file before any content is written to it.
+            _apply_private_permissions(temporary)
             json.dump(canonical, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
             handle.write("\n")
             handle.flush()
@@ -388,7 +407,8 @@ def _write_canonical_receipt(path: Path, canonical: dict[str, Any], *, no_clobbe
         os.replace(temporary, path)
         temporary = None
         return True
-    except (OSError, TypeError, ValueError):
+    except Exception as exc:  # receipt I/O must never break skill routing
+        _log_persist_failure(exc)
         return False
     finally:
         if temporary is not None:
@@ -397,15 +417,57 @@ def _write_canonical_receipt(path: Path, canonical: dict[str, Any], *, no_clobbe
             except OSError:
                 pass
 
+
+def _log_persist_failure(exc: BaseException) -> None:
+    # Log the exception class only: messages can carry local paths.
+    logger.warning(
+        "Switchyard routing receipt was not saved (%s); skill routing continues.",
+        type(exc).__name__,
+    )
+
+
+def _sweep_stale_temporaries(directory: Path) -> None:
+    """Remove temporary receipt files left by earlier failed writes.
+
+    Only regular files that match the receipt temporary name and are older
+    than ``STALE_TEMPORARY_SECONDS`` are removed. Symlinks and other files
+    are never touched. Never raises.
+    """
+    cutoff = time.time() - STALE_TEMPORARY_SECONDS
+    try:
+        candidates = list(directory.glob(f"{RECEIPT_TEMPORARY_PREFIX}*{RECEIPT_TEMPORARY_SUFFIX}"))
+    except OSError:
+        return
+    for candidate in candidates:
+        try:
+            status = candidate.lstat()
+            if stat.S_ISREG(status.st_mode) and status.st_mtime < cutoff:
+                candidate.unlink()
+        except OSError:
+            continue
+
+
 def store_latest_receipt(receipt: dict[str, Any]) -> bool:
-    """Atomically retain the latest valid receipt for the diagnostic command."""
-    canonical = canonicalize_receipt(receipt)
-    if canonical is None:
+    """Atomically retain the latest valid receipt for the diagnostic command.
+
+    Best-effort: this function never raises. A receipt that cannot be saved
+    is logged and reported as ``False``; the caller's recommendation and
+    skill load continue unchanged.
+    """
+    try:
+        canonical = canonicalize_receipt(receipt)
+        if canonical is None:
+            return False
+        path = _receipt_state_file()
+        if path is None:
+            return False
+        stored = _write_canonical_receipt(path, canonical)
+    except Exception as exc:  # receipt I/O must never break skill routing
+        _log_persist_failure(exc)
         return False
-    path = _receipt_state_file()
-    if path is None:
-        return False
-    return _write_canonical_receipt(path, canonical)
+    if stored:
+        _sweep_stale_temporaries(path.parent)
+    return stored
 
 
 def read_latest_receipt() -> dict[str, Any] | None:

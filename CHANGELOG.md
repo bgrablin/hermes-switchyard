@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Make routing-receipt persistence best-effort: a receipt write error of any type is logged once as a WARNING (exception class only) and never stops skill recommendation or skill loading. A failed write now closes its temporary file before removing it, and a successful write removes `.receipt-*.tmp` files older than one hour left by earlier failures. Refs #91.
+
 ## 0.5.3
 
 - Keep adaptive reasoning effort on the Codex Responses wire as `reasoning.effort`; never forward the internal `reasoning.enabled` flag. The fix selects the wire shape by provider/API mode, not by model version, and covers existing and future model IDs. Corrects the HTTP 400 that affected the default-on middleware in 0.5.2.
