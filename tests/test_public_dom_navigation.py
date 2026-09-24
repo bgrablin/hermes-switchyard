@@ -1,0 +1,135 @@
+"""Public-page navigation fixtures and DOM target recall."""
+from __future__ import annotations
+
+import json
+import os
+import unittest
+from contextlib import nullcontext
+from html.parser import HTMLParser
+from pathlib import Path
+
+from hermes_switchyard import browser_use
+
+PAGES = json.loads((Path(__file__).parent / "fixtures/public_dom_navigation.json").read_text(encoding="utf-8"))["pages"]
+
+
+class Links(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.links = []
+        self.current = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "a":
+            self.current = {"id": str(len(self.links) + 1), "role": "link", "href": dict(attrs)["href"], "label": ""}
+
+    def handle_data(self, data):
+        if self.current is not None:
+            self.current["label"] += data
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self.current is not None:
+            self.links.append(self.current)
+            self.current = None
+
+
+class ChoiceClient:
+    def __init__(self, destination):
+        self.destination = destination
+        self.calls = []
+
+    def request_budget(self, *args, **kwargs):
+        return nullcontext()
+
+    def decide(self, state, questions, **kwargs):
+        self.calls.append({"state": state, "questions": questions})
+        criteria = questions["operation"]["criteria"]
+        operation = "CLICK" if any(item["href"] == self.destination for item in state["elements"]) else "BLOCKED"
+        answers = {"operation": choice(operation, criteria)}
+        if "click_target" in questions:
+            target = next((item["id"] for item in state["elements"] if item["href"] == self.destination), next(iter(questions["click_target"]["criteria"])))
+            answers["click_target"] = choice(target, questions["click_target"]["criteria"])
+        return {"answers": answers, "latency_ms": 1, "model": "fixture", "usage": {}}
+
+
+def choice(selected, criteria):
+    return {"choice": selected, "confidence": 0.95, "probabilities": {key: (1.0 if key == selected else 0.0) for key in criteria}}
+
+
+class PublicFixtureTests(unittest.TestCase):
+    def test_public_links_survive_safety_filter_and_reach_jev(self):
+        for fixture in PAGES:
+            with self.subTest(fixture=fixture["start"]):
+                parser = Links()
+                parser.feed(fixture["html"])
+                offered = browser_use._safe_elements(parser.links)
+                self.assertIn(fixture["destination"], [item["href"] for item in offered])
+                client = ChoiceClient(fixture["destination"])
+                class Session:
+                    url = fixture["start"]
+                    def observe(self):
+                        return {"url": self.url, "title": "Public fixture", "text": fixture["html"], "elements": parser.links}
+                    def click(self, element_id, label="", href=""):
+                        self.url = href
+                    def type_text(self, element_id, value, label=""):
+                        raise AssertionError("not offered")
+                    def scroll(self, direction):
+                        raise AssertionError("not selected")
+                    def wait(self, seconds=0.2):
+                        pass
+                    def close(self):
+                        pass
+                result = browser_use.run_browser_goal(goal="Follow the public link", session=Session(), client=client, max_steps=1)
+                self.assertEqual(client.calls[0]["state"]["elements"], offered)
+                self.assertIn(fixture["target_label"], client.calls[0]["questions"]["click_target"]["criteria"][offered[0]["id"]])
+                self.assertEqual(result["actions"][0]["effect_status"], "url_changed")
+
+    @unittest.skipUnless(os.environ.get("SWITCHYARD_LIVE_BROWSER_TESTS") == "1", "requires opt-in Chromium")
+    def test_snapshot_extraction_from_saved_public_markup(self):
+        for fixture in PAGES:
+            with self.subTest(fixture=fixture["start"]):
+                with browser_use.ChromiumSession(fixture["start"]) as session:
+                    # This checked-in public-only fixture contains no scripts or event handlers.
+                    session._evaluate("document.body.innerHTML = " + json.dumps(fixture["html"]))
+                    page = session.observe()
+                    self.assertIn(fixture["destination"], [item["href"] for item in page["elements"]])
+
+    @unittest.skipUnless(os.environ.get("SWITCHYARD_LIVE_BROWSER_TESTS") == "1", "requires opt-in Chromium")
+    def test_zero_size_links_do_not_evict_public_wikipedia_target(self):
+        fixture = PAGES[1]
+        with browser_use.ChromiumSession(fixture["start"]) as session:
+            # The checked-in fixture is public-only and script-free.
+            session._evaluate("document.body.innerHTML = " + json.dumps(fixture["html"]))
+            session._evaluate("""(() => {
+                const main = document.querySelector('main');
+                const hidden = document.createElement('div');
+                hidden.style.display = 'none';
+                for (let n = 0; n < 60; n++) {
+                    const p = document.createElement('p');
+                    const a = document.createElement('a');
+                    a.href = 'https://en.wikipedia.org/wiki/Apollo';
+                    a.textContent = 'Hidden public link ' + n;
+                    p.appendChild(a);
+                    hidden.appendChild(p);
+                }
+                const spacer = document.createElement('div');
+                spacer.style.height = '900px';
+                main.prepend(hidden, spacer);
+                return true;
+            })()""")
+            page = session.observe()
+            self.assertIn(fixture["destination"], [item["href"] for item in page["elements"]])
+            self.assertFalse(any(item["label"].startswith("Hidden public link") for item in page["elements"]))
+
+    @unittest.skipUnless(os.environ.get("SWITCHYARD_LIVE_BROWSER_TESTS") == "1", "requires opt-in Chromium")
+    def test_public_example_link_reaches_iana_over_https(self):
+        with browser_use.ChromiumSession(PAGES[0]["start"]) as session:
+            page = session.observe()
+            target = next(item for item in page["elements"] if item["href"] == PAGES[0]["destination"])
+            session.click(target["id"], label=target["label"], href=target["href"])
+            self.assertEqual(session.observe()["url"], "https://www.iana.org/help/example-domains")
+            self.assertEqual(session.destination_report()["navigation_blocks"], 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -284,6 +284,43 @@ class DestinationGuardTests(unittest.TestCase):
         self.assertTrue(violation["redirected"])
         self.assertTrue(violation["fatal"])
 
+    def test_same_host_http_redirect_is_upgraded_before_network_dispatch(self):
+        guard, wire = self.guard()
+        guard.handle(paused("1", "https://www.iana.org/domains/example"))
+        guard.handle(paused("2", "http://www.iana.org/help/example-domains?q=1", redirected_from="1"))
+        self.assertEqual(wire.of("Fetch.fulfillRequest")[-1]["params"], {
+            "requestId": "2", "responseCode": 307,
+            "responseHeaders": [{"name": "Location", "value": "https://www.iana.org/help/example-domains?q=1"}],
+        })
+        self.assertEqual(len(wire.of("Fetch.continueRequest")), 1)
+        self.assertEqual(wire.of("Fetch.failRequest"), [])
+        self.assertEqual(guard.report()["redirect_hops"], 1)
+
+    def test_http_downgrade_to_another_host_or_private_address_stays_blocked(self):
+        for url in ("http://other.example/help", "http://127.0.0.1/help", "http://user@www.iana.org/help"):
+            with self.subTest(url=url):
+                guard, wire = self.guard()
+                guard.handle(paused("1", "https://www.iana.org/domains/example"))
+                guard.handle(paused("2", url, redirected_from="1"))
+                self.assertEqual(len(wire.of("Fetch.continueRequest")), 1)
+                self.assertEqual(len(wire.of("Fetch.failRequest")), 1)
+
+    def test_http_upgrade_requires_an_approved_prior_request(self):
+        guard, wire = self.guard(resolver=lambda _host: ["10.0.0.1"])
+        guard.handle(paused("1", "https://www.iana.org/start"))
+        guard.handle(paused("2", "http://www.iana.org/next", redirected_from="1"))
+        self.assertEqual(wire.of("Fetch.continueRequest"), [])
+        self.assertEqual(wire.of("Fetch.fulfillRequest"), [])
+        self.assertEqual(len(wire.of("Fetch.failRequest")), 2)
+
+    def test_http_upgrade_cannot_exceed_redirect_budget(self):
+        guard, wire = self.guard(max_redirects=0)
+        guard.handle(paused("1", "https://www.iana.org/start"))
+        guard.handle(paused("2", "http://www.iana.org/next", redirected_from="1"))
+        self.assertEqual(len(wire.of("Fetch.continueRequest")), 1)
+        self.assertEqual(wire.of("Fetch.fulfillRequest"), [])
+        self.assertEqual(len(wire.of("Fetch.failRequest")), 1)
+
     def test_redirect_to_a_literal_private_address_is_blocked(self):
         guard, wire = self.guard()
         guard.handle(paused("1", "https://example.com/"))

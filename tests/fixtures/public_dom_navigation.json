@@ -1,0 +1,17 @@
+{
+  "source_urls": ["https://example.com/", "https://en.wikipedia.org/wiki/Hermes"],
+  "pages": [
+    {
+      "start": "https://example.com/",
+      "destination": "https://iana.org/domains/example",
+      "html": "<main><h1>Example Domain</h1><p>This domain is for use in documentation examples without needing permission. Avoid use in operations. <a href=\"https://iana.org/domains/example\">Learn more</a></p></main>",
+      "target_label": "Learn more"
+    },
+    {
+      "start": "https://en.wikipedia.org/wiki/Hermes",
+      "destination": "https://en.wikipedia.org/wiki/Zeus",
+      "html": "<main id=\"mw-content-text\"><div class=\"mw-parser-output\"><p>Hermes was the son of <a href=\"https://en.wikipedia.org/wiki/Zeus\">Zeus</a> and Maia.</p><p>His sibling was <a href=\"https://en.wikipedia.org/wiki/Apollo\">Apollo</a>.</p></div></main>",
+      "target_label": "Zeus"
+    }
+  ]
+}

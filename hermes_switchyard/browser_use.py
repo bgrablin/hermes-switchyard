@@ -156,7 +156,8 @@ _SNAPSHOT_JS = """(() => {
       nearViewport: rect.bottom > -viewportHeight && rect.top < viewportHeight * 2,
       top,
       center: top + height / 2,
-      height
+      height,
+      width: Math.round(rect.width)
     };
   }
   function accessibleName(el) {
@@ -198,8 +199,9 @@ _SNAPSHOT_JS = """(() => {
       try { article = new URL(href, location.href).pathname.replace(/^\\/wiki\\//, ""); } catch (e) { article = hrefAttr; }
       if (article.includes(":")) continue;
       const placement = placementOf(el);
-    if (placement.top < windowTop || placement.top > windowBottom) continue;
-    found.push({ el, role: (el.getAttribute("role") || (el.tagName === "A" ? "link" : "button")).toLowerCase(), label, href, placement, kind: "click" });
+      if (placement.width <= 0 || placement.height <= 0) continue;
+      if (placement.top < windowTop || placement.top > windowBottom) continue;
+      found.push({ el, role: (el.getAttribute("role") || (el.tagName === "A" ? "link" : "button")).toLowerCase(), label, href, placement, kind: "click" });
     }
     return found;
   }
@@ -218,6 +220,7 @@ _SNAPSHOT_JS = """(() => {
       const label = accessibleName(el);
       if (!label || label.length < 2 || !/[A-Za-z]{2,}/.test(label)) continue;
       const placement = placementOf(el);
+      if (placement.width <= 0 || placement.height <= 0) continue;
       if (placement.top < windowTop || placement.top > windowBottom) continue;
       const roleAttr = String(el.getAttribute("role") || "").toLowerCase();
       const role = roleAttr === "searchbox" || type === "search" ? "searchbox" : "textbox";
@@ -731,7 +734,7 @@ def _safe_elements(raw: Any) -> list[dict[str, Any]]:
             continue
         if href and not _public_http_url(href):
             continue
-        if folded in {"edit", "cite", "[edit]", "learn more", "hide this message"}:
+        if folded in {"edit", "cite", "[edit]", "hide this message"}:
             continue
         seen.add(element_id)
         kind = str(item.get("kind") or "click").casefold()
