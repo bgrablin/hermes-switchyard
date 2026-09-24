@@ -70,6 +70,18 @@ KNOWN_BENIGN_HISTORY = {
     ("docs/benchmarks/feature-battery-c8e6008.json", "3b76ca9f7e4ee91030d61adc0a8fd049149a2b1d258687dd7a8972528eeaac61"): frozenset({
         "host-specific absolute path in docs/benchmarks/feature-battery-c8e6008.json",
     }),
+    # Historical test-only transport keys and browser-diagnostic path fixtures.
+    # These exemptions match the exact blob and finding; current files and any
+    # new historical bytes remain subject to the full scanner.
+    ("tests/test_two_stage_routing.py", "7cc4c0fb4a27ab6b77139ef5b3b7496cc42dbe42fd68fd9ee68b6ed9c7fd3b6c"): frozenset({
+        "credential-shaped assignment in tests/test_two_stage_routing.py",
+    }),
+    ("tests/test_two_stage_wiring.py", "f942f86240ba81d9667d5635eb2d9dab2f1169df61f7c7755ec6c22f08bcb6b0"): frozenset({
+        "credential-shaped assignment in tests/test_two_stage_wiring.py",
+    }),
+    ("tests/test_browser_startup.py", "f99dccedcb54c70ec8b01e783c97d12d7261b2af33dfaf9604308ebaed1dfb1e"): frozenset({
+        "host-specific absolute path in tests/test_browser_startup.py",
+    }),
 }
 CREDENTIAL_FILE_NAMES = frozenset({
     ".env",
