@@ -116,17 +116,17 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
         self.assertTrue(result["stuck_signal"])
         self.assertTrue(client.calls[0][2])
 
-    def test_choose_fail_closed_keeps_previous_on_jev_error(self):
+    def test_choose_fail_closed_keeps_requested_on_jev_error(self):
         client = FakeClient(error=RuntimeError("boom"))
         result = choose_reasoning_effort(
             task="routine summary",
             recent_tool_outcomes=[],
-            prior_effort="low",
+            requested_effort="low",
             client=client,
         )
-        self.assertEqual(result["status"], "kept_previous")
+        self.assertEqual(result["status"], "kept_requested")
         self.assertEqual(result["effort"], "low")
-        self.assertEqual(result["reason_code"], "kept_previous_on_jev_failure")
+        self.assertEqual(result["reason_code"], "kept_requested_on_jev_failure")
         self.assertEqual(result["error_type"], "RuntimeError")
 
     def test_choose_fail_closed_without_ack(self):
@@ -138,7 +138,7 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
             client=client,
             public_or_sanitized_data_ack=False,
         )
-        self.assertEqual(result["reason_code"], "kept_previous_ack_required")
+        self.assertEqual(result["reason_code"], "kept_requested_ack_required")
         self.assertEqual(result["effort"], "medium")
         self.assertEqual(client.calls, [])
 
@@ -172,8 +172,11 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
             session_id="s1",
             turn_id="t1",
         )
-        self.assertEqual(second["request"]["reasoning_effort"], "max")
+        self.assertEqual(len(client.calls), 2)
         self.assertTrue(client.calls[-1][0]["stuck_signal"])
+        # The user's level is the cap: max is never offered, so it can never be sent.
+        self.assertEqual(list(client.calls[-1][1]["reasoning_effort"]["criteria"]), ["minimal", "low", "medium"])
+        self.assertNotEqual(second["request"]["reasoning_effort"], "max")
 
     def test_per_session_state_is_isolated(self):
         client = FakeClient(choice="low")
@@ -182,7 +185,7 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
             default_effort="medium",
         )
         controller.on_llm_request(
-            {"messages": [{"role": "user", "content": "a"}]},
+            {"messages": [{"role": "user", "content": "a"}], "reasoning_effort": "high"},
             session_id="alpha",
             turn_id="t1",
         )
@@ -195,7 +198,7 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
         )
         client.choice = "high"
         controller.on_llm_request(
-            {"messages": [{"role": "user", "content": "b"}]},
+            {"messages": [{"role": "user", "content": "b"}], "reasoning_effort": "high"},
             session_id="beta",
             turn_id="t1",
         )
@@ -206,7 +209,7 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
 
         client.choice = "xhigh"
         controller.on_llm_request(
-            {"messages": [{"role": "user", "content": "a2"}]},
+            {"messages": [{"role": "user", "content": "a2"}], "reasoning_effort": "high"},
             session_id="alpha",
             turn_id="t1",
         )
@@ -216,7 +219,7 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
         client = FakeClient(choice="high")
         controller = ReasoningEffortController(client_factory=lambda: client)
         controller.on_llm_request(
-            {"input": "direct string task about hard debugging", "model": "gpt-5"},
+            {"input": "direct string task about hard debugging", "model": "gpt-5", "reasoning": {"effort": "high"}},
             session_id="s",
             turn_id="t1",
             api_mode="codex_responses",
@@ -231,6 +234,7 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
                     {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "list form task"}]},
                 ],
                 "model": "gpt-5",
+                "reasoning": {"effort": "high"},
             },
             session_id="s",
             turn_id="t2",
@@ -412,7 +416,8 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
             self.assertIsNone(result)
             self.assertFalse(last_receipt()["applied"])
             self.assertEqual(request, {"model": "future-chat", "messages": [{"role": "user", "content": "synthetic"}]})
-        self.assertEqual(len(client.calls), 1)
+            self.assertEqual(last_receipt()["reason_code"], "no_host_effort")
+        self.assertEqual(client.calls, [])
 
     def test_alias_cleanup_is_not_reported_as_effort_applied(self):
         cases = (
@@ -455,11 +460,11 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
     def test_successful_selection_applies_and_cached_selection_remains_adaptive(self):
         client = FakeClient(choice="low")
         controller = ReasoningEffortController(client_factory=lambda: client)
-        for effort in ("high", "xhigh"):
+        for _ in range(2):
             request = {
                 "model": "future-chat",
                 "messages": [{"role": "user", "content": "synthetic"}],
-                "reasoning_effort": effort,
+                "reasoning_effort": "high",
             }
             result = controller.on_llm_request(
                 request, session_id="successful", turn_id="turn-1",
@@ -467,6 +472,15 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
             )
             self.assertEqual(result["request"]["reasoning_effort"], "low")
             self.assertTrue(last_receipt()["applied"])
+        self.assertEqual(len(client.calls), 1)
+        request = {"model": "future-chat", "messages": [], "reasoning_effort": "xhigh"}
+        result = controller.on_llm_request(
+            request, session_id="successful", turn_id="turn-1",
+            provider="custom", model="future-chat", api_mode="chat_completions",
+        )
+        self.assertIsNone(result)
+        self.assertEqual(last_receipt()["reason_code"], "pinned_by_user_change")
+        self.assertEqual(last_receipt()["effort"], "xhigh")
         self.assertEqual(len(client.calls), 1)
 
     def test_no_jev_without_host_effort_does_not_invent_effort(self):
@@ -497,14 +511,14 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
         client = FakeClient(choice="low")
         controller = ReasoningEffortController(client_factory=lambda: client)
         controller.on_llm_request(
-            {"messages": [{"role": "user", "content": "turn one"}]},
+            {"messages": [{"role": "user", "content": "turn one"}], "reasoning_effort": "high"},
             session_id="s",
             turn_id="turn-1",
         )
         calls_after_first = len(client.calls)
         # Same turn retry: cached, no new Jev call
         controller.on_llm_request(
-            {"messages": [{"role": "user", "content": "turn one retry"}]},
+            {"messages": [{"role": "user", "content": "turn one retry"}], "reasoning_effort": "high"},
             session_id="s",
             turn_id="turn-1",
         )
@@ -513,7 +527,7 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
 
         client.choice = "high"
         controller.on_llm_request(
-            {"messages": [{"role": "user", "content": "turn two"}]},
+            {"messages": [{"role": "user", "content": "turn two"}], "reasoning_effort": "high"},
             session_id="s",
             turn_id="turn-2",
         )
@@ -550,7 +564,7 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
         client = FakeClient(choice="xhigh")
         controller.client_factory = lambda: client
         controller.on_llm_request(
-            {"messages": [{"role": "user", "content": "retry"}]},
+            {"messages": [{"role": "user", "content": "retry"}], "reasoning_effort": "high"},
             session_id="s-fail",
             turn_id="t1",
         )

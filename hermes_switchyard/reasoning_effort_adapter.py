@@ -1112,7 +1112,7 @@ class ReasoningEffortController:
 
             model_key = str(model or "").strip().lower() or None
             reason_prefix = None
-            if state.baseline is None or state.model is None:
+            if state.baseline is None:
                 state.baseline = requested
                 state.model = model_key
                 state.dirty = True
