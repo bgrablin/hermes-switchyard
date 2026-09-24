@@ -4,6 +4,7 @@ from __future__ import annotations
 import http.client
 import inspect
 import json
+import logging
 import math
 import threading
 import time
@@ -17,6 +18,7 @@ from typing import Any, cast
 
 from . import receipt_state
 
+logger = logging.getLogger(__name__)
 
 DEFAULT_ENDPOINT = "https://openrouter.ai/api/alpha/decisions"
 TYPESAFE_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
@@ -43,6 +45,19 @@ DEFAULT_OPERATION_DEADLINE_SECONDS = 60.0
 # callback budget (~30s). Keep this comfortably below that host timeout and
 # separate from explicit decision / computer-use deadlines (60s).
 DEFAULT_AUTOMATIC_ROUTING_DEADLINE_SECONDS = 20.0
+# The hosted route closes an idle keep-alive connection after 300-480 s
+# (live probe, issue #92). A pooled connection idle longer than this is
+# replaced before reuse instead of sending on a socket the server closed.
+MAX_CONNECTION_IDLE_SECONDS = 120.0
+# Errors that mean the server closed a reused keep-alive connection before it
+# sent any response. RemoteDisconnected is a ConnectionResetError; it is listed
+# for clarity. Timeouts are not in this set and are never replayed.
+_STALE_CONNECTION_ERRORS = (
+    http.client.RemoteDisconnected,
+    ConnectionResetError,
+    ConnectionAbortedError,
+    BrokenPipeError,
+)
 
 _RESPONSE_FIELDS = frozenset({"model", "answers", "usage", "latency_ms", "request_id"})
 _OPERATION_DEADLINE: ContextVar[float | None] = ContextVar(
@@ -308,6 +323,9 @@ class DecisionClient:
         self.transport = transport
         self._url = urllib.parse.urlsplit(endpoint)
         self._connection: http.client.HTTPSConnection | None = None
+        self._connection_last_used: float | None = None
+        # Count of requests replayed after a pooled connection was found closed.
+        self.stale_connection_retries = 0
         self._connection_lock = threading.RLock()
         self._request_budget: ContextVar[int | None] = ContextVar(
             f"jev_request_budget_{id(self)}", default=None
@@ -358,11 +376,56 @@ class DecisionClient:
         return remaining
 
     def _close_connection(self) -> None:
+        self._connection_last_used = None
         if self._connection is not None:
             try:
                 self._connection.close()
             finally:
                 self._connection = None
+
+    def _connection_idle_too_long(self) -> bool:
+        last_used = self._connection_last_used
+        return last_used is not None and time.monotonic() - last_used > MAX_CONNECTION_IDLE_SECONDS
+
+    def _send_request(self, path: str, body: bytes, headers: dict[str, str]) -> Any:
+        """Send one POST and return the response object; call with the lock held.
+
+        A pooled keep-alive connection that the server closed while idle fails
+        before any response byte arrives. Only that case is retried, once, on a
+        new connection. A decision request changes no provider state, so the
+        replay is safe. A failure on a new connection, a timeout, and any
+        failure after the response started are raised unchanged.
+        """
+        for attempt in range(2):
+            remaining = self._remaining_deadline()
+            timeout = self.timeout if remaining is None else min(self.timeout, remaining)
+            if self._connection is not None and self._connection_idle_too_long():
+                self._close_connection()
+            reused = self._connection is not None
+            if self._connection is None:
+                host = self._url.hostname
+                if not host:
+                    raise RuntimeError("Jev endpoint has no host")
+                self._connection = http.client.HTTPSConnection(
+                    host,
+                    self._url.port,
+                    timeout=timeout,
+                )
+            elif getattr(self._connection, "sock", None) is not None:
+                self._connection.sock.settimeout(timeout)
+            try:
+                self._connection.request("POST", path, body=body, headers=headers)
+                return self._connection.getresponse()
+            except _STALE_CONNECTION_ERRORS as exc:
+                if not reused or attempt:
+                    raise
+                self._close_connection()
+                self.stale_connection_retries += 1
+                logger.info(
+                    "Jev pooled connection was closed by the server (%s); retrying once on a new connection.",
+                    type(exc).__name__,
+                )
+        raise RuntimeError("Jev connection retry did not complete")
 
     @staticmethod
     def _read_bounded(response: Any, limit: int) -> bytes:
@@ -429,21 +492,7 @@ class DecisionClient:
             headers.update(OPENROUTER_APP_HEADERS)
         with self._connection_lock:
             try:
-                remaining = self._remaining_deadline()
-                timeout = self.timeout if remaining is None else min(self.timeout, remaining)
-                if self._connection is None:
-                    host = self._url.hostname
-                    if not host:
-                        raise RuntimeError("Jev endpoint has no host")
-                    self._connection = http.client.HTTPSConnection(
-                        host,
-                        self._url.port,
-                        timeout=timeout,
-                    )
-                elif getattr(self._connection, "sock", None) is not None:
-                    self._connection.sock.settimeout(timeout)
-                self._connection.request("POST", path, body=body, headers=headers)
-                response = self._connection.getresponse()
+                response = self._send_request(path, body, headers)
                 status = response.status
                 if 300 <= status < 400:
                     _parse_error_body(self._read_bounded(response, MAX_ERROR_BYTES))
@@ -452,6 +501,7 @@ class DecisionClient:
                     _parse_error_body(self._read_bounded(response, MAX_ERROR_BYTES))
                     raise RuntimeError(f"Jev provider returned HTTP {status}")
                 raw = self._read_bounded(response, MAX_RESPONSE_BYTES)
+                self._connection_last_used = time.monotonic()
                 if getattr(response, "will_close", False):
                     self._close_connection()
                 close_response = getattr(response, "close", None)
