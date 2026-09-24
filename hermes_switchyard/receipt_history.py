@@ -8,9 +8,10 @@ are never stored: the only receipt accepted is the canonical receipt that
 ``receipt_state.canonicalize_receipt`` validates, and every metadata field
 passes a closed-form sanitizer or becomes ``None``.
 
-The file is bounded by record count and byte size. Every append rewrites the
-retained tail to a private temporary file and publishes it with an atomic
-``os.replace`` under an advisory lock, so a reader never sees a partial file.
+The file is bounded by record count and byte size. Ordinary turns append one
+line under an advisory lock without an fsync on the hook's critical path.
+Corruption, duplicate turns, and limit crossings compact the retained tail
+to a private temporary file and publish it with an atomic ``os.replace``.
 
 The git source SHA is read from ``.git`` files directly (``HEAD``, loose refs,
 and ``packed-refs``) with no subprocess. Linked worktrees (``.git`` is a file
@@ -23,6 +24,7 @@ import json
 import math
 import os
 import re
+import stat
 import tempfile
 import time
 from collections import Counter
@@ -260,9 +262,10 @@ def _parse_records(lines: Iterable[str]) -> list[dict[str, Any]]:
             continue
         try:
             record = json.loads(line)
-        except ValueError:
+            valid = validate_history_record(record)
+        except (ValueError, RecursionError):
             continue
-        if validate_history_record(record):
+        if valid:
             records.append(record)
     return records
 
@@ -307,6 +310,47 @@ def _write_lines(path: Path, lines: list[str]) -> bool:
                 pass
 
 
+def _append_line(path: Path, line: str, before: os.stat_result) -> bool:
+    """Append only to the regular file inspected under the history lock.
+
+    This best-effort diagnostic write does not fsync every turn. A partial
+    write is reported as a failure and repaired on the next compaction.
+    """
+    flags = os.O_WRONLY | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError:
+        return False
+    try:
+        opened = os.fstat(fd)
+        current = path.lstat()
+        if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1:
+            return False
+        if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+            return False
+        if (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino):
+            return False
+        if os.name != "nt" and opened.st_mode & 0o077:
+            return False
+        payload = (line + "\n").encode("ascii")
+        return os.write(fd, payload) == len(payload)
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+
+
+def _ends_with_newline(path: Path, size: int) -> bool:
+    if size == 0:
+        return True
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(-1, os.SEEK_END)
+            return handle.read(1) == b"\n"
+    except OSError:
+        return False
+
+
 def append_receipt_history(
     receipt: Any,
     *,
@@ -318,7 +362,7 @@ def append_receipt_history(
     max_records: int = DEFAULT_MAX_RECORDS,
     max_bytes: int = DEFAULT_MAX_BYTES,
 ) -> bool:
-    """Append one sanitized record and atomically rotate the bounded history.
+    """Append one sanitized record and compact the bounded history as needed.
 
     A later record for the same ``(session_id, turn_id)`` pair replaces the
     earlier one, so repeated terminal writes for one turn count once. Returns
@@ -339,12 +383,35 @@ def append_receipt_history(
         with _HistoryLock(path.with_name(HISTORY_LOCK_NAME)) as locked:
             if not locked:
                 return False
-            existing = _parse_records(_read_lines(path, max_bytes))
+            try:
+                before = path.lstat()
+            except FileNotFoundError:
+                before = None
+            if before is not None and (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1):
+                return False
+            raw_lines = _read_lines(path, max_bytes)
+            existing = _parse_records(raw_lines)
             key = (record["session_id"], record["turn_id"])
-            if key[0] is not None and key[1] is not None:
+            duplicate = key[0] is not None and key[1] is not None and any(
+                (item["session_id"], item["turn_id"]) == key for item in existing
+            )
+            if duplicate:
                 existing = [
                     item for item in existing if (item["session_id"], item["turn_id"]) != key
                 ]
+            if before is None:
+                compact = True
+            else:
+                compact = (
+                    duplicate
+                    or len(raw_lines) != len(existing)
+                    or len(existing) + 1 > max_records
+                    or before.st_size + len(encoded) + 1 > max_bytes
+                    or not _ends_with_newline(path, before.st_size)
+                    or (os.name != "nt" and bool(before.st_mode & 0o077))
+                )
+            if not compact and before is not None:
+                return _append_line(path, encoded, before)
             lines = [_encode(item) for item in existing]
             lines.append(encoded)
             return _write_lines(path, _trim(lines, max_records, max_bytes))
@@ -387,6 +454,12 @@ def read_history(
     """
     path = history_path(data_dir)
     if path is None:
+        return []
+    try:
+        info = path.lstat()
+    except OSError:
+        return []
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
         return []
     records = _parse_records(_read_lines(path, max_bytes))
     if session_id is not None:
@@ -473,7 +546,10 @@ def compute_stats(records: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     abstentions = terminal_states.get("hosted_abstention", 0)
     hosted_attempts = sum(1 for r in receipts if r.get("hosted_attempted") is True)
     hosted_successes = sum(1 for r in receipts if r.get("hosted_succeeded") is True)
-    failure_codes = Counter(str(r["hosted_error"]) for r in receipts if r.get("hosted_error"))
+    failure_codes = Counter(
+        str(r.get("hosted_error_detail") or r["hosted_error"])
+        for r in receipts if r.get("hosted_error_detail") or r.get("hosted_error")
+    )
     skip_reasons = Counter(str(r["hosted_skip_reason"]) for r in receipts if r.get("hosted_skip_reason"))
     abstention_reasons = Counter(
         str(r["abstention_reason"]) for r in receipts if not r.get("selected") and r.get("abstention_reason")
