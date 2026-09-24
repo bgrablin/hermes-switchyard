@@ -31,6 +31,7 @@ from hermes_switchyard.routing import (
     _multi_skill_batches,
     select_skills,
 )
+from test_support import HermesHomeTestCase
 
 
 # ------------------------------------------------------------------ helpers
@@ -165,7 +166,7 @@ def _allow_policy_with_payload(payload, data_class="sanitized"):
 
 # ================================================================= F1 receipt
 
-class F1ConsumerReceiptTests(unittest.TestCase):
+class F1ConsumerReceiptTests(HermesHomeTestCase):
     """Full §5 F1 matrix: recommendation, load, rejection, raise, override,
     dedup, persistence-failure-after-load, legacy record, malformed record."""
 

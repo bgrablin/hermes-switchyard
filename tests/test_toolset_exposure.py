@@ -656,7 +656,9 @@ class RealHermesExposureTests(unittest.TestCase):
             result = json.loads((base / "result.json").read_text(encoding="utf-8"))
             retained_home = home
             if retain_home and owns_temp:
-                retained = Path(tempfile.mkdtemp(prefix="switchyard-retained-"))
+                retained_ctx = tempfile.TemporaryDirectory(prefix="switchyard-retained-", ignore_cleanup_errors=True)
+                self.addCleanup(retained_ctx.cleanup)
+                retained = Path(retained_ctx.name)
                 shutil.copytree(home, retained / "home")
                 # Preserve config mutations from ensure-toolsets
                 retained_home = retained / "home"

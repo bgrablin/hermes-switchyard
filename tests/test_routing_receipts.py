@@ -22,6 +22,7 @@ from hermes_switchyard.automatic import (
     build_routing_receipt,
 )
 from hermes_switchyard.client import DecisionClient, JevRequestError
+from test_support import HermesHomeTestCase
 
 
 # The stable terminal-state enum the receipt surface exposes.
@@ -257,7 +258,7 @@ class ReceiptPrivacyTests(unittest.TestCase):
             self.assertNotIn(marker, blob, f"receipt leaked forbidden marker {marker!r}")
 
 
-class ReceiptEndToEndTests(unittest.TestCase):
+class ReceiptEndToEndTests(HermesHomeTestCase):
     def _small_transport(self):
         def transport(_payload):
             return {
@@ -591,8 +592,8 @@ class PluginStateCleanlinessTests(unittest.TestCase):
         after = self._porcelain(root)
         self.assertEqual(after, before, "plugin use wrote state into the source checkout")
 
-    def test_store_and_migrate_leave_git_porcelain_unchanged(self):
-        """Legacy plugin path is a Git checkout; store and migrate must not dirty it."""
+    def test_store_keeps_checkout_clean_and_migration_retires_untracked_legacy(self):
+        """A successful migration removes only the untracked legacy artifact."""
         receipt = build_routing_receipt(_skipped_result())
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
@@ -608,36 +609,13 @@ class PluginStateCleanlinessTests(unittest.TestCase):
                 self.assertEqual(state, home / "plugin-data" / receipt_state.PLUGIN_NAME / "receipt.json")
                 self._assert_porcelain_unchanged(checkout, before_store)
                 legacy.write_text(json.dumps(receipt), encoding="utf-8")
-                add = subprocess.run(
-                    ["git", "add", "receipt.json"],
-                    cwd=str(checkout),
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                    check=False,
-                )
-                if add.returncode != 0:
-                    self.skipTest("git could not add the modeled legacy receipt")
-                committed = subprocess.run(
-                    [
-                        "git", "-c", "user.name=switchyard-test",
-                        "-c", "user.email=switchyard-test@example.invalid",
-                        "-c", "commit.gpgsign=false", "commit", "-m", "legacy",
-                    ],
-                    cwd=str(checkout),
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                    check=False,
-                )
-                if committed.returncode != 0:
-                    self.skipTest("git could not commit the modeled legacy receipt")
-                before_migrate = self._porcelain(checkout)
+                self.assertEqual(self._porcelain(checkout), "?? receipt.json\n")
                 self.assertEqual(
                     receipt_state.read_latest_receipt(),
                     receipt_state.canonicalize_receipt(receipt),
                 )
-                self._assert_porcelain_unchanged(checkout, before_migrate)
+                self.assertFalse(legacy.exists())
+                self.assertEqual(self._porcelain(checkout), before_store)
 
     def _init_git_checkout(self, root: Path) -> None:
         try:
