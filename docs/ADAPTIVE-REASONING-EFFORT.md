@@ -1,10 +1,10 @@
 # Adaptive reasoning effort
 
-Switchyard can lower Hermes `reasoning_effort` for routine steps. Your `/reasoning` level is always the cap.
+Switchyard can lower Hermes `reasoning_effort` for routine steps. Your `/reasoning` level is the cap by default; `adaptive_reasoning_effort_allow_raise` explicitly permits one higher level after a failed tool call.
 
 ## Behavior
 
-- **Your level is the cap.** Switchyard reads the level from each request (your `/reasoning` setting after Hermes' per-model clamp). In `auto` mode it asks Jev to pick a level from the ones at or below it for the provider. Jev never sees a higher candidate, so it can never send more than you chose.
+- **Your level is the default cap.** Switchyard reads the level from each request (your `/reasoning` setting after Hermes' per-model clamp). In `auto` mode it asks Jev to pick a level from the ones at or below it for the provider. When `adaptive_reasoning_effort_allow_raise` is enabled and the latest tool call failed, it may offer one higher wire level.
 - **No room, no call.** When no lower level exists for the route (for example `low` on OpenAI Codex models), Switchyard does not call Jev and sends your level unchanged.
 - **Manual changes pin.** If you change `/reasoning` mid-session on the same model, the session switches to `pinned` and your level is sent unchanged until you run `/switchyard effort auto`.
 - **Model switches re-baseline.** A model switch or fallback reads the new level and keeps the current mode.
@@ -48,7 +48,7 @@ Settings are read when the plugin loads. Start a new session (and restart the ga
 
 Every decision appends one closed-set record to `effort-history.jsonl` in the plugin data directory (last 2,000 records, 1 MiB): session and turn ID, model, mode, requested level, sent level, cap, reason code, whether Jev was called, Jev latency and confidence, and the stuck flag. No text is stored.
 
-`hermes switchyard stats [--since 24h]` includes an `adaptive_reasoning_effort` section: levels requested and sent, how often effort was lowered, unchanged or raised, reasons, Jev calls per request, and Jev latency p50/p95.
+`hermes switchyard stats [--since 24h]` includes a `reasoning_effort` section: levels requested and sent, how often effort was lowered, unchanged or raised, reasons, Jev calls per request, and Jev latency p50/p95.
 
 Read the level that was actually sent from these records or a request dump. The TUI reasoning label shows your setting, not the value on the wire.
 
