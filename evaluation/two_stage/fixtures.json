@@ -1,0 +1,363 @@
+{
+  "schema_version": 1,
+  "dataset_id": "hermes-switchyard-two-stage-public-synthetic-v1",
+  "public_synthetic": true,
+  "label_frozen": true,
+  "label_freeze_note": "Public synthetic labels fixed before any run. No private text. Filler skills are generated deterministically to reach catalog_size.",
+  "catalog_size": 403,
+  "filler_words": [
+    "alpha",
+    "beacon",
+    "cobalt",
+    "delta",
+    "ember",
+    "falcon",
+    "garnet",
+    "harbor",
+    "indigo",
+    "juniper",
+    "kestrel",
+    "lumen",
+    "meadow",
+    "nimbus",
+    "onyx",
+    "prairie",
+    "quartz",
+    "raven",
+    "sierra",
+    "tundra",
+    "umber",
+    "vertex",
+    "willow",
+    "xenon",
+    "yarrow",
+    "zephyr",
+    "aurora",
+    "basalt",
+    "cinder",
+    "dune"
+  ],
+  "skills": [
+    {
+      "name": "himalaya",
+      "description": "Read, search, and send email over IMAP and SMTP from the terminal.",
+      "excerpt": "Use himalaya envelope list to read mail. Use himalaya message send to reply. Never print passwords.",
+      "name_prior": "mountains nepal everest"
+    },
+    {
+      "name": "mcporter",
+      "description": "List, authenticate, and call MCP servers and their tools from the terminal.",
+      "excerpt": "Run mcporter list to discover servers. Run mcporter call server.tool with JSON arguments.",
+      "name_prior": "mcp server tools"
+    },
+    {
+      "name": "songsee",
+      "description": "Render audio spectrograms and features such as mel, chroma, and MFCC from sound files.",
+      "excerpt": "songsee input.wav --mel writes a spectrogram image. Use --chroma for pitch class features.",
+      "name_prior": "song music audio"
+    },
+    {
+      "name": "qmd",
+      "description": "Hybrid local search over markdown notes, documents, and meeting transcripts.",
+      "excerpt": "qmd query runs keyword and vector search over indexed notes and transcripts.",
+      "name_prior": "markdown query"
+    },
+    {
+      "name": "herdr",
+      "description": "Control terminal workspaces and panes that run coding agents.",
+      "excerpt": "herdr pane list shows panes. herdr send delivers keystrokes to a coding agent pane.",
+      "name_prior": "herd"
+    },
+    {
+      "name": "openhue",
+      "description": "Control Philips Hue lights, scenes, and rooms through the OpenHue CLI.",
+      "excerpt": "openhue set light kitchen --on --brightness 60 changes a light. Scenes use openhue set scene.",
+      "name_prior": "hue lights philips"
+    },
+    {
+      "name": "blogwatcher",
+      "description": "Monitor blogs and RSS or Atom feeds and report new posts.",
+      "excerpt": "blogwatcher add URL subscribes to a feed. blogwatcher scan reports new articles.",
+      "name_prior": "blog watch posts"
+    },
+    {
+      "name": "nano-pdf",
+      "description": "Edit text inside existing PDF files with natural language instructions.",
+      "excerpt": "nano-pdf edit file.pdf applies a text edit to a PDF page and keeps layout.",
+      "name_prior": "pdf small"
+    },
+    {
+      "name": "guidance",
+      "description": "Constrain language model output with grammars so generated JSON is always valid.",
+      "excerpt": "Define a grammar, then generate. The output matches the JSON schema by construction.",
+      "name_prior": "advice guide"
+    },
+    {
+      "name": "obliteratus",
+      "description": "Remove refusal behavior from open model weights through weight surgery.",
+      "excerpt": "Load weights, locate the refusal direction, project it out, and save the edited model.",
+      "name_prior": "obliterate destroy"
+    },
+    {
+      "name": "docker-management",
+      "description": "Operate Docker containers, images, volumes, and Compose stacks with health checks.",
+      "excerpt": "docker compose ps shows service health. Recreate one service with docker compose up -d service.",
+      "name_prior": "docker containers compose"
+    },
+    {
+      "name": "kubernetes-patterns",
+      "description": "Write or debug Kubernetes manifests, rollouts, services, and resource limits.",
+      "excerpt": "kubectl rollout status deployment/name checks a rollout. Set requests and limits on each container.",
+      "name_prior": "kubernetes cluster deployment"
+    },
+    {
+      "name": "postgres-patterns",
+      "description": "Design and tune PostgreSQL schemas, queries, indexes, and migrations.",
+      "excerpt": "Use EXPLAIN ANALYZE to find slow queries. Add indexes with CREATE INDEX CONCURRENTLY.",
+      "name_prior": "postgres postgresql database sql"
+    },
+    {
+      "name": "git-change-preparation",
+      "description": "Prepare signed Git commits and verify author, committer, and signer identity.",
+      "excerpt": "git commit -S signs a commit. git log --show-signature verifies the signer.",
+      "name_prior": "git commit changes"
+    },
+    {
+      "name": "pixel-art",
+      "description": "Create pixel art sprites with retro console color palettes.",
+      "excerpt": "Pick an NES or Game Boy palette, draw on a small grid, then scale with nearest neighbor.",
+      "name_prior": "pixel sprite art"
+    },
+    {
+      "name": "maps",
+      "description": "Geocode addresses, find points of interest, and plan routes with OpenStreetMap.",
+      "excerpt": "Geocode with Nominatim. Route with OSRM between two coordinates.",
+      "name_prior": "map route location"
+    },
+    {
+      "name": "docker-art-gallery",
+      "description": "Curate a gallery of paintings about ships and harbors for a museum page.",
+      "excerpt": "Collect public domain harbor paintings, write captions, and lay out a gallery page.",
+      "name_prior": "docker containers art"
+    },
+    {
+      "name": "email-signature-designer",
+      "description": "Design HTML signature blocks with logos and brand colors.",
+      "excerpt": "Build a table based signature layout. Keep the logo under 20 KB.",
+      "name_prior": "email signature"
+    },
+    {
+      "name": "postgres-poster-printing",
+      "description": "Print large format posters and banners for events.",
+      "excerpt": "Export at 300 dpi with bleed. Send the file to a large format print shop.",
+      "name_prior": "postgres database poster"
+    }
+  ],
+  "cases": [
+    {
+      "id": "p01",
+      "kind": "positive",
+      "task": "Check my inbox over IMAP and reply to the latest message from the terminal.",
+      "expected": "himalaya"
+    },
+    {
+      "id": "p02",
+      "kind": "positive",
+      "task": "Search my email for the invoice thread and send a short answer.",
+      "expected": "himalaya"
+    },
+    {
+      "id": "p03",
+      "kind": "positive",
+      "task": "Discover which MCP servers are available and call one of their tools.",
+      "expected": "mcporter"
+    },
+    {
+      "id": "p04",
+      "kind": "positive",
+      "task": "Render a mel spectrogram and chroma features for this wav sound file.",
+      "expected": "songsee"
+    },
+    {
+      "id": "p05",
+      "kind": "positive",
+      "task": "Search my markdown notes and meeting transcripts for the budget decision.",
+      "expected": "qmd"
+    },
+    {
+      "id": "p06",
+      "kind": "positive",
+      "task": "Send keystrokes to the coding agent running in another terminal pane.",
+      "expected": "herdr"
+    },
+    {
+      "id": "p07",
+      "kind": "positive",
+      "task": "Turn on the kitchen Hue lights and set brightness to sixty percent.",
+      "expected": "openhue"
+    },
+    {
+      "id": "p08",
+      "kind": "positive",
+      "task": "Subscribe to this RSS feed and tell me when new blog posts appear.",
+      "expected": "blogwatcher"
+    },
+    {
+      "id": "p09",
+      "kind": "positive",
+      "task": "Change the date text on page two of this PDF file.",
+      "expected": "nano-pdf"
+    },
+    {
+      "id": "p10",
+      "kind": "positive",
+      "task": "Make the language model output always valid JSON using a grammar.",
+      "expected": "guidance"
+    },
+    {
+      "id": "p11",
+      "kind": "positive",
+      "task": "Restart the unhealthy container in my Compose stack and check volumes.",
+      "expected": "docker-management"
+    },
+    {
+      "id": "p12",
+      "kind": "positive",
+      "task": "Debug why the Kubernetes deployment rollout is stuck and fix resource limits.",
+      "expected": "kubernetes-patterns"
+    },
+    {
+      "id": "p13",
+      "kind": "positive",
+      "task": "Find the slow PostgreSQL query and add the right index.",
+      "expected": "postgres-patterns"
+    },
+    {
+      "id": "p14",
+      "kind": "positive",
+      "task": "Create a signed Git commit and verify the committer identity.",
+      "expected": "git-change-preparation"
+    },
+    {
+      "id": "p15",
+      "kind": "positive",
+      "task": "Draw a small sprite with a Game Boy color palette.",
+      "expected": "pixel-art"
+    },
+    {
+      "id": "p16",
+      "kind": "positive",
+      "task": "Plan a driving route between these two addresses with OpenStreetMap.",
+      "expected": "maps"
+    },
+    {
+      "id": "p17",
+      "kind": "positive",
+      "task": "Print a large banner poster for our event at 300 dpi with bleed.",
+      "expected": "postgres-poster-printing"
+    },
+    {
+      "id": "p18",
+      "kind": "positive",
+      "task": "Design an HTML email signature with our logo and brand colors.",
+      "expected": "email-signature-designer"
+    },
+    {
+      "id": "n01",
+      "kind": "no_fit",
+      "task": "What is two plus two?",
+      "expected": null
+    },
+    {
+      "id": "n02",
+      "kind": "no_fit",
+      "task": "Thanks, that looks good.",
+      "expected": null
+    },
+    {
+      "id": "n03",
+      "kind": "no_fit",
+      "task": "Summarize the paragraph I pasted above in one sentence.",
+      "expected": null
+    },
+    {
+      "id": "n04",
+      "kind": "no_fit",
+      "task": "Tell me a short joke about a harbor.",
+      "expected": null
+    },
+    {
+      "id": "n05",
+      "kind": "no_fit",
+      "task": "Explain the difference between a list and a tuple in Python.",
+      "expected": null
+    },
+    {
+      "id": "n06",
+      "kind": "no_fit",
+      "task": "Rename the variable count to total in this function.",
+      "expected": null
+    },
+    {
+      "id": "n07",
+      "kind": "no_fit",
+      "task": "Is it going to rain tomorrow?",
+      "expected": null
+    },
+    {
+      "id": "n08",
+      "kind": "no_fit",
+      "task": "Write a haiku about autumn leaves.",
+      "expected": null
+    },
+    {
+      "id": "n09",
+      "kind": "no_fit",
+      "task": "Fix the typo in the second sentence.",
+      "expected": null
+    },
+    {
+      "id": "n10",
+      "kind": "no_fit",
+      "task": "Continue.",
+      "expected": null
+    },
+    {
+      "id": "n11",
+      "kind": "no_fit",
+      "task": "Why did the Roman empire decline?",
+      "expected": null
+    },
+    {
+      "id": "n12",
+      "kind": "no_fit",
+      "task": "Convert 5 miles to kilometers.",
+      "expected": null
+    },
+    {
+      "id": "n13",
+      "kind": "no_fit",
+      "task": "How tall is Everest, the highest peak in the Himalaya mountains of Nepal?",
+      "expected": null
+    },
+    {
+      "id": "n14",
+      "kind": "no_fit",
+      "task": "Give me some advice and a guide for a career change.",
+      "expected": null
+    },
+    {
+      "id": "n15",
+      "kind": "no_fit",
+      "task": "Which song on the album has the best music?",
+      "expected": null
+    },
+    {
+      "id": "n16",
+      "kind": "no_fit",
+      "task": "Tell me a story about a herd of goats.",
+      "expected": null
+    }
+  ],
+  "simulation_note": "name_prior models what a names-only decision service may infer from a skill name alone; it can be wrong on purpose (himalaya, docker-art-gallery, postgres-poster-printing). Filler skills have no prior."
+}
