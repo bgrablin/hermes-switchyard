@@ -3,7 +3,9 @@
 const fs = require('node:fs');
 const vm = require('node:vm');
 
+fs.writeSync(2, 'fixture-stage=started\n');
 const { html, script, url } = JSON.parse(fs.readFileSync(0, 'utf8'));
+fs.writeSync(2, 'fixture-stage=input-read\n');
 const anchors = [];
 for (const match of html.matchAll(/<a\b([^>]*)>([^<]*)<\/a>/gi)) {
   const attrs = Object.fromEntries(
@@ -41,5 +43,7 @@ const document = {
 const window = { innerHeight: 800, scrollY: 0, pageYOffset: 0 };
 const context = { document, window, location: { href: url }, URL, CSS: { escape: String },
   Map, Set, WeakMap };
+fs.writeSync(2, 'fixture-stage=vm-start\n');
 const snapshot = vm.runInNewContext(script, context, { timeout: 1000 });
+fs.writeSync(2, 'fixture-stage=vm-complete\n');
 process.stdout.write(JSON.stringify(snapshot));
