@@ -172,6 +172,33 @@ class CiContractTests(unittest.TestCase):
             "means the single-source-of-truth step sequence was split",
         )
 
+    def test_release_candidate_windows_job_consumes_the_ubuntu_artifact(self):
+        workflow = (
+            Path(__file__).resolve().parent.parent / ".github/workflows/release-candidate.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("--source-sha \"$SWITCHYARD_SOURCE_SHA\"", workflow)
+        self.assertIn("--version 0.5.4", workflow)
+        self.assertIn("archive-sha256.json", workflow)
+        self.assertIn("\n  windows-installed-archive:\n", workflow)
+        windows = workflow.split("\n  windows-installed-archive:\n", 1)[1]
+        self.assertIn("needs: build-verify-upload", windows)
+        self.assertIn("runs-on: windows-latest", windows)
+        self.assertIn("timeout-minutes: 30", windows)
+        self.assertIn("python-version: '3.11'", windows)
+        self.assertIn(
+            "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131", windows
+        )
+        self.assertIn("hermes-switchyard-candidate-${{ github.sha }}", windows)
+        self.assertIn('test "$(git rev-parse --verify HEAD)" = "$GITHUB_SHA"', windows)
+        self.assertIn('test "$(git -C "$hermes_root" rev-parse --verify HEAD)" = "$HERMES_UPSTREAM_SHA"', windows)
+        self.assertIn("check_windows_installed_archive.py", windows)
+        self.assertIn("--artifact-dir", windows)
+        self.assertIn("--source-sha \"$GITHUB_SHA\"", windows)
+        self.assertIn("--report", windows)
+        self.assertIn("if: always()", windows)
+        self.assertIn("if-no-files-found: error", windows)
+        self.assertNotIn("continue-on-error", windows)
+
     PINNED_WORKFLOWS = (
         "switchyard-compatibility.yml",
         "live-jev.yml",

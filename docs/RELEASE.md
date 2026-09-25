@@ -32,9 +32,11 @@ This prints `source-verified` only after each archive payload member matches the
 
 ## Candidate workflow
 
-Run the `Release candidate` workflow with `workflow_dispatch` on the exact reviewed commit. The workflow checks out that commit, confirms the checkout is clean, runs the repository checks, builds the archive, verifies it against that checkout's Git blobs, and uploads the ZIP as a short-lived workflow artifact. The embedded source manifest and `SHA256SUMS` identify and check the source SHA inside the ZIP.
+Run the `Release candidate` workflow with `workflow_dispatch` on the exact reviewed commit. The Ubuntu job checks out that commit, confirms the checkout is clean, runs the repository checks, builds the archive, verifies it against that checkout's Git blobs, and uploads the ZIP, an outer ZIP SHA-256 receipt, and the native-loader receipt as a short-lived workflow artifact. The embedded source manifest and `SHA256SUMS` identify and check the source SHA inside the ZIP.
 
-A workflow artifact is not a public release. Inspect the ZIP contents and checksum, then retain the exact workflow run and source SHA as review evidence.
+A dependent Windows 3.11 job downloads **that same artifact**, checks its outer SHA-256 and every payload byte against the Git objects at the dispatched commit, installs the extracted ZIP under a disposable runner-only `HERMES_HOME/plugins/hermes-switchyard`, and starts a fresh pinned Hermes process. It verifies installed-path discovery and calls the registered `jev_assess` handler against a synthetic transport with real socket connections denied. Its sanitized receipt is uploaded even when the job fails; neither a missing receipt nor a failed job passes the gate. This checks a downloaded archive on hosted Windows, not a real user profile, live provider, natural browser recovery, or the six-cell source-checkout compatibility matrix. Run the full six-cell matrix separately against the exact reviewed commit.
+
+A workflow artifact is not a public release. Inspect the downloaded ZIP, its outer checksum, the Windows installed-archive receipt and both job conclusions, then retain the exact workflow run and source SHA as review evidence.
 
 ## Changelog and scorecard policy
 
