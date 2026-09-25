@@ -58,9 +58,12 @@ config_schema:
   automatic_skill_early_stop_threshold: {type: float, default: 0.3, description: "Uncalibrated early-stop needs-skill policy threshold; clamped to 0 through 1"}
   automatic_skill_stage1_min_probability: {type: float, default: 0.05, description: "Uncalibrated stage-one candidate floor before recheck; clamped to 0 through 1"}
   automatic_skill_parallel_requests: {type: int, default: 4, description: "Maximum parallel stage-one requests within the shared deadline; clamped to 1 through 8 and the operation request cap"}
-  adaptive_reasoning_effort: {type: bool, default: true, description: "On after install. Jev picks Hermes reasoning_effort per turn / after tools via llm_request middleware (Codex-style). Fail closed keeps the previous effort. Set false to disable."}
-  adaptive_reasoning_effort_default: {type: str, default: "medium", description: "Fallback effort when Jev has not chosen yet or fails closed (none|minimal|low|medium|high|xhigh|max|ultra)"}
-  adaptive_reasoning_effort_deadline_seconds: {type: float, default: 8.0, description: "Wall-clock budget for the adaptive-effort Jev Choice; kept small so llm_request middleware stays snappy"}
+  adaptive_reasoning_effort: {type: bool, default: true, description: "On after install. Jev may lower Hermes reasoning_effort for routine steps via llm_request middleware. Your /reasoning level is the cap; Jev failures send your level unchanged. Set false to disable."}
+  adaptive_reasoning_effort_mode: {type: str, default: "auto", description: "Start mode for new sessions: auto (Jev may lower effort, never above your level) or pinned (your level is sent unchanged). /switchyard effort auto|pin changes the current session."}
+  adaptive_reasoning_effort_exclude_models: {type: list, default: [], description: "Model name patterns (fnmatch, case-insensitive) the adapter never touches, for example [\"*astra*\"]. Excluded models make no Jev calls."}
+  adaptive_reasoning_effort_allow_raise: {type: bool, default: false, description: "Off by default. When true, auto may go one level above your /reasoning level while the latest tool call failed."}
+  adaptive_reasoning_effort_default: {type: str, default: "medium", description: "Deprecated and unused since 0.5.4. The fallback is always the level in the request."}
+  adaptive_reasoning_effort_deadline_seconds: {type: float, default: 1.5, description: "Wall-clock budget for the adaptive-effort Jev Choice. On timeout your level is sent unchanged."}
   session_search_rerank_choice_confidence_threshold: {type: float, default: 0.8, description: "Uncalibrated local policy threshold for jev_session_search_rerank; below this the tool fail-opens to stock FTS order"}
   session_search_rerank_winning_probability_threshold: {type: float, default: 0.8, description: "Uncalibrated winning-probability threshold for jev_session_search_rerank fail-open"}
   session_search_rerank_max_card_chars: {type: int, default: 360, description: "Per-card text cap after redaction for jev_session_search_rerank"}
