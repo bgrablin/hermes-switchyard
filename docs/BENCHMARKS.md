@@ -1,6 +1,6 @@
 # Hermes Switchyard benchmark results
 
-Repository-owned feature evidence last collected for **0.5.0**: selector and microbench rows were measured at commit `c8e6008c6314e182fd7b100a30efb384db542ee8`; computer-use DOM was re-bound to tip-main commit `a8dae196b0b9892eeb627829d97363ec3d4bb9c9` after #57+#58. It was **not re-collected for 0.5.1, 0.5.2, or 0.5.3**. Comparison arms vary by row. Human-readable benefits first. Hashes and reproduce steps are under [Proof](#proof). This page does not claim whole-agent improvement.
+Repository-owned feature evidence last collected for **0.5.0**: selector and microbench rows were measured at commit `c8e6008c6314e182fd7b100a30efb384db542ee8`; computer-use DOM was re-bound to tip-main commit `a8dae196b0b9892eeb627829d97363ec3d4bb9c9` after #57+#58. It was **not re-collected for 0.5.1, 0.5.2, 0.5.3, or 0.5.4**. Comparison arms vary by row. Human-readable benefits first. Hashes and reproduce steps are under [Proof](#proof). This page does not claim whole-agent improvement.
 
 ## Per-feature scorecard
 

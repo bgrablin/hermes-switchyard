@@ -1,5 +1,5 @@
 name: hermes-switchyard
-version: 0.5.3
+version: 0.5.4
 author: bgrablin
 manifest_version: 1
 description: Jev-powered skill and model routing with fast, safety-gated native computer use, full-catalog selection, typed decisions, and auditable receipts.
