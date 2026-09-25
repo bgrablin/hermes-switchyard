@@ -256,8 +256,11 @@ page loaded cleanly.
 A page renderer crash (`Inspector.targetCrashed` on the page target) fails every
 pending and later protocol command at once with the bounded code
 `renderer_crashed`, instead of a generic 15-second command timeout. A crash
-before the first page is ready reports `failure_phase: browser_startup` and spends
-no provider request. A crashed page is never retried automatically.
+before the first page is ready, including interception setup, reports
+`failure_phase: browser_startup` and spends no provider request. A crash in
+the first snapshot reports `failure_phase: capture` with `failure_reason:
+renderer_crashed`, also before any provider request. A crashed page is never
+retried automatically.
 
 ## Action evidence
 
