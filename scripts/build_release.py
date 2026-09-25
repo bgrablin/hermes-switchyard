@@ -52,6 +52,7 @@ RELEASE_FILES = (
     "docs/TEST-MATRIX.md",
     "docs/benchmarks/live-selector-c6d9b28.json",
     "docs/benchmarks/live-selector-c8e6008.json",
+    "docs/benchmarks/live-selector-7dc77c8.json",
     "docs/benchmarks/feature-battery-c8e6008.json",
     "docs/benchmarks/computer-use-goal-verified-felidae.json",
     "docs/assets/hermes-switchyard-branding.png",
