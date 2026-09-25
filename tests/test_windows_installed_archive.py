@@ -17,7 +17,12 @@ from unittest import mock
 
 import yaml
 
-from scripts.build_release import build_release
+from scripts.build_release import (
+    CHECKSUMS_NAME,
+    RELEASE_FILES,
+    SOURCE_MANIFEST_NAME,
+    build_release,
+)
 from scripts.ci.check_windows_installed_archive import (
     WindowsGateError,
     install_archive,
@@ -73,7 +78,10 @@ class WindowsInstalledArchiveTests(unittest.TestCase):
         installed = self.folder / "home" / "plugins" / "hermes-switchyard"
         hashes = install_archive(data, installed)
         self.assertEqual(hashes, verify_installed_files(installed, data))
-        self.assertEqual(len(hashes), 50)
+        self.assertEqual(
+            set(hashes), set(RELEASE_FILES) | {SOURCE_MANIFEST_NAME, CHECKSUMS_NAME}
+        )
+        self.assertIn("docs/benchmarks/live-selector-7dc77c8.json", hashes)
         self.assertEqual(
             (installed / "plugin.yaml").read_bytes(),
             (ROOT / "plugin.yaml").read_bytes(),
