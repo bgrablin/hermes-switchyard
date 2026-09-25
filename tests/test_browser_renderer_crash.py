@@ -12,10 +12,12 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest import mock
 
 from hermes_switchyard import browser_use
+from hermes_switchyard.destination_policy import DestinationGuard
 
 GIB = 1024 * 1024 * 1024
 
@@ -123,6 +125,81 @@ def _session(sock: _Socket, guard: _Guard) -> browser_use.ChromiumSession:
 
 
 class RendererCrashTests(unittest.TestCase):
+    def _setup_receipt(self, failing_method, error):
+        attempted = []
+        client = mock.Mock()
+        client.decide.side_effect = AssertionError("no provider request before navigation")
+
+        @contextmanager
+        def opening(_url, **_kwargs):
+            session = object.__new__(browser_use.ChromiumSession)
+            session._guard = DestinationGuard(lambda *_args, **_kw: 1)
+
+            def send(method, **_params):
+                attempted.append(method)
+                if method == failing_method:
+                    raise error
+                return {}
+
+            with mock.patch.object(session, "_cdp", side_effect=send):
+                session._install_interception()
+                yield session
+
+        with (
+            mock.patch.object(browser_use, "open_browser_session", side_effect=opening),
+            mock.patch.object(browser_use, "request_budget_scope") as scope,
+        ):
+            scope.return_value.__enter__.return_value = None
+            scope.return_value.__exit__.return_value = None
+            receipt = browser_use.run_browser_goal(
+                goal="Read the public article", client=client,
+                start_url="https://en.wikipedia.org/wiki/Hermes", max_steps=2,
+            )
+        client.decide.assert_not_called()
+        return receipt, attempted
+
+    def test_crash_during_each_interception_setup_keeps_the_startup_reason(self):
+        setup_methods = ["Fetch.enable", "Network.enable", "Target.setAutoAttach"]
+        for index, method in enumerate(setup_methods):
+            with self.subTest(method=method):
+                receipt, attempted = self._setup_receipt(method, browser_use.BrowserTargetCrashedError())
+                self.assertEqual(attempted, setup_methods[: index + 1])
+                self.assertEqual(receipt["status"], "blocked")
+                self.assertEqual(receipt["failure_phase"], "browser_startup")
+                self.assertEqual(receipt["failure_reason"], "renderer_crashed")
+                self.assertEqual(receipt["browser_startup"]["reason"], "renderer_crashed")
+                self.assertEqual(receipt["jev_request_count"], 0)
+                self.assertEqual(receipt["attempted_action_count"], 0)
+                self.assertFalse(receipt["reconcile_before_retry"])
+
+    def test_non_crash_interception_failure_remains_a_policy_refusal(self):
+        receipt, attempted = self._setup_receipt("Network.enable", RuntimeError("CDP failed"))
+        self.assertEqual(attempted, ["Fetch.enable", "Network.enable"])
+        self.assertEqual(receipt["status"], "blocked")
+        self.assertEqual(receipt["failure_phase"], "destination_policy")
+        self.assertEqual(receipt["failure_reason"], "interception_unavailable")
+        self.assertEqual(receipt["jev_request_count"], 0)
+
+    def test_crash_during_initial_observation_keeps_capture_reason(self):
+        session = mock.Mock()
+        session.observe.side_effect = browser_use.BrowserTargetCrashedError()
+        client = mock.Mock()
+        client.decide.side_effect = AssertionError("no provider request after a renderer crash")
+        with mock.patch.object(browser_use, "request_budget_scope") as scope:
+            scope.return_value.__enter__.return_value = None
+            scope.return_value.__exit__.return_value = None
+            receipt = browser_use.run_browser_goal(
+                goal="Read the public article", session=session, client=client, max_steps=2,
+            )
+        self.assertEqual(receipt["status"], "blocked")
+        self.assertEqual(receipt["failure_phase"], "capture")
+        self.assertEqual(receipt.get("failure_reason"), "renderer_crashed")
+        self.assertEqual(receipt["jev_request_count"], 0)
+        self.assertEqual(receipt["attempted_action_count"], 0)
+        self.assertFalse(receipt["reconcile_before_retry"])
+        session.observe.assert_called_once_with()
+        client.decide.assert_not_called()
+
     def _run(self, frame_after_send):
         sock, guard = _Socket(), _Guard()
         session = _session(sock, guard)

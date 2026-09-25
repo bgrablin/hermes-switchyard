@@ -1035,11 +1035,12 @@ def _run_browser_loop(
 
     try:
         page.update(session.observe())
-    except Exception:
+    except Exception as exc:
         return finish(
             page=page,
             status="blocked",
             failure_phase="capture",
+            failure_reason=exc.code if isinstance(exc, BrowserTargetCrashedError) else None,
             reconcile_before_retry=False,
         )
     blocked = _fatal_destination_violation(session)
@@ -2219,6 +2220,8 @@ class ChromiumSession:
         try:
             for method, params in self._guard.root_setup():
                 self._cdp(method, **params)
+        except BrowserTargetCrashedError:
+            raise
         except Exception as exc:
             raise DestinationPolicyError("interception_unavailable") from exc
 
