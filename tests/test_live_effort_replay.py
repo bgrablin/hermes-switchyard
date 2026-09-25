@@ -11,6 +11,7 @@ import unittest
 import zipfile
 from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from scripts import live_effort_replay as replay
@@ -20,6 +21,103 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class LiveEffortReplayTests(unittest.TestCase):
+    def test_manual_replay_child_keeps_only_actual_windows_systemroot(self):
+        """The hosted entry point must not pass credentials with its Windows loader root."""
+        source_sha = "a" * 40
+        tree = "b" * 40
+        parent = {
+            "PATH": "synthetic-path", "LANG": "synthetic-lang", "TMPDIR": "synthetic-temp",
+            "sYsTeMrOoT": "synthetic-systemroot", "HOME": "private-parent-home",
+            "HERMES_HOME": "private-parent-hermes", "OPENROUTER_API_KEY": "synthetic-provider",
+            "TYPESAFE_API_KEY": "synthetic-other-provider", "ANTHROPIC_API_KEY": "synthetic-anthropic",
+            "HERMES_SHARED_AUTH_DIR": "private-parent-shared-auth", "GITHUB_TOKEN": "synthetic-github",
+            "GH_TOKEN": "synthetic-gh", "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "synthetic-oidc",
+        }
+        windows_os = SimpleNamespace(name="nt", environ=parent)
+        child_report = {"ok": True, "source_sha": source_sha, "source_tree": tree,
+                        "jev_transport": "hosted", "receipts": []}
+        def prepared(_archive, _source_root, _source_sha, home):
+            home.mkdir(parents=True)
+            return tree
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "report.json"
+            completed = SimpleNamespace(returncode=0, stdout=json.dumps(child_report), stderr="")
+            with (patch.object(replay, "prepare", side_effect=prepared),
+                  patch.object(replay, "os", windows_os),
+                  patch.object(replay.subprocess, "run", return_value=completed) as run,
+                  redirect_stdout(io.StringIO())):
+                outcome = replay.main(["--archive", "unused.zip", "--source-root", str(ROOT),
+                    "--source-sha", source_sha, "--secret-home", directory,
+                    "--provider", "openrouter", "--report", str(report), "--allow-hosted"])
+            self.assertEqual(outcome, 0, json.loads(report.read_text()).get("error"))
+            env = run.call_args.kwargs["env"]
+            self.assertIn("sYsTeMrOoT", env)
+            self.assertEqual(env["sYsTeMrOoT"], parent["sYsTeMrOoT"])
+            self.assertEqual(set(env), {"PATH", "LANG", "TMPDIR", "sYsTeMrOoT",
+                "HOME", "HERMES_HOME", "HERMES_BUNDLED_PLUGINS"})
+            self.assertNotEqual(env["HOME"], parent["HOME"])
+            self.assertNotEqual(env["HERMES_HOME"], parent["HERMES_HOME"])
+
+    def test_synthetic_wire_child_keeps_only_actual_windows_systemroot(self):
+        """Capture the real installed-test subprocess boundary without launching it."""
+        parent = {"PATH": "synthetic-path", "LANG": "synthetic-lang",
+                  "TMPDIR": "synthetic-temp", "PYTHONPATH": "synthetic-pythonpath",
+                  "sYsTeMrOoT": "synthetic-systemroot", "HOME": "private-parent-home",
+                  "HERMES_HOME": "private-parent-hermes", "OPENROUTER_API_KEY": "synthetic-provider",
+                  "TYPESAFE_API_KEY": "synthetic-other-provider", "ANTHROPIC_API_KEY": "synthetic-anthropic",
+                  "HERMES_SHARED_AUTH_DIR": "private-parent-shared-auth", "GITHUB_TOKEN": "synthetic-github",
+                  "GH_TOKEN": "synthetic-gh", "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "synthetic-oidc"}
+        windows_os = SimpleNamespace(name="nt", environ=parent)
+        original_run = subprocess.run
+        captured = {}
+
+        class ChildEnvCaptured(Exception):
+            pass
+
+        def intercept(command, *args, **kwargs):
+            if command[:2] == [sys.executable, "-c"]:
+                captured.update(kwargs)
+                raise ChildEnvCaptured()
+            return original_run(command, *args, **kwargs)
+
+        with (patch.object(sys.modules[__name__], "os", windows_os),
+              patch.object(replay, "os", windows_os),
+              patch.object(subprocess, "run", side_effect=intercept)):
+            with self.assertRaises(ChildEnvCaptured):
+                self.test_real_installed_seven_step_wire_replay_with_synthetic_jev()
+        env = captured["env"]
+        self.assertIn("sYsTeMrOoT", env)
+        self.assertEqual(env["sYsTeMrOoT"], parent["sYsTeMrOoT"])
+        self.assertEqual(set(env), {"PATH", "LANG", "TMPDIR", "sYsTeMrOoT",
+            "HOME", "HERMES_HOME", "HERMES_BUNDLED_PLUGINS", "PYTHONPATH"})
+        self.assertNotEqual(env["HOME"], parent["HOME"])
+        self.assertNotEqual(env["HERMES_HOME"], parent["HERMES_HOME"])
+
+    def test_windows_missing_or_empty_systemroot_refuses_child(self):
+        """Do not guess a loader path or invoke the child when Windows lacks one."""
+        source_sha = "a" * 40
+        def prepared(_archive, _source_root, _source_sha, home):
+            home.mkdir(parents=True)
+            return "b" * 40
+        for root in (None, "", "   "):
+            with self.subTest(root_kind="missing" if root is None else "empty"):
+                parent = {"PATH": "synthetic-path", "OPENROUTER_API_KEY": "synthetic-provider"}
+                if root is not None:
+                    parent["sYsTeMrOoT"] = root
+                with tempfile.TemporaryDirectory() as directory:
+                    report = Path(directory) / "report.json"
+                    with (patch.object(replay, "prepare", side_effect=prepared),
+                          patch.object(replay, "os", SimpleNamespace(name="nt", environ=parent)),
+                          patch.object(replay.subprocess, "run") as run,
+                          redirect_stdout(io.StringIO())):
+                        outcome = replay.main(["--archive", "unused.zip", "--source-root", str(ROOT),
+                            "--source-sha", source_sha, "--secret-home", directory,
+                            "--provider", "openrouter", "--report", str(report), "--allow-hosted"])
+                    self.assertEqual(outcome, 1)
+                    self.assertEqual(json.loads(report.read_text()), {"ok": False,
+                        "error": "Windows SystemRoot is unavailable for the isolated child"})
+                    run.assert_not_called()
+
     def test_requires_explicit_hosted_gate_before_install_or_secret_resolution(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(replay, "prepare") as prepare:
             report = Path(directory) / "report.json"
@@ -122,7 +220,7 @@ result = run_installed(Path(sys.argv[1]), sys.argv[2], sys.argv[3], 'openrouter'
                        Path(sys.argv[4]), synthetic_client_factory=FakeJev)
 print(json.dumps(result))
 """
-            env = {key: os.environ[key] for key in ("PATH", "LANG", "TMPDIR") if key in os.environ}
+            env = replay._sparse_child_env(("PATH", "LANG", "TMPDIR"))
             env.update({"HOME": str(work), "HERMES_HOME": str(home),
                 "HERMES_BUNDLED_PLUGINS": str(bundled), "PYTHONPATH": str(ROOT)})
             result = subprocess.run([sys.executable, "-c", code,
