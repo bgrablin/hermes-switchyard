@@ -316,7 +316,7 @@ def run_gate(args: argparse.Namespace, report: dict[str, Any]) -> None:
     (home / "config.yaml").write_text(
         "plugins:\n  enabled:\n    - hermes-switchyard\n  disabled: []\n"
         "  entries:\n    hermes-switchyard:\n      enabled: true\n      settings:\n"
-        "        automatic_skill_routing_mode: off\n"
+        "        automatic_skill_routing_mode: \"off\"\n"
         "        adaptive_reasoning_effort: false\n", encoding="utf-8",
     )
     installed = home / "plugins" / PLUGIN
