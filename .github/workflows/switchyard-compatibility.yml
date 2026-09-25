@@ -130,7 +130,9 @@ jobs:
             hermes_python="$hermes_venv/Scripts/python.exe"
             hermes_bin="$hermes_venv/Scripts"
           fi
-          UV_NO_CONFIG=1 uv pip install --python "$hermes_python" -e "$hermes_root[all,dev]"
+          # The installed wire replay exercises Anthropic's SDK, which is an
+          # upstream optional extra outside [all]; use its upstream version pin.
+          UV_NO_CONFIG=1 uv pip install --python "$hermes_python" -e "$hermes_root[all,dev,anthropic]"
           test "$(git -C "$hermes_root" rev-parse --verify HEAD)" = "$HERMES_UPSTREAM_SHA"
           export PATH="$hermes_bin:$PATH"
           command -v hermes

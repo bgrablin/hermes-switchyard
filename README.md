@@ -9,7 +9,7 @@ Version: 0.5.3
 Switchyard can:
 
 - **Find skills:** recommend one skill or several for the same task. `jev_skill_select_many` returns a set of recommendations. Separately, the default automatic hook can load one accepted skill for the current turn and choose another on a later turn.
-- **Adjust reasoning effort:** choose an effort level for each request, and reconsider it after tool results. If Jev makes no usable decision, Switchyard keeps the existing effort.
+- **Adjust reasoning effort:** Jev may lower your `/reasoning` level on a request and reconsider when the latest tool result changes between success and failure. On failure it keeps your selected level; a manual level change pins the session until `/switchyard effort auto`.
 - **Recommend a model:** compare candidates you supply or read a profile-approved registry, then leave a receipt. It does **not** switch the active model.
 - **Guide computer use:** choose browser or desktop actions one step at a time. A proposed finish is not proof that the task is complete.
 - **Assess or re-rank:** answer a bounded typed question or re-rank a shortlist from Hermes session search.
@@ -45,7 +45,7 @@ TypeSafe and OpenRouter are separate paid or allowance-based routes. With `jev_p
 **Two automatic features are on after installation.** They have different data boundaries:
 
 - **Skill routing** can send a bounded task excerpt and exact candidate identifiers to the selected Jev provider when its hosted path is allowed. It does not send full skill bodies or the conversation history. A local restricted-data scan is not a guarantee that private data was removed.
-- **Adaptive reasoning effort** can send task-presence and length metadata, the prior effort, and recent tool status codes. It does not send raw user-message text or tool-result excerpts on that path.
+- **Adaptive reasoning effort** can send task-presence and length metadata, your requested effort, and recent tool status codes. It does not send raw user-message text or tool-result excerpts on that path. Your selected level is the default cap; `adaptive_reasoning_effort_allow_raise` explicitly allows one higher level after a failed tool call.
 
 Do not use hosted Jev decisions for credentials, payment or verification codes, employer data, or other private or regulated content. Hermes owns data classification. Switchyard does not change the active model, silently try another provider, or bypass Hermes' computer-use controls. Its computer-use tool can send a goal and safe visible context to Jev; do not use it for private or authenticated screens. Read the [automatic-routing boundary](docs/AUTOMATIC-INTEGRATION.md) and [computer-use boundary](docs/DOM-BROWSER-BACKEND.md) before using those paths.
 
