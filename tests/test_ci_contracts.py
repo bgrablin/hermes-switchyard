@@ -176,6 +176,9 @@ class CiContractTests(unittest.TestCase):
         workflow = (
             Path(__file__).resolve().parent.parent / ".github/workflows/release-candidate.yml"
         ).read_text(encoding="utf-8")
+        ubuntu, windows = workflow.split("\n  windows-installed-archive:\n", 1)
+        for job in (ubuntu, windows):
+            self.assertIn('-e "$hermes_root[all,dev,anthropic]"', job)
         self.assertIn("--source-sha \"$SWITCHYARD_SOURCE_SHA\"", workflow)
         self.assertIn("--version 0.5.4", workflow)
         self.assertIn("archive-sha256.json", workflow)
