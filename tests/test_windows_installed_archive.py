@@ -15,6 +15,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import yaml
+
 from scripts.build_release import build_release
 from scripts.ci.check_windows_installed_archive import (
     WindowsGateError,
@@ -209,6 +211,59 @@ class WindowsInstalledArchiveTests(unittest.TestCase):
             with self.assertRaises(WindowsGateError) as raised:
                 run_gate(args, {})
         self.assertEqual(str(raised.exception), "sandbox_outside_runner_temp")
+
+    def test_generated_routing_mode_is_a_valid_string_not_yaml_boolean(self):
+        from scripts.ci.check_windows_installed_archive import run_gate
+
+        home = self.folder / "runner-temp" / "candidate-home"
+        args = argparse.Namespace(
+            source_sha=self.source_sha,
+            upstream_sha="8503ee4459316ce092b5d69b7d396c27aa03d0be",
+            hermes_home=home,
+            artifact_dir=self.folder / "download",
+            source_root=ROOT,
+            upstream_root=ROOT,
+        )
+        native_result = {
+            "ok": True, "hermes_version": "0.21.3", "module_root": "installed:__init__.py",
+            "client_root": "installed:hermes_switchyard/client.py",
+            "tool": {"name": "jev_assess", "status": "assessed",
+                     "synthetic_request_count": 1, "real_network_connects": 0},
+        }
+        real_run = subprocess.run
+
+        def child_or_git(command, **kwargs):
+            if "--child-probe" in command:
+                return subprocess.CompletedProcess(command, 0, json.dumps(native_result), "")
+            return real_run(command, **kwargs)
+
+        with mock.patch.object(sys, "platform", "win32"), mock.patch.dict(
+            os.environ, {"RUNNER_TEMP": str(home.parent)}
+        ), mock.patch(
+            "scripts.ci.check_windows_installed_archive.subprocess.run", side_effect=child_or_git
+        ):
+            report = {}
+            run_gate(args, report)
+
+        self.assertTrue(report["ok"])
+        settings = yaml.safe_load((home / "config.yaml").read_text(encoding="utf-8"))[
+            "plugins"
+        ]["entries"]["hermes-switchyard"]["settings"]
+        manifest = yaml.safe_load(
+            (home / "plugins" / "hermes-switchyard" / "plugin.yaml").read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["config_schema"]["automatic_skill_routing_mode"]["type"], "str")
+        self.assertIs(type(settings["automatic_skill_routing_mode"]), str)
+        self.assertEqual(settings["automatic_skill_routing_mode"], "off")
+        try:
+            from hermes_cli.plugins_manifest import validate_config_schema
+        except ImportError:
+            if os.environ.get("SWITCHYARD_REQUIRE_HERMES") == "1":
+                self.fail("required pinned Hermes config validator is unavailable")
+        else:
+            self.assertEqual(validate_config_schema(
+                "hermes-switchyard", manifest["config_schema"], settings
+            ), [])
 
     def test_socket_escape_is_denied_not_counted_as_a_synthetic_call(self):
         client = SimpleNamespace(http=SimpleNamespace(client=__import__("http.client", fromlist=["client"])))
