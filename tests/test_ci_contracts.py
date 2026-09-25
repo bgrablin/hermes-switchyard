@@ -148,6 +148,26 @@ class CiContractTests(unittest.TestCase):
             "ruff pin drift between ruff.toml and the compatibility workflow",
         )
 
+    def test_setup_uv_is_pinned_consistently_in_all_workflows(self):
+        workflows = Path(__file__).resolve().parent.parent / ".github" / "workflows"
+        expected_pin = (
+            "astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0"
+        )
+        expected = {
+            "live-jev.yml": [expected_pin],
+            "release-candidate.yml": [expected_pin, expected_pin],
+            "switchyard-compatibility.yml": [expected_pin],
+        }
+        actual = {}
+        for path in workflows.glob("*.yml"):
+            uses = re.findall(
+                r"(?m)^\s*uses:\s*(astral-sh/setup-uv@[^\n]+)$",
+                path.read_text(encoding="utf-8"),
+            )
+            if uses:
+                actual[path.name] = [use.strip() for use in uses]
+        self.assertEqual(actual, expected)
+
     def test_compatibility_step_sequence_is_not_duplicated_across_lanes(self):
         """Guard against a second copy of the compatibility steps (the
 
