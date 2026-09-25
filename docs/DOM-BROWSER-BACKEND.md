@@ -54,6 +54,12 @@ capability boundary and names the caller's next option. The capability set is al
 reported on every receipt as `capabilities`, so a caller can see the whole set and
 not just the mismatch.
 
+After filling an offered field, that same field is not offered for a second
+`TYPE_TEXT` decision on the same page. Forms are submitted only by clicking an
+offered visible control; the backend does not synthesize Enter or bypass the
+destination policy. A public Wikipedia Special:Search form is supported when its
+search field and Search button are visible.
+
 ## Completion predicates
 
 A caller may supply `completion_condition`, a bounded predicate evaluated locally

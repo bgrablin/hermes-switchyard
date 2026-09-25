@@ -197,7 +197,9 @@ _SNAPSHOT_JS = """(() => {
       if (hrefAttr.includes("#")) continue;
       let article = "";
       try { article = new URL(href, location.href).pathname.replace(/^\\/wiki\\//, ""); } catch (e) { article = hrefAttr; }
-      if (article.includes(":")) continue;
+      // A button with no href inherits the page's Special: path here; only
+      // filter actual link destinations, not same-page form controls.
+      if (article.includes(":") && (hrefAttr || el.tagName === "A")) continue;
       const placement = placementOf(el);
       if (placement.width <= 0 || placement.height <= 0) continue;
       if (placement.top < windowTop || placement.top > windowBottom) continue;
@@ -321,65 +323,7 @@ class BrowserSession(Protocol):
         ...
 
     def type_text(self, element_id: str, value: str, label: str = "") -> None:
-        """Fill one ordinary text field with a caller-supplied bounded value.
-
-        Values are never sent to Jev. Password, file, and hidden inputs are refused.
-        Identity is re-checked against the live accessible name before mutation.
-        """
-        if not re.fullmatch(r"[0-9]{1,9}", element_id):
-            raise ValueError("element id is not a snapshot index")
-        if type(value) is not str or not value or len(value) > 2_000:
-            raise ValueError("text value is out of bounds")
-        if any(ord(char) < 32 and char not in "\t\n\r" for char in value):
-            raise ValueError("text value contains a control character")
-        expected_label = json.dumps(label)
-        value_js = json.dumps(value)
-        typed = self._evaluate(
-            f"""(() => {{
-              const el = (window.__hermesSwitchyardClickNodes || new Map()).get("{element_id}");
-              if (!el || !el.isConnected) return {{ok: false, reason: "missing"}};
-              function accessibleName(node) {{
-                const aria = String(node.getAttribute("aria-label") || "").replace(/\\s+/g, " ").trim();
-                if (aria) return aria.slice(0, 120);
-                const id = node.getAttribute("id");
-                if (id) {{
-                  try {{
-                    const lab = document.querySelector('label[for="' + CSS.escape(id) + '"]');
-                    const text = String((lab && (lab.innerText || lab.textContent)) || "").replace(/\\s+/g, " ").trim();
-                    if (text) return text.slice(0, 120);
-                  }} catch (e) {{}}
-                }}
-                const wrapped = node.closest("label");
-                if (wrapped) {{
-                  const text = String(wrapped.innerText || wrapped.textContent || "").replace(/\\s+/g, " ").trim();
-                  if (text) return text.slice(0, 120);
-                }}
-                return String(node.getAttribute("placeholder") || node.getAttribute("name") || node.getAttribute("title") || "").replace(/\\s+/g, " ").trim().slice(0, 120);
-              }}
-              const liveLabel = accessibleName(el);
-              if ({expected_label} && liveLabel !== {expected_label}) return {{ok: false, reason: "stale"}};
-              const type = String(el.getAttribute("type") || "").toLowerCase();
-              if (type === "password" || type === "file" || type === "hidden") return {{ok: false, reason: "denied"}};
-              el.focus();
-              if ("value" in el) {{
-                el.value = "";
-                el.dispatchEvent(new Event("input", {{bubbles: true}}));
-                el.value = {value_js};
-                el.dispatchEvent(new Event("input", {{bubbles: true}}));
-                el.dispatchEvent(new Event("change", {{bubbles: true}}));
-              }} else if (el.isContentEditable) {{
-                el.textContent = {value_js};
-                el.dispatchEvent(new Event("input", {{bubbles: true}}));
-              }} else {{
-                return {{ok: false, reason: "not_editable"}};
-              }}
-              return {{ok: true}};
-            }})()"""
-        )
-        if not isinstance(typed, dict) or typed.get("ok") is not True:
-            raise RuntimeError("page element was not typeable")
-        self.wait(0.15)
-        self._wait_ready()
+        ...
 
     def scroll(self, direction: str) -> None:
         ...
@@ -1064,6 +1008,7 @@ def _run_browser_loop(
     stalled = 0
     decision_signatures: list[str] = []
     caller_text_inputs = text_inputs or {}
+    typed_targets: set[tuple[str, str]] = set()
     # A caller-supplied predicate is fixed before execution. When it is already
     # satisfied there is nothing to decide, so no provider request is spent.
     completion = _completion_status(condition, page)
@@ -1112,7 +1057,9 @@ def _run_browser_loop(
         typeable = [
             item
             for item in elements
-            if item.get("kind") == "type" and _caller_value_for_dom_target(item, caller_text_inputs) is not None
+            if item.get("kind") == "type"
+            and _caller_value_for_dom_target(item, caller_text_inputs) is not None
+            and (str(page.get("url") or ""), item["id"]) not in typed_targets
         ]
         operation_criteria = {
             "SCROLL_DOWN": "Scroll down to reveal more page content",
@@ -1407,6 +1354,7 @@ def _run_browser_loop(
                     )
                 session.type_text(target_id, caller_value, label=matched["label"])
                 action_dispatched = True
+                typed_targets.add((str(fresh.get("url") or ""), target_id))
             elif operation in {"SCROLL_DOWN", "SCROLL_UP"}:
                 blocked_before = _fatal_destination_violation(session)
                 if blocked_before is not None:
@@ -2085,6 +2033,63 @@ class ChromiumSession:
         )
         if not isinstance(clicked, dict) or clicked.get("ok") is not True:
             raise RuntimeError("page element was not clickable")
+        self.wait(0.15)
+        self._wait_ready()
+
+    def type_text(self, element_id: str, value: str, label: str = "") -> None:
+        """Fill an ordinary field only after rechecking its live accessible name."""
+        if not re.fullmatch(r"[0-9]{1,9}", element_id):
+            raise ValueError("element id is not a snapshot index")
+        if type(value) is not str or not value or len(value) > 2_000:
+            raise ValueError("text value is out of bounds")
+        if any(ord(char) < 32 and char not in "\t\n\r" for char in value):
+            raise ValueError("text value contains a control character")
+        expected_label = json.dumps(label)
+        value_js = json.dumps(value)
+        typed = self._evaluate(
+            f"""(() => {{
+              const el = (window.__hermesSwitchyardClickNodes || new Map()).get("{element_id}");
+              if (!el || !el.isConnected) return {{ok: false, reason: "missing"}};
+              function accessibleName(node) {{
+                const aria = String(node.getAttribute("aria-label") || "").replace(/\\s+/g, " ").trim();
+                if (aria) return aria.slice(0, 120);
+                const id = node.getAttribute("id");
+                if (id) {{
+                  try {{
+                    const lab = document.querySelector('label[for="' + CSS.escape(id) + '"]');
+                    const text = String((lab && (lab.innerText || lab.textContent)) || "").replace(/\\s+/g, " ").trim();
+                    if (text) return text.slice(0, 120);
+                  }} catch (e) {{}}
+                }}
+                const wrapped = node.closest("label");
+                if (wrapped) {{
+                  const text = String(wrapped.innerText || wrapped.textContent || "").replace(/\\s+/g, " ").trim();
+                  if (text) return text.slice(0, 120);
+                }}
+                return String(node.getAttribute("placeholder") || node.getAttribute("name") || node.getAttribute("title") || "").replace(/\\s+/g, " ").trim().slice(0, 120);
+              }}
+              const liveLabel = accessibleName(el);
+              if ({expected_label} && liveLabel !== {expected_label}) return {{ok: false, reason: "stale"}};
+              const type = String(el.getAttribute("type") || "").toLowerCase();
+              if (type === "password" || type === "file" || type === "hidden") return {{ok: false, reason: "denied"}};
+              el.focus();
+              if ("value" in el) {{
+                el.value = "";
+                el.dispatchEvent(new Event("input", {{bubbles: true}}));
+                el.value = {value_js};
+                el.dispatchEvent(new Event("input", {{bubbles: true}}));
+                el.dispatchEvent(new Event("change", {{bubbles: true}}));
+              }} else if (el.isContentEditable) {{
+                el.textContent = {value_js};
+                el.dispatchEvent(new Event("input", {{bubbles: true}}));
+              }} else {{
+                return {{ok: false, reason: "not_editable"}};
+              }}
+              return {{ok: true}};
+            }})()"""
+        )
+        if not isinstance(typed, dict) or typed.get("ok") is not True:
+            raise RuntimeError("page element was not typeable")
         self.wait(0.15)
         self._wait_ready()
 
