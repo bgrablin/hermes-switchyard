@@ -90,6 +90,7 @@ jobs:
           rm -rf dist
           "$HERMES_PYTHON" scripts/build_release.py \
             --source-sha "$SWITCHYARD_SOURCE_SHA" \
+            --version 0.5.4 \
             --output-dir dist
 
       - name: Verify extracted links and the actual native Hermes loader
@@ -98,12 +99,18 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/switchyard-release-receipts"
           "$HERMES_PYTHON" scripts/ci/verify_release_candidate.py \
-            --archive "$(find dist -maxdepth 1 -type f -name 'hermes-switchyard-*.zip' -print -quit)" \
+            --archive dist/hermes-switchyard-0.5.4.zip \
             --source-root "$GITHUB_WORKSPACE" \
             --source-sha "$SWITCHYARD_SOURCE_SHA" \
             --upstream-root "$RUNNER_TEMP/hermes-agent" \
             --upstream-sha "$HERMES_UPSTREAM_SHA" \
             --report "$RUNNER_TEMP/switchyard-release-receipts/release-verification.json"
+
+      - name: Record the outer verified archive SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$HERMES_PYTHON" -c 'import hashlib,json,os,pathlib; p=pathlib.Path("dist/hermes-switchyard-0.5.4.zip"); out=pathlib.Path(os.environ["RUNNER_TEMP"])/"switchyard-release-receipts/archive-sha256.json"; out.write_text(json.dumps({"source_sha":os.environ["SWITCHYARD_SOURCE_SHA"],"archive_sha256":hashlib.sha256(p.read_bytes()).hexdigest()},sort_keys=True)+"\n",encoding="utf-8")'
 
       - name: Write release candidate summary
         if: always()
@@ -134,3 +141,107 @@ jobs:
           include-hidden-files: false
           retention-days: 14
           compression-level: 9
+
+  windows-installed-archive:
+    name: Windows / Python 3.11 / installed candidate ZIP
+    needs: build-verify-upload
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Initialize fail-closed Windows receipt before setup
+        shell: pwsh
+        run: |
+          $receipts = Join-Path $env:RUNNER_TEMP 'switchyard-windows-receipts'
+          New-Item -ItemType Directory -Force -Path $receipts | Out-Null
+          $identity = [System.Environment]::OSVersion.Version
+          $receipt = @{
+            ok = $false
+            error_code = 'windows_job_incomplete'
+            source_sha = $env:GITHUB_SHA
+            archive_sha256 = $null
+            installed_sha256 = $null
+            plugin = 'hermes-switchyard'
+            version = '0.5.4'
+            hermes_source_sha = $env:HERMES_UPSTREAM_SHA
+            hermes_version = $null
+            windows_version = @{ major = $identity.Major; minor = $identity.Minor; build = $identity.Build }
+            python_version = $null
+            tool = @{ name = 'jev_assess'; status = 'not_run'; synthetic_request_count = 0; real_network_connects = 0 }
+          }
+          $json = ConvertTo-Json -InputObject $receipt -Depth 5
+          [System.IO.File]::WriteAllText((Join-Path $receipts 'windows-installed-archive.json'), "$json`n", [System.Text.UTF8Encoding]::new($false))
+
+      - name: Check out exact candidate source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Confirm the external Git object reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --verify HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=all)"
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: false
+
+      - name: Download the exact Ubuntu candidate artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: hermes-switchyard-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/switchyard-candidate-download
+
+      - name: Fetch the pinned public Hermes source
+        shell: bash
+        run: |
+          set -euo pipefail
+          hermes_root="$RUNNER_TEMP/hermes-agent"
+          mkdir -p "$hermes_root"
+          git -C "$hermes_root" init --quiet
+          git -C "$hermes_root" remote add origin https://github.com/NousResearch/hermes-agent.git
+          git -C "$hermes_root" fetch --no-tags --depth=1 origin "$HERMES_UPSTREAM_SHA"
+          git -C "$hermes_root" -c core.autocrlf=false checkout --quiet --detach "$HERMES_UPSTREAM_SHA"
+          test "$(git -C "$hermes_root" rev-parse --verify HEAD)" = "$HERMES_UPSTREAM_SHA"
+
+      - name: Install the exact upstream runtime in runner temp
+        shell: bash
+        run: |
+          set -euo pipefail
+          hermes_root="$RUNNER_TEMP/hermes-agent"
+          hermes_venv="$RUNNER_TEMP/switchyard-hermes-venv"
+          uv venv "$hermes_venv" --python 3.11
+          hermes_python="$hermes_venv/Scripts/python.exe"
+          test -x "$hermes_python"
+          UV_NO_CONFIG=1 uv pip install --python "$hermes_python" -e "$hermes_root[all,dev,anthropic]"
+          test "$(git -C "$hermes_root" rev-parse --verify HEAD)" = "$HERMES_UPSTREAM_SHA"
+          printf 'HERMES_PYTHON=%s\n' "$hermes_python" >> "$GITHUB_ENV"
+
+      - name: Verify downloaded bytes and invoke installed plugin offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset OPENROUTER_API_KEY TYPESAFE_API_KEY GH_TOKEN GITHUB_TOKEN GITHUB_PAT
+          "$HERMES_PYTHON" scripts/ci/check_windows_installed_archive.py \
+            --artifact-dir "$RUNNER_TEMP/switchyard-candidate-download" \
+            --source-root "$GITHUB_WORKSPACE" --source-sha "$GITHUB_SHA" \
+            --upstream-root "$RUNNER_TEMP/hermes-agent" --upstream-sha "$HERMES_UPSTREAM_SHA" \
+            --hermes-home "$RUNNER_TEMP/switchyard-archive-home" \
+            --report "$RUNNER_TEMP/switchyard-windows-receipts/windows-installed-archive.json"
+
+      - name: Upload fail-closed Windows installed-archive receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: switchyard-windows-installed-archive-${{ github.sha }}
+          path: ${{ runner.temp }}/switchyard-windows-receipts/windows-installed-archive.json
+          if-no-files-found: error
+          retention-days: 14
