@@ -1,18 +1,75 @@
 """Exercise the installed Hermes middleware and SDK wire shape in an isolated home."""
 from __future__ import annotations
 
+import io
 import json
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from scripts import live_effort_replay as replay
 from scripts.build_release import RELEASE_FILES
+
+
+def _installed_provenance(plugin_dir: Path, checkout_dir: Path, manifest_dir: str | Path | None,
+                          entrypoint_file: str | Path | None, controller_file: str | Path | None) -> dict[str, str | bool]:
+    """Classify strict file origins without emitting local paths or credentials."""
+    def canonical(path: str | Path | None) -> Path | None:
+        try:
+            return Path(path).resolve(strict=True) if path is not None else None
+        except (OSError, RuntimeError, TypeError, ValueError):
+            return None
+
+    installed = canonical(plugin_dir)
+    checkout = canonical(checkout_dir)
+    manifest = canonical(manifest_dir)
+    entrypoint = canonical(entrypoint_file)
+    controller = canonical(controller_file)
+
+    def within(path: Path | None, root: Path | None) -> bool:
+        return path is not None and root is not None and path.is_relative_to(root)
+
+    def origin(path: Path | None, exact_file: Path | None) -> str:
+        if within(path, checkout):
+            return "checkout"
+        if path is not None and exact_file is not None and path == exact_file and within(path, installed):
+            return "installed"
+        return "other"
+
+    return {
+        "manifest_origin": origin(manifest, installed),
+        "entrypoint_origin": origin(entrypoint, installed / "__init__.py" if installed else None),
+        "controller_origin": origin(controller, installed / "hermes_switchyard" / "reasoning_effort_adapter.py"
+                                    if installed else None),
+        "raw_root_comparison": within(controller, plugin_dir),
+        "canonical_root_comparison": within(controller, installed),
+        "install_outside_checkout": installed is not None and checkout is not None and not within(installed, checkout),
+    }
+
+
+def _closed_origin_receipt(stdout: str) -> dict[str, str | bool] | None:
+    """Keep only public, closed-set fields from an untrusted child response."""
+    try:
+        payload = json.loads(stdout.splitlines()[-1])
+    except (IndexError, ValueError):
+        return None
+    if not isinstance(payload, dict) or not isinstance(payload.get("provenance"), dict):
+        return None
+    raw = payload["provenance"]
+    receipt: dict[str, str | bool] = {}
+    for field in ("manifest_origin", "entrypoint_origin", "controller_origin"):
+        value = raw.get(field)
+        receipt[field] = value if isinstance(value, str) and value in ("installed", "checkout", "other") else "other"
+    for field in ("raw_root_comparison", "canonical_root_comparison", "install_outside_checkout"):
+        value = raw.get(field)
+        receipt[field] = value if type(value) is bool else False
+    return receipt
 
 
 def _isolated_replay(plugin_dir: Path) -> None:
@@ -29,11 +86,21 @@ def _isolated_replay(plugin_dir: Path) -> None:
     manager = get_plugin_manager()
     manager.discover_and_load(force=True)
     loaded = manager._plugins.get("hermes-switchyard")
-    assert loaded is not None and loaded.enabled and loaded.error is None, loaded
+    assert loaded is not None and loaded.enabled and loaded.error is None, "installed_plugin_not_enabled"
     callbacks = manager._middleware.get("llm_request", [])
-    assert len(callbacks) == 1, callbacks
+    assert len(callbacks) == 1, "installed_plugin_middleware_not_unique"
     controller = callbacks[0].__self__
-    assert Path(sys.modules[controller.__class__.__module__].__file__).resolve().is_relative_to(plugin_dir)
+    controller_module = sys.modules.get(controller.__class__.__module__)
+    provenance = _installed_provenance(
+        plugin_dir, Path(__file__).parent.parent, getattr(loaded.manifest, "path", None),
+        getattr(loaded.module, "__file__", None), getattr(controller_module, "__file__", None),
+    )
+    print(json.dumps({"provenance": provenance}), flush=True)
+    if not (provenance["install_outside_checkout"] and provenance["canonical_root_comparison"]
+            and provenance["manifest_origin"] == "installed"
+            and provenance["entrypoint_origin"] == "installed"
+            and provenance["controller_origin"] == "installed"):
+        raise AssertionError("installed_plugin_origin_mismatch")
     assert resolve_command("switchyard") is None
     command = manager._plugin_commands["switchyard"]["handler"]
 
@@ -130,13 +197,176 @@ def _isolated_replay(plugin_dir: Path) -> None:
     assert anthropic_wire[0]["output_config"]["effort"] == "low"
     assert anthropic_wire[0]["thinking"] == {"type": "adaptive"}
     assert "reasoning_effort" not in anthropic_wire[0]
-    print(json.dumps({"plugin_path": str(plugin_dir), "codex_wire_effort": codex_wire[0]["reasoning"]["effort"],
+    print(json.dumps({"provenance": provenance, "codex_wire_effort": codex_wire[0]["reasoning"]["effort"],
                       "anthropic_wire_effort": anthropic_wire[0]["output_config"]["effort"],
                       "jev_calls": len(fake.calls), "command_registered": True}))
     manager.unload()
 
 
+class _ReachedPostProvenance(Exception):
+    """The local origin probe stops before SDK or provider behavior."""
+
+
+def _probe_origin(plugin_dir: Path, manifest_dir: Path, entrypoint: Path,
+                  controller_file: Path) -> tuple[bool, str]:
+    module_name = "hermes_plugins.synthetic_test.hermes_switchyard.reasoning_effort_adapter"
+
+    class SyntheticController:
+        def middleware(self, request):
+            return request
+
+    SyntheticController.__module__ = module_name
+    controller = SyntheticController()
+    loaded = SimpleNamespace(enabled=True, error=None,
+        manifest=SimpleNamespace(path=str(manifest_dir)),
+        module=SimpleNamespace(__file__=str(entrypoint)))
+    manager = SimpleNamespace(discover_and_load=lambda force: None,
+        _plugins={"hermes-switchyard": loaded}, _middleware={"llm_request": [controller.middleware]})
+    output = io.StringIO()
+    with (patch.dict(sys.modules, {module_name: SimpleNamespace(__file__=str(controller_file))}),
+          patch("hermes_cli.plugins.get_plugin_manager", return_value=manager),
+          patch("hermes_cli.commands.resolve_command", side_effect=_ReachedPostProvenance),
+          redirect_stdout(output)):
+        try:
+            _isolated_replay(plugin_dir)
+        except _ReachedPostProvenance:
+            return True, output.getvalue()
+        except AssertionError:
+            return False, output.getvalue()
+    raise AssertionError("origin probe reached SDK path unexpectedly")
+
+
 class InstalledHermesEffortIntegrationTests(unittest.TestCase):
+    def test_installed_controller_accepts_canonical_alias_root(self):
+        """An alias spelling of the same install must not reject its exact module."""
+        with tempfile.TemporaryDirectory(prefix="switchyard-origin-") as temporary:
+            base = Path(temporary)
+            (base / "alias-parent").mkdir()
+            installed = base / "installed"
+            adapter = installed / "hermes_switchyard" / "reasoning_effort_adapter.py"
+            adapter.parent.mkdir(parents=True)
+            adapter.write_text("# synthetic installed module\n", encoding="utf-8")
+            (installed / "__init__.py").write_text("# synthetic entrypoint\n", encoding="utf-8")
+            alias = base / "alias-parent" / ".." / "installed"
+            self.assertEqual(alias.resolve(strict=True), installed.resolve(strict=True))
+            self.assertFalse(adapter.resolve(strict=True).is_relative_to(alias))
+            accepted, output = _probe_origin(alias, alias, alias / "__init__.py", adapter)
+            self.assertTrue(accepted)
+            self.assertTrue(output.strip())
+            receipt = json.loads(output.splitlines()[-1])
+            self.assertEqual(set(receipt), {"provenance"})
+            self.assertEqual(receipt["provenance"]["controller_origin"], "installed")
+            self.assertIs(receipt["provenance"]["raw_root_comparison"], False)
+            self.assertIs(receipt["provenance"]["canonical_root_comparison"], True)
+            self.assertNotIn(str(base), output)
+
+    def test_installed_source_rejects_wrong_exact_files_and_checkout_with_sanitized_receipt(self):
+        """Matching bytes or a directory prefix cannot establish runtime origin."""
+        checkout = Path(__file__).resolve().parent.parent
+        with tempfile.TemporaryDirectory(prefix="switchyard-origin-") as temporary:
+            base = Path(temporary)
+            installed = base / "installed"
+            adapter = installed / "hermes_switchyard" / "reasoning_effort_adapter.py"
+            adapter.parent.mkdir(parents=True)
+            source_adapter = checkout / "hermes_switchyard" / "reasoning_effort_adapter.py"
+            shutil.copyfile(source_adapter, adapter)
+            same_bytes_elsewhere = adapter.with_name("other_adapter.py")
+            shutil.copyfile(adapter, same_bytes_elsewhere)
+            installed_entry = installed / "__init__.py"
+            shutil.copyfile(checkout / "__init__.py", installed_entry)
+            wrong_entry = installed / "other_entry.py"
+            shutil.copyfile(installed_entry, wrong_entry)
+            other_root = base / "other"
+            other_root.mkdir()
+            cases = (
+                ("wrong_adapter", installed, installed_entry, same_bytes_elsewhere, "controller_origin", "other"),
+                ("checkout_adapter", installed, installed_entry, source_adapter, "controller_origin", "checkout"),
+                ("wrong_manifest", other_root, installed_entry, adapter, "manifest_origin", "other"),
+                ("wrong_entrypoint", installed, wrong_entry, adapter, "entrypoint_origin", "other"),
+                ("checkout_entrypoint", installed, checkout / "__init__.py", adapter, "entrypoint_origin", "checkout"),
+            )
+            for label, manifest, entrypoint, controller, field, expected in cases:
+                with self.subTest(label=label):
+                    accepted, output = _probe_origin(installed, manifest, entrypoint, controller)
+                    self.assertFalse(accepted, label)
+                    self.assertTrue(output.strip(), label)
+                    receipt = json.loads(output.splitlines()[-1])
+                    self.assertEqual(set(receipt), {"provenance"})
+                    provenance = receipt["provenance"]
+                    self.assertEqual(provenance[field], expected)
+                    for origin in ("manifest_origin", "entrypoint_origin", "controller_origin"):
+                        self.assertIn(provenance[origin], ("installed", "checkout", "other"))
+                    self.assertIs(provenance["install_outside_checkout"], True)
+                    self.assertIs(type(provenance["raw_root_comparison"]), bool)
+                    self.assertIs(type(provenance["canonical_root_comparison"]), bool)
+                    self.assertNotIn(str(base), output)
+                    self.assertNotIn(str(checkout), output)
+
+    def test_parent_rejects_missing_or_noninstalled_origin_receipt(self):
+        """A synthetic success-shaped SDK receipt cannot certify a checkout import."""
+        original_run = subprocess.run
+        for controller_origin in (None, "checkout", "other"):
+            with self.subTest(controller_origin=controller_origin):
+                def intercept(command, *args, **kwargs):
+                    if command[:3] == [sys.executable, "-m", "tests.test_reasoning_effort_hermes_integration"]:
+                        receipt = {"codex_wire_effort": "low",
+                                   "anthropic_wire_effort": "low", "jev_calls": 2, "command_registered": True}
+                        if controller_origin is not None:
+                            receipt["provenance"] = {"manifest_origin": "installed", "entrypoint_origin": "installed",
+                                "controller_origin": controller_origin, "raw_root_comparison": False,
+                                "canonical_root_comparison": False, "install_outside_checkout": True}
+                        return subprocess.CompletedProcess(command, 0, json.dumps(receipt) + "\n", "")
+                    return original_run(command, *args, **kwargs)
+
+                with patch.object(subprocess, "run", side_effect=intercept):
+                    with self.assertRaises(AssertionError):
+                        self.test_fresh_plugin_manager_middleware_and_sdk_wire()
+
+    def test_parent_failure_reports_only_closed_set_origin_not_child_output(self):
+        """Untrusted child stderr/stdout must not publish paths or synthetic secrets."""
+        original_run = subprocess.run
+        private_path = str(Path(tempfile.gettempdir()) / "private-origin-marker")
+        marker = "synthetic-secret-marker"
+        provenance = {"manifest_origin": "installed", "entrypoint_origin": "installed",
+            "controller_origin": "checkout", "raw_root_comparison": False,
+            "canonical_root_comparison": False, "install_outside_checkout": True}
+
+        def intercept(command, *args, **kwargs):
+            if command[:3] == [sys.executable, "-m", "tests.test_reasoning_effort_hermes_integration"]:
+                stdout = marker + " " + private_path + "\n" + json.dumps({"provenance": provenance}) + "\n"
+                return subprocess.CompletedProcess(command, 1, stdout, "trace " + private_path)
+            return original_run(command, *args, **kwargs)
+
+        with patch.object(subprocess, "run", side_effect=intercept):
+            with self.assertRaises(AssertionError) as raised:
+                self.test_fresh_plugin_manager_middleware_and_sdk_wire()
+        failure = str(raised.exception)
+        self.assertIn("controller_origin", failure)
+        self.assertIn("checkout", failure)
+        self.assertNotIn(private_path, failure)
+        self.assertNotIn(marker, failure)
+
+    def test_parent_rejects_provenance_fields_outside_closed_set(self):
+        """A success-shaped receipt must not carry an extra path-valued origin field."""
+        original_run = subprocess.run
+        private_path = str(Path(tempfile.gettempdir()) / "private-origin-marker")
+
+        def intercept(command, *args, **kwargs):
+            if command[:3] == [sys.executable, "-m", "tests.test_reasoning_effort_hermes_integration"]:
+                provenance = {"manifest_origin": "installed", "entrypoint_origin": "installed",
+                    "controller_origin": "installed", "raw_root_comparison": True,
+                    "canonical_root_comparison": True, "install_outside_checkout": True,
+                    "unexpected_path": private_path}
+                receipt = {"provenance": provenance, "codex_wire_effort": "low",
+                    "anthropic_wire_effort": "low", "jev_calls": 2, "command_registered": True}
+                return subprocess.CompletedProcess(command, 0, json.dumps(receipt) + "\n", "")
+            return original_run(command, *args, **kwargs)
+
+        with patch.object(subprocess, "run", side_effect=intercept):
+            with self.assertRaises(AssertionError) as raised:
+                self.test_fresh_plugin_manager_middleware_and_sdk_wire()
+        self.assertNotIn(private_path, str(raised.exception))
+
     def test_sdk_wire_child_keeps_only_actual_windows_systemroot(self):
         """Inspect the installed-child launch without running SDKs or a provider."""
         parent = {"PATH": "synthetic-path", "PYTHONPATH": "synthetic-pythonpath",
@@ -197,13 +427,30 @@ class InstalledHermesEffortIntegrationTests(unittest.TestCase):
                 [sys.executable, "-m", "tests.test_reasoning_effort_hermes_integration", "--child", str(plugin)],
                 cwd=root, env=env, text=True, capture_output=True, timeout=90,
             )
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            provenance = _closed_origin_receipt(result.stdout)
+            failure = ("installed_child_failed: " + json.dumps({"provenance": provenance})
+                       if provenance is not None else "installed_child_failed_without_provenance_receipt")
+            self.assertEqual(result.returncode, 0, failure)
+            self.assertIsNotNone(provenance, "installed_origin_receipt_missing")
+            assert provenance is not None
             proof = json.loads(result.stdout.splitlines()[-1])
-            self.assertEqual(proof["plugin_path"], str(plugin))
-            self.assertEqual(proof["codex_wire_effort"], "low")
-            self.assertEqual(proof["anthropic_wire_effort"], "low")
-            self.assertEqual(proof["jev_calls"], 2)
-            self.assertTrue(proof["command_registered"])
+            for origin in ("manifest_origin", "entrypoint_origin", "controller_origin"):
+                self.assertEqual(provenance[origin], "installed")
+            self.assertIs(provenance["install_outside_checkout"], True)
+            self.assertIs(provenance["canonical_root_comparison"], True)
+            self.assertTrue(set(proof["provenance"]) == {
+                "manifest_origin", "entrypoint_origin", "controller_origin", "raw_root_comparison",
+                "canonical_root_comparison", "install_outside_checkout",
+            }, "unexpected_provenance_fields")
+            self.assertTrue(type(proof["provenance"].get("raw_root_comparison")) is bool,
+                            "raw_root_comparison_not_boolean")
+            self.assertTrue(isinstance(proof, dict) and set(proof) == {
+                "provenance", "codex_wire_effort", "anthropic_wire_effort", "jev_calls", "command_registered",
+            }, "unexpected_child_receipt_fields")
+            self.assertTrue(proof.get("codex_wire_effort") == "low", "codex_wire_effort_mismatch")
+            self.assertTrue(proof.get("anthropic_wire_effort") == "low", "anthropic_wire_effort_mismatch")
+            self.assertTrue(proof.get("jev_calls") == 2, "jev_calls_mismatch")
+            self.assertIs(proof.get("command_registered"), True)
 
 
 if __name__ == "__main__":
