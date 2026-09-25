@@ -4,7 +4,9 @@ Hermes Switchyard helps [Hermes Agent](https://github.com/NousResearch/hermes-ag
 
 ![Rail-yard map of Hermes Switchyard: Jev decisions pass policy before Hermes acts; typed assessment, skill selection and loading, adaptive effort, model advice, computer use, session re-ranking, and receipts are distinct capabilities](docs/assets/hermes-switchyard-overview.png)
 
-Version: 0.5.3
+The [Switchyard branding image](docs/assets/hermes-switchyard-branding.png) is also packaged.
+
+Version: 0.5.4
 
 Switchyard can:
 
@@ -14,7 +16,7 @@ Switchyard can:
 - **Guide computer use:** choose browser or desktop actions one step at a time. A proposed finish is not proof that the task is complete.
 - **Assess or re-rank:** answer a bounded typed question or re-rank a shortlist from Hermes session search.
 
-These features need a Jev provider key for live decisions. They can incur separate provider charges; a ChatGPT or Codex subscription does not cover Jev requests. The [benchmark report](docs/BENCHMARKS.md) has measured results, comparison arms, and limits. It does not claim that every Hermes task improves.
+These features need a Jev provider key for live decisions. They can incur separate provider charges; a ChatGPT or Codex subscription does not cover Jev requests. The [benchmark report](docs/BENCHMARKS.md) has measured results, comparison arms, and limits. Its last-collected release was 0.5.0 (selector commit `c8e6008c6314e182fd7b100a30efb384db542ee8`; DOM commit `a8dae196b0b9892eeb627829d97363ec3d4bb9c9`); the scorecard was not re-collected for 0.5.1 through 0.5.4. It does not claim that every Hermes task improves.
 
 ## Get started
 
