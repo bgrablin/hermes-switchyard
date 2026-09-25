@@ -1844,7 +1844,6 @@ class BrowserReliabilityTests(unittest.TestCase):
                         "CLICK",
                         {
                             "CLICK": "c",
-                            "TYPE_TEXT": "t",
                             "SCROLL_DOWN": "s",
                             "SCROLL_UP": "u",
                             "WAIT": "w",
@@ -1853,7 +1852,6 @@ class BrowserReliabilityTests(unittest.TestCase):
                         },
                     ),
                     "click_target": _choice("2", {"2": "Find articles"}),
-                    "type_target": _choice("1", {"1": "Search"}),
                 },
                 {
                     "operation": _choice(
@@ -1881,6 +1879,7 @@ class BrowserReliabilityTests(unittest.TestCase):
         self.assertEqual(result["status"], "completion_candidate")
         self.assertEqual(result["capabilities"]["typing"], True)
         self.assertEqual(result["session_mode"], "headless_ephemeral")
+        self.assertNotIn("TYPE_TEXT", client.calls[1]["questions"]["operation"]["criteria"])
         # Values stay local: the provider state must not include the typed string.
         for call in client.calls:
             dumped = json.dumps(call)

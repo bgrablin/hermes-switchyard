@@ -130,6 +130,33 @@ class PublicFixtureTests(unittest.TestCase):
                 self.assertFalse(any(item["label"].startswith("Hidden public link")
                                      for item in page["elements"]))
 
+    def test_chromium_session_types_into_a_matched_public_field(self):
+        session = object.__new__(browser_use.ChromiumSession)
+        with (
+            mock.patch.object(session, "_evaluate", return_value={"ok": True}) as evaluate,
+            mock.patch.object(session, "wait"),
+            mock.patch.object(session, "_wait_ready"),
+        ):
+            session.type_text("1", "Ada Lovelace", label="search")
+        script = evaluate.call_args.args[0]
+        self.assertIn('liveLabel !== "search"', script)
+        self.assertIn('el.value = "Ada Lovelace"', script)
+
+    @unittest.skipUnless(os.environ.get("SWITCHYARD_LIVE_BROWSER_TESTS") == "1", "requires opt-in Chromium")
+    def test_real_public_wikipedia_search_field_accepts_caller_text(self):
+        with browser_use.ChromiumSession("https://en.wikipedia.org/wiki/Special:Search") as session:
+            field = next(item for item in session.observe()["elements"]
+                         if item.get("kind") == "type" and item["label"] == "search")
+            session.type_text(field["id"], "Ada Lovelace", label=field["label"])
+            selected_value = session._evaluate(
+                f'(window.__hermesSwitchyardClickNodes || new Map()).get({json.dumps(field["id"])})?.value'
+            )
+            self.assertEqual(selected_value, "Ada Lovelace")
+            search_button = next(item for item in session.observe()["elements"]
+                                 if item.get("kind") == "click" and item["label"] == "Search")
+            session.click(search_button["id"], label=search_button["label"])
+            self.assertNotEqual(session.observe()["url"], "https://en.wikipedia.org/wiki/Special:Search")
+
     def test_public_links_survive_safety_filter_and_reach_jev(self):
         for fixture in PAGES:
             with self.subTest(fixture=fixture["start"]):
