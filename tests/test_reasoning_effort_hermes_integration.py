@@ -2,14 +2,16 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
+from scripts import live_effort_replay as replay
 from scripts.build_release import RELEASE_FILES
 
 
@@ -135,6 +137,40 @@ def _isolated_replay(plugin_dir: Path) -> None:
 
 
 class InstalledHermesEffortIntegrationTests(unittest.TestCase):
+    def test_sdk_wire_child_keeps_only_actual_windows_systemroot(self):
+        """Inspect the installed-child launch without running SDKs or a provider."""
+        parent = {"PATH": "synthetic-path", "PYTHONPATH": "synthetic-pythonpath",
+                  "TMPDIR": "synthetic-temp", "LANG": "synthetic-lang",
+                  "sYsTeMrOoT": "synthetic-systemroot", "HOME": "private-parent-home",
+                  "HERMES_HOME": "private-parent-hermes", "OPENROUTER_API_KEY": "synthetic-provider",
+                  "TYPESAFE_API_KEY": "synthetic-other-provider", "ANTHROPIC_API_KEY": "synthetic-anthropic",
+                  "HERMES_SHARED_AUTH_DIR": "private-parent-shared-auth", "GITHUB_TOKEN": "synthetic-github",
+                  "GH_TOKEN": "synthetic-gh", "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "synthetic-oidc"}
+        windows_os = SimpleNamespace(name="nt", environ=parent)
+        original_run = subprocess.run
+        captured = {}
+
+        class ChildEnvCaptured(Exception):
+            pass
+
+        def intercept(command, *args, **kwargs):
+            if command[:3] == [sys.executable, "-m", "tests.test_reasoning_effort_hermes_integration"]:
+                captured.update(kwargs)
+                raise ChildEnvCaptured()
+            return original_run(command, *args, **kwargs)
+
+        with (patch.object(replay, "os", windows_os),
+              patch.object(subprocess, "run", side_effect=intercept)):
+            with self.assertRaises(ChildEnvCaptured):
+                self.test_fresh_plugin_manager_middleware_and_sdk_wire()
+        env = captured["env"]
+        self.assertIn("sYsTeMrOoT", env)
+        self.assertEqual(env["sYsTeMrOoT"], parent["sYsTeMrOoT"])
+        self.assertEqual(set(env), {"PATH", "PYTHONPATH", "TMPDIR", "LANG", "sYsTeMrOoT",
+            "HOME", "HERMES_HOME", "HERMES_BUNDLED_PLUGINS"})
+        self.assertNotEqual(env["HOME"], parent["HOME"])
+        self.assertNotEqual(env["HERMES_HOME"], parent["HERMES_HOME"])
+
     def test_fresh_plugin_manager_middleware_and_sdk_wire(self):
         root = Path(__file__).resolve().parent.parent
         with tempfile.TemporaryDirectory(prefix="switchyard-effort-") as temporary:
@@ -154,7 +190,7 @@ class InstalledHermesEffortIntegrationTests(unittest.TestCase):
             )
             bundled = workspace / "bundled"
             bundled.mkdir()
-            env = {key: os.environ[key] for key in ("PATH", "PYTHONPATH", "TMPDIR", "LANG") if key in os.environ}
+            env = replay._sparse_child_env(("PATH", "PYTHONPATH", "TMPDIR", "LANG"))
             env.update({"HOME": str(workspace), "HERMES_HOME": str(home),
                         "HERMES_BUNDLED_PLUGINS": str(bundled)})
             result = subprocess.run(

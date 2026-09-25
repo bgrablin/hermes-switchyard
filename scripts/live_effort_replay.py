@@ -34,6 +34,18 @@ def _git(root: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
+def _sparse_child_env(allowed: tuple[str, ...]) -> dict[str, str]:
+    """Keep the isolated allowlist and the actual Windows loader root only."""
+    env = {key: os.environ[key] for key in allowed if key in os.environ}
+    if os.name == "nt":
+        for key, value in os.environ.items():
+            if key.casefold() == "systemroot" and value.strip():
+                env[key] = value
+                break
+        else:
+            raise ReplayError("Windows SystemRoot is unavailable for the isolated child")
+    return env
+
 def prepare(archive: Path, source_root: Path, source_sha: str, home: Path) -> str:
     """Reject wrong-source archives before installing only verified members."""
     from scripts.build_release import RELEASE_FILES, SOURCE_MANIFEST_NAME, verify_archive
@@ -237,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
                 "        adaptive_reasoning_effort_deadline_seconds: 1.5\n", encoding="utf-8")
             bundled = work / "bundled"
             bundled.mkdir()
-            env = {key: os.environ[key] for key in ("PATH", "LANG", "TMPDIR") if key in os.environ}
+            env = _sparse_child_env(("PATH", "LANG", "TMPDIR"))
             env.update({"HOME": str(work), "HERMES_HOME": str(home), "HERMES_BUNDLED_PLUGINS": str(bundled)})
             command = [sys.executable, str(Path(__file__).resolve()), "--child", str(home / "plugins" / "hermes-switchyard"),
                 args.source_sha, tree, args.provider, str(args.secret_home.resolve())]
