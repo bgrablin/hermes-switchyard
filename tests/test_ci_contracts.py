@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import re
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -148,8 +149,14 @@ class CiContractTests(unittest.TestCase):
             "ruff pin drift between ruff.toml and the compatibility workflow",
         )
 
-    def test_setup_uv_is_pinned_consistently_in_all_workflows(self):
-        workflows = Path(__file__).resolve().parent.parent / ".github" / "workflows"
+    SETUP_UV_USE = re.compile(
+        r"""(?m)^[ \t]*(?:-[ \t]+)?(?:uses|'uses'|"uses"):[ \t]*
+        (?P<quote>['"]?)(?P<ref>astral-sh/setup-uv@[^ \t'"#\r\n]+)
+        (?P=quote)[ \t]*(?:\#[ \t]*(?P<note>[^\r\n]*))?[ \t]*$""",
+        re.VERBOSE,
+    )
+
+    def _assert_setup_uv_pins(self, workflows: Path) -> None:
         expected_pin = (
             "astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0"
         )
@@ -159,14 +166,72 @@ class CiContractTests(unittest.TestCase):
             "switchyard-compatibility.yml": [expected_pin],
         }
         actual = {}
-        for path in workflows.glob("*.yml"):
-            uses = re.findall(
-                r"(?m)^\s*uses:\s*(astral-sh/setup-uv@[^\n]+)$",
-                path.read_text(encoding="utf-8"),
-            )
+        for path in sorted(workflows.iterdir()):
+            if path.suffix not in {".yml", ".yaml"}:
+                continue
+            uses = []
+            for match in self.SETUP_UV_USE.finditer(path.read_text(encoding="utf-8")):
+                use = match.group("ref")
+                if match.group("note") is not None:
+                    use += f" # {match.group('note').strip()}"
+                uses.append(use)
             if uses:
-                actual[path.name] = [use.strip() for use in uses]
+                actual[path.name] = uses
         self.assertEqual(actual, expected)
+
+    def test_setup_uv_is_pinned_consistently_in_all_workflows(self):
+        workflows = Path(__file__).resolve().parent.parent / ".github" / "workflows"
+        self._assert_setup_uv_pins(workflows)
+
+    def test_setup_uv_guard_covers_quoted_new_jobs_and_yaml_files(self):
+        source = Path(__file__).resolve().parent.parent / ".github" / "workflows"
+        current = "astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7"
+        old = "astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9"
+        with tempfile.TemporaryDirectory() as temp:
+            workflows = Path(temp)
+            for path in source.iterdir():
+                if path.suffix in {".yml", ".yaml"}:
+                    (workflows / path.name).write_text(
+                        path.read_text(encoding="utf-8"), encoding="utf-8"
+                    )
+
+            extra = workflows / "extra.yaml"
+            extra.write_text(
+                "name: comments-only\non: push\njobs:\n  benign:\n"
+                "    runs-on: ubuntu-latest\n    steps:\n"
+                f"      # - uses: '{old}' # v9.0.0\n"
+                f"      - run: echo ok # uses: '{old}' # v9.0.0\n",
+                encoding="utf-8",
+            )
+            self._assert_setup_uv_pins(workflows)
+            extra.unlink()
+
+            live = workflows / "live-jev.yml"
+            original = live.read_text(encoding="utf-8")
+            self.assertIn(f"uses: {current} # v10.2.0", original)
+            for quote in ("'", '"'):
+                live.write_text(
+                    original.replace(
+                        f"uses: {current} # v10.2.0",
+                        f"uses: {quote}{current}{quote} # v10.2.0",
+                        1,
+                    ),
+                    encoding="utf-8",
+                )
+                self._assert_setup_uv_pins(workflows)
+            live.write_text(original, encoding="utf-8")
+
+            for suffix, quote in (("yml", "'"), ("yaml", '"')):
+                extra = workflows / f"extra.{suffix}"
+                extra.write_text(
+                    "name: new-old-pin\non: push\njobs:\n  new-job:\n"
+                    "    runs-on: ubuntu-latest\n    steps:\n"
+                    f"      - uses: {quote}{old}{quote} # v9.0.0\n",
+                    encoding="utf-8",
+                )
+                with self.assertRaises(AssertionError):
+                    self._assert_setup_uv_pins(workflows)
+                extra.unlink()
 
     def test_compatibility_step_sequence_is_not_duplicated_across_lanes(self):
         """Guard against a second copy of the compatibility steps (the
