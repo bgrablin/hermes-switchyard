@@ -58,7 +58,51 @@ def choice(selected, criteria):
     return {"choice": selected, "confidence": 0.95, "probabilities": {key: (1.0 if key == selected else 0.0) for key in criteria}}
 
 
+def _execute_snapshot(runner, html, url):
+    try:
+        return subprocess.run(
+            ["node", str(runner)],
+            input=json.dumps({"html": html, "url": url, "script": browser_use._SNAPSHOT_JS}),
+            text=True, capture_output=True, timeout=30, check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        # TimeoutExpired may retain bytes even with text=True. Keep diagnostics
+        # to runner stage markers, not the public markup or JS payload.
+        stderr = exc.stderr or b""
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", errors="replace")
+        stage = "no stage received (launch/startup)"
+        for line in stderr.splitlines():
+            if line.startswith("fixture-stage="):
+                stage = line.removeprefix("fixture-stage=")
+        raise AssertionError(
+            f"Node snapshot fixture timed out after {exc.timeout}s at {url}; last runner stage={stage}"
+        ) from exc
+
+
 class PublicFixtureTests(unittest.TestCase):
+    def test_snapshot_timeout_identifies_last_runner_stage_and_keeps_outer_bound(self):
+        runner = Path(__file__).parent / "fixtures/public_dom_snapshot_runner.cjs"
+        with mock.patch.object(subprocess, "run", side_effect=subprocess.TimeoutExpired(
+            ["node", str(runner)], 30, stderr=b"fixture-stage=vm-start\n",
+        )) as run:
+            with self.assertRaisesRegex(AssertionError, r"30s.*vm-start"):
+                _execute_snapshot(runner, PAGES[0]["html"], PAGES[0]["start"])
+        self.assertEqual(run.call_args.kwargs["timeout"], 30)
+
+    def test_snapshot_runner_reports_vm_progress_and_stops_an_infinite_script(self):
+        runner = Path(__file__).parent / "fixtures/public_dom_snapshot_runner.cjs"
+        executed = subprocess.run(
+            ["node", str(runner)],
+            input=json.dumps({"html": PAGES[0]["html"], "url": PAGES[0]["start"],
+                              "script": "while (true) {}"}),
+            text=True, capture_output=True, timeout=30, check=False,
+        )
+        self.assertNotEqual(executed.returncode, 0)
+        self.assertIn("fixture-stage=vm-start", executed.stderr)
+        self.assertNotIn("fixture-stage=vm-complete", executed.stderr)
+        self.assertIn("ERR_SCRIPT_EXECUTION_TIMEOUT", executed.stderr)
+
     def test_production_snapshot_extracts_saved_public_links_offline(self):
         """Execute the actual snapshot JS, then ChromiumSession's safety filter."""
         runner = Path(__file__).parent / "fixtures/public_dom_snapshot_runner.cjs"
@@ -73,12 +117,7 @@ class PublicFixtureTests(unittest.TestCase):
                     )
                     html = html.replace('<div class="mw-parser-output">',
                                         '<div class="mw-parser-output">' + zero_size)
-                executed = subprocess.run(
-                    ["node", str(runner)],
-                    input=json.dumps({"html": html, "url": fixture["start"],
-                                      "script": browser_use._SNAPSHOT_JS}),
-                    text=True, capture_output=True, timeout=10, check=False,
-                )
+                executed = _execute_snapshot(runner, html, fixture["start"])
                 self.assertEqual(executed.returncode, 0, executed.stderr)
                 snapshot = json.loads(executed.stdout)
                 with mock.patch.object(browser_use.ChromiumSession, "_evaluate", return_value=snapshot):
