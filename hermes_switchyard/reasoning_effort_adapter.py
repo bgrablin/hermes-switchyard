@@ -763,6 +763,7 @@ class _SessionEffortState:
     __slots__ = (
         "lock",
         "mode",
+        "mode_seq",
         "baseline",
         "model",
         "outcomes",
@@ -779,6 +780,8 @@ class _SessionEffortState:
     def __init__(self, mode: str) -> None:
         self.lock = threading.RLock()
         self.mode = normalize_mode(mode)
+        # Order of the last mode change; 0 is the configured default.
+        self.mode_seq = 0
         self.baseline: str | None = None
         self.model: str | None = None
         self.outcomes: list[dict[str, str]] = []
@@ -874,7 +877,11 @@ class ReasoningEffortController:
         self._registry_lock = threading.RLock()
         self._sessions: dict[str, _SessionEffortState] = {}
         self._key_to_session: dict[str, str] = {}
-        self._pending_modes: dict[str, str] = {}
+        # Alias -> (command order, mode). The order lets the newest command win across aliases.
+        self._pending_modes: dict[str, tuple[int, str]] = {}
+        self._mode_seq = 0
+        # Leaf lock: taken while a state lock is held, so it must never wait on another lock.
+        self._mode_seq_lock = threading.Lock()
         self._task_states: OrderedDict[str, _SessionEffortState] = OrderedDict()
         self._foreground_tasks: OrderedDict[str, None] = OrderedDict()
 
@@ -931,22 +938,39 @@ class ReasoningEffortController:
         """Return the state for *key*, map the session key, and apply a pending mode.
 
         A pending mode can sit under the session ID, the session key, or (after a rotation)
-        the foreground task ID. Consume all of them so no stale mode remains.
+        the foreground task ID. Consume all of them so no stale mode remains, and apply only
+        the most recent command, if it is newer than the state's current mode.
         """
         session_key = self.session_env("HERMES_SESSION_KEY")
         with self._registry_lock:
             state = self._state_for(session_id=key)
             if session_key:
                 self._key_to_session[session_key] = key
-            pending = self._pending_modes.pop(key, None)
-            if task is not None and task != key:
-                pending = self._pending_modes.pop(task, None) or pending
-            if session_key:
-                pending = self._pending_modes.pop(session_key, None) or pending
-            if pending:
+            aliases = dict.fromkeys(alias for alias in (key, task, session_key) if alias)
+            found = [self._pending_modes.pop(alias) for alias in aliases if alias in self._pending_modes]
+            if found:
+                seq, mode = max(found)
                 with state.lock:
-                    state.mode = pending
+                    if seq > state.mode_seq:
+                        self._apply_mode(state, mode, seq)
             return state
+
+    def _next_mode_seq(self) -> int:
+        with self._mode_seq_lock:
+            self._mode_seq += 1
+            return self._mode_seq
+
+    @staticmethod
+    def _apply_mode(state: _SessionEffortState, mode: str, seq: int) -> None:
+        """Set *mode* on *state*; the caller holds ``state.lock``."""
+        state.mode = mode
+        state.mode_seq = seq
+        if mode == "auto":
+            # Re-baseline at the next request so the current level becomes the cap.
+            state.baseline = None
+            state.choice_effort = None
+            state.choice_cap = None
+        state.dirty = True
 
     def record_tool_outcome(
         self,
@@ -1008,22 +1032,17 @@ class ReasoningEffortController:
             existing, pending_keys = (session_id if session_id in self._sessions else None), [session_id]
         else:
             existing, pending_keys = self._command_session()
+        seq = self._next_mode_seq()
         if existing is None:
             if not pending_keys:
                 return {"ok": False, "reason": "session_unknown", "mode": wanted}
             with self._registry_lock:
                 for key in pending_keys:
-                    self._pending_modes[key] = wanted
+                    self._pending_modes[key] = (seq, wanted)
             return {"ok": True, "pending": True, "mode": wanted, "session_id": pending_keys[0]}
         state = self._sessions[existing]
         with state.lock:
-            state.mode = wanted
-            if wanted == "auto":
-                # Re-baseline at the next request so the current level becomes the cap.
-                state.baseline = None
-                state.choice_effort = None
-                state.choice_cap = None
-            state.dirty = True
+            self._apply_mode(state, wanted, seq)
         return {"ok": True, "pending": False, "mode": wanted, "session_id": existing}
 
     def session_status(self, session_id: str | None = None) -> dict[str, Any]:
@@ -1202,6 +1221,7 @@ class ReasoningEffortController:
             elif requested != state.baseline:
                 state.baseline = requested
                 state.mode = "pinned"
+                state.mode_seq = self._next_mode_seq()
                 state.dirty = True
                 reason_prefix = "pinned_by_user_change"
             base["mode"] = state.mode

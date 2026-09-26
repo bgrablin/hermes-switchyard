@@ -233,6 +233,67 @@ class TaskIsolationTests(unittest.TestCase):
         self.assertEqual((status["session_id"], status["mode"], status["user_level"]), (ROTATED, "pinned", "high"))
         self.assertEqual(status["requests"], 1)
 
+    def test_latest_pending_mode_wins_across_rotation_aliases(self):
+        # The user sets one mode before a rotation and the opposite mode after it, before the
+        # first request. Each command leaves a pending mode under a different alias.
+        for session_key in ("", SESSION_KEY):
+            for first, second, sent_level, final in (("pin", "auto", "low", "auto"), ("auto", "pin", "high", "pinned")):
+                with self.subTest(session_key=bool(session_key), order=f"{first}->{second}"):
+                    extra = {"HERMES_SESSION_KEY": session_key} if session_key else {}
+                    env = Env(HERMES_SESSION_ID=SESSION, **extra)
+                    controller, _, _ = self.make(choice="low", session_env=env)
+                    self.assertTrue(controller.set_mode(first)["pending"])
+                    self.rotate(env, **extra)
+                    self.assertTrue(controller.set_mode(second)["pending"])
+                    # A fork on the rotated session must not consume or apply either mode.
+                    self.assertEqual(self.request(controller, opus_request("high"), route=OPUS,
+                                                  task="synthetic-fork-uuid", turn="f1", session=ROTATED), "low")
+                    sent = self.request(controller, opus_request("high"), route=OPUS, task=SESSION,
+                                        turn="t1", session=ROTATED)
+                    self.assertEqual(sent, sent_level, "an older pending mode overrode the latest command")
+                    status = controller.session_status()
+                    self.assertEqual((status["session_id"], status["mode"]), (ROTATED, final))
+                    self.assertEqual(controller._pending_modes, {}, "pending mode left behind")
+
+    def test_pending_auto_overrides_a_pinned_default(self):
+        # (rotate, pin before the rotation): the last case leaves an older pin under another alias.
+        for rotate, pin_first in ((False, False), (True, False), (True, True)):
+            with self.subTest(rotate=rotate, pin_first=pin_first):
+                env = Env(HERMES_SESSION_ID=SESSION)
+                controller, client, _ = self.make(choice="low", session_env=env, mode="pinned")
+                if pin_first:
+                    self.assertTrue(controller.set_mode("pin")["pending"])
+                else:
+                    self.assertTrue(controller.set_mode("auto")["pending"])
+                session = SESSION
+                if rotate:
+                    self.rotate(env)
+                    session = ROTATED
+                if pin_first:
+                    self.assertTrue(controller.set_mode("auto")["pending"])
+                sent = self.request(controller, opus_request("high"), route=OPUS, task=SESSION, turn="t1",
+                                    session=session)
+                self.assertEqual(sent, "low", "pinned default ignored the pending auto")
+                self.assertEqual(len(client.calls), 1)
+                status = controller.session_status()
+                self.assertEqual((status["default_mode"], status["mode"]), ("pinned", "auto"))
+                # A delegated child still starts from the configured default.
+                self.assertEqual(self.child(controller, opus_request("high"), session=session), "high")
+
+    def test_stale_pending_mode_does_not_override_a_newer_command(self):
+        env = Env(HERMES_SESSION_ID=SESSION)  # CLI: no gateway session key
+        controller, _, _ = self.make(choice="low", session_env=env)
+        self.assertTrue(controller.set_mode("pin")["pending"])
+        self.rotate(env)
+        # The next turn is foreground under the rotated ID; the old pin stays under SESSION.
+        self.request(controller, opus_request("high"), route=OPUS, task=ROTATED, turn="t2", session=ROTATED)
+        self.assertFalse(controller.set_mode("auto")["pending"])
+        # A late request from the earlier turn consumes the older pin but must not apply it.
+        self.assertEqual(self.request(controller, opus_request("high"), route=OPUS, task=SESSION, turn="t1",
+                                      session=ROTATED), "low")
+        self.assertEqual(controller.session_status()["mode"], "auto")
+        self.assertEqual(controller._pending_modes, {})
+
     def test_rotation_without_foreground_evidence_stays_capped_until_the_next_turn(self):
         # Documented limit: with no pending mode, no session key match, and no earlier request,
         # Hermes gives no positive signal that (ROTATED, SESSION) is the foreground turn. The
