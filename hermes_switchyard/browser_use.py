@@ -135,6 +135,10 @@ _DENIED_HREF_PARTS = (
     "data:",
 )
 _SNAPSHOT_JS = """(() => {
+  // A fresh global on each navigation distinguishes documents at the same URL.
+  const documentId = window.__hermesSwitchyardDocumentId ||
+    (window.__hermesSwitchyardDocumentId =
+      (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + ":" + String(Math.random())));
   const root = document.querySelector("#mw-content-text .mw-parser-output, #mw-content-text, main, #content, [role=main]") || document.body;
   // Stable target identity: one WeakMap registry per document, so a target keeps
   // the same id across scrolls, recaptures, and later snapshots.
@@ -286,6 +290,7 @@ _SNAPSHOT_JS = """(() => {
   const active = document.activeElement;
   return {
     url: location.href,
+    document_id: documentId,
     title: document.title || "",
     text: String((root.innerText || "")).replace(/\\s+/g, " ").trim().slice(0, 4000),
     elements,
@@ -322,7 +327,7 @@ class BrowserSession(Protocol):
     def click(self, element_id: str, label: str = "", href: str = "") -> None:
         ...
 
-    def type_text(self, element_id: str, value: str, label: str = "") -> None:
+    def type_text(self, element_id: str, value: str, label: str = "") -> dict[str, bool] | None:
         ...
 
     def scroll(self, direction: str) -> None:
@@ -386,6 +391,7 @@ def _observation_signature(page: dict[str, Any]) -> str:
     payload = json.dumps(
         {
             "url": str(page.get("url") or ""),
+            "document_id": str(page.get("document_id") or ""),
             "title": str(page.get("title") or ""),
             "text": str(page.get("text") or "")[:MAX_PAGE_TEXT],
             "elements": [[item["id"], item["label"], item["href"]] for item in elements],
@@ -1054,13 +1060,20 @@ def _run_browser_loop(
             )
         decision_signatures.append(signature)
         clickable = [item for item in elements if item.get("kind") != "type"]
-        typeable = [
-            item
-            for item in elements
-            if item.get("kind") == "type"
-            and _caller_value_for_dom_target(item, caller_text_inputs) is not None
-            and (str(page.get("url") or ""), item["id"]) not in typed_targets
-        ]
+        typeable = []
+        for item in elements:
+            if item.get("kind") != "type":
+                continue
+            value = _caller_value_for_dom_target(item, caller_text_inputs)
+            if value is None:
+                continue
+            key = (str(page.get("document_id") or ""), item["id"])
+            if key in typed_targets:
+                retained = getattr(session, "text_retained", None)
+                if callable(retained) and retained(item["id"], value, key[0]):
+                    continue
+                typed_targets.discard(key)
+            typeable.append(item)
         operation_criteria = {
             "SCROLL_DOWN": "Scroll down to reveal more page content",
             "SCROLL_UP": "Scroll up to reveal earlier page content",
@@ -1231,6 +1244,10 @@ def _run_browser_loop(
                 failure_phase=gate,
             )
         action_dispatched: bool | None = None
+        text_transition = False
+        text_accepted = False
+        typed_document_id = ""
+        typed_value = ""
         try:
             if operation == "CLICK":
                 target_answer = answers.get("click_target")
@@ -1253,7 +1270,8 @@ def _run_browser_loop(
                         failure_phase="unsafe_url",
                         reconcile_before_retry=bool(actions),
                     )
-                if str(fresh.get("url") or "") != str(page.get("url") or ""):
+                if (str(fresh.get("url") or "") != str(page.get("url") or "")
+                    or str(fresh.get("document_id") or "") != str(page.get("document_id") or "")):
                     return finish(
                         page=fresh,
                         status="abstained",
@@ -1318,7 +1336,8 @@ def _run_browser_loop(
                         failure_phase="unsafe_url",
                         reconcile_before_retry=bool(actions),
                     )
-                if str(fresh.get("url") or "") != str(page.get("url") or ""):
+                if (str(fresh.get("url") or "") != str(page.get("url") or "")
+                    or str(fresh.get("document_id") or "") != str(page.get("document_id") or "")):
                     return finish(
                         page=fresh,
                         status="abstained",
@@ -1330,6 +1349,7 @@ def _run_browser_loop(
                         item
                         for item in _safe_elements(fresh.get("elements"))
                         if item.get("kind") == "type"
+                        and item["id"] == chosen["id"]
                         and item["label"] == chosen["label"]
                         and _caller_value_for_dom_target(item, caller_text_inputs) == caller_value
                     ),
@@ -1352,9 +1372,12 @@ def _run_browser_loop(
                         failure_reason=str(blocked_before.get("code") or "destination_blocked"),
                         reconcile_before_retry=bool(actions),
                     )
-                session.type_text(target_id, caller_value, label=matched["label"])
+                typing_result = session.type_text(target_id, caller_value, label=matched["label"])
                 action_dispatched = True
-                typed_targets.add((str(fresh.get("url") or ""), target_id))
+                typed_document_id = str(fresh.get("document_id") or "")
+                typed_value = caller_value
+                text_transition = isinstance(typing_result, dict) and typing_result.get("changed") is True
+                text_accepted = isinstance(typing_result, dict) and typing_result.get("accepted") is True
             elif operation in {"SCROLL_DOWN", "SCROLL_UP"}:
                 blocked_before = _fatal_destination_violation(session)
                 if blocked_before is not None:
@@ -1463,16 +1486,29 @@ def _run_browser_loop(
         title_changed = str(after.get("title") or "") != str(page.get("title") or "")
         content_changed = _observation_signature(after) != signature
         focus_changed = str(after.get("focus") or "") != str(page.get("focus") or "")
-        # Input values are often absent from visible page text, so a validated
-        # TYPE_TEXT dispatch counts as an observed local field mutation.
-        text_entered = operation == "TYPE_TEXT" and action_dispatched is True
-        observed = url_changed or title_changed or content_changed or focus_changed or text_entered
-        if url_changed:
+        if operation == "TYPE_TEXT" and text_accepted and target_id is not None:
+            retained = getattr(session, "text_retained", None)
+            try:
+                text_accepted = bool(
+                    str(after.get("document_id") or "") == typed_document_id
+                    and callable(retained)
+                    and retained(target_id, typed_value, typed_document_id)
+                )
+            except Exception:  # noqa: BLE001 -- failed readback cannot confirm a field
+                text_accepted = False
+            text_transition = text_transition and text_accepted
+        # Page text does not prove that a value survived its event handlers.
+        text_entered = operation == "TYPE_TEXT" and text_transition
+        if operation == "TYPE_TEXT" and text_accepted and target_id is not None:
+            typed_targets.add((str(after.get("document_id") or ""), target_id))
+        observed = (text_entered if operation == "TYPE_TEXT" else
+                    url_changed or title_changed or content_changed or focus_changed)
+        if operation == "TYPE_TEXT":
+            effect_status = "text_entered" if text_entered else "text_not_retained"
+        elif url_changed:
             effect_status = "url_changed"
         elif title_changed:
             effect_status = "title_changed"
-        elif text_entered:
-            effect_status = "text_entered"
         elif content_changed or focus_changed:
             effect_status = "document_changed"
         else:
@@ -1489,7 +1525,12 @@ def _run_browser_loop(
                 effect_status=effect_status,
             )
         )
-        progressed = content_changed or url_changed or title_changed
+        progressed = (text_entered if operation == "TYPE_TEXT" else
+                      content_changed or url_changed or title_changed)
+        if text_entered:
+            # The page signature excludes caller values. A verified fill starts
+            # a new decision epoch even when its visible text is unchanged.
+            decision_signatures.clear()
         parent_action_index = len(actions) - 1
         if not progressed and operation in {"SCROLL_DOWN", "SCROLL_UP"}:
             # A scroll that reveals nothing is retried locally, inside this step,
@@ -2010,6 +2051,7 @@ class ChromiumSession:
         result = self._evaluate(_SNAPSHOT_JS)
         if not isinstance(result, dict):
             raise TypeError("browser snapshot was not an object")
+        self._document_id = str(result.get("document_id") or "")
         result["elements"] = _safe_elements(result.get("elements"))
         result["text"] = str(result.get("text") or "")[:MAX_PAGE_TEXT]
         return result
@@ -2036,7 +2078,7 @@ class ChromiumSession:
         self.wait(0.15)
         self._wait_ready()
 
-    def type_text(self, element_id: str, value: str, label: str = "") -> None:
+    def type_text(self, element_id: str, value: str, label: str = "") -> dict[str, bool]:
         """Fill an ordinary field only after rechecking its live accessible name."""
         if not re.fullmatch(r"[0-9]{1,9}", element_id):
             raise ValueError("element id is not a snapshot index")
@@ -2046,8 +2088,11 @@ class ChromiumSession:
             raise ValueError("text value contains a control character")
         expected_label = json.dumps(label)
         value_js = json.dumps(value)
+        expected_document = json.dumps(getattr(self, "_document_id", ""))
         typed = self._evaluate(
             f"""(() => {{
+              if ({expected_document} && window.__hermesSwitchyardDocumentId !== {expected_document})
+                return {{ok: false, reason: "stale"}};
               const el = (window.__hermesSwitchyardClickNodes || new Map()).get("{element_id}");
               if (!el || !el.isConnected) return {{ok: false, reason: "missing"}};
               function accessibleName(node) {{
@@ -2072,6 +2117,7 @@ class ChromiumSession:
               if ({expected_label} && liveLabel !== {expected_label}) return {{ok: false, reason: "stale"}};
               const type = String(el.getAttribute("type") || "").toLowerCase();
               if (type === "password" || type === "file" || type === "hidden") return {{ok: false, reason: "denied"}};
+              const before = "value" in el ? el.value : (el.isContentEditable ? el.textContent : null);
               el.focus();
               if ("value" in el) {{
                 el.value = "";
@@ -2085,13 +2131,29 @@ class ChromiumSession:
               }} else {{
                 return {{ok: false, reason: "not_editable"}};
               }}
-              return {{ok: true}};
+              const retained = ("value" in el ? el.value : el.textContent) === {value_js};
+              return {{ok: true, changed: retained && before !== {value_js}}};
             }})()"""
         )
         if not isinstance(typed, dict) or typed.get("ok") is not True:
             raise RuntimeError("page element was not typeable")
         self.wait(0.15)
         self._wait_ready()
+        accepted = self.text_retained(element_id, value, getattr(self, "_document_id", ""))
+        return {"accepted": accepted, "changed": accepted and typed.get("changed") is True}
+
+    def text_retained(self, element_id: str, value: str, document_id: str) -> bool:
+        """Read only the exact retained value on the captured document; return no value."""
+        if not re.fullmatch(r"[0-9]{1,9}", element_id):
+            return False
+        return self._evaluate(
+            f"""(() => {{
+              if ({json.dumps(document_id)} && window.__hermesSwitchyardDocumentId !== {json.dumps(document_id)}) return false;
+              const el = (window.__hermesSwitchyardClickNodes || new Map()).get("{element_id}");
+              return !!(el && el.isConnected &&
+                ("value" in el ? el.value : (el.isContentEditable ? el.textContent : null)) === {json.dumps(value)});
+            }})()"""
+        ) is True
 
     def scroll(self, direction: str) -> None:
         delta = 600 if direction == "down" else -600

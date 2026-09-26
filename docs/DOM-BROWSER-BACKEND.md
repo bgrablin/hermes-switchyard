@@ -54,11 +54,15 @@ capability boundary and names the caller's next option. The capability set is al
 reported on every receipt as `capabilities`, so a caller can see the whole set and
 not just the mismatch.
 
-After filling an offered field, that same field is not offered for a second
-`TYPE_TEXT` decision on the same page. Forms are submitted only by clicking an
-offered visible control; the backend does not synthesize Enter or bypass the
-destination policy. A public Wikipedia Special:Search form is supported when its
-search field and Search button are visible.
+After a bounded settle, the backend checks that the exact caller value remains
+in the selected field. Only a retained field is suppressed on recapture in the
+same document. A reset field can be offered again; a new document at the same
+URL gets a new target identity. Page-side normalization or rejection is not a
+confirmed fill. Repeated ineffective attempts still stop at the no-progress
+limit. Forms are submitted only by clicking an offered visible control; the
+backend does not synthesize Enter or bypass the destination policy. A public
+Wikipedia Special:Search form is supported when its search field and Search
+button are visible.
 
 ## Completion predicates
 
@@ -108,10 +112,13 @@ Targets keep a stable identity across scrolls and recaptures, because the snapsh
 assigns each element one identifier from a per-document registry instead of
 renumbering by position.
 
-Progress is measured locally by an observation signature over URL, title, text, and
-the offered targets. Scroll offset and focus are excluded, because they describe the
-view rather than the content. When a scroll changes nothing, the loop retries the
-scroll locally up to the configured bound before spending another decision. When a
+Progress is measured locally by an observation signature over document identity,
+URL, title, text, and the offered targets. A text fill counts as progress only
+when the selected field retained a changed value after the bounded readback.
+The caller value and document identity are not sent to Jev. Scroll offset and
+focus are excluded, because they describe the view rather than the content.
+When a scroll changes nothing, the loop retries the scroll locally up to the
+configured bound before spending another decision. When a
 bounded number of consecutive actions produce no progress **and** at least `min_actions_before_done` actions have already been dispatched, the loop stops with
 `failure_phase: no_progress` and `reconcile_before_retry: true` instead of paying for
 another provider decision over unchanged state. Early stalls below that floor keep
