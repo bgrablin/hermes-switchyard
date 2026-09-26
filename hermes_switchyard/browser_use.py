@@ -403,30 +403,95 @@ def _observation_signature(page: dict[str, Any]) -> str:
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
-def _provider_page_text(page: dict[str, Any], text_inputs: Any) -> str:
-    """Remove caller values from page text even when a page echoes an input."""
-    return _redact_provider_values(str(page.get("text") or "")[:MAX_PAGE_TEXT], text_inputs)
+_EDITABLE_TEXT_MARKER = "[editable text]"
+_REDACTION_PASSES = 4
 
-def _redact_provider_values(data: Any, text_inputs: Any) -> Any:
-    """Keep exact caller values local across the entire provider projection."""
-    if isinstance(text_inputs, dict):
-        values = (value for group in text_inputs.values() for value in group)
-    elif isinstance(text_inputs, list):
-        values = (item.get("value") for item in text_inputs if isinstance(item, dict))
-    else:
-        values = ()
-    ordered = sorted({value for value in values if type(value) is str and value}, key=len, reverse=True)
-    def replace(item: Any) -> Any:
-        if isinstance(item, str):
-            for value in ordered:
-                item = item.replace(value, "[editable text]")
-            return item
-        if isinstance(item, dict):
-            return {key: replace(value) for key, value in item.items()}
-        if isinstance(item, list):
-            return [replace(value) for value in item]
-        return item
-    return replace(data)
+
+def _caller_value_variants(text_inputs: dict[str, tuple[str, ...]] | None) -> tuple[str, ...]:
+    """Return exact caller values and their whitespace-collapsed page form."""
+    variants: set[str] = set()
+    for group in (text_inputs or {}).values():
+        for value in group:
+            if type(value) is str and value:
+                variants.add(value)
+                collapsed = " ".join(value.split())
+                if collapsed:
+                    variants.add(collapsed)
+    return tuple(sorted(variants, key=len, reverse=True))
+
+
+def _unmasked_value_spans(text: str, values: tuple[str, ...]) -> list[tuple[int, int]]:
+    """Return value occurrences that are not wholly inside one existing marker."""
+    markers = [match.span() for match in re.finditer(re.escape(_EDITABLE_TEXT_MARKER), text)]
+    spans = []
+    for value in values:
+        start = text.find(value)
+        while start >= 0:
+            end = start + len(value)
+            if not any(left <= start and end <= right for left, right in markers):
+                spans.append((start, end))
+            start = text.find(value, start + 1)
+    # A marker that a value occurrence overlaps is absorbed into the masked run.
+    for left, right in markers:
+        if any(start < right and left < end for start, end in spans):
+            spans.append((left, right))
+    return spans
+
+
+def _redact_free_text(text: str, values: tuple[str, ...]) -> str:
+    """Mask caller values inside one page-sourced free-text string.
+
+    Only page-sourced prose (page text, titles, element labels) reaches this
+    function. Element IDs, choice keys, operation and effect enums, URLs, the
+    caller's own goal, and receipt schema values are never passed through it.
+    After redaction every remaining value occurrence lies inside a marker. If a
+    bounded number of passes cannot establish that, the whole string is masked.
+    """
+    if not values or not text:
+        return text
+    for _ in range(_REDACTION_PASSES):
+        spans = _unmasked_value_spans(text, values)
+        if not spans:
+            return text
+        masked = [False] * len(text)
+        for start, end in spans:
+            masked[start:end] = [True] * (end - start)
+        parts: list[str] = []
+        index = 0
+        while index < len(text):
+            if masked[index]:
+                while index < len(text) and masked[index]:
+                    index += 1
+                parts.append(_EDITABLE_TEXT_MARKER)
+            else:
+                parts.append(text[index])
+                index += 1
+        text = "".join(parts)
+    return text if not _unmasked_value_spans(text, values) else _EDITABLE_TEXT_MARKER
+
+
+def _provider_elements(elements: list[dict[str, Any]], values: tuple[str, ...]) -> list[dict[str, Any]]:
+    """Return provider-visible targets with only the free-text label masked."""
+    return [{**item, "label": _redact_free_text(str(item.get("label") or ""), values)} for item in elements]
+
+
+def _public_actions(actions: list[dict[str, Any]], values: tuple[str, ...]) -> list[dict[str, Any]]:
+    """Mask page-sourced labels and titles in action records; keep IDs and enums.
+
+    A record without an element carries a code-owned operation label, such as
+    ``SCROLL_DOWN``; that label is schema, not page text, and stays exact.
+    """
+    if not values:
+        return actions
+    projected = []
+    for item in actions:
+        record = dict(item)
+        if record.get("element") is not None and isinstance(record.get("label"), str):
+            record["label"] = _redact_free_text(record["label"], values)
+        if isinstance(record.get("title"), str):
+            record["title"] = _redact_free_text(record["title"], values)
+        projected.append(record)
+    return projected
 
 
 def _normalize_completion_condition(explicit: Any, goal: Any) -> dict[str, Any] | None:
@@ -1044,6 +1109,9 @@ def _run_browser_loop(
     stalled = 0
     decision_signatures: list[str] = []
     caller_text_inputs = text_inputs or {}
+    # Caller values stay local. They are masked only in page-sourced free text
+    # of the provider projection; structured IDs, keys, enums, and URLs are exact.
+    caller_values = _caller_value_variants(caller_text_inputs)
     typed_targets: set[tuple[str, str]] = set()
     # A caller-supplied predicate is fixed before execution. When it is already
     # satisfied there is nothing to decide, so no provider request is spent.
@@ -1128,8 +1196,10 @@ def _run_browser_loop(
                 "criteria": operation_criteria,
             }
         }
+        provider_elements = _provider_elements(elements, caller_values)
+        provider_labels = {item["id"]: item["label"] for item in provider_elements}
         click_criteria = {
-            item["id"]: f"[{item['id']}] {item['role']} {item['label']}"
+            item["id"]: f"[{item['id']}] {item['role']} {provider_labels[item['id']]}"
             for item in clickable
         }
         if click_criteria:
@@ -1142,7 +1212,7 @@ def _run_browser_loop(
                 "criteria": click_criteria,
             }
         type_criteria = {
-            item["id"]: f"[{item['id']}] {item['role']} {item['label']}"
+            item["id"]: f"[{item['id']}] {item['role']} {provider_labels[item['id']]}"
             for item in typeable
         }
         if type_criteria:
@@ -1158,20 +1228,20 @@ def _run_browser_loop(
             "goal": goal,
             "page": {
                 "url": str(page.get("url") or ""),
-                "title": str(page.get("title") or "")[:240],
-                "text": _provider_page_text(page, caller_text_inputs),
+                "title": _redact_free_text(str(page.get("title") or "")[:240], caller_values),
+                "text": _redact_free_text(str(page.get("text") or "")[:MAX_PAGE_TEXT], caller_values),
             },
-            "elements": elements,
+            "elements": provider_elements,
             "recent_actions": [
                 {key: item.get(key) for key in ("step", "operation", "label", "url")}
-                for item in actions[-8:]
+                for item in _public_actions(actions[-8:], caller_values)
             ],
         }
         progress["attempted_requests"] = int(progress.get("attempted_requests") or 0) + 1
         try:
             decision = client.decide(
-                _redact_provider_values(state, caller_text_inputs),
-                _redact_provider_values(questions, caller_text_inputs),
+                state,
+                questions,
                 public_or_sanitized_data_ack=public_or_sanitized_data_ack,
             )
         except Exception as exc:  # noqa: BLE001 -- a provider failure keeps partial evidence
@@ -1812,7 +1882,12 @@ def _browser_receipt(
         receipt["completion_predicate"] = {
             key: value for key, value in condition.items() if isinstance(value, (str, bool))
         }
-    return _redact_provider_values(receipt, text_inputs or {})
+    caller_values = _caller_value_variants(text_inputs)
+    if caller_values:
+        # Page-sourced prose only; the caller's goal and every schema value stay exact.
+        receipt["title"] = _redact_free_text(receipt["title"], caller_values)
+        receipt["actions"] = _public_actions(actions, caller_values)
+    return receipt
 
 
 class _ChromeWebSocket:
