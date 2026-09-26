@@ -24,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Protocol
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, unquote, unquote_plus, urlsplit
 from urllib.request import urlopen
 
 from . import destination_policy
@@ -471,12 +471,106 @@ def _redact_free_text(text: str, values: tuple[str, ...]) -> str:
 
 
 def _provider_elements(elements: list[dict[str, Any]], values: tuple[str, ...]) -> list[dict[str, Any]]:
-    """Return provider-visible targets with only the free-text label masked."""
-    return [{**item, "label": _redact_free_text(str(item.get("label") or ""), values)} for item in elements]
+    """Return provider-visible targets with the label and href projected; IDs stay exact."""
+    return [
+        {
+            **item,
+            "label": _redact_free_text(str(item.get("label") or ""), values),
+            "href": _redact_url_values(str(item.get("href") or ""), values),
+        }
+        for item in elements
+    ]
+
+
+_URL_SEPARATORS = re.compile(r"[\W_]+")
+_URL_DECODE_PASSES = 3
+
+
+def _url_forms(text: str) -> set[str]:
+    """Return the raw, percent-decoded, and form-decoded folds of one URL part."""
+    forms: set[str] = set()
+    current = text
+    for _ in range(_URL_DECODE_PASSES):
+        forms.add(current.casefold())
+        forms.add(unquote(current).casefold())
+        decoded = unquote_plus(current)
+        if decoded == current:
+            break
+        current = decoded
+    forms.add(current.casefold())
+    return forms
+
+
+def _url_part_reflects(part: str, values: tuple[str, ...]) -> bool:
+    """Say whether one URL part carries a caller value in any common encoding.
+
+    The match is case-insensitive and also compares separator-collapsed forms,
+    so ``Ada Lovelace`` matches ``Ada+Lovelace``, ``Ada%20Lovelace``, and
+    ``ada-lovelace``. A false match masks more context; it never exposes more.
+    """
+    if not part:
+        return False
+    forms = _url_forms(part)
+    collapsed = {_URL_SEPARATORS.sub(" ", form) for form in forms}
+    for value in values:
+        folded = value.casefold()
+        if any(folded in form for form in forms):
+            return True
+        squeezed = _URL_SEPARATORS.sub(" ", folded).strip()
+        if squeezed and any(squeezed in form for form in collapsed):
+            return True
+    return False
+
+
+def _redact_url_values(url: str, values: tuple[str, ...]) -> str:
+    """Project one URL for Jev or a public receipt without caller values.
+
+    Scheme and host stay exact, so the destination context is kept. A path
+    segment, query key or value, fragment, or userinfo that carries a caller
+    value becomes ``[editable text]``; other segments and parameters stay. If
+    the value still spans the rebuilt remainder, the whole remainder is masked.
+    The caller keeps the exact URL locally for navigation, destination policy,
+    stale-target checks, and completion predicates.
+    """
+    if not values or not url:
+        return url
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return _EDITABLE_TEXT_MARKER if _url_part_reflects(url, values) else url
+    if parts.scheme not in {"http", "https"} or not parts.hostname:
+        return _EDITABLE_TEXT_MARKER if _url_part_reflects(url, values) else url
+    userinfo, _, hostport = parts.netloc.rpartition("@")
+    if userinfo and _url_part_reflects(userinfo, values):
+        userinfo = _EDITABLE_TEXT_MARKER
+    prefix = f"{parts.scheme}://{userinfo + '@' if userinfo else ''}{hostport}"
+    path = "/".join(
+        _EDITABLE_TEXT_MARKER if _url_part_reflects(segment, values) else segment
+        for segment in parts.path.split("/")
+    )
+    pairs = []
+    for pair in parts.query.split("&") if parts.query else []:
+        key, equals, item = pair.partition("=")
+        if _url_part_reflects(key, values):
+            pairs.append(_EDITABLE_TEXT_MARKER)
+        elif _url_part_reflects(item, values):
+            pairs.append(f"{key}{equals}{_EDITABLE_TEXT_MARKER}")
+        else:
+            pairs.append(pair)
+    rest = path
+    if pairs:
+        rest += "?" + "&".join(pairs)
+    if parts.fragment:
+        rest += "#" + (_EDITABLE_TEXT_MARKER if _url_part_reflects(parts.fragment, values) else parts.fragment)
+    # A value that crosses a separator is not caught per part. Any remaining
+    # match outside a marker collapses the whole remainder.
+    if _url_part_reflects(rest.replace(_EDITABLE_TEXT_MARKER, "\x00"), values):
+        rest = "/" + _EDITABLE_TEXT_MARKER
+    return prefix + rest
 
 
 def _public_actions(actions: list[dict[str, Any]], values: tuple[str, ...]) -> list[dict[str, Any]]:
-    """Mask page-sourced labels and titles in action records; keep IDs and enums.
+    """Mask page-sourced labels, titles, and URLs in action records; keep IDs and enums.
 
     A record without an element carries a code-owned operation label, such as
     ``SCROLL_DOWN``; that label is schema, not page text, and stays exact.
@@ -490,6 +584,8 @@ def _public_actions(actions: list[dict[str, Any]], values: tuple[str, ...]) -> l
             record["label"] = _redact_free_text(record["label"], values)
         if isinstance(record.get("title"), str):
             record["title"] = _redact_free_text(record["title"], values)
+        if isinstance(record.get("url"), str):
+            record["url"] = _redact_url_values(record["url"], values)
         projected.append(record)
     return projected
 
@@ -1110,7 +1206,8 @@ def _run_browser_loop(
     decision_signatures: list[str] = []
     caller_text_inputs = text_inputs or {}
     # Caller values stay local. They are masked only in page-sourced free text
-    # of the provider projection; structured IDs, keys, enums, and URLs are exact.
+    # and in URL paths, queries, and fragments of the provider projection. The
+    # exact URLs, IDs, keys, and enums stay in local state for execution.
     caller_values = _caller_value_variants(caller_text_inputs)
     typed_targets: set[tuple[str, str]] = set()
     # A caller-supplied predicate is fixed before execution. When it is already
@@ -1227,7 +1324,7 @@ def _run_browser_loop(
         state = {
             "goal": goal,
             "page": {
-                "url": str(page.get("url") or ""),
+                "url": _redact_url_values(str(page.get("url") or ""), caller_values),
                 "title": _redact_free_text(str(page.get("title") or "")[:240], caller_values),
                 "text": _redact_free_text(str(page.get("text") or "")[:MAX_PAGE_TEXT], caller_values),
             },
@@ -1884,8 +1981,9 @@ def _browser_receipt(
         }
     caller_values = _caller_value_variants(text_inputs)
     if caller_values:
-        # Page-sourced prose only; the caller's goal and every schema value stay exact.
+        # Page-sourced prose and URLs only; the caller's goal and every schema value stay exact.
         receipt["title"] = _redact_free_text(receipt["title"], caller_values)
+        receipt["url"] = _redact_url_values(receipt["url"], caller_values)
         receipt["actions"] = _public_actions(actions, caller_values)
     return receipt
 

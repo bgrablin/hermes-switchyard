@@ -12,6 +12,7 @@ import unittest
 from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
+from urllib.parse import quote, quote_plus, unquote_plus
 
 from hermes_switchyard import browser_use
 from hermes_switchyard.browser_use import (
@@ -1172,7 +1173,11 @@ class BrowserReliabilityTests(unittest.TestCase):
                     self.assertEqual(state["goal"], goal)
                     self.assertEqual(state["page"]["url"], url)
                     self.assertEqual([item["id"] for item in state["elements"]], ["1", "2", "3"])
-                    self.assertEqual([item["href"] for item in state["elements"]], ["", "", link_href])
+                    # The href is a URL, not an ID: its origin and non-matching parts stay.
+                    hrefs = [item["href"] for item in state["elements"]]
+                    self.assertEqual(hrefs[:2], ["", ""])
+                    self.assertTrue(hrefs[2].startswith("https://example.org/"), hrefs[2])
+                    assert_redacted(self, hrefs[2][len("https://example.org/"):], value)
                     self.assertEqual([item["kind"] for item in state["elements"]], ["type", "click", "click"])
                     self.assertEqual([item["role"] for item in state["elements"]], ["textbox", "button", "link"])
                     self.assertEqual(questions["operation"]["criteria"]["WAIT"],
@@ -1235,6 +1240,134 @@ class BrowserReliabilityTests(unittest.TestCase):
             for variant in values:
                 self.assertFalse(outside_markers(out, variant), (value, text, out))
         self.assertEqual(redact("No caller value", ()), "No caller value")
+
+    def test_url_projection_masks_reflected_parts_and_keeps_origin(self):
+        from hermes_switchyard.browser_use import _redact_url_values as project
+
+        marker = "[editable text]"
+        cases = [
+            ("https://example.org/results?q=Ada&page=2", ("Ada",), f"https://example.org/results?q={marker}&page=2"),
+            ("https://example.org/results?q=ada%2520lovelace", ("Ada Lovelace",), f"https://example.org/results?q={marker}"),
+            ("https://example.org/search/ada-lovelace/page-2", ("Ada Lovelace",),
+             f"https://example.org/search/{marker}/page-2"),
+            ("https://example.org/r?Ada=1&x=2", ("Ada",), f"https://example.org/r?{marker}&x=2"),
+            ("https://example.org/r#q=Ada", ("Ada",), f"https://example.org/r#{marker}"),
+            ("https://Ada@example.org/r", ("Ada",), f"https://{marker}@example.org/r"),
+            ("https://example.org/a/da?x=1", ("a/da",), f"https://example.org/{marker}"),
+            ("https://example.org/about", ("Ada",), "https://example.org/about"),
+            ("https://example.org/about", (), "https://example.org/about"),
+            ("", ("Ada",), ""),
+        ]
+        for url, values, expected in cases:
+            with self.subTest(url=url, values=values):
+                self.assertEqual(project(url, values), expected)
+
+    def test_reflected_url_values_stay_local_but_exact_urls_drive_the_browser(self):
+        origin = "https://example.org"
+        marker = "[editable text]"
+
+        def normalize(text):
+            for _ in range(2):
+                text = unquote_plus(text)
+            return re.sub(r"[\s_+/-]+", " ", text.casefold())
+
+        def assert_url_private(testcase, url, value):
+            testcase.assertTrue(url.startswith(origin + "/") or url == origin, url)
+            rest = url[len(origin):]
+            for form in (rest, normalize(rest)):
+                spans = [match.span() for match in re.finditer(re.escape(marker), form)]
+                needle = value if form is rest else normalize(value)
+                start = form.find(needle)
+                while start >= 0:
+                    testcase.assertTrue(any(left <= start and start + len(needle) <= right for left, right in spans),
+                                        (value, url))
+                    start = form.find(needle, start + 1)
+
+        class Reflecting(FakeSession):
+            """A GET form whose Search href and result URL reflect the typed value."""
+
+            def __init__(self, shape):
+                self.shape = shape
+                super().__init__({origin + "/form": self.form_page("")})
+
+            def result_url(self, typed):
+                if self.shape == "query":
+                    return origin + "/results?q=" + quote_plus(typed) + "&page=2"
+                return origin + "/search/" + quote(typed, safe="") + "/page-2"
+
+            def form_page(self, typed):
+                href = self.result_url(typed) if typed else origin + "/results"
+                return {"title": "Search form", "text": "Public search form", "document_id": "doc-form",
+                        "elements": [
+                            {"id": "1", "role": "searchbox", "label": "Search terms", "href": "", "kind": "type",
+                             "value": typed or None},
+                            {"id": "2", "role": "link", "label": "Search", "href": href, "kind": "click"},
+                            {"id": "3", "role": "link", "label": "About", "href": origin + "/about", "kind": "click"},
+                        ]}
+
+            def type_text(self, element_id, value, label=""):
+                outcome = super().type_text(element_id, value, label)
+                reflected = self.form_page(value)
+                reflected["elements"][0]["value"] = value
+                self.pages[self.url] = reflected
+                target = self.result_url(value)
+                self.pages[target] = {"title": "Results", "text": "Public results", "document_id": "doc-results",
+                                      "elements": [{"id": "4", "role": "link", "label": "Next page",
+                                                    "href": target + "#next", "kind": "click"}]}
+                return outcome
+
+        for shape in ("query", "path"):
+            for value in ("Ada", "Ada Lovelace", "e", "1"):
+                with self.subTest(shape=shape, value=value):
+                    session = Reflecting(shape)
+                    client = TypingChoices([("TYPE_TEXT", "1"), ("CLICK", "2"), ("DONE", None)])
+                    result = run_browser_goal(goal="Search the public form and open the results", session=session,
+                                              client=client, max_steps=3,
+                                              text_inputs=[{"field_label": "Search terms", "value": value}])
+                    real = session.result_url(value)
+                    # The browser used the exact reflected href and reached the exact URL.
+                    self.assertEqual(session.clicks, ["2"])
+                    self.assertEqual(session.url, real)
+                    self.assertEqual(len(client.calls), 3)
+                    self.assertEqual(result["status"], "completion_candidate")
+                    self.assertEqual([item["element"] for item in result["actions"]], ["1", "2"])
+                    self.assertEqual([item["operation"] for item in result["actions"]], ["TYPE_TEXT", "CLICK"])
+                    self.assertEqual([item["effect_status"] for item in result["actions"]],
+                                     ["text_entered", "url_changed"])
+                    # The reflection reaches Jev on call 2 (href) and call 3 (page and action URL).
+                    self.assertEqual([item["id"] for item in client.calls[1]["state"]["elements"]], ["1", "2", "3"])
+                    self.assertEqual(client.calls[1]["state"]["elements"][2]["href"], origin + "/about")
+                    self.assertEqual([item["id"] for item in client.calls[2]["state"]["elements"]], ["4"])
+                    for call in client.calls:
+                        state = call["state"]
+                        urls = [state["page"]["url"], *(item["href"] for item in state["elements"] if item["href"]),
+                                *(item["url"] for item in state["recent_actions"])]
+                        for url in urls:
+                            assert_url_private(self, url, value)
+                    self.assertEqual([item["operation"] for item in client.calls[2]["state"]["recent_actions"]],
+                                     ["TYPE_TEXT", "CLICK"])
+                    for url in [result["url"], *(item["url"] for item in result["actions"])]:
+                        assert_url_private(self, url, value)
+                    self.assertNotIn(value if len(value) > 1 else "\x00", json.dumps(
+                        {key: item for key, item in result.items() if key != "goal"}))
+
+    def test_reflected_url_completion_predicate_uses_the_exact_local_url(self):
+        origin = "https://example.org"
+        session = FakeSession({
+            origin + "/form": {"title": "Form", "text": "Form", "document_id": "doc-a", "elements": [
+                {"id": "1", "role": "searchbox", "label": "Search terms", "href": "", "kind": "type"},
+                {"id": "2", "role": "link", "label": "Search", "href": origin + "/results?q=Ada", "kind": "click"}]},
+            origin + "/results?q=Ada": {"title": "Results", "text": "Results", "document_id": "doc-b", "elements": []},
+        })
+        client = TypingChoices([("TYPE_TEXT", "1"), ("CLICK", "2")])
+        result = run_browser_goal(goal="Search the public form", session=session, client=client, max_steps=3,
+                                  completion_condition={"url_contains": "q=ada"},
+                                  text_inputs=[{"field_label": "Search terms", "value": "Ada"}])
+        self.assertEqual(session.url, origin + "/results?q=Ada")
+        self.assertEqual(result["completion_source"], "local_predicate")
+        self.assertEqual(result["completion"]["checks"], {"url_contains": True})
+        self.assertNotIn("Ada", json.dumps(client.calls))
+        self.assertNotIn("Ada", result["url"] + json.dumps(result["actions"]))
 
     def test_typing_navigation_is_observed_without_claiming_retention(self):
         first, second = "https://example.org/form", "https://example.org/result"

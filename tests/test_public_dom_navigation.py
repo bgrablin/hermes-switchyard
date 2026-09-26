@@ -301,7 +301,10 @@ class PublicFixtureTests(unittest.TestCase):
                         self.assertEqual(state["page"]["url"], url)
                         self.assertEqual({item["id"] for item in state["elements"]}, set(ids.values()))
                         link = next(item for item in state["elements"] if item["id"] == ids["Example item 1"])
-                        self.assertEqual(link["href"], "https://example.org/example?item=1")
+                        # Origin stays; a path or query part that carries a caller value is masked.
+                        self.assertTrue(link["href"].startswith("https://example.org/"), link["href"])
+                        for value in (author, notes):
+                            self.assertFalse(outside_markers(link["href"][len("https://example.org/"):], value))
                         roles = {item["id"]: (item["role"], item["label"]) for item in state["elements"]}
                         for key in ("click_target", "type_target"):
                             for element_id, text in questions.get(key, {}).get("criteria", {}).items():
@@ -319,6 +322,95 @@ class PublicFixtureTests(unittest.TestCase):
                                  *(item["title"] for item in result["actions"])]:
                         for value in (author, notes):
                             self.assertFalse(outside_markers(text, value), (value, text))
+
+    @unittest.skipUnless(os.environ.get("SWITCHYARD_LIVE_BROWSER_TESTS") == "1", "requires opt-in Chromium")
+    def test_real_chromium_reflected_url_stays_local_and_exact(self):
+        """A real page copies typed text into an href and its own URL; no network navigation and no Jev call."""
+        marker = "[editable text]"
+        origin = "https://example.org"
+        # Fixed synthetic markup. Typing rewrites the Results href; Search puts the
+        # value in the page URL with history.replaceState, which stays same-document.
+        form = ('<main><h1>Example search</h1><label for="terms">Search terms</label><input id="terms">'
+                '<a id="results" href="/results">Results</a> <a href="/about">About</a>'
+                '<button type="button" id="go">Search</button></main>')
+        script = ("document.querySelector('#terms').addEventListener('input', event => {"
+                  " document.querySelector('#results').setAttribute('href', '/results?q=' +"
+                  " encodeURIComponent(event.target.value) + '&page=2'); });"
+                  "document.querySelector('#go').addEventListener('click', () => {"
+                  " history.replaceState(null, '', '/search/' +"
+                  " encodeURIComponent(document.querySelector('#terms').value) + '/page-2'); });")
+
+        def private(url, value):
+            if not url.startswith(origin + "/"):
+                return False
+            rest = url[len(origin):]
+            spans = [(item.start(), item.end()) for item in re.finditer(re.escape(marker), rest)]
+            for needle in {value, value.replace(" ", "%20"), value.replace(" ", "+")}:
+                start = rest.find(needle)
+                while start >= 0:
+                    if not any(left <= start and start + len(needle) <= right for left, right in spans):
+                        return False
+                    start = rest.find(needle, start + 1)
+            return True
+
+        class LocalClient:
+            def __init__(self, steps):
+                self.steps, self.calls = steps, []
+
+            def decide(self, state, questions, **kwargs):
+                self.calls.append({"state": json.loads(json.dumps(state)),
+                                   "questions": json.loads(json.dumps(questions))})
+                operation, target = self.steps[len(self.calls) - 1]
+                answers = {"operation": choice(operation, questions["operation"]["criteria"])}
+                for key in ("click_target", "type_target"):
+                    if key in questions:
+                        options = questions[key]["criteria"]
+                        wanted = "type_target" if operation == "TYPE_TEXT" else "click_target"
+                        answers[key] = choice(target if key == wanted else next(iter(options)), options)
+                return {"answers": answers, "latency_ms": 1, "model": "local-fixture", "usage": {}}
+
+        with browser_use.ChromiumSession(origin + "/") as session:
+            for value in ("Ada", "Ada Lovelace", "e", "1"):
+                with self.subTest(value=value):
+                    session._evaluate("delete window.__hermesSwitchyardTargets; "
+                                      "delete window.__hermesSwitchyardClickNodes; "
+                                      "history.replaceState(null, '', '/'); "
+                                      f"document.title = 'Example search'; document.body.innerHTML = {json.dumps(form)}; "
+                                      f"{script}")
+                    ids = {item["label"]: item["id"] for item in session.observe()["elements"]}
+                    client = LocalClient([("TYPE_TEXT", ids["Search terms"]), ("CLICK", ids["Search"]), ("DONE", None)])
+                    result = browser_use.run_browser_goal(
+                        goal="Search the example form", session=session, client=client, max_steps=3,
+                        text_inputs=[{"field_label": "Search terms", "value": value}])
+                    encoded = value.replace(" ", "%20")
+                    # The exact reflected values stay local and drive the real page.
+                    self.assertEqual(session._evaluate("document.querySelector('#terms').value"), value)
+                    self.assertEqual(session._evaluate("location.pathname"), f"/search/{encoded}/page-2")
+                    self.assertEqual(session._evaluate("document.querySelector('#results').href"),
+                                     f"{origin}/results?q={encoded}&page=2")
+                    self.assertEqual(len(client.calls), 3)
+                    self.assertEqual(result["status"], "completion_candidate")
+                    self.assertEqual([item["element"] for item in result["actions"]],
+                                     [ids["Search terms"], ids["Search"]])
+                    self.assertEqual([item["effect_status"] for item in result["actions"]],
+                                     ["text_entered", "url_changed"])
+                    # Call 2 sees the reflected href; call 3 sees the reflected page URL.
+                    # Look up by ID: a short value such as ``e`` also masks the label.
+                    hrefs = {item["id"]: item["href"] for item in client.calls[1]["state"]["elements"]}
+                    self.assertEqual(hrefs[ids["About"]], origin + "/about")
+                    # The origin stays exact. A short value can also mask a fixed segment such as ``results``.
+                    self.assertTrue(hrefs[ids["Results"]].startswith(origin + "/"), hrefs[ids["Results"]])
+                    self.assertIn("?", hrefs[ids["Results"]])
+                    self.assertTrue(client.calls[2]["state"]["page"]["url"].startswith(origin + "/"))
+                    self.assertNotEqual(client.calls[2]["state"]["page"]["url"], client.calls[1]["state"]["page"]["url"])
+                    for call in client.calls:
+                        state = call["state"]
+                        urls = [state["page"]["url"], *(item["href"] for item in state["elements"] if item["href"]),
+                                *(item["url"] for item in state["recent_actions"])]
+                        for url in urls:
+                            self.assertTrue(private(url, value), (value, url))
+                    for url in [result["url"], *(item["url"] for item in result["actions"])]:
+                        self.assertTrue(private(url, value), (value, url))
 
     @unittest.skipUnless(os.environ.get("SWITCHYARD_LIVE_BROWSER_TESTS") == "1", "requires opt-in Chromium")
     def test_real_public_wikipedia_search_field_accepts_caller_text(self):
