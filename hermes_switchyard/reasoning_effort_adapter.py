@@ -13,6 +13,7 @@ import os
 import stat
 import threading
 import time
+from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -39,6 +40,8 @@ MAX_TASK_CHARS = 1_200
 MAX_TOOL_OUTCOMES = 6
 MAX_OUTCOME_CHARS = 160
 _DEFAULT_SESSION_KEY = "_default"
+# Delegated children and background forks get their own state; keep only the most recent ones.
+_TASK_STATE_LIMIT = 256
 
 _EFFORT_CRITERIA: dict[str, str] = {
     "none": "No extended reasoning; trivial lookup, ack, or formatting.",
@@ -126,13 +129,18 @@ def _truncate(text: Any, limit: int) -> str:
 
 def _session_key(*, session_id: Any = None, task_id: Any = None) -> str:
     for candidate in (session_id, task_id):
-        if isinstance(candidate, str) and candidate.strip():
-            return candidate.strip()
-        if candidate is not None and not isinstance(candidate, (bool, bytes)):
-            text = str(candidate).strip()
-            if text:
-                return text
+        text = _identifier(candidate)
+        if text is not None:
+            return text
     return _DEFAULT_SESSION_KEY
+
+
+def _identifier(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value.strip() or None
+    if value is not None and not isinstance(value, (bool, bytes)):
+        return str(value).strip() or None
+    return None
 
 
 def _content_text(content: Any) -> str:
@@ -750,11 +758,12 @@ def choose_reasoning_effort(
 
 
 class _SessionEffortState:
-    """Per-session effort state. ``baseline`` is the user's level; the plugin never ratchets it."""
+    """Effort state for one session or one delegated task. ``baseline`` is the user's level; the plugin never ratchets it."""
 
     __slots__ = (
         "lock",
         "mode",
+        "mode_seq",
         "baseline",
         "model",
         "outcomes",
@@ -771,6 +780,8 @@ class _SessionEffortState:
     def __init__(self, mode: str) -> None:
         self.lock = threading.RLock()
         self.mode = normalize_mode(mode)
+        # Order of the last mode change; 0 is the configured default.
+        self.mode_seq = 0
         self.baseline: str | None = None
         self.model: str | None = None
         self.outcomes: list[dict[str, str]] = []
@@ -866,7 +877,13 @@ class ReasoningEffortController:
         self._registry_lock = threading.RLock()
         self._sessions: dict[str, _SessionEffortState] = {}
         self._key_to_session: dict[str, str] = {}
-        self._pending_modes: dict[str, str] = {}
+        # Alias -> (command order, mode). The order lets the newest command win across aliases.
+        self._pending_modes: dict[str, tuple[int, str]] = {}
+        self._mode_seq = 0
+        # Leaf lock: taken while a state lock is held, so it must never wait on another lock.
+        self._mode_seq_lock = threading.Lock()
+        self._task_states: OrderedDict[str, _SessionEffortState] = OrderedDict()
+        self._foreground_tasks: OrderedDict[str, None] = OrderedDict()
 
     # -- state -----------------------------------------------------------------
 
@@ -879,20 +896,81 @@ class ReasoningEffortController:
                 self._sessions[key] = state
             return state
 
-    def _bind_session(self, key: str) -> _SessionEffortState:
-        """Return the state for *key*, map the session key, and apply a pending mode."""
+    def _resolve(self, *, session_id: Any, task_id: Any, bind: bool) -> tuple[str, _SessionEffortState]:
+        """Return the receipt session key and the state that owns this request or tool call.
+
+        A delegated child or background fork can share the session ID with a different task
+        ID. Its model, cap, mode, cached choice, and tool outcomes must not replace the
+        foreground state that ``/switchyard effort`` reads and changes. A task is foreground
+        when it is absent, equals the session ID or the bound session key, was seen as
+        foreground before, or names a mode that a ``/switchyard effort`` command left pending.
+
+        The last case covers a compression rotation before the first request: Hermes binds the
+        task ID before turn-start compaction, so the request arrives as (new session, old
+        session). Only the foreground command context writes pending keys, and delegated
+        children and forks use their own task IDs, so they never match one.
+        """
+        key = _session_key(session_id=session_id, task_id=task_id)
+        task = _identifier(task_id)
+        session = _identifier(session_id)
+        with self._registry_lock:
+            if task is not None and session is not None and task != session and not (
+                task in self._foreground_tasks
+                or task in self._pending_modes
+                or task == self.session_env("HERMES_SESSION_KEY").strip()
+            ):
+                state = self._task_states.get(task)
+                if state is None:
+                    state = _SessionEffortState(self.mode)
+                    self._task_states[task] = state
+                self._task_states.move_to_end(task)
+                while len(self._task_states) > _TASK_STATE_LIMIT:
+                    self._task_states.popitem(last=False)
+                return key, state
+            if task is not None:
+                self._foreground_tasks[task] = None
+                self._foreground_tasks.move_to_end(task)
+                while len(self._foreground_tasks) > _TASK_STATE_LIMIT:
+                    self._foreground_tasks.popitem(last=False)
+            return key, self._bind_session(key, task=task) if bind else self._state_for(session_id=key)
+
+    def _bind_session(self, key: str, *, task: str | None = None) -> _SessionEffortState:
+        """Return the state for *key*, map the session key, and apply a pending mode.
+
+        A pending mode can sit under the session ID, the session key, or (after a rotation)
+        the foreground task ID. Consume all of them so no stale mode remains, and apply only
+        the most recent command, if it is newer than the state's current mode.
+        """
         session_key = self.session_env("HERMES_SESSION_KEY")
         with self._registry_lock:
             state = self._state_for(session_id=key)
             if session_key:
                 self._key_to_session[session_key] = key
-            pending = self._pending_modes.pop(key, None)
-            if session_key:
-                pending = self._pending_modes.pop(session_key, None) or pending
-            if pending:
+            aliases = dict.fromkeys(alias for alias in (key, task, session_key) if alias)
+            found = [self._pending_modes.pop(alias) for alias in aliases if alias in self._pending_modes]
+            if found:
+                seq, mode = max(found)
                 with state.lock:
-                    state.mode = pending
+                    if seq > state.mode_seq:
+                        self._apply_mode(state, mode, seq)
             return state
+
+    def _next_mode_seq(self) -> int:
+        with self._mode_seq_lock:
+            self._mode_seq += 1
+            return self._mode_seq
+
+    @staticmethod
+    def _apply_mode(state: _SessionEffortState, mode: str, seq: int) -> None:
+        """Set *mode* on *state*; the caller holds ``state.lock``."""
+        state.mode = mode
+        state.mode_seq = seq
+        if mode == "auto":
+            # Re-baseline at the next request so the current level becomes the cap.
+            state.baseline = None
+            state.choice_effort = None
+            state.choice_cap = None
+        state.dirty = True
 
     def record_tool_outcome(
         self,
@@ -901,7 +979,7 @@ class ReasoningEffortController:
         session_id: Any = None,
         task_id: Any = None,
     ) -> None:
-        state = self._state_for(session_id=session_id, task_id=task_id)
+        _, state = self._resolve(session_id=session_id, task_id=task_id, bind=False)
         with state.lock:
             summary = summarize_tool_outcome(
                 tool_name=outcome.get("tool") or outcome.get("tool_name"),
@@ -954,22 +1032,17 @@ class ReasoningEffortController:
             existing, pending_keys = (session_id if session_id in self._sessions else None), [session_id]
         else:
             existing, pending_keys = self._command_session()
+        seq = self._next_mode_seq()
         if existing is None:
             if not pending_keys:
                 return {"ok": False, "reason": "session_unknown", "mode": wanted}
             with self._registry_lock:
                 for key in pending_keys:
-                    self._pending_modes[key] = wanted
+                    self._pending_modes[key] = (seq, wanted)
             return {"ok": True, "pending": True, "mode": wanted, "session_id": pending_keys[0]}
         state = self._sessions[existing]
         with state.lock:
-            state.mode = wanted
-            if wanted == "auto":
-                # Re-baseline at the next request so the current level becomes the cap.
-                state.baseline = None
-                state.choice_effort = None
-                state.choice_cap = None
-            state.dirty = True
+            self._apply_mode(state, wanted, seq)
         return {"ok": True, "pending": False, "mode": wanted, "session_id": existing}
 
     def session_status(self, session_id: str | None = None) -> dict[str, Any]:
@@ -1108,8 +1181,7 @@ class ReasoningEffortController:
         provider = context.get("provider")
         model = context.get("model") or raw_request.get("model")
         api_mode = context.get("api_mode")
-        key = _session_key(session_id=session_id, task_id=task_id)
-        state = self._bind_session(key)
+        key, state = self._resolve(session_id=session_id, task_id=task_id, bind=True)
         base = {"session_id": key, "model": str(model) if model else None, "mode": state.mode}
         if turn_id is not None:
             base["turn_id"] = turn_id
@@ -1149,6 +1221,7 @@ class ReasoningEffortController:
             elif requested != state.baseline:
                 state.baseline = requested
                 state.mode = "pinned"
+                state.mode_seq = self._next_mode_seq()
                 state.dirty = True
                 reason_prefix = "pinned_by_user_change"
             base["mode"] = state.mode
