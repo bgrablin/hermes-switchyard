@@ -13,6 +13,7 @@ Switchyard can lower Hermes `reasoning_effort` for routine steps. Your `/reasoni
 - **Fewer calls.** Jev is asked only when the context changes (new turn, a tool outcome that changes the stuck flag, or a new cap). Same-context retries reuse the last choice.
 - **No text leaves the host.** Jev receives the requested level, the candidates, a task length bucket, tool outcome status values, and the stuck flag. It never receives task or tool text.
 - **Messages are never rewritten**, so the Hermes prompt cache stays valid. Only request-scoped effort fields change.
+- **Delegated tasks keep their own state.** A subagent or background fork that shares the session ID but runs under a different task ID gets its own level, model, mode, cached choice, and tool outcomes. It never changes the foreground cap or mode, and `/switchyard effort` does not read or change it.
 
 ## Command
 

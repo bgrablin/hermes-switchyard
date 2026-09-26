@@ -121,7 +121,7 @@ def _isolated_replay(plugin_dir: Path) -> None:
     controller.client_factory = lambda: fake  # Never construct a credential-backed client.
     model = "gpt-6-astra-900k"
 
-    def codex(effort, session="s1", turn="t1"):
+    def codex(effort, session="s1", turn="t1", task=None):
         fields = _reasoning_fields(
             model, {}, effort=effort, enabled=True, replay_encrypted_reasoning=False,
             is_xai_responses=False, is_github_responses=False,
@@ -129,7 +129,7 @@ def _isolated_replay(plugin_dir: Path) -> None:
         request = {"model": model, "input": "synthetic", **fields}
         middleware = apply_llm_request_middleware(
             request, provider="openai-codex", model=model, api_mode="codex_responses",
-            session_id=session, turn_id=turn,
+            session_id=session, turn_id=turn, **({"task_id": task} if task else {}),
         )
         return request, middleware
 
@@ -146,6 +146,12 @@ def _isolated_replay(plugin_dir: Path) -> None:
     assert "synthetic" not in json.dumps(jev_state)
     _, cached = codex("high")
     assert cached.payload["reasoning"]["effort"] == "low" and len(fake.calls) == 1
+    # #118: a delegated task sharing the session ID must not pin or re-baseline the foreground.
+    _, delegated = codex("low", turn="t-child", task="subagent-synthetic")
+    assert not delegated.changed and delegated.payload["reasoning"]["effort"] == "low"
+    assert controller.session_status("s1")["mode"] == "auto", "delegated_task_changed_foreground_mode"
+    _, foreground = codex("high")
+    assert foreground.payload["reasoning"]["effort"] == "low" and len(fake.calls) == 1
     _, capped = codex("low", session="s-low")
     assert not capped.changed and capped.payload["reasoning"]["effort"] == "low"
     assert len(fake.calls) == 1
