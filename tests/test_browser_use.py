@@ -1203,6 +1203,201 @@ class BrowserReliabilityTests(unittest.TestCase):
                              *(item["title"] for item in result["actions"])]:
                     assert_redacted(self, text, value)
 
+    def test_case_variant_reflections_are_redacted_in_provider_state_and_receipt(self):
+        url = "https://example.org/form"
+        goal = "Fill Author, click Search, and keep the Example item 1 link visible"
+        marker = "[editable text]"
+
+        def outside_markers(text, value):
+            spans = [match.span() for match in re.finditer(re.escape(marker), text)]
+            folded, needle = text.casefold(), value.casefold()
+            start = folded.find(needle)
+            while start >= 0:
+                if not any(left <= start and start + len(needle) <= right for left, right in spans):
+                    return True
+                start = folded.find(needle, start + 1)
+            return False
+
+        # "e" and "T" are short values whose letters also occur in the marker.
+        for value, reflect in (("Ada", str.upper), ("Ada", str.swapcase), ("ada lovelace", str.title),
+                               ("e", str.upper), ("T", str.lower), ("Straße", str.upper)):
+            reflected = reflect(value)
+            with self.subTest(value=value, reflected=reflected):
+                elements = [
+                    {"id": "1", "role": "textbox", "label": "Author", "href": "", "kind": "type"},
+                    {"id": "2", "role": "button", "label": "Search", "href": "", "kind": "click"},
+                    {"id": "3", "role": "link", "label": "Example item 1", "href": "", "kind": "click"},
+                ]
+
+                class Echo(FakeSession):
+                    """A page that reflects the typed value in another letter case."""
+
+                    def type_text(self, element_id, value, label=""):
+                        outcome = super().type_text(element_id, value, label)
+                        page = self.pages[self.url]
+                        page["text"] = f"{reflected} visited a page. Public context stays."
+                        page["title"] = f"Results for {reflected}"
+                        page["elements"][2]["label"] = f"{reflected} item 1"
+                        return outcome
+
+                session = Echo({url: {"title": "Example form", "document_id": "doc-a", "elements": elements,
+                                      "text": "Search form " + marker}})
+                client = TypingChoices([("TYPE_TEXT", "1"), ("CLICK", "3"), ("DONE", None)])
+                result = run_browser_goal(goal=goal, session=session, client=client, max_steps=3,
+                                          text_inputs=[{"field_label": "Author", "value": value}])
+
+                # Local execution keeps the exact caller value and IDs.
+                self.assertEqual(session.typed, [("1", value, "Author")])
+                self.assertEqual(session.clicks, ["3"])
+                self.assertEqual(len(client.calls), 3)
+                # Provider-visible state: every page-sourced free-text field is masked.
+                with self.subTest(surface="provider"):
+                    for call in client.calls[1:]:
+                        state, questions = call["state"], call["questions"]
+                        self.assertEqual(state["goal"], goal)
+                        self.assertEqual(state["page"]["url"], url)
+                        self.assertEqual([item["id"] for item in state["elements"]], ["1", "2", "3"])
+                        self.assertEqual([item["role"] for item in state["elements"]], ["textbox", "button", "link"])
+                        self.assertEqual(sorted(questions["click_target"]["criteria"]), ["2", "3"])
+                        # Choice descriptions are built from the redacted labels; the role is schema.
+                        labels = {item["id"]: (item["role"], item["label"]) for item in state["elements"]}
+                        for key in ("click_target", "type_target"):
+                            for element_id, text in questions.get(key, {}).get("criteria", {}).items():
+                                role, label = labels[element_id]
+                                self.assertEqual(text, f"[{element_id}] {role} {label}")
+                        for text in [state["page"]["text"], state["page"]["title"],
+                                     *(label for _role, label in labels.values()),
+                                     *(item["label"] for item in state["recent_actions"])]:
+                            self.assertEqual(text.count("["), text.count(marker), text)
+                            self.assertFalse(outside_markers(text, value), (value, text))
+                    self.assertIn(marker, client.calls[1]["state"]["page"]["text"])
+                    # Prose without the value stays visible ("Public" has none of the test letters).
+                    self.assertIn("Public", client.calls[1]["state"]["page"]["text"])
+                # Public receipt: page-sourced prose is masked; schema values stay exact.
+                with self.subTest(surface="receipt"):
+                    self.assertEqual(result["goal"], goal)
+                    self.assertEqual(result["url"], url)
+                    self.assertEqual(result["status"], "completion_candidate")
+                    self.assertEqual([item["element"] for item in result["actions"]], ["1", "3"])
+                    self.assertEqual([item["operation"] for item in result["actions"]], ["TYPE_TEXT", "CLICK"])
+                    self.assertEqual(result["actions"][0]["effect_status"], "text_entered")
+                    for text in [result["title"], *(item["label"] for item in result["actions"]),
+                                 *(item["title"] for item in result["actions"])]:
+                        self.assertEqual(text.count("["), text.count(marker), text)
+                        self.assertFalse(outside_markers(text, value), (value, text))
+
+    def test_case_insensitive_redaction_keeps_original_offsets(self):
+        redact = browser_use._redact_free_text
+        marker = "[editable text]"
+        cases = [
+            ("Ada", "ADA visited a page", f"{marker} visited a page"),
+            ("Ada", "aDa and Ada", f"{marker} and {marker}"),
+            ("e", f"Search E {marker} e", f"S{marker}arch {marker} {marker} {marker}"),
+            ("EDITABLE", f"Before {marker} editable", f"Before {marker} {marker}"),
+            ("Straße", "Results: STRASSE and straße here", f"Results: {marker} and {marker} here"),
+            ("STRASSE", "Results: Straße here", f"Results: {marker} here"),
+            ("Ada", "No value here", "No value here"),
+        ]
+        for value, text, expected in cases:
+            with self.subTest(value=value, text=text):
+                values = browser_use._caller_value_variants({"field": (value,)})
+                self.assertEqual(redact(text, values), expected)
+
+    def test_long_caller_value_prefix_is_not_exposed_at_field_bounds(self):
+        url = "https://example.org/form"
+        goal = "Fill Author, then save the search on the example form"
+        marker = "[editable text]"
+        # 136 characters: longer than the 120-character label bound.
+        value = "Synthetic query " + "abcdefghij" * 12
+        self.assertEqual(len(value), 136)
+
+        def fragments(text):
+            """Return value fragments of 4 or more characters found outside markers."""
+            rest = "".join(text.split(marker)).casefold()
+            folded = value.casefold()
+            return sorted({folded[i:i + 4] for i in range(len(folded) - 3) if folded[i:i + 4] in rest})
+
+        for case in ("exact", "upper"):
+            reflected = value if case == "exact" else value.upper()
+            with self.subTest(case=case):
+                elements = [
+                    {"id": "1", "role": "textbox", "label": "Author", "href": "", "kind": "type"},
+                    {"id": "2", "role": "button", "label": "Search", "href": "", "kind": "click"},
+                ]
+
+                class Echo(FakeSession):
+                    """A page that reflects the typed value across each field bound."""
+
+                    def type_text(self, element_id, value, label=""):
+                        outcome = super().type_text(element_id, value, label)
+                        page = self.pages[self.url]
+                        # Label: the snapshot JS already cut it to 120 inside the value.
+                        # Title: crosses 240. Text: crosses MAX_PAGE_TEXT.
+                        label = ("Save this search for " + reflected)[:120]
+                        page["elements"].append({"id": "3", "role": "button", "label": label,
+                                                 "href": "", "kind": "click"})
+                        page["title"] = "x" * 200 + " " + reflected
+                        page["text"] = "Public context. " + "w " * 1980 + reflected + " end"
+                        return outcome
+
+                session = Echo({url: {"title": "Example form", "document_id": "doc-a", "elements": elements,
+                                      "text": "Search form"}})
+                client = TypingChoices([("TYPE_TEXT", "1"), ("CLICK", "3"), ("DONE", None)])
+                result = run_browser_goal(goal=goal, session=session, client=client, max_steps=3,
+                                          text_inputs=[{"field_label": "Author", "value": value}])
+
+                # Local execution keeps the exact value, IDs, and the exact local label.
+                self.assertEqual(session.typed, [("1", value, "Author")])
+                self.assertEqual(session.clicks, ["3"])
+                self.assertEqual(len(client.calls), 3)
+                with self.subTest(surface="provider"):
+                    for call in client.calls[1:]:
+                        state, questions = call["state"], call["questions"]
+                        self.assertEqual(state["goal"], goal)
+                        self.assertEqual(state["page"]["url"], url)
+                        self.assertEqual([item["id"] for item in state["elements"]], ["1", "2", "3"])
+                        self.assertEqual(sorted(questions["click_target"]["criteria"]), ["2", "3"])
+                        labels = {item["id"]: (item["role"], item["label"]) for item in state["elements"]}
+                        for key in ("click_target", "type_target"):
+                            for element_id, text in questions.get(key, {}).get("criteria", {}).items():
+                                self.assertEqual(text, f"[{element_id}] {labels[element_id][0]} {labels[element_id][1]}")
+                        self.assertEqual(labels["3"][1], "Save this search for " + marker)
+                        self.assertTrue(state["page"]["title"].startswith("x" * 200), state["page"]["title"])
+                        self.assertTrue(state["page"]["text"].startswith("Public context."))
+                        for text in [state["page"]["text"], state["page"]["title"],
+                                     *(label for _role, label in labels.values()),
+                                     *(item["label"] for item in state["recent_actions"])]:
+                            self.assertEqual(text.count("["), text.count(marker), text)
+                            self.assertEqual(fragments(text), [], text[-160:])
+                with self.subTest(surface="receipt"):
+                    self.assertEqual(result["goal"], goal)
+                    self.assertEqual(result["url"], url)
+                    self.assertEqual([item["element"] for item in result["actions"]], ["1", "3"])
+                    self.assertEqual([item["operation"] for item in result["actions"]], ["TYPE_TEXT", "CLICK"])
+                    for text in [result["title"], *(item["label"] for item in result["actions"]),
+                                 *(item["title"] for item in result["actions"])]:
+                        self.assertEqual(text.count("["), text.count(marker), text)
+                        self.assertEqual(fragments(text), [], text[-160:])
+
+    def test_bounded_redaction_never_splits_a_value(self):
+        redact = browser_use._redact_free_text
+        marker = "[editable text]"
+        values = browser_use._caller_value_variants({"field": ("Ada Lovelace",)})
+        # A value that crosses the bound is cut before it and masked as a whole.
+        self.assertEqual(redact("x" * 10 + " Ada Lovelace", values, 16), "x" * 10 + " " + marker)
+        # A text already cut upstream at its bound: the trailing value prefix is masked.
+        self.assertEqual(redact("x" * 13 + " ADA LOV", values, 21), "x" * 13 + " " + marker)
+        self.assertEqual(redact(f"x{marker} a", values, 18), f"x{marker} {marker}")
+        # Short text far below its bound keeps a trailing letter that only starts a value.
+        self.assertEqual(redact("Search A", values, 120), "Search A")
+        # A cut inside an existing marker keeps the whole marker.
+        self.assertEqual(redact("abc " + marker + " tail", values, 8), "abc " + marker)
+        # No caller values: the bound is a plain cut.
+        self.assertEqual(redact("abcdef", (), 4), "abcd")
+        # Astral characters count as two JavaScript units, as in the snapshot cut:
+        # 13 Python characters are 23 units, which is at a bound of 30 within the slack.
+        self.assertEqual(redact("\U0001F600" * 10 + " Ad", values, 30), "\U0001F600" * 10 + " " + marker)
+
     def test_free_text_redaction_leaves_values_only_inside_markers(self):
         import random
         redact = browser_use._redact_free_text
@@ -1210,12 +1405,13 @@ class BrowserReliabilityTests(unittest.TestCase):
 
         def outside_markers(text, value):
             spans = [match.span() for match in re.finditer(re.escape(marker), text)]
-            start = text.find(value)
+            folded, needle = text.casefold(), value.casefold()
+            start = folded.find(needle)
             while start >= 0:
-                end = start + len(value)
+                end = start + len(needle)
                 if not any(left <= start and end <= right for left, right in spans):
                     return True
-                start = text.find(value, start + 1)
+                start = folded.find(needle, start + 1)
             return False
 
         fixed = [
@@ -1231,7 +1427,7 @@ class BrowserReliabilityTests(unittest.TestCase):
             for variant in values:
                 self.assertFalse(outside_markers(out, variant), (value, text, out))
         rng = random.Random(117)
-        alphabet = "ae1 []xt"
+        alphabet = "aAeE1 []xtT"
         for _ in range(2000):
             value = "".join(rng.choice(alphabet) for _ in range(rng.randint(1, 4)))
             text = "".join(rng.choice([*alphabet, marker]) for _ in range(rng.randint(0, 20)))

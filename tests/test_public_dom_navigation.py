@@ -413,6 +413,96 @@ class PublicFixtureTests(unittest.TestCase):
                         self.assertTrue(private(url, value), (value, url))
 
     @unittest.skipUnless(os.environ.get("SWITCHYARD_LIVE_BROWSER_TESTS") == "1", "requires opt-in Chromium")
+    def test_real_chromium_case_variant_and_long_reflection_is_redacted(self):
+        """A real page shows the typed value in upper case and past field bounds; no network and no Jev call."""
+        marker = "[editable text]"
+        # Fixed synthetic markup. Typing mirrors the value into CSS upper-case text,
+        # a link label, and an upper-case title. innerText returns the upper case.
+        form = ('<main><h1>Example search</h1><label for="terms">Search terms</label><input id="terms">'
+                '<p>Results for <span id="echo" style="text-transform: uppercase"></span>. Public context.</p>'
+                '<a id="more" href="/about">About</a><button type="button" id="go">Search</button></main>')
+        script = ("document.querySelector('#terms').addEventListener('input', event => {"
+                  " const text = event.target.value;"
+                  " document.querySelector('#echo').textContent = text;"
+                  " document.querySelector('#more').textContent = 'More ' + text.toUpperCase();"
+                  " document.title = 'Search ' + text.toUpperCase(); });")
+
+        def outside_markers(text, value):
+            spans = [(item.start(), item.end()) for item in re.finditer(re.escape(marker), text)]
+            folded, needle = text.casefold(), value.casefold()
+            start = folded.find(needle)
+            while start >= 0:
+                if not any(left <= start and start + len(needle) <= right for left, right in spans):
+                    return True
+                start = folded.find(needle, start + 1)
+            return False
+
+        def fragments(text, value):
+            """Return value fragments of 8 or more characters found outside markers."""
+            rest = "".join(text.split(marker)).casefold()
+            folded = value.casefold()
+            return sorted({folded[i:i + 8] for i in range(len(folded) - 7) if folded[i:i + 8] in rest})
+
+        class LocalClient:
+            def __init__(self, steps):
+                self.steps, self.calls = steps, []
+
+            def decide(self, state, questions, **kwargs):
+                self.calls.append({"state": json.loads(json.dumps(state)),
+                                   "questions": json.loads(json.dumps(questions))})
+                operation, target = self.steps[len(self.calls) - 1]
+                answers = {"operation": choice(operation, questions["operation"]["criteria"])}
+                for key in ("click_target", "type_target"):
+                    if key in questions:
+                        options = questions[key]["criteria"]
+                        wanted = "type_target" if operation == "TYPE_TEXT" else "click_target"
+                        answers[key] = choice(target if key == wanted else next(iter(options)), options)
+                return {"answers": answers, "latency_ms": 1, "model": "local-fixture", "usage": {}}
+
+        # 136 characters: the real snapshot cuts the link label to 120 inside the value.
+        long_value = "Synthetic query " + "abcdefghij" * 12
+        with browser_use.ChromiumSession("https://example.org/") as session:
+            # "e" is a short value whose letters also occur in the marker.
+            for value in ("Ada", "ada lovelace", "e", long_value):
+                with self.subTest(value=value):
+                    session._evaluate("delete window.__hermesSwitchyardTargets; "
+                                      "delete window.__hermesSwitchyardClickNodes; "
+                                      f"document.title = 'Example search'; document.body.innerHTML = {json.dumps(form)}; "
+                                      f"{script}")
+                    ids = {item["label"]: item["id"] for item in session.observe()["elements"]}
+                    url = session.observe()["url"]
+                    client = LocalClient([("TYPE_TEXT", ids["Search terms"]), ("CLICK", ids["Search"]), ("DONE", None)])
+                    goal = "Search the example form"
+                    result = browser_use.run_browser_goal(
+                        goal=goal, session=session, client=client, max_steps=3,
+                        text_inputs=[{"field_label": "Search terms", "value": value}])
+                    # The real page reflects the value in another case; the exact value stays local.
+                    self.assertEqual(session._evaluate("document.querySelector('#terms').value"), value)
+                    self.assertIn(value.upper(), session._evaluate("document.body.innerText"))
+                    self.assertEqual(len(client.calls), 3)
+                    self.assertEqual(result["status"], "completion_candidate")
+                    self.assertEqual(result["goal"], goal)
+                    self.assertEqual(result["url"], url)
+                    self.assertEqual([item["element"] for item in result["actions"]],
+                                     [ids["Search terms"], ids["Search"]])
+                    for call in client.calls[1:]:
+                        state = call["state"]
+                        self.assertEqual(state["goal"], goal)
+                        self.assertEqual(state["page"]["url"], url)
+                        self.assertEqual({item["id"] for item in state["elements"]}, set(ids.values()))
+                        for text in [state["page"]["text"], state["page"]["title"],
+                                     *(item["label"] for item in state["elements"]),
+                                     *(item["label"] for item in state["recent_actions"])]:
+                            self.assertEqual(text.count("["), text.count(marker), text)
+                            self.assertFalse(outside_markers(text, value), (value, text))
+                            self.assertEqual(fragments(text, value), [], text[-160:])
+                    self.assertIn(marker, client.calls[1]["state"]["page"]["text"])
+                    for text in [result["title"], *(item["label"] for item in result["actions"]),
+                                 *(item["title"] for item in result["actions"])]:
+                        self.assertFalse(outside_markers(text, value), (value, text))
+                        self.assertEqual(fragments(text, value), [], text[-160:])
+
+    @unittest.skipUnless(os.environ.get("SWITCHYARD_LIVE_BROWSER_TESTS") == "1", "requires opt-in Chromium")
     def test_real_public_wikipedia_search_field_accepts_caller_text(self):
         with browser_use.ChromiumSession("https://en.wikipedia.org/wiki/Special:Search") as session:
             field = next(item for item in session.observe()["elements"]
