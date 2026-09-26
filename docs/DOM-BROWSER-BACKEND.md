@@ -64,12 +64,16 @@ provider-visible page text, but local readback still compares the exact value.
 Caller values are masked as `[editable text]` only in page-sourced free text:
 page text, page title, element labels and the choice descriptions built from
 them, and action labels and titles in `recent_actions` and the public receipt.
-The free-text match is case-insensitive (Unicode case folding), so a page that
-shows `Ada` as `ADA`, for example with CSS `text-transform`, is also masked.
+The free-text match ignores letter case, compatibility width, and combining
+marks, and it treats the Turkish dotted and dotless i forms as `i`. A page that
+shows `Ada` as `ADA`, or `mimari` as `MİMARİ` with CSS `text-transform` under
+`lang=tr`, is also masked. URL projection uses the same match form.
 Masking runs before each field is cut to its bound (label 120, title 240, page
 text 4000 characters), and a cut never splits a caller value. The snapshot cuts
 labels and page text in the page before masking. If such a field is at or near
 its bound and ends with the start of a caller value, that tail is masked too.
+The snapshot never cuts a label or page text between the two halves of a
+UTF-16 surrogate pair.
 Element IDs, choice keys, operation, status, and effect values, and the caller's
 own goal are never rewritten, so a short value such as `e` or `1` cannot change
 a target or a receipt field. A short value can mask many characters of page

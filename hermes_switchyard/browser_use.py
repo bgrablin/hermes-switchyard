@@ -8,6 +8,7 @@ computer_use is not in the loop. Desktop CUA remains in computer_use.py.
 from __future__ import annotations
 
 import base64
+import functools
 import hashlib
 import json
 import os
@@ -18,6 +19,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import unicodedata
 import uuid
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -165,21 +167,21 @@ _SNAPSHOT_JS = """(() => {
   }
   function accessibleName(el) {
     const aria = String(el.getAttribute("aria-label") || "").replace(/\\s+/g, " ").trim();
-    if (aria) return aria.slice(0, 120);
+    if (aria) return aria.slice(0, 120).replace(/[\\uD800-\\uDBFF]$/, "");
     const id = el.getAttribute("id");
     if (id) {
       try {
         const lab = document.querySelector('label[for="' + CSS.escape(id) + '"]');
         const text = String((lab && (lab.innerText || lab.textContent)) || "").replace(/\\s+/g, " ").trim();
-        if (text) return text.slice(0, 120);
+        if (text) return text.slice(0, 120).replace(/[\\uD800-\\uDBFF]$/, "");
       } catch (e) {}
     }
     const wrapped = el.closest("label");
     if (wrapped) {
       const text = String(wrapped.innerText || wrapped.textContent || "").replace(/\\s+/g, " ").trim();
-      if (text) return text.slice(0, 120);
+      if (text) return text.slice(0, 120).replace(/[\\uD800-\\uDBFF]$/, "");
     }
-    return String(el.getAttribute("placeholder") || el.getAttribute("name") || el.getAttribute("title") || "").replace(/\\s+/g, " ").trim().slice(0, 120);
+    return String(el.getAttribute("placeholder") || el.getAttribute("name") || el.getAttribute("title") || "").replace(/\\s+/g, " ").trim().slice(0, 120).replace(/[\\uD800-\\uDBFF]$/, "");
   }
   function collect(selector) {
     const found = [];
@@ -193,7 +195,7 @@ _SNAPSHOT_JS = """(() => {
       if (found.length >= __SWITCHYARD_SCAN_BOUND__) break;
       if (el.closest("#toc, .toc, nav, [role=navigation], .vector-toc, .mw-cite-backlink, .interlanguage-link, .mw-portlet, .navbox, .vector-dropdown, .reference")) continue;
       if (el.hidden || el.disabled || el.getAttribute("aria-hidden") === "true" || el.closest("[hidden], [aria-hidden='true']")) continue;
-      const label = String(el.innerText || el.getAttribute("aria-label") || "").replace(/\\s+/g, " ").trim().slice(0, 120);
+      const label = String(el.innerText || el.getAttribute("aria-label") || "").replace(/\\s+/g, " ").trim().slice(0, 120).replace(/[\\uD800-\\uDBFF]$/, "");
       if (!label || label.length < 3 || skipLabel.test(label) || !/[A-Za-z]{3,}/.test(label)) continue;
       const hrefAttr = String(el.getAttribute("href") || "");
       const href = String(el.href || hrefAttr);
@@ -297,7 +299,7 @@ _SNAPSHOT_JS = """(() => {
   return {
     url: location.href,
     title: document.title || "",
-    text: pageText.slice(0, 4000),
+    text: pageText.slice(0, 4000).replace(/[\\uD800-\\uDBFF]$/, ""),
     elements,
     focus: active && active.tagName ? String(active.tagName).toLowerCase() : "",
     scroll: { offset: scrollY, height: Math.round(viewportHeight), document_height: Math.round((document.documentElement || {}).scrollHeight || 0) },
@@ -423,40 +425,79 @@ def _caller_value_variants(text_inputs: dict[str, tuple[str, ...]] | None) -> tu
     return tuple(sorted(variants, key=len, reverse=True))
 
 
-def _casefold_with_offsets(text: str) -> tuple[str, list[int]]:
-    """Return the casefolded text and, per folded character, its original index.
+# Turkish and Azerbaijani upper case maps i to U+0130 and U+0131 to I. Unicode
+# case folding keeps U+0130 as i plus a combining dot, so join both forms to i.
+_TURKISH_I = str.maketrans({"\u0130": "i", "\u0131": "i"})
 
-    Case folding is per character and never shortens a character, so equal
-    lengths mean a one-to-one map. A character that expands (``ß`` to ``ss``)
-    maps each folded character back to that one original character.
+
+@functools.lru_cache(maxsize=4096)
+def _fold_char(char: str) -> str:
+    """Return the match form of one character; it can be empty or longer.
+
+    The form is case-insensitive and ignores compatibility width and combining
+    marks, so a page copy in another letter case, locale, width, or Unicode
+    normalization still matches. Controls and other characters stay literal.
     """
-    folded = text.casefold()
-    if len(folded) == len(text):
-        return folded, list(range(len(text)))
+    if char.isascii():
+        return char.lower()
+    form = char.translate(_TURKISH_I)
+    for _ in range(2):
+        form = unicodedata.normalize("NFKD", form)
+        form = "".join(part for part in form if not unicodedata.combining(part)).casefold()
+    return form
+
+
+def _fold_text(text: str) -> str:
+    """Return the match form of a caller value."""
+    return "".join(_fold_char(char) for char in text)
+
+
+def _casefold_with_offsets(text: str) -> tuple[str, list[int]]:
+    """Return the match form of ``text`` and, per folded character, its original index.
+
+    A character that expands (``ß`` to ``ss``) maps each folded character back
+    to that one original character. A character that folds to nothing (a
+    combining mark) has no folded character.
+    """
+    if text.isascii():
+        return text.lower(), list(range(len(text)))
+    folded: list[str] = []
     offsets: list[int] = []
     for index, char in enumerate(text):
-        offsets.extend([index] * len(char.casefold()))
-    return folded, offsets
+        form = _fold_char(char)
+        folded.append(form)
+        offsets.extend([index] * len(form))
+    return "".join(folded), offsets
+
+
+def _extend_over_marks(text: str, end: int) -> int:
+    """Move a span end past original characters that fold to nothing (marks)."""
+    while end < len(text) and not text[end].isascii() and not _fold_char(text[end]):
+        end += 1
+    return end
 
 
 def _unmasked_value_spans(text: str, values: tuple[str, ...]) -> list[tuple[int, int]]:
     """Return value occurrences that are not wholly inside one existing marker.
 
-    The match is case-insensitive (Unicode case folding), because a page can
-    reflect a value in another letter case, for example with CSS
-    ``text-transform``. Spans use original-text offsets and cover every
-    original character that contributes to a match.
+    The match uses ``_fold_char``: it ignores letter case (including the
+    Turkish dotted and dotless i), compatibility width, and combining marks,
+    because a page can reflect a value in another form, for example with CSS
+    ``text-transform`` under ``lang=tr``. Spans use original-text offsets and
+    cover every original character that contributes to a match, plus any
+    combining marks that follow it.
     """
     markers = [match.span() for match in re.finditer(re.escape(_EDITABLE_TEXT_MARKER), text)]
     folded, offsets = _casefold_with_offsets(text)
     spans = []
     for value in values:
-        needle = value.casefold()
+        needle = _fold_text(value)
         if not needle:
             continue
         found = folded.find(needle)
         while found >= 0:
-            start, end = offsets[found], offsets[found + len(needle) - 1] + 1
+            start = offsets[found]
+            end = _extend_over_marks(text, offsets[found + len(needle) - 1] + 1)
             if not any(left <= start and end <= right for left, right in markers):
                 spans.append((start, end))
             found = folded.find(needle, found + 1)
@@ -529,7 +570,7 @@ def _mask_cut_tail(text: str, values: tuple[str, ...]) -> str:
     folded, offsets = _casefold_with_offsets(text)
     start = len(text)
     for value in values:
-        needle = value.casefold()
+        needle = _fold_text(value)
         for size in range(min(len(needle) - 1, len(folded)), 0, -1):
             if folded.endswith(needle[:size]):
                 start = min(start, offsets[len(folded) - size])
@@ -586,24 +627,25 @@ _URL_DECODE_PASSES = 3
 
 
 def _url_forms(text: str) -> set[str]:
-    """Return the raw, percent-decoded, and form-decoded folds of one URL part."""
+    """Return the raw, percent-decoded, and form-decoded match forms of one URL part."""
     forms: set[str] = set()
     current = text
     for _ in range(_URL_DECODE_PASSES):
-        forms.add(current.casefold())
-        forms.add(unquote(current).casefold())
+        forms.add(_fold_text(current))
+        forms.add(_fold_text(unquote(current)))
         decoded = unquote_plus(current)
         if decoded == current:
             break
         current = decoded
-    forms.add(current.casefold())
+    forms.add(_fold_text(current))
     return forms
 
 
 def _url_part_reflects(part: str, values: tuple[str, ...]) -> bool:
     """Say whether one URL part carries a caller value in any common encoding.
 
-    The match is case-insensitive and also compares separator-collapsed forms,
+    The match uses the free-text match form (letter case including the Turkish
+    i forms, width, and combining marks) and also compares separator-collapsed forms,
     so ``Ada Lovelace`` matches ``Ada+Lovelace``, ``Ada%20Lovelace``, and
     ``ada-lovelace``. A false match masks more context; it never exposes more.
     """
@@ -612,7 +654,7 @@ def _url_part_reflects(part: str, values: tuple[str, ...]) -> bool:
     forms = _url_forms(part)
     collapsed = {_URL_SEPARATORS.sub(" ", form) for form in forms}
     for value in values:
-        folded = value.casefold()
+        folded = _fold_text(value)
         if any(folded in form for form in forms):
             return True
         squeezed = _URL_SEPARATORS.sub(" ", folded).strip()
@@ -2402,7 +2444,7 @@ class ChromiumSession:
             f"""(() => {{
               const el = (window.__hermesSwitchyardClickNodes || new Map()).get("{element_id}");
               if (!el || !el.isConnected) return {{ok: false}};
-              const liveLabel = String(el.innerText || el.getAttribute("aria-label") || "").replace(/\\s+/g, " ").trim().slice(0, 120);
+              const liveLabel = String(el.innerText || el.getAttribute("aria-label") || "").replace(/\\s+/g, " ").trim().slice(0, 120).replace(/[\\uD800-\\uDBFF]$/, "");
               const liveHref = String(el.href || el.getAttribute("href") || "");
               if ({expected_label} && liveLabel !== {expected_label}) return {{ok: false}};
               if ({expected_href} && liveHref !== {expected_href}) return {{ok: false}};
@@ -2432,21 +2474,21 @@ class ChromiumSession:
               if (!el || !el.isConnected) return {{ok: false, reason: "missing"}};
               function accessibleName(node) {{
                 const aria = String(node.getAttribute("aria-label") || "").replace(/\\s+/g, " ").trim();
-                if (aria) return aria.slice(0, 120);
+                if (aria) return aria.slice(0, 120).replace(/[\\uD800-\\uDBFF]$/, "");
                 const id = node.getAttribute("id");
                 if (id) {{
                   try {{
                     const lab = document.querySelector('label[for="' + CSS.escape(id) + '"]');
                     const text = String((lab && (lab.innerText || lab.textContent)) || "").replace(/\\s+/g, " ").trim();
-                    if (text) return text.slice(0, 120);
+                    if (text) return text.slice(0, 120).replace(/[\\uD800-\\uDBFF]$/, "");
                   }} catch (e) {{}}
                 }}
                 const wrapped = node.closest("label");
                 if (wrapped) {{
                   const text = String(wrapped.innerText || wrapped.textContent || "").replace(/\\s+/g, " ").trim();
-                  if (text) return text.slice(0, 120);
+                  if (text) return text.slice(0, 120).replace(/[\\uD800-\\uDBFF]$/, "");
                 }}
-                return String(node.getAttribute("placeholder") || node.getAttribute("name") || node.getAttribute("title") || "").replace(/\\s+/g, " ").trim().slice(0, 120);
+                return String(node.getAttribute("placeholder") || node.getAttribute("name") || node.getAttribute("title") || "").replace(/\\s+/g, " ").trim().slice(0, 120).replace(/[\\uD800-\\uDBFF]$/, "");
               }}
               const liveLabel = accessibleName(el);
               if ({expected_label} && liveLabel !== {expected_label}) return {{ok: false, reason: "stale"}};

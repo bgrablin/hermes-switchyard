@@ -5,6 +5,7 @@ import json
 import os
 import re
 import subprocess
+import unicodedata
 import unittest
 from contextlib import nullcontext
 from html.parser import HTMLParser
@@ -501,6 +502,94 @@ class PublicFixtureTests(unittest.TestCase):
                                  *(item["title"] for item in result["actions"])]:
                         self.assertFalse(outside_markers(text, value), (value, text))
                         self.assertEqual(fragments(text, value), [], text[-160:])
+
+    @unittest.skipUnless(os.environ.get("SWITCHYARD_LIVE_BROWSER_TESTS") == "1", "requires opt-in Chromium")
+    def test_real_chromium_turkish_text_transform_is_redacted(self):
+        """Under lang=tr, CSS upper case maps i to U+0130; no network navigation and no Jev call."""
+        marker = "[editable text]"
+        form = ('<main><h1>Example search</h1><label for="terms">Search terms</label><input id="terms">'
+                '<h2 id="echo" style="text-transform: uppercase"></h2><p>Public context.</p>'
+                '<button type="button" id="go">Search</button></main>')
+        script = ("document.documentElement.lang = 'tr';"
+                  "document.querySelector('#terms').addEventListener('input', event => {"
+                  " document.querySelector('#echo').textContent = 'Results for ' + event.target.value; });")
+
+        def leaks(text, value):
+            # Independent oracle: letters only, marks removed, Turkish i forms joined.
+            def fold(part):
+                part = unicodedata.normalize("NFKD", part.replace("\u0131", "i"))
+                return "".join(char for char in part if not unicodedata.combining(char)).casefold()
+            return any(fold(value) in fold(part) for part in text.split(marker))
+
+        class LocalClient:
+            def __init__(self, steps):
+                self.steps, self.calls = steps, []
+
+            def decide(self, state, questions, **kwargs):
+                self.calls.append({"state": json.loads(json.dumps(state)),
+                                   "questions": json.loads(json.dumps(questions))})
+                operation, target = self.steps[len(self.calls) - 1]
+                answers = {"operation": choice(operation, questions["operation"]["criteria"])}
+                for key in ("click_target", "type_target"):
+                    if key in questions:
+                        options = questions[key]["criteria"]
+                        wanted = "type_target" if operation == "TYPE_TEXT" else "click_target"
+                        answers[key] = choice(target if key == wanted else next(iter(options)), options)
+                return {"answers": answers, "latency_ms": 1, "model": "local-fixture", "usage": {}}
+
+        with browser_use.ChromiumSession("https://example.org/") as session:
+            # "e" and "1" are short values; "e" also occurs in the marker text.
+            for value in ("mimari iki", "\u0131l\u0131k", "e", "1"):
+                with self.subTest(value=value):
+                    session._evaluate("delete window.__hermesSwitchyardTargets; "
+                                      "delete window.__hermesSwitchyardClickNodes; "
+                                      f"document.title = 'Example search'; document.body.innerHTML = {json.dumps(form)}; "
+                                      f"{script}")
+                    ids = {item["label"]: item["id"] for item in session.observe()["elements"]}
+                    url = session.observe()["url"]
+                    client = LocalClient([("TYPE_TEXT", ids["Search terms"]), ("CLICK", ids["Search"]), ("DONE", None)])
+                    goal = "Search the example form"
+                    result = browser_use.run_browser_goal(
+                        goal=goal, session=session, client=client, max_steps=3,
+                        text_inputs=[{"field_label": "Search terms", "value": value}])
+                    self.assertEqual(session._evaluate("document.querySelector('#terms').value"), value)
+                    if value == "mimari iki":
+                        # The real renderer applied the Turkish mapping.
+                        self.assertIn("M\u0130MAR\u0130 \u0130K\u0130", session._evaluate("document.body.innerText"))
+                    self.assertEqual(len(client.calls), 3)
+                    self.assertEqual(result["status"], "completion_candidate")
+                    self.assertEqual(result["goal"], goal)
+                    self.assertEqual(result["url"], url)
+                    self.assertEqual([item["element"] for item in result["actions"]],
+                                     [ids["Search terms"], ids["Search"]])
+                    for call in client.calls[1:]:
+                        state = call["state"]
+                        self.assertEqual(state["goal"], goal)
+                        self.assertEqual(state["page"]["url"], url)
+                        self.assertEqual({item["id"] for item in state["elements"]}, set(ids.values()))
+                        for text in [state["page"]["text"], state["page"]["title"],
+                                     *(item["label"] for item in state["elements"]),
+                                     *(item["label"] for item in state["recent_actions"])]:
+                            self.assertEqual(text.count("["), text.count(marker), text)
+                            self.assertFalse(leaks(text, value), (value, text))
+                    self.assertIn(marker, client.calls[1]["state"]["page"]["text"])
+                    for text in [result["title"], *(item["label"] for item in result["actions"]),
+                                 *(item["title"] for item in result["actions"])]:
+                        self.assertFalse(leaks(text, value), (value, text))
+
+    def test_snapshot_cut_never_leaves_a_lone_surrogate(self):
+        """Run the production snapshot JS offline; a 120-unit cut inside an emoji drops the half."""
+        runner = Path(__file__).parent / "fixtures/public_dom_snapshot_runner.cjs"
+        # 119 UTF-16 units, then an astral character: the cut at 120 splits its pair.
+        label = "Rocket launch notes " + "x" * 99 + "\U0001F680 tail"
+        html = f'<main><a href="https://example.org/next">{label}</a></main>'
+        executed = _execute_snapshot(runner, html, "https://example.org/")
+        self.assertEqual(executed.returncode, 0, executed.stderr)
+        snapshot = json.loads(executed.stdout)
+        labels = [item["label"] for item in snapshot["elements"]]
+        self.assertEqual(labels, [label[:119]])
+        for text in [*labels, snapshot["text"]]:
+            text.encode("utf-8")
 
     @unittest.skipUnless(os.environ.get("SWITCHYARD_LIVE_BROWSER_TESTS") == "1", "requires opt-in Chromium")
     def test_real_public_wikipedia_search_field_accepts_caller_text(self):
