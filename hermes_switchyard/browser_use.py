@@ -39,6 +39,9 @@ from .destination_policy import DestinationGuard, DestinationPolicyError, Valida
 
 MAX_PAGE_ELEMENTS = 48
 MAX_PAGE_TEXT = 4000
+# Page-sourced label and title bounds. The snapshot JS cuts labels to the same 120.
+MAX_LABEL_TEXT = 120
+MAX_TITLE_TEXT = 240
 MAX_SCANNED_CANDIDATES = 600
 MAX_SCAN_WINDOW_VIEWPORTS = 3
 NO_PROGRESS_LIMIT = 2
@@ -420,17 +423,43 @@ def _caller_value_variants(text_inputs: dict[str, tuple[str, ...]] | None) -> tu
     return tuple(sorted(variants, key=len, reverse=True))
 
 
+def _casefold_with_offsets(text: str) -> tuple[str, list[int]]:
+    """Return the casefolded text and, per folded character, its original index.
+
+    Case folding is per character and never shortens a character, so equal
+    lengths mean a one-to-one map. A character that expands (``ß`` to ``ss``)
+    maps each folded character back to that one original character.
+    """
+    folded = text.casefold()
+    if len(folded) == len(text):
+        return folded, list(range(len(text)))
+    offsets: list[int] = []
+    for index, char in enumerate(text):
+        offsets.extend([index] * len(char.casefold()))
+    return folded, offsets
+
+
 def _unmasked_value_spans(text: str, values: tuple[str, ...]) -> list[tuple[int, int]]:
-    """Return value occurrences that are not wholly inside one existing marker."""
+    """Return value occurrences that are not wholly inside one existing marker.
+
+    The match is case-insensitive (Unicode case folding), because a page can
+    reflect a value in another letter case, for example with CSS
+    ``text-transform``. Spans use original-text offsets and cover every
+    original character that contributes to a match.
+    """
     markers = [match.span() for match in re.finditer(re.escape(_EDITABLE_TEXT_MARKER), text)]
+    folded, offsets = _casefold_with_offsets(text)
     spans = []
     for value in values:
-        start = text.find(value)
-        while start >= 0:
-            end = start + len(value)
+        needle = value.casefold()
+        if not needle:
+            continue
+        found = folded.find(needle)
+        while found >= 0:
+            start, end = offsets[found], offsets[found + len(needle) - 1] + 1
             if not any(left <= start and end <= right for left, right in markers):
                 spans.append((start, end))
-            start = text.find(value, start + 1)
+            found = folded.find(needle, found + 1)
     # A marker that a value occurrence overlaps is absorbed into the masked run.
     for left, right in markers:
         if any(start < right and left < end for start, end in spans):
@@ -438,7 +467,7 @@ def _unmasked_value_spans(text: str, values: tuple[str, ...]) -> list[tuple[int,
     return spans
 
 
-def _redact_free_text(text: str, values: tuple[str, ...]) -> str:
+def _redact_free_text(text: str, values: tuple[str, ...], limit: int | None = None) -> str:
     """Mask caller values inside one page-sourced free-text string.
 
     Only page-sourced prose (page text, titles, element labels) reaches this
@@ -446,7 +475,77 @@ def _redact_free_text(text: str, values: tuple[str, ...]) -> str:
     caller's own goal, and receipt schema values are never passed through it.
     After redaction every remaining value occurrence lies inside a marker. If a
     bounded number of passes cannot establish that, the whole string is masked.
+
+    ``limit`` is the length bound of the field. A cut must never split a caller
+    value, because the prefix would no longer match in full. A longer string is
+    cut here, before masking, at a point outside every value occurrence. A
+    string at the bound may already be cut upstream (the page snapshot cuts
+    labels and page text), so a trailing fragment that begins a caller value
+    is also masked.
     """
+    if limit is not None and len(text) > limit:
+        return _redact_values(_cut_outside_values(text, values, limit), values)
+    # Measure before masking: a marker can make masked text longer than the source.
+    at_bound = limit is not None and _js_length(text) >= limit - _CUT_BOUND_SLACK
+    text = _redact_values(text, values)
+    return _mask_cut_tail(text, values) if at_bound else text
+
+
+# The snapshot cuts in UTF-16 units after it collapses whitespace. Local label
+# normalization can then remove a few more characters, so a string this close
+# to its bound is treated as possibly cut. A false match masks a short tail; it
+# never exposes more.
+_CUT_BOUND_SLACK = 16
+
+
+def _js_length(text: str) -> int:
+    """Return the JavaScript (UTF-16 code unit) length of ``text``."""
+    return len(text.encode("utf-16-le", "surrogatepass")) // 2
+
+
+def _cut_outside_values(text: str, values: tuple[str, ...], limit: int) -> str:
+    """Cut ``text`` to at most ``limit`` characters without splitting a value or marker.
+
+    If the cut moves back, a marker replaces the removed part, so the caller
+    can see that masked text was dropped at the bound.
+    """
+    spans = _unmasked_value_spans(text, values) if values else []
+    spans += [match.span() for match in re.finditer(re.escape(_EDITABLE_TEXT_MARKER), text)]
+    cut = limit
+    while True:
+        crossing = [start for start, end in spans if start < cut < end]
+        if not crossing:
+            break
+        cut = min(crossing)
+    if cut == limit:
+        return text[:limit]
+    return text[:cut] + _EDITABLE_TEXT_MARKER
+
+
+def _mask_cut_tail(text: str, values: tuple[str, ...]) -> str:
+    """Mask a trailing fragment that is a proper prefix of a caller value."""
+    if not values or not text:
+        return text
+    folded, offsets = _casefold_with_offsets(text)
+    start = len(text)
+    for value in values:
+        needle = value.casefold()
+        for size in range(min(len(needle) - 1, len(folded)), 0, -1):
+            if folded.endswith(needle[:size]):
+                start = min(start, offsets[len(folded) - size])
+                break
+    if start == len(text):
+        return text
+    # A fragment that starts inside a marker absorbs that marker.
+    for match in re.finditer(re.escape(_EDITABLE_TEXT_MARKER), text):
+        if match.start() < start < match.end():
+            start = match.start()
+    head = text[:start]
+    return head if head.endswith(_EDITABLE_TEXT_MARKER) else head + _EDITABLE_TEXT_MARKER
+
+
+def _redact_values(text: str, values: tuple[str, ...]) -> str:
+    """Replace every caller value occurrence with a marker (bounded passes)."""
     if not values or not text:
         return text
     for _ in range(_REDACTION_PASSES):
@@ -475,7 +574,7 @@ def _provider_elements(elements: list[dict[str, Any]], values: tuple[str, ...]) 
     return [
         {
             **item,
-            "label": _redact_free_text(str(item.get("label") or ""), values),
+            "label": _redact_free_text(str(item.get("label") or ""), values, MAX_LABEL_TEXT),
             "href": _redact_url_values(str(item.get("href") or ""), values),
         }
         for item in elements
@@ -581,9 +680,9 @@ def _public_actions(actions: list[dict[str, Any]], values: tuple[str, ...]) -> l
     for item in actions:
         record = dict(item)
         if record.get("element") is not None and isinstance(record.get("label"), str):
-            record["label"] = _redact_free_text(record["label"], values)
+            record["label"] = _redact_free_text(record["label"], values, MAX_LABEL_TEXT)
         if isinstance(record.get("title"), str):
-            record["title"] = _redact_free_text(record["title"], values)
+            record["title"] = _redact_free_text(record["title"], values, MAX_TITLE_TEXT)
         if isinstance(record.get("url"), str):
             record["url"] = _redact_url_values(record["url"], values)
         projected.append(record)
@@ -898,7 +997,7 @@ def _safe_elements(raw: Any) -> list[dict[str, Any]]:
         record: dict[str, Any] = {
             "id": element_id,
             "role": role_out,
-            "label": label[:120],
+            "label": label[:MAX_LABEL_TEXT],
             "href": href_out,
             "kind": kind_out,
         }
@@ -1325,8 +1424,9 @@ def _run_browser_loop(
             "goal": goal,
             "page": {
                 "url": _redact_url_values(str(page.get("url") or ""), caller_values),
-                "title": _redact_free_text(str(page.get("title") or "")[:240], caller_values),
-                "text": _redact_free_text(str(page.get("text") or "")[:MAX_PAGE_TEXT], caller_values),
+                # Redaction owns the cut, so a bound never splits a caller value.
+                "title": _redact_free_text(str(page.get("title") or ""), caller_values, MAX_TITLE_TEXT),
+                "text": _redact_free_text(str(page.get("text") or ""), caller_values, MAX_PAGE_TEXT),
             },
             "elements": provider_elements,
             "recent_actions": [
@@ -1819,7 +1919,7 @@ def _action_record(
         "label": label,
         "element": target_id,
         "url": redact_url(str(page.get("url") or "")),
-        "title": str(page.get("title") or "")[:240],
+        "title": str(page.get("title") or "")[:MAX_TITLE_TEXT],
         "executor": "browser_dom",
         "verdict": None,
         "action_dispatched": dispatched,
@@ -1941,7 +2041,7 @@ def _browser_receipt(
         "goal": goal,
         "app": "browser",
         "url": redact_url(str(page.get("url") or "")),
-        "title": str(page.get("title") or "")[:240],
+        "title": str(page.get("title") or "")[:MAX_TITLE_TEXT],
         "actions": actions,
         "decisions": decisions,
         "operation_id": operation_id,
@@ -1982,7 +2082,7 @@ def _browser_receipt(
     caller_values = _caller_value_variants(text_inputs)
     if caller_values:
         # Page-sourced prose and URLs only; the caller's goal and every schema value stay exact.
-        receipt["title"] = _redact_free_text(receipt["title"], caller_values)
+        receipt["title"] = _redact_free_text(receipt["title"], caller_values, MAX_TITLE_TEXT)
         receipt["url"] = _redact_url_values(receipt["url"], caller_values)
         receipt["actions"] = _public_actions(actions, caller_values)
     return receipt

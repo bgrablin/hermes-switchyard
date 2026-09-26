@@ -64,6 +64,12 @@ provider-visible page text, but local readback still compares the exact value.
 Caller values are masked as `[editable text]` only in page-sourced free text:
 page text, page title, element labels and the choice descriptions built from
 them, and action labels and titles in `recent_actions` and the public receipt.
+The free-text match is case-insensitive (Unicode case folding), so a page that
+shows `Ada` as `ADA`, for example with CSS `text-transform`, is also masked.
+Masking runs before each field is cut to its bound (label 120, title 240, page
+text 4000 characters), and a cut never splits a caller value. The snapshot cuts
+labels and page text in the page before masking. If such a field is at or near
+its bound and ends with the start of a caller value, that tail is masked too.
 Element IDs, choice keys, operation, status, and effect values, and the caller's
 own goal are never rewritten, so a short value such as `e` or `1` cannot change
 a target or a receipt field. A short value can mask many characters of page
@@ -79,6 +85,10 @@ form becomes `[editable text]`. Other parts stay. If a value still spans parts,
 the whole path, query, and fragment are masked. The exact URL stays local: the
 browser clicks the exact href, and destination policy, stale-target checks, and
 completion predicates read the exact URL. A short value can mask many URL parts.
+Masking finds literal, case-folded, whitespace-collapsed, and common URL-encoded
+copies only. It does not find a value in a URL host or subdomain, which stays
+exact, or a value that the page transforms (for example base64, a hash, a
+translation, or a partial copy). This is a best-effort projection, not DLP.
 Page-side normalization or rejection is not a confirmed fill.
 An unchanged, already-present value reports `text_already_present` without
 progress; navigation during typing reports `url_changed` or `document_changed`
