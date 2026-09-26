@@ -895,15 +895,22 @@ class ReasoningEffortController:
         A delegated child or background fork can share the session ID with a different task
         ID. Its model, cap, mode, cached choice, and tool outcomes must not replace the
         foreground state that ``/switchyard effort`` reads and changes. A task is foreground
-        when it is absent, equals the session ID or the bound session key, or was seen as
-        foreground before (a compression rotation keeps the task ID).
+        when it is absent, equals the session ID or the bound session key, was seen as
+        foreground before, or names a mode that a ``/switchyard effort`` command left pending.
+
+        The last case covers a compression rotation before the first request: Hermes binds the
+        task ID before turn-start compaction, so the request arrives as (new session, old
+        session). Only the foreground command context writes pending keys, and delegated
+        children and forks use their own task IDs, so they never match one.
         """
         key = _session_key(session_id=session_id, task_id=task_id)
         task = _identifier(task_id)
         session = _identifier(session_id)
         with self._registry_lock:
             if task is not None and session is not None and task != session and not (
-                task in self._foreground_tasks or task == self.session_env("HERMES_SESSION_KEY").strip()
+                task in self._foreground_tasks
+                or task in self._pending_modes
+                or task == self.session_env("HERMES_SESSION_KEY").strip()
             ):
                 state = self._task_states.get(task)
                 if state is None:
@@ -918,16 +925,22 @@ class ReasoningEffortController:
                 self._foreground_tasks.move_to_end(task)
                 while len(self._foreground_tasks) > _TASK_STATE_LIMIT:
                     self._foreground_tasks.popitem(last=False)
-            return key, self._bind_session(key) if bind else self._state_for(session_id=key)
+            return key, self._bind_session(key, task=task) if bind else self._state_for(session_id=key)
 
-    def _bind_session(self, key: str) -> _SessionEffortState:
-        """Return the state for *key*, map the session key, and apply a pending mode."""
+    def _bind_session(self, key: str, *, task: str | None = None) -> _SessionEffortState:
+        """Return the state for *key*, map the session key, and apply a pending mode.
+
+        A pending mode can sit under the session ID, the session key, or (after a rotation)
+        the foreground task ID. Consume all of them so no stale mode remains.
+        """
         session_key = self.session_env("HERMES_SESSION_KEY")
         with self._registry_lock:
             state = self._state_for(session_id=key)
             if session_key:
                 self._key_to_session[session_key] = key
             pending = self._pending_modes.pop(key, None)
+            if task is not None and task != key:
+                pending = self._pending_modes.pop(task, None) or pending
             if session_key:
                 pending = self._pending_modes.pop(session_key, None) or pending
             if pending:
