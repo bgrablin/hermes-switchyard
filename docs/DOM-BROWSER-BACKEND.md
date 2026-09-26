@@ -57,10 +57,17 @@ not just the mismatch.
 After a bounded settle, the backend checks that the exact caller value remains
 in the selected field. Only a retained field is suppressed on recapture in the
 same document. A reset field can be offered again; a new document at the same
-URL gets a new target identity. Page-side normalization or rejection is not a
-confirmed fill. Repeated ineffective attempts still stop at the no-progress
-limit. Forms are submitted only by clicking an offered visible control; the
-backend does not synthesize Enter or bypass the destination policy. A public
+URL gets a new target identity. The browser owns document identity through the
+main frame loader and execution context; a page global cannot supply it. A stale
+selected target is refused before dispatch. Editable contents and caller values
+are removed from provider-visible page text, but local readback still compares
+the exact value. Page-side normalization or rejection is not a confirmed fill.
+An unchanged, already-present value reports `text_already_present` without
+progress; navigation during typing reports `url_changed` or `document_changed`
+without claiming the old field retained its value. Repeated ineffective
+attempts still stop at the no-progress limit. Forms are submitted only by
+clicking an offered visible control; the backend does not synthesize Enter or
+bypass the destination policy. A public
 Wikipedia Special:Search form is supported when its search field and Search
 button are visible.
 

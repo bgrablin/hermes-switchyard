@@ -135,10 +135,6 @@ _DENIED_HREF_PARTS = (
     "data:",
 )
 _SNAPSHOT_JS = """(() => {
-  // A fresh global on each navigation distinguishes documents at the same URL.
-  const documentId = window.__hermesSwitchyardDocumentId ||
-    (window.__hermesSwitchyardDocumentId =
-      (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + ":" + String(Math.random())));
   const root = document.querySelector("#mw-content-text .mw-parser-output, #mw-content-text, main, #content, [role=main]") || document.body;
   // Stable target identity: one WeakMap registry per document, so a target keeps
   // the same id across scrolls, recaptures, and later snapshots.
@@ -288,11 +284,17 @@ _SNAPSHOT_JS = """(() => {
     };
   });
   const active = document.activeElement;
+  // Editable text is caller-controlled. Do not forward its rendered content.
+  let pageText = String(root.innerText || "").replace(/\\s+/g, " ").trim();
+  for (const editable of root.querySelectorAll('[contenteditable="true"], [role="textbox"], [role="searchbox"]')) {
+    if (!editable.isContentEditable) continue;
+    const content = String(editable.innerText || editable.textContent || "").replace(/\\s+/g, " ").trim();
+    if (content) pageText = pageText.split(content).join("[editable text]");
+  }
   return {
     url: location.href,
-    document_id: documentId,
     title: document.title || "",
-    text: String((root.innerText || "")).replace(/\\s+/g, " ").trim().slice(0, 4000),
+    text: pageText.slice(0, 4000),
     elements,
     focus: active && active.tagName ? String(active.tagName).toLowerCase() : "",
     scroll: { offset: scrollY, height: Math.round(viewportHeight), document_height: Math.round((document.documentElement || {}).scrollHeight || 0) },
@@ -400,6 +402,31 @@ def _observation_signature(page: dict[str, Any]) -> str:
         separators=(",", ":"),
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+def _provider_page_text(page: dict[str, Any], text_inputs: Any) -> str:
+    """Remove caller values from page text even when a page echoes an input."""
+    return _redact_provider_values(str(page.get("text") or "")[:MAX_PAGE_TEXT], text_inputs)
+
+def _redact_provider_values(data: Any, text_inputs: Any) -> Any:
+    """Keep exact caller values local across the entire provider projection."""
+    if isinstance(text_inputs, dict):
+        values = (value for group in text_inputs.values() for value in group)
+    elif isinstance(text_inputs, list):
+        values = (item.get("value") for item in text_inputs if isinstance(item, dict))
+    else:
+        values = ()
+    ordered = sorted({value for value in values if type(value) is str and value}, key=len, reverse=True)
+    def replace(item: Any) -> Any:
+        if isinstance(item, str):
+            for value in ordered:
+                item = item.replace(value, "[editable text]")
+            return item
+        if isinstance(item, dict):
+            return {key: replace(value) for key, value in item.items()}
+        if isinstance(item, list):
+            return [replace(value) for value in item]
+        return item
+    return replace(data)
 
 
 def _normalize_completion_condition(explicit: Any, goal: Any) -> dict[str, Any] | None:
@@ -868,6 +895,7 @@ def run_browser_goal(
             progress=progress,
             condition=condition,
             reconcile_before_retry=bool(actions),
+            text_inputs=caller_text_inputs,
         )
     except Exception as exc: # noqa: BLE001 -- every terminal path must keep action evidence
         progress["last_state_hash"] = _observation_signature(page)
@@ -884,6 +912,7 @@ def run_browser_goal(
             condition=condition,
             failure_reason=_failure_reason(exc),
             reconcile_before_retry=bool(actions),
+            text_inputs=caller_text_inputs,
         )
 
 
@@ -980,6 +1009,7 @@ def _run_browser_loop(
             started=started,
             progress=progress,
             condition=condition,
+            text_inputs=text_inputs,
             **fields,
         )
 
@@ -1129,7 +1159,7 @@ def _run_browser_loop(
             "page": {
                 "url": str(page.get("url") or ""),
                 "title": str(page.get("title") or "")[:240],
-                "text": str(page.get("text") or "")[:MAX_PAGE_TEXT],
+                "text": _provider_page_text(page, caller_text_inputs),
             },
             "elements": elements,
             "recent_actions": [
@@ -1140,8 +1170,8 @@ def _run_browser_loop(
         progress["attempted_requests"] = int(progress.get("attempted_requests") or 0) + 1
         try:
             decision = client.decide(
-                state,
-                questions,
+                _redact_provider_values(state, caller_text_inputs),
+                _redact_provider_values(questions, caller_text_inputs),
                 public_or_sanitized_data_ack=public_or_sanitized_data_ack,
             )
         except Exception as exc:  # noqa: BLE001 -- a provider failure keeps partial evidence
@@ -1501,10 +1531,20 @@ def _run_browser_loop(
         text_entered = operation == "TYPE_TEXT" and text_transition
         if operation == "TYPE_TEXT" and text_accepted and target_id is not None:
             typed_targets.add((str(after.get("document_id") or ""), target_id))
-        observed = (text_entered if operation == "TYPE_TEXT" else
+        document_changed = str(after.get("document_id") or "") != str(page.get("document_id") or "")
+        observed = (text_entered or url_changed or document_changed if operation == "TYPE_TEXT" else
                     url_changed or title_changed or content_changed or focus_changed)
         if operation == "TYPE_TEXT":
-            effect_status = "text_entered" if text_entered else "text_not_retained"
+            if text_entered:
+                effect_status = "text_entered"
+            elif url_changed:
+                effect_status = "url_changed"
+            elif document_changed:
+                effect_status = "document_changed"
+            elif text_accepted:
+                effect_status = "text_already_present"
+            else:
+                effect_status = "text_not_retained"
         elif url_changed:
             effect_status = "url_changed"
         elif title_changed:
@@ -1525,7 +1565,7 @@ def _run_browser_loop(
                 effect_status=effect_status,
             )
         )
-        progressed = (text_entered if operation == "TYPE_TEXT" else
+        progressed = (text_entered or url_changed or document_changed if operation == "TYPE_TEXT" else
                       content_changed or url_changed or title_changed)
         if text_entered:
             # The page signature excludes caller values. A verified fill starts
@@ -1690,6 +1730,7 @@ def _browser_receipt(
     failure_reason: str | None = None,
     unsupported_capabilities: list[str] | None = None,
     stalled_observations: int = 0,
+    text_inputs: dict[str, tuple[str, ...]] | None = None,
 ) -> dict[str, Any]:
     state = progress or {}
     click_count = sum(item.get("operation") == "CLICK" for item in actions)
@@ -1771,7 +1812,7 @@ def _browser_receipt(
         receipt["completion_predicate"] = {
             key: value for key, value in condition.items() if isinstance(value, (str, bool))
         }
-    return receipt
+    return _redact_provider_values(receipt, text_inputs or {})
 
 
 class _ChromeWebSocket:
@@ -1931,6 +1972,7 @@ class ChromiumSession:
         self._pinned = bool(_pin_connections)
         self._guard_resolver = _guard_resolver
         self._target_id = ""
+        self._main_contexts: dict[str, str] = {}
         self._port = 0
         proxy_args: list[str] = []
         if self._pinned:
@@ -2048,19 +2090,41 @@ class ChromiumSession:
         }
 
     def observe(self) -> dict[str, Any]:
-        result = self._evaluate(_SNAPSHOT_JS)
+        document_id, context_id = self._browser_document()
+        if not context_id:
+            raise RuntimeError("browser execution context unavailable")
+        result = self._evaluate(_SNAPSHOT_JS, unique_context_id=context_id)
         if not isinstance(result, dict):
             raise TypeError("browser snapshot was not an object")
-        self._document_id = str(result.get("document_id") or "")
+        if self._browser_document() != (document_id, context_id):
+            raise RuntimeError("browser document changed during snapshot")
+        self._document_id = document_id
+        self._document_context = context_id
+        result["document_id"] = document_id
         result["elements"] = _safe_elements(result.get("elements"))
         result["text"] = str(result.get("text") or "")[:MAX_PAGE_TEXT]
         return result
+
+    def _browser_document(self) -> tuple[str, str]:
+        """Return the CDP-owned loader identity and default-world context."""
+        frame = self._cdp("Page.getFrameTree").get("frameTree", {}).get("frame", {})
+        frame_id, loader = frame.get("id"), frame.get("loaderId")
+        if not all(isinstance(item, str) and item for item in (frame_id, loader)):
+            raise RuntimeError("browser document identity unavailable")
+        return f"{frame_id}:{loader}", getattr(self, "_main_contexts", {}).get(frame_id, "")
+
+    def _require_document(self, document_id: str) -> str:
+        current, context = self._browser_document()
+        if not document_id or current != document_id or not context or context != getattr(self, "_document_context", ""):
+            raise RuntimeError("stale browser document")
+        return context
 
     def click(self, element_id: str, label: str = "", href: str = "") -> None:
         if not re.fullmatch(r"[0-9]{1,9}", element_id):
             raise ValueError("element id is not a snapshot index")
         expected_label = json.dumps(label)
         expected_href = json.dumps(href)
+        context = self._require_document(getattr(self, "_document_id", ""))
         clicked = self._evaluate(
             f"""(() => {{
               const el = (window.__hermesSwitchyardClickNodes || new Map()).get("{element_id}");
@@ -2071,7 +2135,7 @@ class ChromiumSession:
               if ({expected_href} && liveHref !== {expected_href}) return {{ok: false}};
               el.click();
               return {{ok: true}};
-            }})()"""
+            }})()""", unique_context_id=context
         )
         if not isinstance(clicked, dict) or clicked.get("ok") is not True:
             raise RuntimeError("page element was not clickable")
@@ -2088,11 +2152,9 @@ class ChromiumSession:
             raise ValueError("text value contains a control character")
         expected_label = json.dumps(label)
         value_js = json.dumps(value)
-        expected_document = json.dumps(getattr(self, "_document_id", ""))
+        context = self._require_document(getattr(self, "_document_id", ""))
         typed = self._evaluate(
             f"""(() => {{
-              if ({expected_document} && window.__hermesSwitchyardDocumentId !== {expected_document})
-                return {{ok: false, reason: "stale"}};
               const el = (window.__hermesSwitchyardClickNodes || new Map()).get("{element_id}");
               if (!el || !el.isConnected) return {{ok: false, reason: "missing"}};
               function accessibleName(node) {{
@@ -2133,7 +2195,7 @@ class ChromiumSession:
               }}
               const retained = ("value" in el ? el.value : el.textContent) === {value_js};
               return {{ok: true, changed: retained && before !== {value_js}}};
-            }})()"""
+            }})()""", unique_context_id=context
         )
         if not isinstance(typed, dict) or typed.get("ok") is not True:
             raise RuntimeError("page element was not typeable")
@@ -2146,13 +2208,15 @@ class ChromiumSession:
         """Read only the exact retained value on the captured document; return no value."""
         if not re.fullmatch(r"[0-9]{1,9}", element_id):
             return False
+        if self._browser_document()[0] != document_id:
+            return False
+        context = self._require_document(document_id)
         return self._evaluate(
             f"""(() => {{
-              if ({json.dumps(document_id)} && window.__hermesSwitchyardDocumentId !== {json.dumps(document_id)}) return false;
               const el = (window.__hermesSwitchyardClickNodes || new Map()).get("{element_id}");
               return !!(el && el.isConnected &&
                 ("value" in el ? el.value : (el.isContentEditable ? el.textContent : null)) === {json.dumps(value)});
-            }})()"""
+            }})()""", unique_context_id=context
         ) is True
 
     def scroll(self, direction: str) -> None:
@@ -2249,6 +2313,12 @@ class ChromiumSession:
                 with self._responses_ready:
                     self._target_crashed = True
                     self._responses_ready.notify_all()
+            if message.get("method") == "Runtime.executionContextCreated" and not message.get("sessionId"):
+                context = message.get("params", {}).get("context", {})
+                aux = context.get("auxData", {})
+                if aux.get("isDefault") and isinstance(aux.get("frameId"), str) and isinstance(context.get("uniqueId"), str):
+                    with self._responses_ready:
+                        self._main_contexts[aux["frameId"]] = context["uniqueId"]
             guard.submit(message)
 
     def _cdp(self, method: str, **params: Any) -> dict[str, Any]:
@@ -2355,8 +2425,11 @@ class ChromiumSession:
             if isinstance(item, dict) and item.get("type") == "page" and item.get("id") != self._target_id
         )
 
-    def _evaluate(self, expression: str) -> Any:
-        result = self._cdp("Runtime.evaluate", expression=expression, returnByValue=True, awaitPromise=True)
+    def _evaluate(self, expression: str, *, unique_context_id: str = "") -> Any:
+        params: dict[str, Any] = {"expression": expression, "returnByValue": True, "awaitPromise": True}
+        if unique_context_id:
+            params["uniqueContextId"] = unique_context_id
+        result = self._cdp("Runtime.evaluate", **params)
         if result.get("exceptionDetails"):
             raise RuntimeError("browser script failed")
         value = result.get("result", {})
