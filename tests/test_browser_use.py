@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import unicodedata
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
@@ -1398,6 +1399,112 @@ class BrowserReliabilityTests(unittest.TestCase):
         # 13 Python characters are 23 units, which is at a bound of 30 within the slack.
         self.assertEqual(redact("\U0001F600" * 10 + " Ad", values, 30), "\U0001F600" * 10 + " " + marker)
 
+    def test_locale_and_compatibility_case_variants_are_redacted(self):
+        redact = browser_use._redact_free_text
+        marker = "[editable text]"
+        cases = [
+            # Turkish locale upper case: i -> U+0130, and U+0131 -> I.
+            ("mimari iki", "RESULTS FOR M\u0130MAR\u0130 \u0130K\u0130", f"RESULTS FOR {marker}"),
+            ("M\u0130MAR\u0130", "results for mimari", f"results for {marker}"),
+            ("\u0131l\u0131k", "ILIK weather", f"{marker} weather"),
+            # Decomposed (NFD) and compatibility forms of the same text.
+            ("mimari", "MI\u0307MARI\u0307 x", f"{marker} x"),
+            ("caf\u00e9", "CAFE\u0301 and CAF\u00c9", f"{marker} and {marker}"),
+            ("Ada", "\uff21\uff24\uff21 here", f"{marker} here"),
+            # Short values and the marker's own letters.
+            ("e", "\u00c9 e", f"{marker} {marker}"),
+            ("1", "\uff11 and 1", f"{marker} and {marker}"),
+            ("ED\u0130TABLE", f"Before {marker} editable", f"Before {marker} {marker}"),
+            ("i", f"{marker} \u0130", f"{marker} {marker}"),
+            # ASCII controls: tab, newline, and carriage return stay literal parts of a value.
+            ("Ada\tLovelace", "ADA\tLOVELACE and ADA LOVELACE", f"{marker} and {marker}"),
+            ("a\r\nb", "A\r\nB", marker),
+            # An unrelated control or mark does not join two parts into a match.
+            ("ab", "a\x07b", "a\x07b"),
+            ("Ada", "No value here", "No value here"),
+        ]
+        for value, text, expected in cases:
+            with self.subTest(value=value, text=text):
+                values = browser_use._caller_value_variants({"field": (value,)})
+                self.assertEqual(redact(text, values), expected)
+                self.assertEqual(redact(text, values, 4000), expected)
+
+    def test_locale_case_reflections_are_redacted_in_provider_state_and_receipt(self):
+        url = "https://example.org/form"
+        goal = "Fill Author, click Search, and keep the Example item 1 link visible"
+        marker = "[editable text]"
+
+        def turkish_upper(text):
+            return text.replace("i", "\u0130").replace("\u0131", "I").upper()
+
+        def leaks(text, value):
+            # Independent oracle: compare letters only, after compatibility
+            # decomposition, with marks removed and the Turkish i forms joined.
+            def fold(part):
+                part = unicodedata.normalize("NFKD", part.replace("\u0131", "i"))
+                part = "".join(char for char in part if not unicodedata.combining(char))
+                return part.casefold()
+            return any(fold(value) in fold(part) for part in text.split(marker))
+
+        for value, reflect in (("mimari iki", turkish_upper), ("\u0131l\u0131k", turkish_upper),
+                               ("caf\u00e9", lambda text: unicodedata.normalize("NFD", text.upper())),
+                               ("e", lambda text: "\u00c9"), ("1", lambda text: "\uff11")):
+            reflected = reflect(value)
+            with self.subTest(value=value, reflected=reflected):
+                elements = [
+                    {"id": "1", "role": "textbox", "label": "Author", "href": "", "kind": "type"},
+                    {"id": "2", "role": "button", "label": "Search", "href": "", "kind": "click"},
+                    {"id": "3", "role": "link", "label": "Example item 1", "href": "", "kind": "click"},
+                ]
+
+                class Echo(FakeSession):
+                    """A page that reflects the typed value with a locale case mapping."""
+
+                    def type_text(self, element_id, value, label=""):
+                        outcome = super().type_text(element_id, value, label)
+                        page = self.pages[self.url]
+                        page["text"] = f"RESULTS FOR {reflected}. Public context stays."
+                        page["title"] = f"Search {reflected}"
+                        page["elements"][2]["label"] = f"{reflected} item"
+                        return outcome
+
+                session = Echo({url: {"title": "Example form", "document_id": "doc-a", "elements": elements,
+                                      "text": "Search form " + marker}})
+                client = TypingChoices([("TYPE_TEXT", "1"), ("CLICK", "3"), ("DONE", None)])
+                result = run_browser_goal(goal=goal, session=session, client=client, max_steps=3,
+                                          text_inputs=[{"field_label": "Author", "value": value}])
+
+                self.assertEqual(session.typed, [("1", value, "Author")])
+                self.assertEqual(session.clicks, ["3"])
+                self.assertEqual(len(client.calls), 3)
+                with self.subTest(surface="provider"):
+                    for call in client.calls[1:]:
+                        state, questions = call["state"], call["questions"]
+                        self.assertEqual(state["goal"], goal)
+                        self.assertEqual(state["page"]["url"], url)
+                        self.assertEqual([item["id"] for item in state["elements"]], ["1", "2", "3"])
+                        labels = {item["id"]: (item["role"], item["label"]) for item in state["elements"]}
+                        for key in ("click_target", "type_target"):
+                            for element_id, text in questions.get(key, {}).get("criteria", {}).items():
+                                self.assertEqual(text, f"[{element_id}] {labels[element_id][0]} {labels[element_id][1]}")
+                        for text in [state["page"]["text"], state["page"]["title"],
+                                     *(label for _role, label in labels.values()),
+                                     *(item["label"] for item in state["recent_actions"])]:
+                            self.assertEqual(text.count("["), text.count(marker), text)
+                            self.assertFalse(leaks(text, value), (value, text))
+                            text.encode("utf-8")
+                    self.assertIn("Public", client.calls[1]["state"]["page"]["text"])
+                with self.subTest(surface="receipt"):
+                    self.assertEqual(result["goal"], goal)
+                    self.assertEqual(result["url"], url)
+                    self.assertEqual(result["status"], "completion_candidate")
+                    self.assertEqual([item["element"] for item in result["actions"]], ["1", "3"])
+                    self.assertEqual([item["operation"] for item in result["actions"]], ["TYPE_TEXT", "CLICK"])
+                    for text in [result["title"], *(item["label"] for item in result["actions"]),
+                                 *(item["title"] for item in result["actions"])]:
+                        self.assertEqual(text.count("["), text.count(marker), text)
+                        self.assertFalse(leaks(text, value), (value, text))
+
     def test_free_text_redaction_leaves_values_only_inside_markers(self):
         import random
         redact = browser_use._redact_free_text
@@ -1450,6 +1557,8 @@ class BrowserReliabilityTests(unittest.TestCase):
             ("https://example.org/r#q=Ada", ("Ada",), f"https://example.org/r#{marker}"),
             ("https://Ada@example.org/r", ("Ada",), f"https://{marker}@example.org/r"),
             ("https://example.org/a/da?x=1", ("a/da",), f"https://example.org/{marker}"),
+            ("https://example.org/r?q=M%C4%B0MAR%C4%B0+%C4%B0K%C4%B0", ("mimari iki",),
+             f"https://example.org/r?q={marker}"),
             ("https://example.org/about", ("Ada",), "https://example.org/about"),
             ("https://example.org/about", (), "https://example.org/about"),
             ("", ("Ada",), ""),
