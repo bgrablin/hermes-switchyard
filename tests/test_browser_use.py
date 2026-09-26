@@ -1088,6 +1088,58 @@ class WindowedSession:
 class BrowserReliabilityTests(unittest.TestCase):
     """Regression coverage for the DOM observation, evidence, and startup defects."""
 
+    def test_contenteditable_caller_value_is_absent_from_provider_page_text(self):
+        url = "https://example.org/form"
+        value = "UniqueEditableCallerValue"
+        class Editable(FakeSession):
+            def type_text(self, element_id, value, label=""):
+                outcome = super().type_text(element_id, value, label)
+                self.pages[self.url]["text"] = "Article search " + value + " nearby text"
+                self.pages[self.url]["title"] = "Search " + value
+                return outcome
+        session = Editable({url: {"title": "Form", "text": "Article search", "document_id": "doc-a",
+                                  "elements": [{"id": "1", "role": "textbox", "label": "Article search",
+                                                "href": "", "kind": "type"}]}})
+        client = TypingChoices([("TYPE_TEXT", "1"), ("DONE", None)])
+        result = run_browser_goal(goal="Fill Article search", session=session, client=client,
+                                  max_steps=2, text_inputs=[{"field_label": "Article search", "value": value}])
+        self.assertEqual(len(client.calls), 2)
+        self.assertNotIn(value, json.dumps(client.calls))
+        self.assertNotIn(value, json.dumps(result))
+        self.assertIn("nearby text", client.calls[1]["state"]["page"]["text"])
+
+    def test_typing_navigation_is_observed_without_claiming_retention(self):
+        first, second = "https://example.org/form", "https://example.org/result"
+        class Navigating(FakeSession):
+            def type_text(self, element_id, value, label=""):
+                self.typed.append((element_id, value, label))
+                self.url = second
+                return {"accepted": False, "changed": False}
+        session = Navigating({first: {"title": "Form", "text": "Form", "document_id": "doc-a",
+                                      "elements": [{"id": "1", "role": "textbox", "label": "Search", "href": "", "kind": "type"}]},
+                              second: {"title": "Result", "text": "Result", "document_id": "doc-b", "elements": []}})
+        result = run_browser_goal(goal="Fill Search", session=session,
+                                  client=TypingChoices([("TYPE_TEXT", "1")]), max_steps=1,
+                                  text_inputs=[{"field_label": "Search", "value": "Ada"}])
+        action = result["actions"][0]
+        self.assertTrue(action["effect_observed"])
+        self.assertEqual(action["effect_status"], "url_changed")
+        self.assertEqual(result["url"], second)
+
+    def test_prefilled_identical_value_is_retained_but_not_progress(self):
+        url = "https://example.org/form"
+        session = FakeSession({url: {"title": "Form", "text": "Form", "document_id": "doc-a",
+                                     "elements": [{"id": "1", "role": "textbox", "label": "Search",
+                                                   "href": "", "kind": "type", "value": "Ada"}]}})
+        client = TypingChoices([("TYPE_TEXT", "1"), ("WAIT", None)])
+        result = run_browser_goal(goal="Fill Search", session=session, client=client, max_steps=4,
+                                  text_inputs=[{"field_label": "Search", "value": "Ada"}])
+        self.assertEqual(result["failure_phase"], "no_progress")
+        self.assertEqual(len(session.typed), 1)
+        self.assertEqual(result["actions"][0]["effect_status"], "text_already_present")
+        self.assertFalse(result["actions"][0]["effect_observed"])
+        self.assertNotIn("TYPE_TEXT", client.calls[1]["questions"]["operation"]["criteria"])
+
     def test_two_retained_fields_are_progress_before_search(self):
         url = "https://example.org/form"
         fields = [

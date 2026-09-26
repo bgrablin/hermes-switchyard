@@ -81,6 +81,18 @@ def _execute_snapshot(runner, html, url):
 
 
 class PublicFixtureTests(unittest.TestCase):
+    def test_observation_document_identity_is_browser_owned(self):
+        session = object.__new__(browser_use.ChromiumSession)
+        session._main_contexts = {"frame": "browser-context-a"}
+        supplied = {"url": "https://example.org/form", "document_id": "page-controlled",
+                    "text": "Form", "elements": []}
+        with (mock.patch.object(session, "_evaluate", return_value=supplied),
+              mock.patch.object(session, "_cdp", return_value={"frameTree": {"frame": {
+                  "id": "frame", "loaderId": "browser-loader-a"}}})):
+            first = session.observe()
+        self.assertNotEqual(first["document_id"], "page-controlled")
+        self.assertIn("browser-loader-a", first["document_id"])
+
     def test_snapshot_timeout_identifies_last_runner_stage_and_keeps_outer_bound(self):
         runner = Path(__file__).parent / "fixtures/public_dom_snapshot_runner.cjs"
         with mock.patch.object(subprocess, "run", side_effect=subprocess.TimeoutExpired(
@@ -120,7 +132,8 @@ class PublicFixtureTests(unittest.TestCase):
                 executed = _execute_snapshot(runner, html, fixture["start"])
                 self.assertEqual(executed.returncode, 0, executed.stderr)
                 snapshot = json.loads(executed.stdout)
-                with mock.patch.object(browser_use.ChromiumSession, "_evaluate", return_value=snapshot):
+                with (mock.patch.object(browser_use.ChromiumSession, "_evaluate", return_value=snapshot),
+                      mock.patch.object(browser_use.ChromiumSession, "_browser_document", return_value=("frame:loader", "context"))):
                     session = object.__new__(browser_use.ChromiumSession)
                     page = session.observe()
                 targets = [item for item in page["elements"]
@@ -132,8 +145,10 @@ class PublicFixtureTests(unittest.TestCase):
 
     def test_chromium_session_types_into_a_matched_public_field(self):
         session = object.__new__(browser_use.ChromiumSession)
+        session._document_id, session._document_context = "frame:loader", "context"
         with (
             mock.patch.object(session, "_evaluate", side_effect=[{"ok": True, "changed": True}, True]) as evaluate,
+            mock.patch.object(session, "_browser_document", return_value=("frame:loader", "context")),
             mock.patch.object(session, "wait"),
             mock.patch.object(session, "_wait_ready"),
         ):
@@ -145,8 +160,10 @@ class PublicFixtureTests(unittest.TestCase):
 
     def test_rejected_field_does_not_return_confirmed_typing(self):
         session = object.__new__(browser_use.ChromiumSession)
+        session._document_id, session._document_context = "frame:loader", "context"
         with (
             mock.patch.object(session, "_evaluate", side_effect=[{"ok": True, "changed": True}, False]) as evaluate,
+            mock.patch.object(session, "_browser_document", return_value=("frame:loader", "context")),
             mock.patch.object(session, "wait"),
             mock.patch.object(session, "_wait_ready"),
         ):
@@ -166,6 +183,7 @@ class PublicFixtureTests(unittest.TestCase):
                     '<label for="rejected">Reject</label><input id="rejected"></main>')
             session._evaluate(f"document.body.innerHTML = {json.dumps(form)}")
             session._evaluate("document.querySelector('#rejected').addEventListener('change', e => { e.target.value = ''; })")
+            session._evaluate("window.__hermesSwitchyardDocumentId = 'spoofed-same-token'")
             first = session.observe()
             fields = {item["label"]: item for item in first["elements"] if item["kind"] == "type" and item["label"] != "Search"}
             search = [item for item in first["elements"] if item["label"] == "Search"]
@@ -185,13 +203,30 @@ class PublicFixtureTests(unittest.TestCase):
             self.assertEqual(session.type_text(fields["Reject"]["id"], "Denied", label="Reject"),
                              {"accepted": False, "changed": False})
             self.assertFalse(session.text_retained(fields["Reject"]["id"], "Denied", first["document_id"]))
+            editable = '<main><label for="editable">Notes</label><div id="editable" contenteditable="true"></div><p>Public context remains.</p></main>'
+            session._evaluate(f"document.body.innerHTML = {json.dumps(editable)}")
+            editable_before = session.observe()
+            editable_id = next(item["id"] for item in editable_before["elements"]
+                               if item["label"] == "Notes" and item["kind"] == "type")
+            self.assertEqual(session.type_text(editable_id, "CallerValueNeverToProvider", label="Notes"),
+                             {"accepted": True, "changed": True})
+            editable_page = session.observe()
+            self.assertNotIn("CallerValueNeverToProvider", editable_page["text"])
+            self.assertIn("Public context remains", editable_page["text"])
+            self.assertTrue(any(item["label"] == "Notes" and item["kind"] == "type"
+                                for item in editable_page["elements"]))
             session._cdp("Page.reload", ignoreCache=True)
             session._wait_ready()
             replacement = '<main><label for="fresh">Author</label><input id="fresh"></main>'
             session._evaluate(f"document.body.innerHTML = {json.dumps(replacement)}")
+            session._evaluate("window.__hermesSwitchyardDocumentId = 'spoofed-same-token'")
             second = session.observe()
             self.assertEqual(first["url"], second["url"])
             self.assertNotEqual(first["document_id"], second["document_id"])
+            with self.assertRaisesRegex(RuntimeError, "stale browser document"):
+                session._document_id = first["document_id"]
+                session.type_text("1", "Wrong target", label="Author")
+            session.observe()
             fresh = next(item for item in second["elements"] if item["kind"] == "type")
             self.assertEqual(session.type_text(fresh["id"], "Ada", label="Author"),
                              {"accepted": True, "changed": True})
