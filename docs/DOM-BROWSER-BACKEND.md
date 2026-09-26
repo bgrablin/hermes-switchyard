@@ -64,12 +64,22 @@ provider-visible page text, but local readback still compares the exact value.
 Caller values are masked as `[editable text]` only in page-sourced free text:
 page text, page title, element labels and the choice descriptions built from
 them, and action labels and titles in `recent_actions` and the public receipt.
-Element IDs, choice keys, operation, status, and effect values, URLs and hrefs,
-and the caller's own goal are never rewritten, so a short value such as `e` or
-`1` cannot change a target or a receipt field. A short value can mask many
-characters of page text; that is the privacy cost. Do not put a caller value in
-the goal. A page that copies a value into its URL, for example a GET search
-form, exposes it through that URL. Page-side normalization or rejection is not a confirmed fill.
+Element IDs, choice keys, operation, status, and effect values, and the caller's
+own goal are never rewritten, so a short value such as `e` or `1` cannot change
+a target or a receipt field. A short value can mask many characters of page
+text; that is the privacy cost. Do not put a caller value in the goal.
+
+A page can copy a typed value into a URL, for example a GET search form that
+changes a Search href to `/results?q=...`. The provider-visible `page.url`,
+`elements[].href`, and `recent_actions[].url`, and the receipt `url` and
+`actions[].url`, are projected per URL part. The scheme and host stay exact. A
+path segment, query key or value, fragment, or userinfo that carries a caller
+value in raw, percent-encoded, form-encoded, case-folded, or separator-collapsed
+form becomes `[editable text]`. Other parts stay. If a value still spans parts,
+the whole path, query, and fragment are masked. The exact URL stays local: the
+browser clicks the exact href, and destination policy, stale-target checks, and
+completion predicates read the exact URL. A short value can mask many URL parts.
+Page-side normalization or rejection is not a confirmed fill.
 An unchanged, already-present value reports `text_already_present` without
 progress; navigation during typing reports `url_changed` or `document_changed`
 without claiming the old field retained its value. Repeated ineffective
