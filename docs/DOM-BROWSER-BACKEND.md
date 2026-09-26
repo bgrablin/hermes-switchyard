@@ -59,9 +59,17 @@ in the selected field. Only a retained field is suppressed on recapture in the
 same document. A reset field can be offered again; a new document at the same
 URL gets a new target identity. The browser owns document identity through the
 main frame loader and execution context; a page global cannot supply it. A stale
-selected target is refused before dispatch. Editable contents and caller values
-are removed from provider-visible page text, but local readback still compares
-the exact value. Page-side normalization or rejection is not a confirmed fill.
+selected target is refused before dispatch. Editable contents are removed from
+provider-visible page text, but local readback still compares the exact value.
+Caller values are masked as `[editable text]` only in page-sourced free text:
+page text, page title, element labels and the choice descriptions built from
+them, and action labels and titles in `recent_actions` and the public receipt.
+Element IDs, choice keys, operation, status, and effect values, URLs and hrefs,
+and the caller's own goal are never rewritten, so a short value such as `e` or
+`1` cannot change a target or a receipt field. A short value can mask many
+characters of page text; that is the privacy cost. Do not put a caller value in
+the goal. A page that copies a value into its URL, for example a GET search
+form, exposes it through that URL. Page-side normalization or rejection is not a confirmed fill.
 An unchanged, already-present value reports `text_already_present` without
 progress; navigation during typing reports `url_changed` or `document_changed`
 without claiming the old field retained its value. Repeated ineffective

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import unittest
 from contextlib import nullcontext
@@ -230,6 +231,94 @@ class PublicFixtureTests(unittest.TestCase):
             fresh = next(item for item in second["elements"] if item["kind"] == "type")
             self.assertEqual(session.type_text(fresh["id"], "Ada", label="Author"),
                              {"accepted": True, "changed": True})
+
+    @unittest.skipUnless(os.environ.get("SWITCHYARD_LIVE_BROWSER_TESTS") == "1", "requires opt-in Chromium")
+    def test_real_chromium_loop_redacts_free_text_and_keeps_structured_fields(self):
+        """Run the real snapshot and loop on synthetic markup with a local scripted client; no Jev call."""
+        marker = "[editable text]"
+        form = ('<main><h1>Example form</h1><label for="author">Author</label><input id="author">'
+                '<label for="notes">Notes</label><div id="notes" contenteditable="true"></div>'
+                '<button type="button">Search</button>'
+                '<p><a href="https://example.org/example?item=1">Example item 1</a> public context.</p></main>')
+
+        def outside_markers(text, value):
+            spans = [(item.start(), item.end()) for item in re.finditer(re.escape(marker), text)]
+            start = text.find(value)
+            while start >= 0:
+                if not any(left <= start and start + len(value) <= right for left, right in spans):
+                    return True
+                start = text.find(value, start + 1)
+            return False
+
+        class LocalClient:
+            def __init__(self, steps):
+                self.steps, self.calls = steps, []
+
+            def decide(self, state, questions, **kwargs):
+                self.calls.append({"state": json.loads(json.dumps(state)),
+                                   "questions": json.loads(json.dumps(questions))})
+                operation, target = self.steps[len(self.calls) - 1]
+                answers = {"operation": choice(operation, questions["operation"]["criteria"])}
+                for key in ("click_target", "type_target"):
+                    if key in questions:
+                        options = questions[key]["criteria"]
+                        wanted = "type_target" if operation == "TYPE_TEXT" else "click_target"
+                        answers[key] = choice(target if key == wanted else next(iter(options)), options)
+                return {"answers": answers, "latency_ms": 1, "model": "local-fixture", "usage": {}}
+
+        with browser_use.ChromiumSession("https://example.org/") as session:
+            for author, notes in (("1", "e"), ("Example", "example")):
+                with self.subTest(author=author, notes=notes):
+                    # Fixed synthetic markup only; no page-supplied HTML is interpolated.
+                    session._evaluate("delete window.__hermesSwitchyardTargets; "
+                                      "delete window.__hermesSwitchyardClickNodes; "
+                                      f"document.title = 'Example form'; document.body.innerHTML = {json.dumps(form)}")
+                    ids = {item["label"]: item["id"] for item in session.observe()["elements"]}
+                    url = session.observe()["url"]
+                    client = LocalClient([("TYPE_TEXT", ids["Author"]), ("TYPE_TEXT", ids["Notes"]),
+                                          ("CLICK", ids["Search"]), ("DONE", None)])
+                    goal = "Fill Author and Notes, then click Search on the example form"
+                    result = browser_use.run_browser_goal(
+                        goal=goal, session=session, client=client, max_steps=4,
+                        text_inputs=[{"field_label": "Author", "value": author},
+                                     {"field_label": "Notes", "value": notes}])
+                    self.assertEqual(len(client.calls), 4)
+                    # A short value must collide with a real offered element ID.
+                    self.assertIn("1", ids.values())
+                    self.assertEqual(session._evaluate("document.querySelector('#author').value"), author)
+                    self.assertEqual(session._evaluate("document.querySelector('#notes').textContent"), notes)
+                    self.assertEqual(result["status"], "completion_candidate")
+                    self.assertEqual(result["completion_source"], "provider_decision")
+                    self.assertEqual(result["goal"], goal)
+                    self.assertEqual(result["url"], url)
+                    self.assertEqual([item["element"] for item in result["actions"]],
+                                     [ids["Author"], ids["Notes"], ids["Search"]])
+                    self.assertEqual([item["effect_status"] for item in result["actions"]],
+                                     ["text_entered", "text_entered", "unchanged"])
+                    for call in client.calls:
+                        state, questions = call["state"], call["questions"]
+                        self.assertEqual(state["goal"], goal)
+                        self.assertEqual(state["page"]["url"], url)
+                        self.assertEqual({item["id"] for item in state["elements"]}, set(ids.values()))
+                        link = next(item for item in state["elements"] if item["id"] == ids["Example item 1"])
+                        self.assertEqual(link["href"], "https://example.org/example?item=1")
+                        roles = {item["id"]: (item["role"], item["label"]) for item in state["elements"]}
+                        for key in ("click_target", "type_target"):
+                            for element_id, text in questions.get(key, {}).get("criteria", {}).items():
+                                self.assertEqual(text, f"[{element_id}] {roles[element_id][0]} {roles[element_id][1]}")
+                        free_text = [state["page"]["text"], state["page"]["title"],
+                                     *(label for _role, label in roles.values()),
+                                     *(item["label"] for item in state["recent_actions"])]
+                        for text in free_text:
+                            self.assertEqual(text.count("["), text.count(marker), text)
+                            for value in (author, notes):
+                                self.assertFalse(outside_markers(text, value), (value, text))
+                    # Page prose that does not contain a caller value remains visible.
+                    self.assertIn("public", client.calls[-1]["state"]["page"]["text"])
+                    for text in [result["title"], *(item["label"] for item in result["actions"]),
+                                 *(item["title"] for item in result["actions"])]:
+                        for value in (author, notes):
+                            self.assertFalse(outside_markers(text, value), (value, text))
 
     @unittest.skipUnless(os.environ.get("SWITCHYARD_LIVE_BROWSER_TESTS") == "1", "requires opt-in Chromium")
     def test_real_public_wikipedia_search_field_accepts_caller_text(self):
