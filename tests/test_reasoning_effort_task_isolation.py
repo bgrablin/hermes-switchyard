@@ -21,6 +21,7 @@ from tests.test_reasoning_effort_user_cap import OPUS, Env, opus_request, sent_e
 SESSION = "synthetic-session"
 SESSION_KEY = "agent:main:synthetic:dm:1"
 CHILD = "subagent-0-synthetic"
+ROTATED = "synthetic-session-rotated"
 
 
 def codex_route(model: str) -> dict:
@@ -178,6 +179,74 @@ class TaskIsolationTests(unittest.TestCase):
         self.assertIn("pinned", controller.handle_command("effort pin"))
         self.assertEqual(self.request(controller, opus_request("high"), route=OPUS, task=SESSION, turn="t1",
                                       session="synthetic-rotated-session"), "high")
+
+    # -- rotation before the first request (fresh controller) -----------------
+    # Hermes binds the turn's task ID before turn-start compaction. Compression then moves the
+    # agent and HERMES_SESSION_ID to a new session, so the first request this controller sees is
+    # (session=ROTATED, task=SESSION). A mode the user set before that message is pending under
+    # the IDs that the foreground command context carried.
+
+    def rotate(self, env, **values):
+        env.values = {"HERMES_SESSION_ID": ROTATED, **values}
+
+    def test_pending_pin_applies_when_rotation_precedes_the_first_request(self):
+        env = Env(HERMES_SESSION_ID=SESSION, HERMES_SESSION_KEY=SESSION_KEY)
+        controller, client, _ = self.make(choice="low", session_env=env)
+        self.assertTrue(controller.set_mode("pin")["pending"])
+        self.rotate(env, HERMES_SESSION_KEY=SESSION_KEY)
+        sent = self.request(controller, opus_request("high"), route=OPUS, task=SESSION, turn="t1", session=ROTATED)
+        self.assertEqual(sent, "high", "foreground turn ignored the pending pin")
+        self.assertEqual(last_receipt()["reason_code"], "pinned")
+        self.assertEqual(len(client.calls), 0)
+        status = controller.session_status()
+        self.assertEqual((status["session_id"], status["known"], status["mode"]), (ROTATED, True, "pinned"))
+        self.assertEqual((status["model"], status["user_level"]), (OPUS["model"], "high"))
+
+    def test_pending_pin_without_session_key_applies_after_rotation(self):
+        env = Env(HERMES_SESSION_ID=SESSION)  # CLI: no gateway session key
+        controller, client, _ = self.make(choice="low", session_env=env)
+        self.assertTrue(controller.set_mode("pin")["pending"])
+        self.rotate(env)
+        sent = self.request(controller, opus_request("high"), route=OPUS, task=SESSION, turn="t1", session=ROTATED)
+        self.assertEqual(sent, "high")
+        self.assertEqual(len(client.calls), 0)
+        status = controller.session_status()
+        self.assertEqual((status["known"], status["mode"]), (True, "pinned"))
+        self.assertNotIn(SESSION, controller._pending_modes, "pending mode left behind")
+
+    def test_rotation_with_pending_pin_keeps_children_and_forks_isolated(self):
+        env = Env(HERMES_SESSION_ID=SESSION, HERMES_SESSION_KEY=SESSION_KEY)
+        controller, _, _ = self.make(choice="low", session_env=env)
+        controller.set_mode("pin")
+        self.rotate(env, HERMES_SESSION_KEY=SESSION_KEY)
+        # A background fork shares the rotated session ID; a delegated child has its own.
+        fork = "synthetic-fork-uuid"
+        self.assertEqual(self.request(controller, opus_request("high"), route=OPUS, task=fork, turn="f1",
+                                      session=ROTATED), "low", "fork consumed the pending pin")
+        self.assertEqual(self.child(controller, opus_request("high"), session="synthetic-child-session"), "low")
+        self.assertEqual(self.request(controller, opus_request("high"), route=OPUS, task=SESSION, turn="t1",
+                                      session=ROTATED), "high")
+        # Same model, lower child level: the child must not change the foreground cap or mode.
+        self.child(controller, opus_request("medium"), session=ROTATED, turn="c2")
+        self.assertNotEqual(last_receipt()["reason_code"], "pinned")
+        status = controller.session_status()
+        self.assertEqual((status["session_id"], status["mode"], status["user_level"]), (ROTATED, "pinned", "high"))
+        self.assertEqual(status["requests"], 1)
+
+    def test_rotation_without_foreground_evidence_stays_capped_until_the_next_turn(self):
+        # Documented limit: with no pending mode, no session key match, and no earlier request,
+        # Hermes gives no positive signal that (ROTATED, SESSION) is the foreground turn. The
+        # controller keeps that turn's state apart (at or below the request's level), and the
+        # next turn, whose task ID is the rotated session ID, is foreground.
+        env = Env(HERMES_SESSION_ID=SESSION)
+        controller, _, _ = self.make(choice="max", session_env=env)
+        self.rotate(env)
+        sent = self.request(controller, opus_request("medium"), route=OPUS, task=SESSION, turn="t1", session=ROTATED)
+        self.assertIn(sent, ("low", "medium"))
+        self.assertEqual(controller.session_status()["known"], False)
+        self.request(controller, opus_request("high"), route=OPUS, task=ROTATED, turn="t2", session=ROTATED)
+        status = controller.session_status()
+        self.assertEqual((status["session_id"], status["known"], status["model"]), (ROTATED, True, OPUS["model"]))
 
     def test_requests_without_a_distinct_task_keep_session_state(self):
         controller, _, _ = self.make(choice="low", session_env=Env())

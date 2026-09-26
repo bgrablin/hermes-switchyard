@@ -14,6 +14,7 @@ Switchyard can lower Hermes `reasoning_effort` for routine steps. Your `/reasoni
 - **No text leaves the host.** Jev receives the requested level, the candidates, a task length bucket, tool outcome status values, and the stuck flag. It never receives task or tool text.
 - **Messages are never rewritten**, so the Hermes prompt cache stays valid. Only request-scoped effort fields change.
 - **Delegated tasks keep their own state.** A subagent or background fork that shares the session ID but runs under a different task ID gets its own level, model, mode, cached choice, and tool outcomes. It never changes the foreground cap or mode, and `/switchyard effort` does not read or change it.
+- **A pending mode survives a compression rotation.** If compression moves the session to a new ID before the first request of a turn, the turn keeps its original task ID. A `pin` or `auto` that you set before that message is still applied, because the controller also accepts the task ID that holds the pending mode. Limit: with no pending mode and no session key, the first rotated turn of a new controller keeps separate state. It stays at or below your level, and `/switchyard effort status` shows the session after the next turn.
 
 ## Command
 
