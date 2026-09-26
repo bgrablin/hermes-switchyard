@@ -53,13 +53,22 @@ class FakeSession:
         if dest in self.pages:
             self.url = dest
 
-    def type_text(self, element_id: str, value: str, label: str = "") -> None:
+    def type_text(self, element_id: str, value: str, label: str = "") -> dict[str, bool]:
         self.typed.append((element_id, value, label))
         page = self.pages[self.url]
         target = next(item for item in page["elements"] if item["id"] == element_id)
         if label and target["label"] != label:
             raise RuntimeError("stale label")
+        changed = target.get("value") != value
         target["value"] = value
+        return {"accepted": True, "changed": changed}
+
+    def text_retained(self, element_id: str, value: str, document_id: str) -> bool:
+        return (
+            str(self.observe().get("document_id") or "") == document_id
+            and any(item["id"] == element_id and item.get("value") == value
+                    for item in self.pages[self.url]["elements"])
+        )
 
     def scroll(self, direction: str) -> None:
         self.scrolls.append(direction)
@@ -972,6 +981,25 @@ class ScriptedClient:
         }
 
 
+class TypingChoices(ScriptedClient):
+    """Choose target IDs from a synthetic script, without passing caller values."""
+
+    def __init__(self, steps):
+        super().__init__([])
+        self.steps = steps
+
+    def decide(self, state, questions, **kwargs):
+        self.calls.append({"state": state, "questions": questions})
+        operation, target = self.steps[len(self.calls) - 1]
+        answers = {"operation": _choice(operation, questions["operation"]["criteria"])}
+        for key in ("click_target", "type_target"):
+            if key in questions:
+                options = questions[key]["criteria"]
+                selected = target if key == ("type_target" if operation == "TYPE_TEXT" else "click_target") else next(iter(options))
+                answers[key] = _choice(selected, options)
+        return {"answers": answers, "latency_ms": 1, "model": "fixture", "usage": {}}
+
+
 class StaticSession:
     """One page that never changes: models actions with no observable effect."""
 
@@ -1059,6 +1087,81 @@ class WindowedSession:
 
 class BrowserReliabilityTests(unittest.TestCase):
     """Regression coverage for the DOM observation, evidence, and startup defects."""
+
+    def test_two_retained_fields_are_progress_before_search(self):
+        url = "https://example.org/form"
+        fields = [
+            {"id": key, "role": "textbox", "label": label, "href": "", "kind": "type"}
+            for key, label in (("1", "Author"), ("2", "Article title"))
+        ]
+        fields.append({"id": "3", "role": "button", "label": "Search", "href": "", "kind": "click"})
+        session = FakeSession({url: {"title": "Form", "text": "Search", "document_id": "doc-a", "elements": fields}})
+        client = TypingChoices([("TYPE_TEXT", "1"), ("TYPE_TEXT", "2"), ("CLICK", "3"), ("DONE", None)])
+        result = run_browser_goal(
+            goal="Fill Author and Article title then click Search", session=session, client=client,
+            max_steps=4, text_inputs=[{"field_label": "Author", "value": "Ada"},
+                                      {"field_label": "Article title", "value": "Computing"}],
+        )
+        self.assertEqual(result["status"], "completion_candidate")
+        self.assertEqual(session.clicks, ["3"])
+        self.assertEqual([item["effect_status"] for item in result["actions"][:2]], ["text_entered"] * 2)
+        self.assertNotIn("TYPE_TEXT", client.calls[2]["questions"]["operation"]["criteria"])
+        self.assertNotIn("Computing", json.dumps(client.calls) + json.dumps(result))
+
+    def test_fresh_duplicate_label_cannot_redirect_selected_id(self):
+        url = "https://example.org/form"
+        class Reordered(FakeSession):
+            captures = 0
+            def observe(self):
+                page = super().observe()
+                self.captures += 1
+                if self.captures >= 2:
+                    page["elements"] = list(reversed(page["elements"]))
+                return page
+        session = Reordered({url: {"title": "Form", "text": "Form", "document_id": "doc-a", "elements": [
+            {"id": key, "role": "textbox", "label": "Search", "href": "", "kind": "type"}
+            for key in ("2", "1")
+        ]}})
+        result = run_browser_goal(goal="Fill Search", session=session,
+                                  client=TypingChoices([("TYPE_TEXT", "2"), ("DONE", None)]),
+                                  max_steps=2, text_inputs=[{"field_label": "Search", "value": "Ada"}])
+        self.assertEqual(session.typed, [("2", "Ada", "Search")])
+        self.assertEqual(result["actions"][0]["element"], "2")
+
+    def test_same_url_document_replacement_reoffers_field(self):
+        url = "https://example.org/form"
+        field = {"id": "1", "role": "textbox", "label": "Search", "href": "", "kind": "type"}
+        button = {"id": "2", "role": "button", "label": "Replace form", "href": "", "kind": "click"}
+        class Replacing(FakeSession):
+            def click(self, element_id, label="", href=""):
+                self.clicks.append(element_id)
+                self.pages[url] = {"title": "Form", "text": "Form", "document_id": "doc-b",
+                                   "elements": [dict(field)]}
+        session = Replacing({url: {"title": "Form", "text": "Form", "document_id": "doc-a",
+                                  "elements": [dict(field), button]}})
+        client = TypingChoices([("TYPE_TEXT", "1"), ("CLICK", "2"), ("TYPE_TEXT", "1"), ("DONE", None)])
+        result = run_browser_goal(goal="Fill Search in each form", session=session, client=client,
+                                  max_steps=4, text_inputs=[{"field_label": "Search", "value": "Ada"}])
+        self.assertEqual([item[0] for item in session.typed], ["1", "1"])
+        self.assertEqual(result["status"], "completion_candidate")
+
+    def test_rejected_typing_is_not_confirmed_or_suppressed(self):
+        url = "https://example.org/form"
+        field = {"id": "1", "role": "textbox", "label": "Search", "href": "", "kind": "type"}
+        class Rejecting(FakeSession):
+            def type_text(self, element_id, value, label=""):
+                self.typed.append((element_id, value, label))
+                # A delayed page reset can occur after the first local write.
+                return {"accepted": True, "changed": True}
+        session = Rejecting({url: {"title": "Form", "text": "Form", "document_id": "doc-a",
+                                  "elements": [field]}})
+        client = TypingChoices([("TYPE_TEXT", "1"), ("TYPE_TEXT", "1")])
+        result = run_browser_goal(goal="Fill Search", session=session, client=client,
+                                  max_steps=4, text_inputs=[{"field_label": "Search", "value": "Ada"}])
+        self.assertEqual(result["failure_phase"], "no_progress")
+        self.assertEqual(len(session.typed), 2)
+        self.assertTrue(all(item["effect_confirmed"] is False for item in result["actions"]))
+        self.assertTrue(all(item["effect_status"] == "text_not_retained" for item in result["actions"]))
 
     def test_completion_predicate_stops_without_another_decision(self):
         cat = "https://en.wikipedia.org/wiki/Cat"

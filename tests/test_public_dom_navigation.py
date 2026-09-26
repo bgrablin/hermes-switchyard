@@ -133,14 +133,68 @@ class PublicFixtureTests(unittest.TestCase):
     def test_chromium_session_types_into_a_matched_public_field(self):
         session = object.__new__(browser_use.ChromiumSession)
         with (
-            mock.patch.object(session, "_evaluate", return_value={"ok": True}) as evaluate,
+            mock.patch.object(session, "_evaluate", side_effect=[{"ok": True, "changed": True}, True]) as evaluate,
             mock.patch.object(session, "wait"),
             mock.patch.object(session, "_wait_ready"),
         ):
-            session.type_text("1", "Ada Lovelace", label="search")
-        script = evaluate.call_args.args[0]
+            result = session.type_text("1", "Ada Lovelace", label="search")
+        self.assertEqual(result, {"accepted": True, "changed": True})
+        script = evaluate.call_args_list[0].args[0]
         self.assertIn('liveLabel !== "search"', script)
         self.assertIn('el.value = "Ada Lovelace"', script)
+
+    def test_rejected_field_does_not_return_confirmed_typing(self):
+        session = object.__new__(browser_use.ChromiumSession)
+        with (
+            mock.patch.object(session, "_evaluate", side_effect=[{"ok": True, "changed": True}, False]) as evaluate,
+            mock.patch.object(session, "wait"),
+            mock.patch.object(session, "_wait_ready"),
+        ):
+            result = session.type_text("1", "Ada", label="Search")
+        self.assertEqual(result, {"accepted": False, "changed": False})
+        self.assertEqual(evaluate.call_count, 2, "a post-settle readback is required")
+
+    @unittest.skipUnless(os.environ.get("SWITCHYARD_LIVE_BROWSER_TESTS") == "1", "requires opt-in Chromium")
+    def test_real_chromium_synthetic_form_retention_and_document_replacement(self):
+        """Use a public HTTPS origin, but only synthetic form content and no hosted decisions."""
+        with browser_use.ChromiumSession("https://example.org/") as session:
+            # Fixed synthetic markup only; no page-supplied HTML is interpolated.
+            form = ('<main><label for="author">Author</label><input id="author">'
+                    '<label for="title">Article title</label><input id="title">'
+                    '<label for="other">Search</label><input id="other">'
+                    '<label for="selected">Search</label><input id="selected">'
+                    '<label for="rejected">Reject</label><input id="rejected"></main>')
+            session._evaluate(f"document.body.innerHTML = {json.dumps(form)}")
+            session._evaluate("document.querySelector('#rejected').addEventListener('change', e => { e.target.value = ''; })")
+            first = session.observe()
+            fields = {item["label"]: item for item in first["elements"] if item["kind"] == "type" and item["label"] != "Search"}
+            search = [item for item in first["elements"] if item["label"] == "Search"]
+            self.assertEqual(len(search), 2)
+            for label, value in (("Author", "Ada"), ("Article title", "Computing")):
+                self.assertEqual(session.type_text(fields[label]["id"], value, label=label),
+                                 {"accepted": True, "changed": True})
+                self.assertTrue(session.text_retained(fields[label]["id"], value, first["document_id"]))
+            # Reordering must not change the selected stable ID.
+            selected_id = next(item["id"] for item in search if session._evaluate(
+                f'(window.__hermesSwitchyardClickNodes || new Map()).get({json.dumps(item["id"])})?.id'
+            ) == "selected")
+            session._evaluate("document.querySelector('main').prepend(document.querySelector('#selected'))")
+            session.observe()
+            self.assertTrue(session.type_text(selected_id, "Chosen", label="Search")["accepted"])
+            self.assertEqual(session._evaluate("document.querySelector('#other').value"), "")
+            self.assertEqual(session.type_text(fields["Reject"]["id"], "Denied", label="Reject"),
+                             {"accepted": False, "changed": False})
+            self.assertFalse(session.text_retained(fields["Reject"]["id"], "Denied", first["document_id"]))
+            session._cdp("Page.reload", ignoreCache=True)
+            session._wait_ready()
+            replacement = '<main><label for="fresh">Author</label><input id="fresh"></main>'
+            session._evaluate(f"document.body.innerHTML = {json.dumps(replacement)}")
+            second = session.observe()
+            self.assertEqual(first["url"], second["url"])
+            self.assertNotEqual(first["document_id"], second["document_id"])
+            fresh = next(item for item in second["elements"] if item["kind"] == "type")
+            self.assertEqual(session.type_text(fresh["id"], "Ada", label="Author"),
+                             {"accepted": True, "changed": True})
 
     @unittest.skipUnless(os.environ.get("SWITCHYARD_LIVE_BROWSER_TESTS") == "1", "requires opt-in Chromium")
     def test_real_public_wikipedia_search_field_accepts_caller_text(self):
