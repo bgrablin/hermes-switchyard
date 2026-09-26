@@ -13,6 +13,7 @@ import os
 import stat
 import threading
 import time
+from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -39,6 +40,8 @@ MAX_TASK_CHARS = 1_200
 MAX_TOOL_OUTCOMES = 6
 MAX_OUTCOME_CHARS = 160
 _DEFAULT_SESSION_KEY = "_default"
+# Delegated children and background forks get their own state; keep only the most recent ones.
+_TASK_STATE_LIMIT = 256
 
 _EFFORT_CRITERIA: dict[str, str] = {
     "none": "No extended reasoning; trivial lookup, ack, or formatting.",
@@ -126,13 +129,18 @@ def _truncate(text: Any, limit: int) -> str:
 
 def _session_key(*, session_id: Any = None, task_id: Any = None) -> str:
     for candidate in (session_id, task_id):
-        if isinstance(candidate, str) and candidate.strip():
-            return candidate.strip()
-        if candidate is not None and not isinstance(candidate, (bool, bytes)):
-            text = str(candidate).strip()
-            if text:
-                return text
+        text = _identifier(candidate)
+        if text is not None:
+            return text
     return _DEFAULT_SESSION_KEY
+
+
+def _identifier(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value.strip() or None
+    if value is not None and not isinstance(value, (bool, bytes)):
+        return str(value).strip() or None
+    return None
 
 
 def _content_text(content: Any) -> str:
@@ -750,7 +758,7 @@ def choose_reasoning_effort(
 
 
 class _SessionEffortState:
-    """Per-session effort state. ``baseline`` is the user's level; the plugin never ratchets it."""
+    """Effort state for one session or one delegated task. ``baseline`` is the user's level; the plugin never ratchets it."""
 
     __slots__ = (
         "lock",
@@ -867,6 +875,8 @@ class ReasoningEffortController:
         self._sessions: dict[str, _SessionEffortState] = {}
         self._key_to_session: dict[str, str] = {}
         self._pending_modes: dict[str, str] = {}
+        self._task_states: OrderedDict[str, _SessionEffortState] = OrderedDict()
+        self._foreground_tasks: OrderedDict[str, None] = OrderedDict()
 
     # -- state -----------------------------------------------------------------
 
@@ -878,6 +888,37 @@ class ReasoningEffortController:
                 state = _SessionEffortState(self.mode)
                 self._sessions[key] = state
             return state
+
+    def _resolve(self, *, session_id: Any, task_id: Any, bind: bool) -> tuple[str, _SessionEffortState]:
+        """Return the receipt session key and the state that owns this request or tool call.
+
+        A delegated child or background fork can share the session ID with a different task
+        ID. Its model, cap, mode, cached choice, and tool outcomes must not replace the
+        foreground state that ``/switchyard effort`` reads and changes. A task is foreground
+        when it is absent, equals the session ID or the bound session key, or was seen as
+        foreground before (a compression rotation keeps the task ID).
+        """
+        key = _session_key(session_id=session_id, task_id=task_id)
+        task = _identifier(task_id)
+        session = _identifier(session_id)
+        with self._registry_lock:
+            if task is not None and session is not None and task != session and not (
+                task in self._foreground_tasks or task == self.session_env("HERMES_SESSION_KEY").strip()
+            ):
+                state = self._task_states.get(task)
+                if state is None:
+                    state = _SessionEffortState(self.mode)
+                    self._task_states[task] = state
+                self._task_states.move_to_end(task)
+                while len(self._task_states) > _TASK_STATE_LIMIT:
+                    self._task_states.popitem(last=False)
+                return key, state
+            if task is not None:
+                self._foreground_tasks[task] = None
+                self._foreground_tasks.move_to_end(task)
+                while len(self._foreground_tasks) > _TASK_STATE_LIMIT:
+                    self._foreground_tasks.popitem(last=False)
+            return key, self._bind_session(key) if bind else self._state_for(session_id=key)
 
     def _bind_session(self, key: str) -> _SessionEffortState:
         """Return the state for *key*, map the session key, and apply a pending mode."""
@@ -901,7 +942,7 @@ class ReasoningEffortController:
         session_id: Any = None,
         task_id: Any = None,
     ) -> None:
-        state = self._state_for(session_id=session_id, task_id=task_id)
+        _, state = self._resolve(session_id=session_id, task_id=task_id, bind=False)
         with state.lock:
             summary = summarize_tool_outcome(
                 tool_name=outcome.get("tool") or outcome.get("tool_name"),
@@ -1108,8 +1149,7 @@ class ReasoningEffortController:
         provider = context.get("provider")
         model = context.get("model") or raw_request.get("model")
         api_mode = context.get("api_mode")
-        key = _session_key(session_id=session_id, task_id=task_id)
-        state = self._bind_session(key)
+        key, state = self._resolve(session_id=session_id, task_id=task_id, bind=True)
         base = {"session_id": key, "model": str(model) if model else None, "mode": state.mode}
         if turn_id is not None:
             base["turn_id"] = turn_id
