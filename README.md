@@ -1,6 +1,6 @@
 # Hermes Switchyard
 
-Version: 0.5.4
+Version: 0.5.5
 
 Switchyard is a [Hermes Agent](https://github.com/NousResearch/hermes-agent) plugin for bounded [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) decisions. It can choose and load a matching skill for one turn, lower reasoning effort within your selected cap, and guide a public DOM browser or desktop task. Local receipts show what the plugin selected, skipped, or could not verify. Model routing remains advice: it does not switch your model.
 
@@ -8,7 +8,7 @@ Switchyard is a [Hermes Agent](https://github.com/NousResearch/hermes-agent) plu
 
 The [Switchyard branding image](docs/assets/hermes-switchyard-branding.png) is also packaged.
 
-**Release state:** the manifest still declares version 0.5.4. The 0.5.5 branch is not released. It includes local decisions for trivial turns, a visible effort receipt, and a session summary. Research Navigator (F1) and DOM Progress & Recovery (F2) are **not included**. F1 failed its frozen end-to-end release gate; [its evaluation is published on PR #132](https://github.com/bgrablin/hermes-switchyard/pull/132). [F2 evaluation is on PR #135](https://github.com/bgrablin/hermes-switchyard/pull/135) and remains in progress. Do not install those PRs as if they were shipped features. The [changelog](CHANGELOG.md) separates included work from the two evaluations. The [benchmark report](docs/BENCHMARKS.md) names the older source and limits of its measurements; it does not prove that Jev improves every task.
+**Release state:** the manifest declares version 0.5.5, but this branch is a release candidate, not a published release. It includes local decisions for trivial turns, visible effort receipts, a session summary, and a 0.4 s default decision deadline. Research Navigator (F1) and DOM Progress & Recovery (F2) are **not included**: both failed their frozen release evaluations on closed [PR #132](https://github.com/bgrablin/hermes-switchyard/pull/132) and [PR #135](https://github.com/bgrablin/hermes-switchyard/pull/135). [Issue #139](https://github.com/bgrablin/hermes-switchyard/issues/139) tracks follow-up work. Do not install those PRs as if they were shipped features. The [changelog](CHANGELOG.md) separates included work from the two evaluations. The [benchmark report](docs/BENCHMARKS.md) names the older source and limits of its measurements; it does not prove that Jev improves every task.
 
 ## First-run quickstart
 
@@ -159,14 +159,13 @@ All current settings live under `plugins.entries.hermes-switchyard.settings`. Th
 | `adaptive_reasoning_effort_step_adaptation` | `true` | Reconsider after routine read-only tool rounds; writes and failures keep the cap. |
 | `adaptive_reasoning_effort_receipt_line` | `true` | Show one foreground effort line after a turn where the plugin worked. |
 | `adaptive_reasoning_effort_default` | `medium` | Deprecated and unused; the request's own effort is the fallback. |
-| `adaptive_reasoning_effort_deadline_seconds` | `1.5` | Wall-clock budget for one adaptive Jev decision; timeout keeps your level. |
-| Decision budget guard (not a setting) | **pending PR** | A proposed 0.25 s guard is not in this branch. The live warm p95 target is not verified. |
+| `adaptive_reasoning_effort_deadline_seconds` | `0.4` | Wall-clock budget for one adaptive Jev decision; allowed range is 0.1–1.5 s. On timeout your level is sent unchanged. |
 | `session_search_rerank_choice_confidence_threshold` | `0.8` | Minimum Jev Choice confidence to change FTS order. |
 | `session_search_rerank_winning_probability_threshold` | `0.8` | Minimum winning probability to change FTS order. |
 | `session_search_rerank_max_card_chars` | `360` | Maximum text in a redacted FTS candidate card. |
 | `public_or_sanitized_data_ack` | `true` | Standing acknowledgement for explicit Jev tools and adaptive effort; callers can refuse one call. |
 
-The 41 setting rows above match the manifest defaults. The budget row is explicitly **not** a setting. F1 and F2 settings from their PRs are not in this manifest; do not set them. F1 failed its frozen release evaluation. F2 evaluation is still in progress.
+The 41 setting rows above match the manifest defaults. F1 and F2 settings from their PRs are not in this manifest; do not set them. Both failed their frozen release evaluations. On timeout the 0.4 s guard sends your level unchanged. With the earlier 0.25 s guard, an installed cold one-shot sample had 8 timeouts in 14 non-trivial decisions (57.1%). A fresh TUI yielded one client-reused Jev call at 178.4 ms; n=1 cannot establish a warm p95 for the current default.
 
 ## Troubleshooting
 
