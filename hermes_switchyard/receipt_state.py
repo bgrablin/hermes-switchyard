@@ -61,7 +61,11 @@ HOSTED_ERROR_DETAILS = frozenset({
     "host_cancelled", "late_result_discarded", "ack_required", "unknown",
 })
 # Optional so receipts written by older versions remain readable.
-OPTIONAL_RECEIPT_FIELDS = frozenset({"hosted_error_detail"})
+# Optional fields. ``bypass_reason`` names why a hosted call was not needed
+# (for example ``trivial_turn``); ``input_chars`` is the redacted task length
+# that crossed the hosted boundary. Older receipts omit both.
+OPTIONAL_RECEIPT_FIELDS = frozenset({"hosted_error_detail", "bypass_reason", "input_chars"})
+BYPASS_REASONS = frozenset({"trivial_turn", "local_confident", "local_no_skill_gate", "cache_hit"})
 HOSTED_SKIP_REASONS = frozenset(
     {
         "disabled",
@@ -81,6 +85,11 @@ HOSTED_SKIP_REASONS = frozenset(
         "local_scan_contact_identifier",
         "local_scan_secret_like_value",
         "local_scan_restricted_data",
+        "local_scan_restricted_marking",
+        "local_scan_oversized",
+        "redaction_unavailable",
+        "trivial_turn",
+        "local_no_skill_gate",
         "public_or_sanitized_data_ack_required",
         "client_unavailable",
         "local_confident",
@@ -776,6 +785,15 @@ def validate_receipt(receipt: Any) -> bool:
     skip_reason = receipt["hosted_skip_reason"]
     if skip_reason is not None and skip_reason not in HOSTED_SKIP_REASONS:
         return False
+    if "bypass_reason" in receipt:
+        bypass = receipt["bypass_reason"]
+        if bypass is not None and (type(bypass) is not str or bypass not in BYPASS_REASONS):
+            return False
+    if "input_chars" in receipt:
+        if type(receipt["input_chars"]) is not int or receipt["input_chars"] < 0:
+            return False
+        if receipt["input_chars"] > 0 and not receipt["hosted_attempted"]:
+            return False
     abstention_reason = receipt["abstention_reason"]
     if abstention_reason is not None and safe_reason(abstention_reason) is None:
         return False

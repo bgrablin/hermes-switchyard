@@ -186,6 +186,7 @@ class TwoStageWiringTests(HermesHomeTestCase):
             "automatic_skill_early_stop_threshold": "float",
             "automatic_skill_stage1_min_probability": "float",
             "automatic_skill_parallel_requests": "int",
+            "automatic_skill_stage1_single_round": "bool",
         }
         self.assertEqual(set(TWO_STAGE_CONFIG_KEYS), set(expected_types))
         for key, expected_type in expected_types.items():

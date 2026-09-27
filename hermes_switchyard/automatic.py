@@ -39,7 +39,7 @@ from collections import OrderedDict
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from . import receipt_history, receipt_state
+from . import egress_redaction, receipt_history, receipt_state
 from .client import (
     DEFAULT_AUTOMATIC_ROUTING_DEADLINE_SECONDS,
     DeadlineExceeded,
@@ -61,6 +61,7 @@ from .egress import (
     evaluate_turn_egress_policy,
     is_routing_mode,
 )
+from .reasoning_effort_adapter import _effort_scan_reason
 from .routing import select_skill
 from .two_stage_routing import (
     TwoStageConfig,
@@ -121,6 +122,9 @@ _PROMPT_INJECTION_RE = re.compile(
     r"jailbreak|exfiltrat(?:e|ion)|reveal\s+(?:the\s+)?(?:secret|token|prompt))\b",
     re.IGNORECASE,
 )
+# Catalog metadata scan (skill names and stage-2 descriptions/excerpts). The
+# user task no longer uses these checks: it is redacted, not blocked. Local
+# catalog text is not user input and stays under the stricter blocklist.
 _PAYMENT_RE = re.compile(
     r"\b(?:credit\s+card|card\s+number|cvv|cvc|bank\s+account|routing\s+number)\b|"
     r"\b(?:\d[ -]?){13,19}\b",
@@ -144,6 +148,28 @@ _RESTRICTED_WORD_RE = re.compile(
     r"classified|confidential|export[- ]controlled|"
     r"Controlled Unclassified Information|CUI(?:\b|//))\b",
     re.IGNORECASE,
+)
+
+# The whole user message is scanned and redacted before the hosted cut, so a
+# cut never exposes part of an unmasked value. Longer messages stay local.
+MAX_SCANNED_TASK_CHARS = 64_000
+REDACTION_UNAVAILABLE_REASON = egress_redaction.REDACTION_UNAVAILABLE_REASON
+
+# Trivial-turn bypass: a greeting, thanks, or acknowledgement never names a
+# specialist skill, so the hosted call only adds latency. The rule is a closed
+# word list, not a length rule, so short task requests still reach Jev.
+TRIVIAL_TURN_REASON = "trivial_turn"
+TRIVIAL_ACK_MAX_WORDS = 6
+TRIVIAL_SYMBOL_MAX_CHARS = 8
+_TRIVIAL_WORD_RE = re.compile(r"[a-z0-9']+")
+_TRIVIAL_ACK_WORDS = frozenset(
+    """
+    hi hello hey hiya yo morning afternoon evening night gm gn bye goodbye cheers
+    thanks thank thx ty tysm you so very much appreciate appreciated
+    ok okay k kk yes yep yeah yup sure no nope nah fine right correct agreed
+    great cool nice perfect awesome good excellent lgtm got it sounds that's
+    go ahead continue proceed done again
+    """.split()
 )
 
 # These words do not identify a specialist skill. Keeping this list local makes
@@ -201,7 +227,14 @@ def _tokens(value: str) -> set[str]:
 
 
 def _local_scan_reason(value: Any, text: str) -> str | None:
-    """Classify obvious restricted content before any hosted client exists."""
+    """Return a reason when text must stay local, before any hosted client exists.
+
+    Only shapes that redaction cannot make safe keep text local: control
+    characters, prompt-injection wording, opaque structured payloads, and
+    restricted document markings (the same marking rule the effort path uses).
+    Secret values are masked by :func:`_redact_for_hosted`, not blocked here.
+    Topic words (password, confidential) and contact identifiers do not block.
+    """
     if isinstance(value, Mapping):
         return "local_scan_unknown_structured"
     if not isinstance(value, (str, list, tuple)):
@@ -210,16 +243,9 @@ def _local_scan_reason(value: Any, text: str) -> str | None:
         return "local_scan_control_character"
     if _PROMPT_INJECTION_RE.search(text):
         return "local_scan_prompt_injection"
-    if _PAYMENT_RE.search(text):
-        return "local_scan_payment_data"
-    if _VERIFICATION_RE.search(text):
-        return "local_scan_verification_data"
-    if _CONTACT_RE.search(text):
-        return "local_scan_contact_identifier"
-    if _SECRET_VALUE_RE.search(text):
-        return "local_scan_secret_like_value"
-    if _RESTRICTED_WORD_RE.search(text):
-        return "local_scan_restricted_data"
+    marking = _effort_scan_reason(text)
+    if marking is not None:
+        return marking
     stripped = text.strip()
     structured_candidates = [stripped]
     embedded = re.search(r":\s*(?=[{\[])", stripped)
@@ -233,6 +259,55 @@ def _local_scan_reason(value: Any, text: str) -> str | None:
         if isinstance(parsed, (dict, list)):
             return "local_scan_unknown_structured"
     return None
+
+
+def _catalog_scan_reason(value: Any, text: str) -> str | None:
+    """Stricter scan for local catalog metadata that could cross the boundary.
+
+    Skill names and stage-2 descriptions are not user input and are not
+    redacted, so the pre-v0.5.5 blocklist still applies to them.
+    """
+    reason = _local_scan_reason(value, text)
+    if reason is not None:
+        return reason
+    if _PAYMENT_RE.search(text):
+        return "local_scan_payment_data"
+    if _VERIFICATION_RE.search(text):
+        return "local_scan_verification_data"
+    if _CONTACT_RE.search(text):
+        return "local_scan_contact_identifier"
+    if _SECRET_VALUE_RE.search(text):
+        return "local_scan_secret_like_value"
+    if _RESTRICTED_WORD_RE.search(text):
+        return "local_scan_restricted_data"
+    return None
+
+
+def _redact_for_hosted(text: str, max_chars: int = MAX_TASK_CHARS) -> tuple[str | None, str | None]:
+    """Return ``(redacted bounded text, None)`` or ``(None, reason)``.
+
+    The whole text is redacted with the Hermes egress scrubber before the cut,
+    so the cut cannot expose part of an unmasked value. Without a Hermes
+    redactor no text is sent and hosted routing is skipped.
+    """
+    redacted, reason = egress_redaction.redact_for_jev(text)
+    if redacted is None:
+        return None, reason or REDACTION_UNAVAILABLE_REASON
+    return redacted[:max_chars].strip(), None
+
+
+def _trivial_turn(text: str) -> bool:
+    """True for a greeting, thanks, or acknowledgement with no task words.
+
+    Only words from a closed acknowledgement list qualify, so a short request
+    such as ``fix ci`` still goes to the hosted selector. Text with no word
+    characters (an emoji or ``?``) qualifies when it is very short.
+    """
+    stripped = text.strip()
+    words = _TRIVIAL_WORD_RE.findall(stripped.casefold())
+    if not words:
+        return 0 < len(stripped) <= TRIVIAL_SYMBOL_MAX_CHARS
+    return len(words) <= TRIVIAL_ACK_MAX_WORDS and all(word in _TRIVIAL_ACK_WORDS for word in words)
 
 
 def _validate_name(name: Any) -> str:
@@ -250,7 +325,7 @@ def _hosted_payload_scan_reason(task: str, candidates: list[dict[str, str]]) -> 
         return reason
     for candidate in candidates:
         name = candidate["name"]
-        reason = _local_scan_reason(name, name)
+        reason = _catalog_scan_reason(name, name)
         if reason is not None:
             return reason
     return None
@@ -751,14 +826,19 @@ class AutomaticSkillRecommender:
                 )
             else:
                 # No host envelope: standing operator acknowledgement plus a
-                # clean local restricted-pattern scan authorize hosting. The
-                # scan is a blocklist, not a positive classifier; restricted
-                # hits still fail closed. Authorization is recorded as
-                # egress_authority=standing_ack (not a second policy language).
-                scan_reason = _local_scan_reason(task, task_text)
+                # clean local scan authorize hosting. The scan keeps only
+                # shapes that redaction cannot fix (markings, injection,
+                # control characters, opaque payloads). Secret values are
+                # masked below with the Hermes egress redactor before the
+                # cut. Authorization is recorded as egress_authority=standing_ack.
+                scan_text = _coerce_bounded_text(task, MAX_SCANNED_TASK_CHARS + 1)
+                if len(scan_text) > MAX_SCANNED_TASK_CHARS:
+                    scan_reason = "local_scan_oversized"
+                else:
+                    scan_reason = _local_scan_reason(task, scan_text)
                 if scan_reason is None:
                     # Do not claim a positive data-class or policy version: the
-                    # local scan is a blocklist, not a sanitizer. Authority is
+                    # local scan is a blocklist, not a classifier. Authority is
                     # standing_ack alone.
                     evaluation = TurnEgressEvaluation(
                         allowed=True,
@@ -766,7 +846,7 @@ class AutomaticSkillRecommender:
                         data_class=None,
                         status="allowed",
                         reason_code="standing_ack_allowed",
-                        allowed_payload=task_text,
+                        allowed_payload=scan_text,
                         version=None,
                         egress_authority=EGRESS_AUTHORITY_STANDING_ACK,
                     )
@@ -863,8 +943,16 @@ class AutomaticSkillRecommender:
             result["routing_reason"] = evaluation.reason_code
         elif not should_host:
             result["hosted_skipped"] = "local_confident"
+            result["bypass_reason"] = "local_confident"
             result["routing_status"] = "hosted_skipped"
             result["routing_reason"] = "local_confident"
+        elif _trivial_turn(task_text):
+            # Local-first bypass: greetings, thanks, and acknowledgements
+            # never pay for a hosted request.
+            result["hosted_skipped"] = TRIVIAL_TURN_REASON
+            result["bypass_reason"] = TRIVIAL_TURN_REASON
+            result["routing_status"] = "hosted_skipped"
+            result["routing_reason"] = TRIVIAL_TURN_REASON
         elif outbound_scan_reason is not None:
             result["hosted_skipped"] = outbound_scan_reason
             result["routing_status"] = "hosted_skipped"
@@ -873,6 +961,7 @@ class AutomaticSkillRecommender:
             # Cheap local gate (uncertain_only only): near-zero lexical overlap
             # skips hosted fan-out after outbound identifier scanning.
             result["hosted_skipped"] = SHORTLIST_POLICY_NO_SKILL_GATE
+            result["bypass_reason"] = SHORTLIST_POLICY_NO_SKILL_GATE
             result["shortlist_policy"] = SHORTLIST_POLICY_NO_SKILL_GATE
             result["routing_status"] = "hosted_skipped"
             result["routing_reason"] = SHORTLIST_POLICY_NO_SKILL_GATE
@@ -888,11 +977,21 @@ class AutomaticSkillRecommender:
             result["hosted_skipped"] = "client_unavailable"
             result["routing_status"] = "hosted_skipped"
             result["routing_reason"] = "client_unavailable"
+        elif (hosted_task := _redact_for_hosted(
+            evaluation.allowed_payload or "" if evaluation is not None else ""
+        ))[0] is None:
+            # No Hermes redactor: send no text. Local routing still applies.
+            result["hosted_skipped"] = hosted_task[1]
+            result["routing_status"] = "hosted_skipped"
+            result["routing_reason"] = hosted_task[1]
         else:
             # Only the authorized bounded payload crosses this boundary (host
-            # envelope allowed_payload, or standing-ack task text). History,
+            # envelope allowed_payload, or standing-ack task text), after the
+            # Hermes egress redactor masks secret values. History,
             # descriptions, and skill bodies do not.
+            outbound_task = hosted_task[0] or ""
             result["hosted_attempted"] = True
+            result["input_chars"] = len(outbound_task)
             # Intervention timeout is separate from the 60s explicit-tool /
             # computer-use deadline and from the per-request provider I/O timeout.
             result["intervention_deadline_seconds"] = self.deadline_seconds
@@ -904,7 +1003,7 @@ class AutomaticSkillRecommender:
                         # for the top-K finalists after a local scan.
                         by_name = {item["name"]: item for item in candidate_set}
                         hosted = run_two_stage(
-                            task=(evaluation.allowed_payload or "") if evaluation is not None else "",
+                            task=outbound_task,
                             candidates=[by_name[item["name"]] for item in hosted_candidates],
                             client=self._pooled_client(),
                             client_pool=self._extra_pooled_clients(
@@ -916,7 +1015,7 @@ class AutomaticSkillRecommender:
                         )
                     else:
                         hosted = select_skill(
-                            task=(evaluation.allowed_payload or "") if evaluation is not None else "",
+                            task=outbound_task,
                             candidates=hosted_candidates,
                             client=self._pooled_client(),
                             public_or_sanitized_data_ack=True,
@@ -1086,7 +1185,7 @@ def redacted_routing_metadata(result: Mapping[str, Any]) -> dict[str, Any]:
     fields = (
         "routing_mode", "routing_status", "routing_reason", "status", "source",
         "selected", "hosted_attempted", "hosted_skipped", "hosted_error_code", "hosted_error_detail",
-        "candidate_count", "cache_hit", "policy_status", "policy_reason",
+        "candidate_count", "bypass_reason", "input_chars", "cache_hit", "policy_status", "policy_reason",
         "policy_data_class", "policy_version", "egress_authority",
         "intervention_deadline_seconds", "receipt_persist_failed",
     )
@@ -1258,6 +1357,12 @@ def build_routing_receipt(result: dict) -> dict:
         total_usage = receipt_state.safe_usage(
             _result_value(result, "total_usage") or _result_value(result, "usage") or {}
         )
+    bypass_reason = "cache_hit" if result.get("cache_hit") is True else result.get("bypass_reason")
+    if bypass_reason not in receipt_state.BYPASS_REASONS:
+        bypass_reason = None
+    input_chars = (
+        receipt_state.nonnegative_int(result.get("input_chars")) if hosted_attempted else 0
+    )
     hosted_succeeded = bool(
         hosted_attempted
         and hosted_error is None
@@ -1285,6 +1390,8 @@ def build_routing_receipt(result: dict) -> dict:
         "offered_count": receipt_state.nonnegative_int(_result_value(result, "offered_count")),
         "excluded_count": receipt_state.nonnegative_int(_result_value(result, "excluded_count")),
         "shortlist_policy": _safe_identifier(_result_value(result, "shortlist_policy")),
+        "bypass_reason": bypass_reason,
+        "input_chars": input_chars,
         "verified": False,
         "advisory_only": True,
         "plugin_identity": identity,
