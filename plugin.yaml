@@ -26,6 +26,7 @@ provides_tools:
   - jev_session_search_rerank
 provides_hooks:
   - pre_llm_call
+  - post_llm_call
   - post_tool_call
 provides_middleware:
   - llm_request
@@ -58,7 +59,7 @@ config_schema:
   automatic_skill_early_stop_threshold: {type: float, default: 0.3, description: "Uncalibrated early-stop needs-skill policy threshold; clamped to 0 through 1"}
   automatic_skill_stage1_min_probability: {type: float, default: 0.05, description: "Uncalibrated stage-one candidate floor before recheck; clamped to 0 through 1"}
   automatic_skill_parallel_requests: {type: int, default: 4, description: "Maximum parallel stage-one requests within the shared deadline; clamped to 1 through 8 and the operation request cap"}
-  adaptive_reasoning_effort: {type: bool, default: true, description: "On after install. Jev may lower Hermes reasoning_effort for routine steps via llm_request middleware. Your /reasoning level is the cap; Jev failures send your level unchanged. Set false to disable."}
+  adaptive_reasoning_effort: {type: bool, default: true, description: "On after install. Jev may lower Hermes reasoning_effort for routine steps via llm_request middleware. To choose, it sends up to 1,200 characters of the clean current user message to Jev; history, tool output, and secret-like text are not sent, and the local scan is not DLP. Your /reasoning level is the cap; Jev failures send your level unchanged. Set false to disable; false is the privacy opt-out and sends no message text."}
   adaptive_reasoning_effort_mode: {type: str, default: "auto", description: "Start mode for new sessions: auto (Jev may lower effort, never above your level) or pinned (your level is sent unchanged). /switchyard effort auto|pin changes the current session."}
   adaptive_reasoning_effort_exclude_models: {type: list, default: [], description: "Model name patterns (fnmatch, case-insensitive) the adapter never touches, for example [\"*astra*\"]. Excluded models make no Jev calls."}
   adaptive_reasoning_effort_allow_raise: {type: bool, default: false, description: "Off by default. When true, auto may go one level above your /reasoning level while the latest tool call failed."}
@@ -67,4 +68,4 @@ config_schema:
   session_search_rerank_choice_confidence_threshold: {type: float, default: 0.8, description: "Uncalibrated local policy threshold for jev_session_search_rerank; below this the tool fail-opens to stock FTS order"}
   session_search_rerank_winning_probability_threshold: {type: float, default: 0.8, description: "Uncalibrated winning-probability threshold for jev_session_search_rerank fail-open"}
   session_search_rerank_max_card_chars: {type: int, default: 360, description: "Per-card text cap after redaction for jev_session_search_rerank"}
-  public_or_sanitized_data_ack: {type: bool, default: true, description: "Standing consent for Jev tool calls. On after install. Callers may omit the field. Set false to refuse Jev calls."}
+  public_or_sanitized_data_ack: {type: bool, default: true, description: "Standing consent for Jev tool calls and for adaptive effort, which sends up to 1,200 characters of the clean current user message to Jev. On after install. Callers may omit the field. Set false to refuse Jev calls; adaptive effort then sends no message text."}

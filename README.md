@@ -47,7 +47,7 @@ TypeSafe and OpenRouter are separate paid or allowance-based routes. With `jev_p
 **Two automatic features are on after installation.** They have different data boundaries:
 
 - **Skill routing** can send a bounded task excerpt and exact candidate identifiers to the selected Jev provider when its hosted path is allowed. It does not send full skill bodies or the conversation history. A local restricted-data scan is not a guarantee that private data was removed.
-- **Adaptive reasoning effort** can send task-presence and length metadata, your requested effort, and recent tool status codes. It does not send raw user-message text or tool-result excerpts on that path. Your selected level is the default cap; `adaptive_reasoning_effort_allow_raise` explicitly allows one higher level after a failed tool call.
+- **Adaptive reasoning effort** can send bounded text from your current message (up to 1,200 characters, taken from Hermes' clean `pre_llm_call` message) and recent tool status codes. It does not send conversation history, memory or plugin context, or tool results. A local scan keeps messages with secret-like values, payment or verification data, or restricted markings local, and messages over 16,000 characters also stay local; it is not data loss prevention. Set `adaptive_reasoning_effort` to `false` to send no message text. Your selected level is the default cap; `adaptive_reasoning_effort_allow_raise` explicitly allows one higher level after a failed tool call.
 
 Do not use hosted Jev decisions for credentials, payment or verification codes, employer data, or other private or regulated content. Hermes owns data classification. Switchyard does not change the active model, silently try another provider, or bypass Hermes' computer-use controls. Its computer-use tool can send a goal and safe visible context to Jev; do not use it for private or authenticated screens. Read the [automatic-routing boundary](docs/AUTOMATIC-INTEGRATION.md) and [computer-use boundary](docs/DOM-BROWSER-BACKEND.md) before using those paths.
 
@@ -71,7 +71,7 @@ The [setup guide](docs/SETUP.md) covers provider selection and further privacy s
 | Surface | What is available | Default |
 | --- | --- | --- |
 | Tools (7) | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, `jev_session_search_rerank`, `jev_computer_use` | Callable when the corresponding toolset is selected |
-| Hooks (2) | `pre_llm_call` for automatic skill routing; `post_tool_call` for effort reconsideration | On after install |
+| Hooks (3) | `pre_llm_call` for automatic skill routing and current-message capture for effort; `post_llm_call` to clear that capture at turn end; `post_tool_call` for effort reconsideration | On after install |
 | Middleware (1) | `llm_request` for per-request reasoning effort | On after install |
 
 A skill suggestion is not a correctness guarantee. The automatic hook can load at most one accepted skill **per identified turn**; it can consider many skills and choose again on later turns. The separate multi-skill tool recommends a set but does not load it. Model-routing tools recommend but do not apply a model change. Computer use returns a receipt: an action, a local condition, and completion of the whole goal are separate claims. See [computer-use receipts](docs/DOM-BROWSER-BACKEND.md) for the exact verification rules.

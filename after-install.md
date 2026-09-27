@@ -62,7 +62,7 @@ hermes switchyard guide
 ```
 
 Adaptive reasoning effort is on after install (Hermes ≥ 0.21 `llm_request` middleware).
-Your `/reasoning` level is the cap by default. Jev may lower it for routine steps; a failed Jev call keeps your level. Use `/switchyard effort status|pin|auto` to inspect or change the session mode. Only an explicit `adaptive_reasoning_effort_allow_raise: true` allows one higher level after a failed tool call.
-Disable: `hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort false`.
+Your `/reasoning` level is the cap by default. Jev may lower it for routine steps; a failed Jev call keeps your level. To choose, Jev receives bounded text from your current message, not history, memory, or tool results. Use `/switchyard effort status|pin|auto` to inspect or change the session mode. Only an explicit `adaptive_reasoning_effort_allow_raise: true` allows one higher level after a failed tool call.
+Disable (also stops sending message text): `hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort false`.
 `jev_model_route` stays advisory — it does not switch models.
 

@@ -29,6 +29,7 @@ from hermes_switchyard.two_stage_routing import (
     HOSTED_DETAIL_DESCRIPTIONS,
     HOSTED_DETAIL_EXCERPT,
     HOSTED_DETAIL_NAMES,
+    MAX_DETAIL_DESCRIPTION_CHARS,
     MAX_DETAIL_EXCERPT_CHARS,
     NONINTERACTIVE_PLATFORMS,
     PLATFORM_REASON_KANBAN_WORKER,
@@ -276,6 +277,78 @@ class DataBoundaryTests(unittest.TestCase):
         self.assertEqual(rows[1], {"name": "b", "description": "Plain public description"})
         self.assertEqual(rows[2], {"name": "c"})
         self.assertEqual(withheld, 3)
+
+    def test_value_straddling_the_detail_cut_is_never_sent_in_part(self):
+        # Inert synthetic values, built at run time. Only the first few value
+        # characters fall inside the cut, below what the scan can classify.
+        marker = "STRADDLE" + "q7Zx" * 6
+        # (text before the value, value). The cut keeps ``kept`` value chars.
+        shapes = {
+            "known token prefix": ("gh" + "p_", marker),
+            "url userinfo": ("postgres://app:", marker + "@db.example.test/x"),
+            "authorization value": ("Author" + "ization: Bea" + "rer ", marker),
+        }
+
+        def straddling(limit: int, lead_in: str, value: str, kept: int) -> str:
+            n = limit - kept - len(lead_in)
+            lead = ("public words " * limit)[: n - 1].rstrip()
+            lead += "w" * (n - 1 - len(lead)) + " "
+            return lead + lead_in + value + " trailing public words"
+
+        excerpt_limit = MAX_DETAIL_EXCERPT_CHARS
+        description_limit = MAX_DETAIL_DESCRIPTION_CHARS
+        for shape, (lead_in, value) in shapes.items():
+            fragment = lead_in + marker[0]  # any value character after its lead-in
+            for kept in (1, 3, 6, 10):
+                label = {"shape": shape, "kept": kept}
+                with self.subTest(path="production skill_excerpt loader", **label):
+                    body = "---\nname: songsee\n---\n" + straddling(excerpt_limit, lead_in, value, kept)
+                    transport = responder()
+                    run_two_stage(
+                        task=TASK,
+                        candidates=catalog(),
+                        client=client_for(transport),
+                        config=TwoStageConfig(hosted_detail=HOSTED_DETAIL_EXCERPT, recheck_top_k=2),
+                        excerpt_loader=lambda name, body=body: skill_excerpt(body),
+                    )
+                    self.assertFalse(fragment in json.dumps(transport.payloads), "partial value sent")
+                with self.subTest(path="raw excerpt loader", **label):
+                    text = straddling(excerpt_limit, lead_in, value, kept)
+                    rows, _ = build_stage2_skills(
+                        ["a"], {"a": {"name": "a"}}, HOSTED_DETAIL_EXCERPT, excerpt_loader=lambda name: text
+                    )
+                    self.assertFalse(fragment in json.dumps(rows), "partial value sent")
+                with self.subTest(path="description", **label):
+                    text = straddling(description_limit, lead_in, value, kept)
+                    rows, _ = build_stage2_skills(
+                        ["a"], {"a": {"name": "a", "description": text}}, HOSTED_DETAIL_DESCRIPTIONS
+                    )
+                    self.assertFalse(fragment in json.dumps(rows), "partial value sent")
+
+    def test_detail_without_a_safe_token_boundary_is_withheld(self):
+        one_token = "x" * (MAX_DETAIL_DESCRIPTION_CHARS + 5)
+        rows, _ = build_stage2_skills(
+            ["a"], {"a": {"name": "a", "description": one_token}}, HOSTED_DETAIL_DESCRIPTIONS
+        )
+        self.assertEqual(rows, [{"name": "a"}])
+        self.assertIsNone(skill_excerpt("y" * (MAX_DETAIL_EXCERPT_CHARS + 1)))
+
+    def test_public_detail_is_still_sent_when_restricted_text_lies_past_the_cut(self):
+        # Content that is never sent must not withhold the part that is sent.
+        public = ("Render spectrograms from public audio files. " * 60)
+        tail = " contact " + "ops" + "@" + "example.com for help"
+        rows, withheld = build_stage2_skills(
+            ["a"],
+            {"a": {"name": "a", "description": public + tail}},
+            HOSTED_DETAIL_EXCERPT,
+            excerpt_loader=lambda name: public + tail,
+        )
+        self.assertEqual(withheld, 0)
+        self.assertTrue(rows[0]["description"].startswith("Render spectrograms"))
+        self.assertTrue(rows[0]["excerpt"].startswith("Render spectrograms"))
+        self.assertLessEqual(len(rows[0]["description"]), MAX_DETAIL_DESCRIPTION_CHARS)
+        self.assertLessEqual(len(rows[0]["excerpt"]), MAX_DETAIL_EXCERPT_CHARS)
+        self.assertTrue((skill_excerpt("# Title\n\n" + public) or "").startswith("# Title"))
 
     def test_skill_excerpt_strips_frontmatter_and_bounds(self):
         content = "---\nname: x\ndescription: secret frontmatter\n---\n# Title\n\n" + "body " * 1000

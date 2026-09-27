@@ -7,11 +7,15 @@ real registration data, so the same drift fails the suite instead of shipping.
 
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from hermes_switchyard import TOOL_TOOLSETS
+from hermes_switchyard import TOOL_TOOLSETS, register
+from hermes_switchyard.reasoning_effort_adapter import MAX_TASK_CHARS
 
 ROOT = Path(__file__).resolve().parent.parent
 README = ROOT / "README.md"
@@ -69,6 +73,45 @@ def _manifest_list(name: str) -> list[str]:
     return items
 
 
+def _config_description(key: str) -> str:
+    """Return one config_schema description from plugin.yaml without a YAML parser."""
+    for line in PLUGIN_MANIFEST.read_text(encoding="utf-8").splitlines():
+        if line.startswith(f"  {key}: {{"):
+            match = re.search(r'description: "((?:[^"\\]|\\.)*)"', line) or re.search(
+                r"description: ([^}]*)}", line
+            )
+            if match:
+                return match.group(1)
+    raise AssertionError(f"plugin.yaml has no config_schema description for {key}")
+
+
+class _RecordingContext:
+    """A minimal PluginContext that records names only and applies install defaults."""
+
+    def __init__(self):
+        self.hooks: list[str] = []
+        self.middleware: list[str] = []
+        self.tools: list[str] = []
+
+    def get_config(self, _key, default=None):
+        return default
+
+    def register_hook(self, name, _callback):
+        self.hooks.append(name)
+
+    def register_middleware(self, name, _callback, **_kwargs):
+        self.middleware.append(name)
+
+    def register_tool(self, *args, **kwargs):
+        self.tools.append(kwargs.get("name") or args[0])
+
+    def register_skill(self, *_args, **_kwargs):
+        pass
+
+    def register_auxiliary_task(self, *_args, **_kwargs):
+        pass
+
+
 class ReadmeCapabilityInventoryTests(unittest.TestCase):
     def test_toolsets_table_matches_the_registered_tool_mapping(self):
         table: dict[str, str] = {}
@@ -124,6 +167,54 @@ class ReadmeCapabilityInventoryTests(unittest.TestCase):
                 features,
                 f"the README capability inventory does not list {name}",
             )
+
+    def test_default_registration_matches_the_manifest_in_both_directions(self):
+        # Hermes `plugins validate` fails when registration adds a hook that
+        # plugin.yaml does not declare. A source text search cannot see that, so
+        # run the real register() with the default install settings.
+        context = _RecordingContext()
+        with tempfile.TemporaryDirectory(prefix="switchyard-manifest-home-") as home:
+            with mock.patch.dict(os.environ, {"HERMES_HOME": home}):
+                register(context)
+        for kind, key, registered in (
+            ("hook", "provides_hooks", context.hooks),
+            ("middleware", "provides_middleware", context.middleware),
+        ):
+            declared = _manifest_list(key)
+            self.assertEqual(
+                sorted(set(registered) - set(declared)),
+                [],
+                f"register() adds {kind} names that plugin.yaml does not declare",
+            )
+            self.assertEqual(
+                sorted(set(declared) - set(registered)),
+                [],
+                f"plugin.yaml declares {kind} names that register() does not add",
+            )
+        self.assertEqual(len(_manifest_list("provides_hooks")), len(set(_manifest_list("provides_hooks"))))
+        self.assertEqual(sorted(context.tools), sorted(_manifest_list("provides_tools")))
+        hook_row = next(
+            line for line in _features_section(_readme_text()).splitlines() if line.startswith("| Hooks (")
+        )
+        self.assertEqual(
+            sorted(set(re.findall(r"`([a-z_]+)`", hook_row))),
+            sorted(set(context.hooks)),
+            "the README Hooks row does not list exactly the registered hooks",
+        )
+
+    def test_settings_text_discloses_adaptive_effort_message_egress(self):
+        # Default-on adaptive effort sends bounded clean current-message text to
+        # Jev. The settings UI text must say so and name the opt-out, and the
+        # stated bound must be the real bound.
+        limit = f"{MAX_TASK_CHARS:,}"
+        effort = _config_description("adaptive_reasoning_effort")
+        ack = _config_description("public_or_sanitized_data_ack")
+        for name, text in (("adaptive_reasoning_effort", effort), ("public_or_sanitized_data_ack", ack)):
+            self.assertIn(f"up to {limit} characters", text, f"{name} does not state the text bound")
+            self.assertIn("current user message", text, f"{name} does not say message text is sent")
+            self.assertIn("Set false", text, f"{name} does not name its opt-out")
+        self.assertIn("privacy opt-out", effort)
+        self.assertIn("adaptive effort", ack)
 
     def test_declared_hooks_and_middleware_are_registered_in_the_source(self):
         source = "\n".join(
