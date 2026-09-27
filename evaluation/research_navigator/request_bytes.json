@@ -1,0 +1,331 @@
+{
+ "before_ref": "23c679c19789a4da35a130a535af241ab060c61d",
+ "cases_with_a_call": 31,
+ "measure": "UTF-8 bytes of compact JSON state + questions sent to Jev, per call (one call per case)",
+ "reduction": 0.2566,
+ "rows": [
+  {
+   "after_bytes": 724,
+   "after_question_bytes": 429,
+   "before_bytes": 1023,
+   "before_question_bytes": 713,
+   "case": "dev-01",
+   "split": "dev"
+  },
+  {
+   "after_bytes": 460,
+   "after_question_bytes": 229,
+   "before_bytes": 587,
+   "before_question_bytes": 371,
+   "case": "dev-02",
+   "split": "dev"
+  },
+  {
+   "after_bytes": 441,
+   "after_question_bytes": 203,
+   "before_bytes": 555,
+   "before_question_bytes": 345,
+   "case": "dev-03",
+   "split": "dev"
+  },
+  {
+   "after_bytes": 746,
+   "after_question_bytes": 457,
+   "before_bytes": 1047,
+   "before_question_bytes": 741,
+   "case": "dev-04",
+   "split": "dev"
+  },
+  {
+   "after_bytes": 0,
+   "after_question_bytes": 0,
+   "before_bytes": 0,
+   "before_question_bytes": 0,
+   "case": "dev-05",
+   "split": "dev"
+  },
+  {
+   "after_bytes": 452,
+   "after_question_bytes": 225,
+   "before_bytes": 574,
+   "before_question_bytes": 367,
+   "case": "dev-06",
+   "split": "dev"
+  },
+  {
+   "after_bytes": 444,
+   "after_question_bytes": 215,
+   "before_bytes": 564,
+   "before_question_bytes": 357,
+   "case": "dev-07",
+   "split": "dev"
+  },
+  {
+   "after_bytes": 0,
+   "after_question_bytes": 0,
+   "before_bytes": 0,
+   "before_question_bytes": 0,
+   "case": "dev-08",
+   "split": "dev"
+  },
+  {
+   "after_bytes": 843,
+   "after_question_bytes": 513,
+   "before_bytes": 1196,
+   "before_question_bytes": 797,
+   "case": "ho-01",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 478,
+   "after_question_bytes": 229,
+   "before_bytes": 603,
+   "before_question_bytes": 371,
+   "case": "ho-02",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 548,
+   "after_question_bytes": 251,
+   "before_bytes": 704,
+   "before_question_bytes": 393,
+   "case": "ho-03",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 476,
+   "after_question_bytes": 235,
+   "before_bytes": 606,
+   "before_question_bytes": 377,
+   "case": "ho-04",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 541,
+   "after_question_bytes": 267,
+   "before_bytes": 704,
+   "before_question_bytes": 409,
+   "case": "ho-05",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 542,
+   "after_question_bytes": 271,
+   "before_bytes": 705,
+   "before_question_bytes": 413,
+   "case": "ho-06",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 730,
+   "after_question_bytes": 449,
+   "before_bytes": 1031,
+   "before_question_bytes": 733,
+   "case": "ho-07",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 764,
+   "after_question_bytes": 489,
+   "before_bytes": 1074,
+   "before_question_bytes": 773,
+   "case": "ho-08",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 526,
+   "after_question_bytes": 255,
+   "before_bytes": 681,
+   "before_question_bytes": 397,
+   "case": "ho-09",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 455,
+   "after_question_bytes": 227,
+   "before_bytes": 579,
+   "before_question_bytes": 369,
+   "case": "ho-10",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 450,
+   "after_question_bytes": 219,
+   "before_bytes": 568,
+   "before_question_bytes": 361,
+   "case": "ho-11",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 472,
+   "after_question_bytes": 241,
+   "before_bytes": 601,
+   "before_question_bytes": 383,
+   "case": "ho-12",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 0,
+   "after_question_bytes": 0,
+   "before_bytes": 0,
+   "before_question_bytes": 0,
+   "case": "ho-13",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 496,
+   "after_question_bytes": 235,
+   "before_bytes": 645,
+   "before_question_bytes": 377,
+   "case": "ho-14",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 507,
+   "after_question_bytes": 271,
+   "before_bytes": 657,
+   "before_question_bytes": 413,
+   "case": "ho-15",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 504,
+   "after_question_bytes": 237,
+   "before_bytes": 651,
+   "before_question_bytes": 379,
+   "case": "ho-16",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 0,
+   "after_question_bytes": 0,
+   "before_bytes": 0,
+   "before_question_bytes": 0,
+   "case": "ho-17",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 0,
+   "after_question_bytes": 0,
+   "before_bytes": 0,
+   "before_question_bytes": 0,
+   "case": "ho-18",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 733,
+   "after_question_bytes": 445,
+   "before_bytes": 1034,
+   "before_question_bytes": 729,
+   "case": "ho-19",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 728,
+   "after_question_bytes": 433,
+   "before_bytes": 1021,
+   "before_question_bytes": 717,
+   "case": "ho-20",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 967,
+   "after_question_bytes": 631,
+   "before_bytes": 1439,
+   "before_question_bytes": 1057,
+   "case": "ho-21",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 1174,
+   "after_question_bytes": 869,
+   "before_bytes": 1816,
+   "before_question_bytes": 1437,
+   "case": "ho-22",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 530,
+   "after_question_bytes": 227,
+   "before_bytes": 658,
+   "before_question_bytes": 369,
+   "case": "ho-23",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 0,
+   "after_question_bytes": 0,
+   "before_bytes": 0,
+   "before_question_bytes": 0,
+   "case": "ho-24",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 0,
+   "after_question_bytes": 0,
+   "before_bytes": 0,
+   "before_question_bytes": 0,
+   "case": "ho-25",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 462,
+   "after_question_bytes": 223,
+   "before_bytes": 582,
+   "before_question_bytes": 365,
+   "case": "ho-26",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 454,
+   "after_question_bytes": 223,
+   "before_bytes": 580,
+   "before_question_bytes": 365,
+   "case": "ho-27",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 451,
+   "after_question_bytes": 223,
+   "before_bytes": 577,
+   "before_question_bytes": 365,
+   "case": "ho-28",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 454,
+   "after_question_bytes": 223,
+   "before_bytes": 580,
+   "before_question_bytes": 365,
+   "case": "ho-29",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 453,
+   "after_question_bytes": 223,
+   "before_bytes": 579,
+   "before_question_bytes": 365,
+   "case": "ho-30",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 0,
+   "after_question_bytes": 0,
+   "before_bytes": 0,
+   "before_question_bytes": 0,
+   "case": "ho-31",
+   "split": "heldout"
+  },
+  {
+   "after_bytes": 0,
+   "after_question_bytes": 0,
+   "before_bytes": 0,
+   "before_question_bytes": 0,
+   "case": "ho-32",
+   "split": "heldout"
+  }
+ ],
+ "schema_version": 1,
+ "total_after_bytes": 18005,
+ "total_before_bytes": 24221
+}

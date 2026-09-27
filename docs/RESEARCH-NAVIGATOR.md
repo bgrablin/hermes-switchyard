@@ -6,7 +6,7 @@ The Research Navigator links named claims to public source windows that you alre
 
 1. You retrieve public pages with the usual Hermes tools.
 2. You call `jev_research_navigator` with a goal, up to 4 claims, and up to 6 original excerpt windows. Each window has an ID, a public `https` URL, and at most 1,200 characters of original text.
-3. The tool sends one Jev request. For each claim and window, Jev answers two Noul questions: does the window support the claim, and does it contradict the claim.
+3. The tool sends one Jev request. For each claim and window, Jev answers two Noul questions: does the window support the claim, and does it contradict the claim. The request carries the goal, one shared judging rule, and the window IDs and text. Each question names its window and claim. URLs and exact quotes stay local: code checks quotes before a pair is sent, and the URL is display provenance only.
 4. The tool returns one card per claim.
 
 | Class | Meaning | Band |
