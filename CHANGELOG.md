@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.5.5 (unreleased)
+## 0.5.5 (2026-09-27)
 
-The manifest still declares 0.5.4. This section describes the integrated development branch, not a published release.
+The manifest declares 0.5.5. This is the release candidate, not a published release.
 
 ### Included in the development branch
 
@@ -14,12 +14,12 @@ The manifest still declares 0.5.4. This section describes the integrated develop
 - [#136](https://github.com/bgrablin/hermes-switchyard/pull/136): adaptive effort now sends a greeting or thanks at the lowest allowed level with **no Jev call**. A request with an action still uses Jev when allowed. The receipt says `local (no Jev call)` and history records `jev_called: false`. The installed-candidate [recorded trace](docs/FIRST-RUN.md) shows the boundary; it does not establish a warm latency target.
 - The normal Git installer now passes its community-source scan on this candidate. The source is still unreviewed by the Hermes catalog; the scan is not a quality guarantee. [First-run measurements](docs/FIRST-RUN.md) separate local steps from unmeasured key entry and a real session.
 - [#137](https://github.com/bgrablin/hermes-switchyard/pull/137) skips the Snap browser test assertion only after an environmental fallback; [#138](https://github.com/bgrablin/hermes-switchyard/pull/138) gives the isolated Windows turn-loop child a real home directory. CI install-scan and checksum checks protect the artifact and the exact source tree.
+- [#140](https://github.com/bgrablin/hermes-switchyard/pull/140) reuses the Jev client and introduced a 0.25 s adaptive decision budget; [#141](https://github.com/bgrablin/hermes-switchyard/pull/141) sets the default to 0.4 s (allowed range 0.1–1.5 s). On timeout your level is sent unchanged. Under the prior 0.25 s guard, 14 installed cold one-shot non-trivial decisions had a Jev p50 of 248.85 ms and p95 of 281.5 ms (nearest-rank); 8 of 14 timed out. A fresh TUI measured one client-reused Jev call at 178.4 ms. One warm sample cannot establish a p95 for the current default.
 
 ### Not included
 
-- **Research Navigator (F1):** its [frozen end-to-end release evaluation on PR #132](https://github.com/bgrablin/hermes-switchyard/pull/132) **failed**. It is not shipped in this branch.
-- **DOM Progress & Recovery (F2):** its [evaluation on PR #135](https://github.com/bgrablin/hermes-switchyard/pull/135) is still in progress. It is not shipped in this branch.
-- A proposed client-reuse and 0.25 s decision-budget guard is **pending PR**. The current manifest keeps the 1.5 s adaptive decision deadline. No warm p95 claim is made.
+- **Research Navigator (F1):** its [frozen end-to-end release evaluation on closed PR #132](https://github.com/bgrablin/hermes-switchyard/pull/132#issuecomment-5859656369) **failed** on latency, cost completeness, and false final assertions. It is not shipped.
+- **DOM Progress & Recovery (F2):** its [frozen release evaluation on closed PR #135](https://github.com/bgrablin/hermes-switchyard/pull/135#issuecomment-5859656659) **failed** on outcome: the candidate had no live early-stop gain. It is not shipped. [Issue #139](https://github.com/bgrablin/hermes-switchyard/issues/139) tracks follow-up work.
 
 ## 0.5.4
 
