@@ -34,6 +34,7 @@ from .client import MAX_CONNECTION_IDLE_SECONDS, HostCancelled, request_budget_s
 from .egress_redaction import REDACTION_UNAVAILABLE_REASON, redact_for_jev
 from .routing import _choice_metrics, _criteria, _decision_metadata, _noul_score
 from .trivial_turn import is_trivial_turn
+from .tui_status import SentEffortStatus
 
 # Hermes hermes_constants.VALID_REASONING_EFFORTS plus "none" (disabled).
 HERMES_REASONING_EFFORTS: tuple[str, ...] = (
@@ -1332,6 +1333,8 @@ class ReasoningEffortController:
         step_adaptation: Any = True,
         receipt_line: Any = True,
         client_identity: Callable[[], Any] | None = None,
+        status_bar: Any = True,
+        status_publisher: Any = None,
     ) -> None:
         self.enabled = enabled is True
         # Deprecated: the fallback is always the request's own level.
@@ -1355,6 +1358,9 @@ class ReasoningEffortController:
             not isinstance(step_adaptation, bool) and parse_bool_setting(step_adaptation)
         )
         self.receipt_line = parse_bool_setting(receipt_line)
+        # Hermes TUI status bar: show the sent level next to the user's level (``high→low``).
+        self.status_bar = parse_bool_setting(status_bar)
+        self._status = status_publisher if status_publisher is not None else SentEffortStatus()
         self.record_decision = record_decision
         self.session_env = session_env or _session_env
         self._registry_lock = threading.RLock()
@@ -1647,6 +1653,7 @@ class ReasoningEffortController:
         payload = dict(receipt)
         # Host request identity for post_api_request usage; kept out of receipts and records.
         api_request_id = payload.pop("_api_request_id", None)
+        host_session_id = payload.pop("_host_session_id", None)
         _LAST_RECEIPT = dict(payload)
         state.last_choice = dict(payload)
         latency = _finite_or_none(payload.get("jev_latency_ms")) if payload.get("jev_called") else None
@@ -1660,6 +1667,11 @@ class ReasoningEffortController:
         if not state.delegated:
             self._note_turn_receipt(payload, latency)
             self._note_request_usage(payload, api_request_id)
+            if self.status_bar:
+                self._status.note(
+                    host_session_id or payload.get("session_id"), payload.get("requested_effort"),
+                    payload.get("effort"), payload.get("turn_id"),
+                )
         writer = self.record_decision
         if writer is not None:
             try:
@@ -2158,6 +2170,9 @@ class ReasoningEffortController:
             base["turn_id"] = turn_id
         if context.get("api_request_id") is not None:
             base["_api_request_id"] = context.get("api_request_id")
+        if _identifier(session_id) is not None:
+            # The host's own session ID (after any rotation), for the TUI status bar only.
+            base["_host_session_id"] = _identifier(session_id)
 
         with state.lock:
             state.requests += 1
@@ -2856,6 +2871,7 @@ def register_reasoning_effort_adapter(
     step_adaptation: Any = True,
     receipt_line: Any = True,
     client_identity: Callable[[], Any] | None = None,
+    status_bar: Any = True,
 ) -> dict[str, Any]:
     """Register llm_request middleware, turn and tool hooks, and ``/switchyard``."""
     global _LAST_REGISTRATION
@@ -2869,6 +2885,7 @@ def register_reasoning_effort_adapter(
             not isinstance(step_adaptation, bool) and parse_bool_setting(step_adaptation)
         ),
         "receipt_line": parse_bool_setting(receipt_line),
+        "status_bar": parse_bool_setting(status_bar),
     }
     if not enabled:
         receipt = {
@@ -2909,6 +2926,7 @@ def register_reasoning_effort_adapter(
         step_adaptation=settings["step_adaptation"],
         receipt_line=settings["receipt_line"],
         client_identity=client_identity,
+        status_bar=settings["status_bar"],
     )
     register_middleware = getattr(ctx, "register_middleware")
     register_middleware("llm_request", controller.on_llm_request)
