@@ -172,10 +172,18 @@ def _isolated_replay(plugin_dir: Path) -> None:
     _, capped = codex("low", session="s-low")
     assert not capped.changed and capped.payload["reasoning"]["effort"] == "low"
     assert len(fake.calls) == 1
+    # v0.5.5: a /reasoning change sets a new cap and keeps auto; only an explicit pin pins.
+    _, recapped = codex("medium")
+    assert recapped.changed and recapped.payload["reasoning"]["effort"] == "low"
+    assert controller.session_status("s1")["mode"] == "auto", "user_change_pinned_the_session"
+    assert controller.session_status("s1")["user_level"] == "medium"
+    assert len(fake.calls) == 2
+    with scoped_current_session_id("s1"):
+        assert "pinned" in command("effort pin")
     _, pinned = codex("medium")
     assert not pinned.changed and pinned.payload["reasoning"]["effort"] == "medium"
     assert controller.session_status("s1")["mode"] == "pinned"
-    assert len(fake.calls) == 1
+    assert len(fake.calls) == 2
     with scoped_current_session_id("s1"):
         assert "mode: pinned" in command("effort status")
     with scoped_current_session_id("s-low"):
@@ -506,7 +514,8 @@ class InstalledHermesEffortIntegrationTests(unittest.TestCase):
             }, "unexpected_child_receipt_fields")
             self.assertTrue(proof.get("codex_wire_effort") == "low", "codex_wire_effort_mismatch")
             self.assertTrue(proof.get("anthropic_wire_effort") == "low", "anthropic_wire_effort_mismatch")
-            self.assertTrue(proof.get("jev_calls") == 2, "jev_calls_mismatch")
+            # Codex first turn, the /reasoning medium re-decision, and the Anthropic turn.
+            self.assertTrue(proof.get("jev_calls") == 3, "jev_calls_mismatch")
             self.assertIs(proof.get("command_registered"), True)
 
 
