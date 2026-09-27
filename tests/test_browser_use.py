@@ -884,6 +884,48 @@ class SnapConfinementDetectionTests(unittest.TestCase):
 class SnapBrowserLaunchIntegrationTests(unittest.TestCase):
     """The confined profile directory is proven by launching the real browser."""
 
+    def test_failed_snap_attempt_with_fallback_skips_environment_failure(self):
+        with self.assertRaisesRegex(unittest.SkipTest, "profile_locked"):
+            self._assert_snap_launch(
+                Path("/snap/bin/chromium"),
+                "/opt/google/chrome/google-chrome",
+                {"fallback_used": True, "attempts": [
+                    {"executable_class": "snap", "outcome": "exited", "stderr_reasons": ["profile_locked"]},
+                    {"executable_class": "system", "outcome": "started", "stderr_reasons": []},
+                ]},
+            )
+
+    def test_successful_snap_attempt_with_wrong_binary_still_fails(self):
+        with self.assertRaisesRegex(AssertionError, "supplied Snap wrapper"):
+            self._assert_snap_launch(
+                Path("/snap/bin/chromium"),
+                "/opt/google/chrome/google-chrome",
+                {"fallback_used": False, "attempts": [
+                    {"executable_class": "snap", "outcome": "started", "stderr_reasons": []},
+                ]},
+            )
+
+    def _assert_snap_launch(self, executable: Path, launched: str, startup: dict) -> None:
+        actual = Path(os.path.realpath(launched))
+        expected = Path(os.path.realpath(executable))
+        if actual != expected:
+            attempts = startup.get("attempts") or []
+            first = attempts[0] if attempts else {}
+            environment_reasons = {
+                "profile_locked", "snap_confinement", "sandbox_unavailable",
+                "permission_denied", "display_unavailable", "shared_library_missing",
+                "shared_memory_unavailable", "out_of_memory",
+            }
+            reasons = set(first.get("stderr_reasons") or []) & environment_reasons
+            if (startup.get("fallback_used") and first.get("executable_class") == "snap"
+                    and (first.get("outcome") == "profile_unavailable"
+                         or (first.get("outcome") == "exited" and reasons))):
+                self.skipTest(
+                    "confined Snap launch unavailable in this environment: "
+                    f"{first['outcome']} ({', '.join(sorted(reasons)) or 'profile_unavailable'})"
+                )
+        self.assertEqual(actual, expected, "the launch did not use the supplied Snap wrapper")
+
     def _real_snap_binary(self):
         candidate = Path("/snap/bin/chromium")
         if os.name == "nt" or not candidate.is_file():
@@ -894,6 +936,7 @@ class SnapBrowserLaunchIntegrationTests(unittest.TestCase):
         launcher = module_dir / "launcher.py"
         launcher.write_text(
             "import sys\n"
+            "import json\n"
             "from pathlib import Path\n"
             "from unittest import mock\n"
             "from hermes_switchyard import browser_use\n"
@@ -902,7 +945,8 @@ class SnapBrowserLaunchIntegrationTests(unittest.TestCase):
             "    session = browser_use.ChromiumSession('https://example.org/', headed=False)\n"
             "    launched = session._proc.args[0] if session._proc is not None else ''\n"
             f"    marker = Path({str(marker)!r})\n"
-            "    marker.write_text(chr(10).join([launched, session._tmpdir.name]), encoding='utf-8')\n"
+            "    marker.write_text(json.dumps({'launched': launched, 'profile': session._tmpdir.name, "
+            "'startup': session.startup}), encoding='utf-8')\n"
             "    session.close()\n"
             "sys.exit(0)\n",
             encoding="utf-8",
@@ -926,7 +970,7 @@ class SnapBrowserLaunchIntegrationTests(unittest.TestCase):
                 '#!/bin/sh\nexec /snap/bin/chromium "$@"\n', encoding="utf-8"
             )
             executable.chmod(0o755)
-            marker = node / "profile.txt"
+            marker = node / "profile.json"
             launcher = self._real_python_launcher(module_dir, executable, marker)
             env = dict(os.environ)
             env["PYTHONPATH"] = str(module_dir)
@@ -948,13 +992,9 @@ class SnapBrowserLaunchIntegrationTests(unittest.TestCase):
                     f"rc={completed.returncode} {completed.stderr[-400:]}"
                 )
             self.assertTrue(marker.is_file(), "the launch did not record a profile directory")
-            launched, profile_text = marker.read_text(encoding="utf-8").split("\n", 1)
-            self.assertEqual(
-                Path(os.path.realpath(launched)),
-                Path(os.path.realpath(executable)),
-                "the launch did not use the supplied Snap wrapper",
-            )
-            profile_dir = Path(profile_text.strip())
+            launch = json.loads(marker.read_text(encoding="utf-8"))
+            self._assert_snap_launch(executable, launch["launched"], launch["startup"])
+            profile_dir = Path(launch["profile"])
             self.assertEqual(
                 Path(os.path.realpath(profile_dir)).parent,
                 Path(os.path.realpath(Path.home() / "snap" / "chromium" / "common")),
