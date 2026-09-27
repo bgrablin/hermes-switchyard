@@ -214,27 +214,27 @@ class ProviderWireAuditTests(unittest.TestCase):
         self.assertEqual(receipt["reason_code"], "kept_requested_after_tool_failure")
         self.assertNotIn("synthetic public task marker", json.dumps(receipt, default=str))
 
-    def test_secret_like_task_fails_closed_with_zero_hosted_calls(self):
+    def test_secret_value_is_masked_on_the_wire_to_jev(self):
+        """#122 rework: the secret is masked in the Jev request; the decision still runs."""
         opus = {"provider": "anthropic", "model": "claude-opus-5-5", "api_mode": "anthropic_messages"}
         client = CaptureClient()
         controller = ReasoningEffortController(client_factory=lambda: client)
+        value = "SYNTHETIC0INERT0VALUE0E123"
         controller.build_pre_llm_call_hook()(
             session_id="synthetic", task_id="synthetic", turn_id="t1",
-            user_message="deploy with api" + "_key=" + "sk-" + "SYNTHETIC0INERT0VALUE0E123",
+            user_message="deploy with api" + "_key=" + "sk-" + value,
             conversation_history=[], is_first_turn=True, model="claude-opus-5-5", platform="cli",
         )
         request = {"model": "claude-opus-5-5", "max_tokens": 32, "thinking": {"type": "adaptive"},
                    "output_config": {"effort": "high"}, "messages": [{"role": "user", "content": "synthetic"}]}
-        result = controller.on_llm_request(request, session_id="synthetic", task_id="synthetic", turn_id="t1", **opus)
-        self.assertEqual(client.calls, [])
-        self.assertIsNone(result)
-        self.assertEqual(request["output_config"]["effort"], "high")
-        # Direct callers get the same gate.
-        direct = choose_reasoning_effort(task="use pass" + "word=SYNTHETIC0INERT0VALUE", recent_tool_outcomes=[],
+        controller.on_llm_request(request, session_id="synthetic", task_id="synthetic", turn_id="t1", **opus)
+        self.assertEqual(len(client.calls), 1)
+        self.assertNotIn(value, json.dumps(client.calls, default=str))
+        direct = choose_reasoning_effort(task="use pass" + "word=" + value, recent_tool_outcomes=[],
                                          requested_effort="high", client=client)
-        self.assertEqual(client.calls, [])
-        self.assertEqual(direct["effort"], "high")
-        self.assertEqual(direct["reason_code"], "kept_requested_restricted_text")
+        self.assertEqual(len(client.calls), 2)
+        self.assertNotIn(value, json.dumps(client.calls, default=str))
+        self.assertIn(direct["effort"], {"low", "medium", "high"})
 
 
 if __name__ == "__main__":

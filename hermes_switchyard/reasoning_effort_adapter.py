@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from .client import request_budget_scope
+from .egress_redaction import redact_for_jev
 from .routing import _choice_metrics, _criteria, _decision_metadata, _noul_score
 
 # Hermes hermes_constants.VALID_REASONING_EFFORTS plus "none" (disabled).
@@ -179,7 +180,7 @@ def _clean_user_text(value: Any) -> str | None:
         elif isinstance(block, Mapping):
             kind = block.get("type")
             text = block.get("text")
-            if kind in (None, "text", "input_text") and isinstance(text, str):
+            if kind in ("text", "input_text") and isinstance(text, str):
                 parts.append(text)
     return "\n".join(parts)
 
@@ -198,117 +199,26 @@ _EFFORT_MARKING_RE = re.compile(
     r"\b(?:company|employer|client)\s+confidential\b",
     re.IGNORECASE,
 )
-_EFFORT_SECRET_VALUE_RE = re.compile(
-    r"\b(?:password|passwd|passphrase|pwd|client[_ -]?secret|private[_ -]?key)\s*[:=]\s*\S+|"
-    r"-----BEGIN [A-Z ]*PRIVATE KEY-----|\bAKIA[0-9A-Z]{16}\b|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.",
-    re.IGNORECASE,
-)
-# #121 review F1: value-aware shapes. A secret-like *name* alone never blocks; the
-# name must be followed by an actual value (see _is_secret_value), so a public
-# question about passwords or OPENAI_API_KEY stays eligible.
-_SECRET_NAME = (
-    r"(?:pass(?:word|wd|phrase)|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|"
-    r"private[_-]?key|credentials?)"
-)
-_SECRET_VALUE_CHARS = r"[^\s\"'`,;()\[\]{}]+"
-_SECRET_ASSIGNMENT_RE = re.compile(
-    # DB_PASSWORD=..., OPENAI_API_KEY: ..., client_token = "...", "api_key": "..."
-    r"(?<![A-Za-z0-9])[A-Za-z0-9_.-]*?" + _SECRET_NAME + r"[\"']?\s*(?P<sep>[:=])\s*[\"']?"
-    r"(?P<value>" + _SECRET_VALUE_CHARS + r")(?=[\s\"'`,;]|$)",
-    re.IGNORECASE,
-)
-_SECRET_FLAG_RE = re.compile(
-    # --api-key VALUE, --db-password=VALUE
-    r"(?<![A-Za-z0-9-])--[A-Za-z0-9_-]*?" + _SECRET_NAME + r"(?P<sep>=|\s+)[\"']?"
-    r"(?P<value>" + _SECRET_VALUE_CHARS + r")(?=[\s\"'`,;]|$)",
-    re.IGNORECASE,
-)
-_URL_USERINFO_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://[^\s/:@<>]+:(?P<value>[^\s/@]+)@", re.IGNORECASE)
-_AUTHORIZATION_RE = re.compile(
-    r"\b(?:proxy-)?authorization\s*[:=]\s*[\"']?(?P<value>[^\s\"'`,;]+(?:\s+[^\s\"'`,;]+)?)",
-    re.IGNORECASE,
-)
-_AUTH_SCHEMES = frozenset({"basic", "bearer", "token", "digest", "negotiate", "ntlm", "apikey", "aws4-hmac-sha256"})
-_SECRET_TOKEN_PREFIX_RE = re.compile(
-    r"\b(?:github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[abeprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{30,})"
-)
-
-
-def _is_secret_value(value: str, min_len: int) -> bool:
-    """Return True when *value* looks like an actual value, not a placeholder or a number."""
-    value = value.strip("\"'`")
-    if len(value) < min_len:
-        return False
-    if value[0] in "<$%{[*(":  # <your-password>, $VAR, %VAR%, {{ var }}, ***
-        return False
-    if set(value) <= set("*xX.-_#"):
-        return False
-    return not re.fullmatch(r"[\d.]+", value)
-
-
-def _has_secret_value(text: str) -> bool:
-    for pattern in (_SECRET_ASSIGNMENT_RE, _SECRET_FLAG_RE):
-        for match in pattern.finditer(text):
-            # "name: word" is also prose, so a colon needs a longer value than "=".
-            if _is_secret_value(match["value"], 8 if match["sep"].strip() == ":" else 4):
-                return True
-    for match in _URL_USERINFO_RE.finditer(text):
-        if _is_secret_value(match["value"], 1):
-            return True
-    for match in _AUTHORIZATION_RE.finditer(text):
-        tokens = [token for token in match["value"].split() if token.lower() not in _AUTH_SCHEMES]
-        if tokens and _is_secret_value(tokens[0], 8):
-            return True
-    return bool(_SECRET_TOKEN_PREFIX_RE.search(text))
-
-
 def _effort_scan_reason(text: str) -> str | None:
     """Return a reason when *text* must stay local, or None.
 
-    Value- and marking-aware: it blocks secret-like values, payment, verification,
-    and contact data, restricted markings, control characters, prompt injection,
-    and structured payloads. Topic words alone (password, security, delete) do not
-    block, so public discussion stays eligible. It is not DLP: unmarked private or
-    employer text is not detectable here and must not be entered.
+    Only restricted document markings (confidential banners,
+    proprietary) keep text local: redaction cannot make a marked document public.
+    Secret values are not blocked here; ``_task_scan`` masks them with the Hermes
+    egress redactor so Jev still runs. This is not DLP.
     """
-    from . import automatic as detectors  # late import: automatic imports routing
-
-    checks = (
-        (detectors._CONTROL_CHAR_RE.search, "local_scan_control_character"),
-        (detectors._PROMPT_INJECTION_RE.search, "local_scan_prompt_injection"),
-        (_has_secret_value, "local_scan_secret_like_value"),
-        (detectors._PAYMENT_RE.search, "local_scan_payment_data"),
-        (detectors._VERIFICATION_RE.search, "local_scan_verification_data"),
-        (detectors._CONTACT_RE.search, "local_scan_contact_identifier"),
-        (detectors._SECRET_VALUE_RE.search, "local_scan_secret_like_value"),
-        (_EFFORT_SECRET_VALUE_RE.search, "local_scan_secret_like_value"),
-        (_EFFORT_MARKING_RE.search, "local_scan_restricted_marking"),
-    )
-    for search, reason in checks:
-        if search(text):
-            return reason
-    stripped = text.strip()
-    candidates = [stripped]
-    embedded = re.search(r":\s*(?=[{\[])", stripped)
-    if embedded:
-        candidates.append(stripped[embedded.end():])
-    for candidate in candidates:
-        if not candidate.startswith(("{", "[")):
-            continue
-        try:
-            parsed = json.loads(candidate)
-        except ValueError:
-            continue
-        if isinstance(parsed, (dict, list)):
-            return "local_scan_unknown_structured"
+    if _EFFORT_MARKING_RE.search(text):
+        return "local_scan_restricted_marking"
     return None
 
 
 def _task_scan(value: Any) -> tuple[str | None, str | None]:
-    """Return (bounded excerpt, None) for sendable text, or (None, reason) otherwise.
+    """Return (redacted bounded excerpt, None) for sendable text, or (None, reason).
 
-    The whole message is scanned before truncation, then the exact outbound
-    excerpt is scanned again. Non-text shapes are unreadable and stay local.
+    The whole message is redacted with the Hermes egress scrubber before the
+    excerpt is cut, so a cut can never expose part of an unmasked token. Without
+    a Hermes redactor no text is sent (metadata only). Non-text shapes and
+    messages longer than MAX_SCANNED_TASK_CHARS stay local.
     """
     text = _clean_user_text(value)
     if text is None:
@@ -320,11 +230,10 @@ def _task_scan(value: Any) -> tuple[str | None, str | None]:
     reason = _effort_scan_reason(text)
     if reason is not None:
         return None, reason
-    excerpt = _bounded_excerpt(text)
-    reason = _effort_scan_reason(excerpt)
-    if reason is not None:
+    redacted, reason = redact_for_jev(text)
+    if redacted is None:
         return None, reason
-    return excerpt, None
+    return _bounded_excerpt(redacted), None
 
 
 def summarize_tool_outcome(
