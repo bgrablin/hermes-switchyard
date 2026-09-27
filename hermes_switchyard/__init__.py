@@ -1705,6 +1705,10 @@ def register(ctx):
                         text_inputs=args.get("text_inputs"),
                         allowed_hotkeys=args.get("allowed_hotkeys"),
                         browser_executable=_configured_browser_executable(),
+                        # Opt-in DOM Progress & Recovery; off unless the profile enables it.
+                        **browser_use.progress_settings_from_profile(
+                            lambda key, default: ctx_get_config(ctx, key, default=default)
+                        ),
                     )
                 return json.dumps(with_client(run_dom))
             def native_dispatch(tool_name, tool_args):

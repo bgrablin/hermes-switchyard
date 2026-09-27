@@ -36,6 +36,10 @@ config_schema:
   jev_model: {type: str, default: "", description: Provider-specific Jev alias; empty selects jev-latest for TypeSafe or typesafe/jev-1.13 for OpenRouter}
   browser_executable: {type: str, default: "", description: "Optional absolute path to a Chromium-family browser for public-page DOM runs. Tried first; on a startup crash the discovered order follows (Google Chrome, non-snap Chromium, Edge, Playwright bundled Chromium, Snap Chromium)"}
   computer_max_steps: {type: int, default: 100, description: Full computer-use action budget; callers may choose a smaller per-call bound}
+  browser_progress_mode: {type: str, default: "off", description: "DOM Progress & Recovery for public DOM browser runs: off (default) or advisory_stop. advisory_stop adds progress questions to the existing per-step Jev request (no extra round trip) and can stop a repeated dead end as incomplete. It never marks a run verified"}
+  browser_progress_stall_count: {type: int, default: 2, description: "Consecutive confident stagnant answers before an advisory stop; values below 2 are raised to 2"}
+  browser_progress_confidence_threshold: {type: float, default: 0.85, description: "Minimum trajectory Choice confidence and winning probability for a stagnant answer to count; clamped to 0.5 through 1.0"}
+  browser_progress_new_evidence_no_threshold: {type: float, default: 0.15, description: "Maximum new-evidence Noul that counts as a confident no; clamped to 0.0 through 0.5"}
   approved_model_registry: {type: list, default: [], description: Profile-owned approved model records for jev_model_route_approved; provider account authorization and cost metadata are code-owned, never inferred}
   approved_model_registry_version: {type: str, default: "", description: Required operator-managed version identifier for the approved model registry}
   approved_model_registry_valid_until: {type: str, default: "", description: Required timezone-aware ISO-8601 expiry for the approved model registry}
