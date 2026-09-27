@@ -26,6 +26,11 @@ from scripts.build_release import RELEASE_FILES
 
 ROUTINE = ("hi", "thanks!")
 CONSEQUENTIAL = "delete the prod database backups"
+# Local-first bypass: trivial by the shared closed list, so no Jev call at all.
+TRIVIAL = ("hi", "thanks", "ok thanks!", "👍")
+# Not trivial: these still reach Jev (task words, a code block, a URL, or a path).
+NOT_TRIVIAL = ("hi, delete the prod backups", "thanks, now deploy", "ok\n```\nls -la\n```",
+               "thanks https://example.com", "ok ~/done/")
 ROUTES = {
     "anthropic": {"provider": "anthropic", "api_mode": "anthropic_messages", "model": "claude-opus-4-6"},
     "codex": {"provider": "openai-codex", "api_mode": "codex_responses", "model": "gpt-5-codex"},
@@ -122,6 +127,23 @@ def _child(plugin_dir: Path) -> None:
                 "session": agent.session_id}
 
     rows = [run(route, text) for route in ROUTES for text in (*ROUTINE, CONSEQUENTIAL)]
+    # Bypass matrix on both wire shapes: count Jev calls per turn.
+    bypass = []
+    for route in ROUTES:
+        for text in (*TRIVIAL, *NOT_TRIVIAL):
+            before = len(jev_states)
+            row = run(route, text)
+            bypass.append({**row, "jev_calls": len(jev_states) - before})
+    # Pinned sessions stay pinned: the CLI command names the live session, as Hermes does.
+    pinned = []
+    for route in ROUTES:
+        pin_agent = make_agent(route)
+        os.environ["HERMES_SESSION_ID"] = pin_agent.session_id
+        pin_reply = controller.handle_command("effort pin")
+        before = len(jev_states)
+        row = run(route, "thanks", agent=pin_agent)
+        pinned.append({**row, "jev_calls": len(jev_states) - before, "pin_reply": pin_reply})
+    os.environ.pop("HERMES_SESSION_ID", None)
     default_on = controller.receipt_line
     off_reply = controller.handle_command("effort receipt off")
     rows.append({**run("anthropic", "hi"), "receipt_off": True})
@@ -136,7 +158,7 @@ def _child(plugin_dir: Path) -> None:
     measured.append(run("anthropic", "hi", output_tokens=300, agent=session_agent))
     os.environ["HERMES_SESSION_ID"] = session_agent.session_id
     measured_summary = controller.handle_command("effort summary")
-    print(json.dumps({"rows": rows, "measured": measured, "measured_summary": measured_summary, "jev_requests": [s.get("current_request") for s in jev_states],
+    print(json.dumps({"rows": rows, "bypass": bypass, "pinned": pinned, "measured": measured, "measured_summary": measured_summary, "jev_requests": [s.get("current_request") for s in jev_states],
                       "jev_keys": sorted({key for s in jev_states for key in s}),
                       "default_on": default_on, "off_reply": off_reply, "summary": summary}))
     manager.unload()
@@ -176,7 +198,7 @@ class HermesTurnLoopEffortTests(unittest.TestCase):
             for text in ROUTINE:
                 row = by_case[(route, text)]
                 self.assertEqual(row["sent"], "low", (route, text))
-                self.assertRegex(row["final"], r"^Synthetic answer\.\n\nswitchyard: effort high→low · Jev \d+ ms$")
+                self.assertEqual(row["final"], "Synthetic answer.\n\nswitchyard: effort high→low · local (no Jev call)")
             kept = by_case[(route, CONSEQUENTIAL)]
             self.assertEqual(kept["sent"], "high", route)
             self.assertRegex(
@@ -186,9 +208,24 @@ class HermesTurnLoopEffortTests(unittest.TestCase):
         for row in by_case.values():
             self.assertTrue(row["transformed"], row)
             self.assertEqual(row["history"], ["Synthetic answer."], "receipt line entered model history")
-        # Jev saw the real current request text, and only closed-set state fields.
-        self.assertEqual(proof["jev_requests"][:6], [*ROUTINE, CONSEQUENTIAL] * 2)
+        # Jev saw only the consequential request text (greetings stayed local), and only
+        # closed-set state fields.
+        self.assertEqual(proof["jev_requests"][:2], [CONSEQUENTIAL] * 2)
         self.assertEqual(proof["jev_keys"], ["current_request", "latest_tool_failed", "recent_tool_statuses", "turn_phase"])
+
+        # Local-first bypass through the real turn loop on both wire shapes.
+        for row in proof["bypass"]:
+            if row["text"] in TRIVIAL:
+                self.assertEqual((row["sent"], row["jev_calls"]), ("low", 0), (row["route"], row["text"]))
+                self.assertTrue(row["final"].endswith("switchyard: effort high→low · local (no Jev call)"), row)
+            else:
+                self.assertEqual(row["jev_calls"], 1, (row["route"], row["text"]))
+                self.assertNotIn("local (no Jev call)", row["final"], row)
+        self.assertEqual(len(proof["bypass"]), 2 * (len(TRIVIAL) + len(NOT_TRIVIAL)))
+        for row in proof["pinned"]:
+            self.assertIn("pinned", row["pin_reply"])
+            self.assertEqual((row["sent"], row["jev_calls"]), ("high", 0), row)
+            self.assertEqual(row["final"], "Synthetic answer.", row)
 
         self.assertIn("off", proof["off_reply"])
         (quiet,) = [row for row in rows if row.get("receipt_off")]
@@ -198,12 +235,16 @@ class HermesTurnLoopEffortTests(unittest.TestCase):
 
         summary = proof["summary"]
         self.assertIn("Switchyard effort summary (this session)", summary)
-        self.assertRegex(summary, r"Jev calls: \d+, p50 \d+ ms, p95 \d+ ms")
+        # The receipt-off greeting was decided locally: no Jev call, one local decision.
+        self.assertIn("Jev calls: 0, p50 n/a, p95 n/a", summary)
+        self.assertIn("local decisions (no Jev call): 1", summary)
+        self.assertIn("local decisions (no Jev call): 1", proof["measured_summary"])
+        self.assertRegex(proof["measured_summary"], r"Jev calls: 3, p50 \d+ ms, p95 \d+ ms")
         measured = proof["measured"]
         self.assertEqual([row["sent"] for row in measured], ["high", "high", "high", "low"])
         self.assertRegex(
             measured[-1]["final"],
-            r"^Synthetic answer\.\n\nswitchyard: effort high→low · Jev \d+ ms · ~500 output tokens saved \(est\.\)$",
+            r"^Synthetic answer\.\n\nswitchyard: effort high→low · local \(no Jev call\) · ~500 output tokens saved \(est\.\)$",
         )
         self.assertNotIn("switchyard:", json.dumps(measured[-1]["history"]), "receipt line entered model history")
         self.assertIn("estimated tokens saved: ~500 output (est., 1 of 1 lowered requests measured)",
