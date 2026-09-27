@@ -73,6 +73,10 @@ logger = logging.getLogger(__name__)
 
 LOCAL_DIAGNOSTIC_TOP_K = 32
 MAX_TASK_CHARS = 4_000
+# The restricted-pattern scan reads the whole current task before the hosted
+# projection is cut to MAX_TASK_CHARS. A task larger than this bound is not
+# scanned in part: it fails closed to local routing.
+MAX_SCAN_CHARS = 64_000
 MAX_CANDIDATE_NAME_CHARS = 128
 MAX_DESCRIPTION_CHARS = 1_000
 DEFAULT_LOCAL_THRESHOLD = 0.20
@@ -134,11 +138,113 @@ _CONTACT_RE = re.compile(
     r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b|\b(?:\+?\d[\d(). -]{7,}\d)\b|\b(?:ssn|social\s+security)\b",
     re.IGNORECASE,
 )
+# Self-identifying credential shapes, plus the original ``api_key: value``
+# form. The leading guard is a lookbehind rather than ``\b`` so a token that
+# follows ``_`` (``value_ghp_...``) still matches. This pattern matches a
+# superset of what it matched before issue #122.
 _SECRET_VALUE_RE = re.compile(
-    r"\b(?:sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{12,}|bearer\s+[A-Za-z0-9._~+/=-]{16,})\b|"
+    r"(?<![A-Za-z0-9])(?:"
+    r"sk-[A-Za-z0-9_-]{12,}"
+    r"|gh[pousr]_[A-Za-z0-9_]{12,}"
+    r"|github_pat_[A-Za-z0-9_]{20,}"
+    r"|glpat-[A-Za-z0-9_-]{20,}"
+    r"|xox[abposr]-[A-Za-z0-9-]{10,}"
+    r"|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}"
+    r"|(?:AKIA|ASIA)[A-Z0-9]{16}"
+    r"|AIza[0-9A-Za-z_-]{35}"
+    r"|eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"
+    r"|bearer\s+[A-Za-z0-9._~+/=-]{16,}"
+    r")|-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----|"
     r"\b(?:api[_ -]?key|access[_ -]?token|secret)\s*[:=]\s*[^\s,;]+",
     re.IGNORECASE,
 )
+# A value assigned to a key whose name ENDS in a secret word:
+# ``DB_PASSWORD=``, ``PGPASSWORD=``, ``MYSQL_PASS=``, ``client_secret =``,
+# ``"refresh_token":``, an ``X-Api-Key`` header, ``my token:``. The names
+# ``DB_PASSWORD_FILE`` and ``max_tokens`` do not end in a secret word.
+_SECRET_ASSIGNMENT_RE = re.compile(
+    r"(?<![A-Za-z0-9_.-])(?P<key>"
+    r"[A-Za-z0-9_.-]*(?:password|passwd|passphrase|secret|token|"
+    r"api[_-]?key|access[_-]?key|private[_-]?key|secret[_-]?key|credentials?)"
+    r"|(?:api|access|private|secret)\s+key"
+    r"|[A-Za-z0-9_.-]*[_.-](?:pass|pwd)"
+    r"|authorization"
+    r")[\"']?\s*[:=]\s*[\"']?"
+    r"(?:(?:basic|bearer|digest|token|negotiate)\s+)?"
+    r"(?P<value>[^\s\"'`,;]+)",
+    re.IGNORECASE,
+)
+# ``scheme://user:password@host`` with a non-empty password part.
+_URL_USERINFO_RE = re.compile(
+    r"(?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@]+:(?P<value>[^\s/@]+)@",
+)
+# Dates, timestamps, and version strings are not credential values.
+_DATE_OR_VERSION_RE = re.compile(
+    r"\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?"
+    r"|v?\d+(?:\.\d+)+(?:[-+][0-9A-Za-z.-]+)?"
+)
+# A plain word (``expired``, ``None``) or a short count (``max_token=4096``).
+_PLAIN_WORD_OR_COUNT_RE = re.compile(r"[A-Za-z][a-z]{0,15}|\d{1,7}")
+# Only full password-class words; a ``_pass`` or ``_pwd`` suffix is too
+# ambiguous (``policy_pass``, ``first_pass``) to accept a plain-word value.
+_PASSWORD_KEY_RE = re.compile(r"password|passwd|passphrase|secret|credential", re.IGNORECASE)
+_LITERAL_WORDS = frozenset({"true", "false", "null", "none", "yes", "no", "on", "off"})
+# Bare prose labels. ``Credentials: required`` is prose; ``DB_PASSWORD=word``
+# names a configuration key and its literal value.
+_BARE_SECRET_WORDS = frozenset(
+    {
+        "password", "passwd", "passphrase", "secret", "token", "credential",
+        "credentials", "authorization",
+    }
+)
+
+
+def _is_reference_or_mask(value: str) -> bool:
+    """Return True for a variable reference, template, placeholder, or mask."""
+    if not value or value[0] in "$%<{":
+        return True
+    if "(" in value or "{{" in value:
+        return True
+    return set(value) <= set("*xX.#-_\u2022")
+
+
+def _is_assigned_secret(key: str, value: str) -> bool:
+    """Classify the right-hand side of a secret-named assignment."""
+    value = value.rstrip(".)]}>")
+    if _is_reference_or_mask(value) or value.startswith(("/", "./", "~/")):
+        return False
+    if _DATE_OR_VERSION_RE.fullmatch(value) or value.casefold() in _LITERAL_WORDS:
+        return False
+    if _PLAIN_WORD_OR_COUNT_RE.fullmatch(value) is None:
+        return True
+    # A plain word is a secret only when a password-class configuration key
+    # (not a bare prose label) assigns it.
+    return (
+        len(value) >= 4
+        and _PASSWORD_KEY_RE.search(key) is not None
+        and key.casefold() not in _BARE_SECRET_WORDS
+    )
+
+
+def _contains_secret_value(text: str) -> bool:
+    """Return True when text holds a recognizable credential value.
+
+    This is a conservative blocklist for common value shapes. It is not a
+    data-loss-prevention control and cannot prove that text is secret-free.
+    A secret word without a value (``hash passwords``, ``set api_key``) does
+    not match.
+    """
+    if _SECRET_VALUE_RE.search(text):
+        return True
+    for match in _URL_USERINFO_RE.finditer(text):
+        if not _is_reference_or_mask(match.group("value")):
+            return True
+    return any(
+        _is_assigned_secret(match.group("key"), match.group("value"))
+        for match in _SECRET_ASSIGNMENT_RE.finditer(text)
+    )
+
+
 _RESTRICTED_WORD_RE = re.compile(
     r"\b(?:credential|password|passphrase|hipaa|phi|"
     r"classified|confidential|export[- ]controlled|"
@@ -189,6 +295,20 @@ def _coerce_text(value: Any) -> str:
     return _coerce_bounded_text(value, MAX_TASK_CHARS)
 
 
+def _whole_task_scan_reason(value: Any) -> str | None:
+    """Scan the whole current task, not only the bounded hosted projection.
+
+    ``_coerce_text`` cuts the task to ``MAX_TASK_CHARS`` and skips non-text
+    blocks. A secret after the cut, in a later text block, or split by the cut
+    must still keep the turn local, and a cached result for the clean prefix
+    must not be reused. A task larger than ``MAX_SCAN_CHARS`` fails closed.
+    """
+    full = _coerce_bounded_text(value, MAX_SCAN_CHARS + 1)
+    if len(full) > MAX_SCAN_CHARS:
+        return "local_scan_unclassifiable"
+    return _local_scan_reason(value, full)
+
+
 def _tokens(value: str) -> set[str]:
     tokens: set[str] = set()
     for raw in _TOKEN_RE.findall(value.casefold()):
@@ -216,7 +336,7 @@ def _local_scan_reason(value: Any, text: str) -> str | None:
         return "local_scan_verification_data"
     if _CONTACT_RE.search(text):
         return "local_scan_contact_identifier"
-    if _SECRET_VALUE_RE.search(text):
+    if _contains_secret_value(text):
         return "local_scan_secret_like_value"
     if _RESTRICTED_WORD_RE.search(text):
         return "local_scan_restricted_data"
@@ -233,6 +353,21 @@ def _local_scan_reason(value: Any, text: str) -> str | None:
         if isinstance(parsed, (dict, list)):
             return "local_scan_unknown_structured"
     return None
+
+
+def _stage2_detail_row(candidate: Mapping[str, str]) -> dict[str, str]:
+    """Return a candidate row whose description is safe to cut for stage 2.
+
+    Stage 2 cuts the description to a short bound and scans only the cut
+    text. A value that straddles that cut can lose the characters that make
+    it recognizable. Scan the whole local description first; a restricted
+    description is replaced by the exact name, which stage 2 never sends as
+    detail.
+    """
+    description = candidate["description"]
+    if _local_scan_reason(description, description) is not None:
+        return {"name": candidate["name"], "description": candidate["name"]}
+    return dict(candidate)
 
 
 def _validate_name(name: Any) -> str:
@@ -755,7 +890,11 @@ class AutomaticSkillRecommender:
                 # scan is a blocklist, not a positive classifier; restricted
                 # hits still fail closed. Authorization is recorded as
                 # egress_authority=standing_ack (not a second policy language).
-                scan_reason = _local_scan_reason(task, task_text)
+                # Scan the whole task and the exact bounded projection. The
+                # whole-task scan catches a value that the projection cut.
+                scan_reason = _whole_task_scan_reason(task) or _local_scan_reason(
+                    task, task_text
+                )
                 if scan_reason is None:
                     # Do not claim a positive data-class or policy version: the
                     # local scan is a blocklist, not a sanitizer. Authority is
@@ -902,7 +1041,9 @@ class AutomaticSkillRecommender:
                         # Stage 1 sends names only. Local descriptions reach
                         # stage 2 only when hosted_detail opts in, and only
                         # for the top-K finalists after a local scan.
-                        by_name = {item["name"]: item for item in candidate_set}
+                        by_name = {
+                            item["name"]: _stage2_detail_row(item) for item in candidate_set
+                        }
                         hosted = run_two_stage(
                             task=(evaluation.allowed_payload or "") if evaluation is not None else "",
                             candidates=[by_name[item["name"]] for item in hosted_candidates],
