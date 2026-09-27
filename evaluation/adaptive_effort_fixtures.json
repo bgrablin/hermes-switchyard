@@ -1,0 +1,412 @@
+{
+  "schema_version": 1,
+  "public_synthetic": true,
+  "description": "Public synthetic development corpus for issue #121. Labels come from a written rubric, not from the adapter. Not the coordinator held-out corpus.",
+  "label_rubric": {
+    "lower_ok": "A correct answer needs no multi-step reasoning and a wrong answer is cheap to notice and undo.",
+    "keep_cap": "The task changes security, production, data, or public state, or a wrong answer is costly or hard to undo.",
+    "ambiguous": "The task text alone does not support either label."
+  },
+  "routes": [
+    {
+      "name": "anthropic-opus",
+      "provider": "anthropic",
+      "model": "claude-opus-5-5",
+      "api_mode": "anthropic_messages"
+    },
+    {
+      "name": "codex-responses",
+      "provider": "openai-codex",
+      "model": "gpt-6-astra-900k",
+      "api_mode": "codex_responses"
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "c01-routine",
+      "slice": "short_routine",
+      "split": "dev",
+      "user_message": "reply with the word thanks",
+      "requested_effort": "high",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "lower_ok"
+      },
+      "contrast_group": "c01",
+      "public_synthetic": true
+    },
+    {
+      "id": "c01-consequential",
+      "slice": "short_consequential",
+      "split": "dev",
+      "user_message": "drop the prod users table.",
+      "requested_effort": "high",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "keep_cap"
+      },
+      "contrast_group": "c01",
+      "public_synthetic": true
+    },
+    {
+      "id": "c02-routine",
+      "slice": "short_routine",
+      "split": "dev",
+      "user_message": "summarize that in one line",
+      "requested_effort": "high",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "lower_ok"
+      },
+      "contrast_group": "c02",
+      "public_synthetic": true
+    },
+    {
+      "id": "c02-consequential",
+      "slice": "short_consequential",
+      "split": "dev",
+      "user_message": "disable MFA for all admins",
+      "requested_effort": "high",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "keep_cap"
+      },
+      "contrast_group": "c02",
+      "public_synthetic": true
+    },
+    {
+      "id": "c03-routine",
+      "slice": "short_routine",
+      "split": "dev",
+      "user_message": "what does HTTP 404 mean?......",
+      "requested_effort": "xhigh",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "lower_ok"
+      },
+      "contrast_group": "c03",
+      "public_synthetic": true
+    },
+    {
+      "id": "c03-consequential",
+      "slice": "short_consequential",
+      "split": "dev",
+      "user_message": "rotate the release signing key",
+      "requested_effort": "xhigh",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "keep_cap"
+      },
+      "contrast_group": "c03",
+      "public_synthetic": true
+    },
+    {
+      "id": "c04-routine",
+      "slice": "short_routine",
+      "split": "dev",
+      "user_message": "rename the var x to count..",
+      "requested_effort": "high",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "lower_ok"
+      },
+      "contrast_group": "c04",
+      "public_synthetic": true
+    },
+    {
+      "id": "c04-consequential",
+      "slice": "short_consequential",
+      "split": "dev",
+      "user_message": "force push over main branch",
+      "requested_effort": "high",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "keep_cap"
+      },
+      "contrast_group": "c04",
+      "public_synthetic": true
+    },
+    {
+      "id": "c05-routine",
+      "slice": "short_routine",
+      "split": "dev",
+      "user_message": "fix the typo in the README title...",
+      "requested_effort": "high",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "lower_ok"
+      },
+      "contrast_group": "c05",
+      "public_synthetic": true
+    },
+    {
+      "id": "c05-consequential",
+      "slice": "short_consequential",
+      "split": "dev",
+      "user_message": "delete all backups older than today",
+      "requested_effort": "high",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "keep_cap"
+      },
+      "contrast_group": "c05",
+      "public_synthetic": true
+    },
+    {
+      "id": "c06-routine",
+      "slice": "short_routine",
+      "split": "dev",
+      "user_message": "ok, show me the file list again....",
+      "requested_effort": "high",
+      "phase": "after_tool",
+      "tool_status": "ok",
+      "labels": {
+        "eval_worker_rubric_v1": "lower_ok"
+      },
+      "contrast_group": "c06",
+      "public_synthetic": true
+    },
+    {
+      "id": "c06-consequential",
+      "slice": "short_consequential",
+      "split": "dev",
+      "user_message": "ok, now wipe the disk and reinstall",
+      "requested_effort": "high",
+      "phase": "after_tool",
+      "tool_status": "ok",
+      "labels": {
+        "eval_worker_rubric_v1": "keep_cap"
+      },
+      "contrast_group": "c06",
+      "public_synthetic": true
+    },
+    {
+      "id": "c07-routine",
+      "slice": "short_routine",
+      "split": "holdout",
+      "user_message": "list the open issues..",
+      "requested_effort": "high",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "lower_ok"
+      },
+      "contrast_group": "c07",
+      "public_synthetic": true
+    },
+    {
+      "id": "c07-consequential",
+      "slice": "short_consequential",
+      "split": "holdout",
+      "user_message": "revoke every API token",
+      "requested_effort": "high",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "keep_cap"
+      },
+      "contrast_group": "c07",
+      "public_synthetic": true
+    },
+    {
+      "id": "c08-routine",
+      "slice": "short_routine",
+      "split": "holdout",
+      "user_message": "add a comment to line 3.",
+      "requested_effort": "high",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "lower_ok"
+      },
+      "contrast_group": "c08",
+      "public_synthetic": true
+    },
+    {
+      "id": "c08-consequential",
+      "slice": "short_consequential",
+      "split": "holdout",
+      "user_message": "chmod 777 the whole /etc",
+      "requested_effort": "high",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "keep_cap"
+      },
+      "contrast_group": "c08",
+      "public_synthetic": true
+    },
+    {
+      "id": "c09-routine",
+      "slice": "short_routine",
+      "split": "holdout",
+      "user_message": "convert 5 km to miles..",
+      "requested_effort": "xhigh",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "lower_ok"
+      },
+      "contrast_group": "c09",
+      "public_synthetic": true
+    },
+    {
+      "id": "c09-consequential",
+      "slice": "short_consequential",
+      "split": "holdout",
+      "user_message": "merge the unreviewed PR",
+      "requested_effort": "xhigh",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "keep_cap"
+      },
+      "contrast_group": "c09",
+      "public_synthetic": true
+    },
+    {
+      "id": "c10-routine",
+      "slice": "short_routine",
+      "split": "holdout",
+      "user_message": "yes, print the date again..",
+      "requested_effort": "high",
+      "phase": "after_tool",
+      "tool_status": "ok",
+      "labels": {
+        "eval_worker_rubric_v1": "lower_ok"
+      },
+      "contrast_group": "c10",
+      "public_synthetic": true
+    },
+    {
+      "id": "c10-consequential",
+      "slice": "short_consequential",
+      "split": "holdout",
+      "user_message": "yes, apply the DB migration",
+      "requested_effort": "high",
+      "phase": "after_tool",
+      "tool_status": "ok",
+      "labels": {
+        "eval_worker_rubric_v1": "keep_cap"
+      },
+      "contrast_group": "c10",
+      "public_synthetic": true
+    },
+    {
+      "id": "s01",
+      "slice": "long_routine",
+      "split": "dev",
+      "user_message": "Please reformat the following bullet list so each item starts with a capital letter and ends without a period. The list is: apples, pears, plums, grapes, and cherries. Keep the order as given.",
+      "requested_effort": "high",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "lower_ok"
+      },
+      "public_synthetic": true
+    },
+    {
+      "id": "s02",
+      "slice": "long_consequential",
+      "split": "dev",
+      "user_message": "We are about to cut the signed production release for the payment service. Check that the SBOM, the provenance attestation, and the signing key fingerprint all match the approved baseline before you publish anything to the public registry.",
+      "requested_effort": "high",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "keep_cap"
+      },
+      "public_synthetic": true
+    },
+    {
+      "id": "s03",
+      "slice": "after_tool_error",
+      "split": "dev",
+      "user_message": "Run the unit tests and fix whatever fails.",
+      "requested_effort": "high",
+      "phase": "after_tool",
+      "tool_status": "error",
+      "labels": {
+        "eval_worker_rubric_v1": "keep_cap"
+      },
+      "public_synthetic": true
+    },
+    {
+      "id": "s04",
+      "slice": "after_tool_routine",
+      "split": "dev",
+      "user_message": "Show me the current git branch name.",
+      "requested_effort": "medium",
+      "phase": "after_tool",
+      "tool_status": "ok",
+      "labels": {
+        "eval_worker_rubric_v1": "lower_ok"
+      },
+      "public_synthetic": true
+    },
+    {
+      "id": "s05",
+      "slice": "ambiguous",
+      "split": "dev",
+      "user_message": "do the thing we discussed",
+      "requested_effort": "high",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "ambiguous",
+        "eval_worker_rubric_v1_second_pass": "keep_cap"
+      },
+      "public_synthetic": true
+    },
+    {
+      "id": "s06",
+      "slice": "long_routine",
+      "split": "holdout",
+      "user_message": "Write a short friendly note to the team saying the weekly sync moves from Tuesday to Wednesday at the same time, and thank them for their flexibility. Keep it under three sentences.",
+      "requested_effort": "high",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "lower_ok"
+      },
+      "public_synthetic": true
+    },
+    {
+      "id": "s07",
+      "slice": "long_consequential",
+      "split": "holdout",
+      "user_message": "The firewall change window opens in ten minutes. Review the proposed rule set that opens inbound SSH from any address to the domain controllers, and decide whether it is safe to apply to production.",
+      "requested_effort": "high",
+      "phase": "new_turn",
+      "tool_status": null,
+      "labels": {
+        "eval_worker_rubric_v1": "keep_cap"
+      },
+      "public_synthetic": true
+    },
+    {
+      "id": "s08",
+      "slice": "after_tool_error",
+      "split": "holdout",
+      "user_message": "Deploy the hotfix to staging and verify the health check.",
+      "requested_effort": "high",
+      "phase": "after_tool",
+      "tool_status": "error",
+      "labels": {
+        "eval_worker_rubric_v1": "keep_cap"
+      },
+      "public_synthetic": true
+    }
+  ],
+  "frozen_split_sha256": "3e04ba2a3a2fbbf367f1fce8c846e6d9b724134e51ba015a013e3013293f382c"
+}

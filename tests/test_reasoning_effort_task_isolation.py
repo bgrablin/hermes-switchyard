@@ -15,7 +15,7 @@ from hermes_switchyard.reasoning_effort_adapter import (
     last_receipt,
 )
 
-from tests.test_reasoning_effort_adapter import FakeClient
+from tests.test_reasoning_effort_adapter import FakeClient, ensure_turn
 from tests.test_reasoning_effort_user_cap import OPUS, Env, opus_request, sent_effort
 
 SESSION = "synthetic-session"
@@ -46,6 +46,8 @@ class TaskIsolationTests(unittest.TestCase):
 
     @staticmethod
     def request(controller, request, *, route, task, turn, session=SESSION):
+        # #121: Hermes fires pre_llm_call once per turn with the clean user message.
+        ensure_turn(controller, session_id=session, task_id=task, turn_id=turn)
         result = controller.on_llm_request(
             request, session_id=session, task_id=task, turn_id=turn, **route
         )

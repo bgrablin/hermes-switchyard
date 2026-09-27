@@ -215,7 +215,8 @@ class FakeJev:
     def decide(self, state, questions, **kwargs):
         levels = list(questions['reasoning_effort']['criteria'])
         return {'answers': {'reasoning_effort': {'choice': levels[0],
-                'confidence': 0.9, 'probabilities': {level: 1.0 / len(levels) for level in levels}}}}
+                'confidence': 0.9, 'probabilities': {level: 1.0 / len(levels) for level in levels}},
+                'stakes': {'noul': 0.0}}}
 result = run_installed(Path(sys.argv[1]), sys.argv[2], sys.argv[3], 'openrouter',
                        Path(sys.argv[4]), synthetic_client_factory=FakeJev)
 print(json.dumps(result))

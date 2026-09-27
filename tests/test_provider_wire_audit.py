@@ -2,6 +2,7 @@ import json
 import unittest
 
 from hermes_switchyard.reasoning_effort_adapter import (
+    MAX_TASK_CHARS,
     ReasoningEffortController,
     apply_effort_to_request,
     choose_reasoning_effort,
@@ -22,7 +23,8 @@ class CaptureClient:
         selected = "high" if "high" in levels else levels[0]
         others = [level for level in levels if level != selected]
         probs = {selected: 0.9, **{level: 0.1 / len(others) for level in others}} if others else {selected: 1.0}
-        return {"answers": {"reasoning_effort": {"choice": selected, "confidence": 0.9, "probabilities": probs}}}
+        return {"answers": {"reasoning_effort": {"choice": selected, "confidence": 0.9, "probabilities": probs},
+                            "stakes": {"noul": 0.0}}}
 
 
 class ProviderWireAuditTests(unittest.TestCase):
@@ -164,13 +166,75 @@ class ProviderWireAuditTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertEqual(client.calls, [])
 
-    def test_jev_receives_no_raw_task_or_tool_error_details(self):
+    def test_jev_receives_clean_task_but_no_tool_details_or_wire_text(self):
+        # #121 contract: the clean pre_llm_call message reaches Jev as bounded
+        # state.current_request. Tool names, tool error details, and provider wire
+        # text (history, sidecars, tool results) never reach Jev.
+        opus = {"provider": "anthropic", "model": "claude-opus-5-5", "api_mode": "anthropic_messages"}
         client = CaptureClient()
-        choose_reasoning_effort(task="synthetic-private-marker", recent_tool_outcomes=[{"tool": "shell", "status": "error", "detail": "synthetic-secret-error"}], prior_effort="medium", client=client)
-        sent = json.dumps(client.calls[0][0])
-        self.assertNotIn("synthetic-private-marker", sent)
-        self.assertNotIn("synthetic-secret-error", sent)
-        self.assertIn("medium", sent)
+        controller = ReasoningEffortController(client_factory=lambda: client)
+        controller.build_pre_llm_call_hook()(
+            session_id="synthetic", task_id="synthetic", turn_id="t1",
+            user_message="synthetic public task marker " + "padding " * 400,
+            conversation_history=[{"role": "user", "content": "synthetic-history-marker"}],
+            is_first_turn=True, model="claude-opus-5-5", platform="cli",
+        )
+        controller.build_post_tool_call_hook()(
+            tool_name="synthetic_tool_name_marker", error="synthetic-secret-error",
+            result="synthetic-tool-result-marker", session_id="synthetic", task_id="synthetic",
+        )
+        request = {
+            "model": "claude-opus-5-5", "max_tokens": 32,
+            "thinking": {"type": "adaptive"}, "output_config": {"effort": "medium"},
+            "messages": [
+                {"role": "user", "content": "<memory-context>synthetic-sidecar-marker</memory-context>"},
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_synthetic",
+                                              "content": "synthetic-tool-result-marker"}]},
+            ],
+        }
+        result = controller.on_llm_request(request, session_id="synthetic", task_id="synthetic", turn_id="t1", **opus)
+
+        self.assertEqual(len(client.calls), 1)
+        state, questions, call_kwargs = client.calls[0]
+        self.assertTrue(state["current_request"].startswith("synthetic public task marker"))
+        self.assertLessEqual(len(state["current_request"]), MAX_TASK_CHARS)
+        self.assertEqual(state["recent_tool_statuses"], ["error"])
+        self.assertIs(state["latest_tool_failed"], True)
+        self.assertEqual(set(questions), {"reasoning_effort", "stakes"})
+        sent = json.dumps([state, questions, call_kwargs], default=str)
+        for marker in ("synthetic_tool_name_marker", "synthetic-secret-error", "synthetic-tool-result-marker",
+                       "synthetic-sidecar-marker", "synthetic-history-marker", "toolu_synthetic"):
+            self.assertNotIn(marker, sent)
+        # The requested level stays the cap. Jev answered validly and chose lower, but after a
+        # failed tool the deterministic floor keeps the requested level (not a parse failure).
+        self.assertEqual(list(questions["reasoning_effort"]["criteria"])[-1], "medium")
+        self.assertIsNone(result)
+        self.assertEqual(request["output_config"]["effort"], "medium")
+        receipt = controller._state_for(session_id="synthetic", task_id="synthetic").last_choice
+        self.assertEqual(receipt["reason_code"], "kept_requested_after_tool_failure")
+        self.assertNotIn("synthetic public task marker", json.dumps(receipt, default=str))
+
+    def test_secret_like_task_fails_closed_with_zero_hosted_calls(self):
+        opus = {"provider": "anthropic", "model": "claude-opus-5-5", "api_mode": "anthropic_messages"}
+        client = CaptureClient()
+        controller = ReasoningEffortController(client_factory=lambda: client)
+        controller.build_pre_llm_call_hook()(
+            session_id="synthetic", task_id="synthetic", turn_id="t1",
+            user_message="deploy with api" + "_key=" + "sk-" + "SYNTHETIC0INERT0VALUE0E123",
+            conversation_history=[], is_first_turn=True, model="claude-opus-5-5", platform="cli",
+        )
+        request = {"model": "claude-opus-5-5", "max_tokens": 32, "thinking": {"type": "adaptive"},
+                   "output_config": {"effort": "high"}, "messages": [{"role": "user", "content": "synthetic"}]}
+        result = controller.on_llm_request(request, session_id="synthetic", task_id="synthetic", turn_id="t1", **opus)
+        self.assertEqual(client.calls, [])
+        self.assertIsNone(result)
+        self.assertEqual(request["output_config"]["effort"], "high")
+        # Direct callers get the same gate.
+        direct = choose_reasoning_effort(task="use pass" + "word=SYNTHETIC0INERT0VALUE", recent_tool_outcomes=[],
+                                         requested_effort="high", client=client)
+        self.assertEqual(client.calls, [])
+        self.assertEqual(direct["effort"], "high")
+        self.assertEqual(direct["reason_code"], "kept_requested_restricted_text")
 
 
 if __name__ == "__main__":

@@ -77,11 +77,13 @@ def _isolated_replay(plugin_dir: Path) -> None:
     import anthropic
     import httpx
     import openai
+    from agent.anthropic_message_convert import convert_messages_to_anthropic
     from agent.transports.codex import _reasoning_fields
+    from agent.turn_context import compose_user_api_content
     from gateway.session_context import scoped_current_session_id
     from hermes_cli.commands import resolve_command
     from hermes_cli.middleware import apply_llm_request_middleware
-    from hermes_cli.plugins import get_plugin_manager
+    from hermes_cli.plugins import get_plugin_manager, invoke_hook
 
     manager = get_plugin_manager()
     manager.discover_and_load(force=True)
@@ -113,13 +115,23 @@ def _isolated_replay(plugin_dir: Path) -> None:
             levels = tuple(questions["reasoning_effort"]["criteria"])
             selected = "low" if "low" in levels else levels[0]
             probabilities = {level: 1.0 if level == selected else 0.0 for level in levels}
-            return {"answers": {"reasoning_effort": {
-                "choice": selected, "confidence": 1.0, "probabilities": probabilities,
-            }}}
+            return {"answers": {
+                "reasoning_effort": {"choice": selected, "confidence": 1.0, "probabilities": probabilities},
+                "stakes": {"noul": 0.0},
+            }}
 
     fake = SyntheticClient()
     controller.client_factory = lambda: fake  # Never construct a credential-backed client.
     model = "gpt-6-astra-900k"
+    task_text = "synthetic public routine request"
+
+    def begin_turn(session, turn, task=None, text=task_text, parent=""):
+        # The real host dispatcher, with the kwargs Hermes passes before memory prefetch.
+        invoke_hook(
+            "pre_llm_call", session_id=session, task_id=task or session, turn_id=turn,
+            user_message=text, conversation_history=[{"role": "user", "content": "SYNTHETIC_HISTORY"}],
+            is_first_turn=True, model=model, platform="cli", sender_id="", parent_session_id=parent,
+        )
 
     def codex(effort, session="s1", turn="t1", task=None):
         fields = _reasoning_fields(
@@ -129,29 +141,34 @@ def _isolated_replay(plugin_dir: Path) -> None:
         request = {"model": model, "input": "synthetic", **fields}
         middleware = apply_llm_request_middleware(
             request, provider="openai-codex", model=model, api_mode="codex_responses",
-            session_id=session, turn_id=turn, **({"task_id": task} if task else {}),
+            session_id=session, turn_id=turn, task_id=task or session,
         )
         return request, middleware
 
+    # #121: without the clean pre_llm_call message there is no hosted call.
+    _, uncaptured = codex("high", session="s-none")
+    assert not uncaptured.changed and uncaptured.payload["reasoning"]["effort"] == "high"
+    assert fake.calls == [], "jev_called_without_clean_capture"
+    begin_turn("s1", "t1")
     first, lowered = codex("high")
     assert first["reasoning"]["effort"] == "high"
     assert lowered.changed and lowered.payload["reasoning"]["effort"] == "low"
     assert lowered.payload["input"] == first["input"]
     assert lowered.trace[0]["source"] == "hermes-switchyard"
     jev_state = fake.calls[0][0]
-    assert set(jev_state) == {
-        "task_present", "task_length_bucket", "requested_effort", "turn_phase",
-        "recent_tool_outcomes", "stuck_signal", "policy",
-    }
-    assert "synthetic" not in json.dumps(jev_state)
+    assert set(jev_state) == {"current_request", "turn_phase", "recent_tool_statuses", "latest_tool_failed"}
+    assert jev_state["current_request"] == task_text
+    assert "SYNTHETIC_HISTORY" not in json.dumps(fake.calls[0])
     _, cached = codex("high")
     assert cached.payload["reasoning"]["effort"] == "low" and len(fake.calls) == 1
     # #118: a delegated task sharing the session ID must not pin or re-baseline the foreground.
+    begin_turn("s1", "t-child", task="subagent-synthetic", parent="s1")
     _, delegated = codex("low", turn="t-child", task="subagent-synthetic")
     assert not delegated.changed and delegated.payload["reasoning"]["effort"] == "low"
     assert controller.session_status("s1")["mode"] == "auto", "delegated_task_changed_foreground_mode"
     _, foreground = codex("high")
     assert foreground.payload["reasoning"]["effort"] == "low" and len(fake.calls) == 1
+    begin_turn("s-low", "t1")
     _, capped = codex("low", session="s-low")
     assert not capped.changed and capped.payload["reasoning"]["effort"] == "low"
     assert len(fake.calls) == 1
@@ -180,15 +197,49 @@ def _isolated_replay(plugin_dir: Path) -> None:
     assert codex_wire[0]["input"] == "synthetic"
     assert "reasoning_effort" not in codex_wire[0]
 
+    # Native Anthropic request: the real host composes the memory/plugin sidecar into the user
+    # content and converts an OpenAI tool message into a tool_result user block. Jev must see
+    # only the clean captured message on both the first and the after-tool request.
+    sidecar_content = compose_user_api_content(
+        "synthetic", "SYNTHETIC_MEMORY", "SYNTHETIC_PLUGIN")
+    assert sidecar_content is not None and "<memory-context>" in sidecar_content
+    assert "SYNTHETIC_PLUGIN" in sidecar_content
+    _, converted = convert_messages_to_anthropic([
+        {"role": "user", "content": sidecar_content},
+        {"role": "assistant", "content": "SYNTHETIC_ASSISTANT",
+         "tool_calls": [{"id": "call_1", "type": "function",
+                         "function": {"name": "shell", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "call_1", "content": "SYNTHETIC_TOOL_BODY"},
+    ])
+    assert converted[-1]["role"] == "user" and "SYNTHETIC_TOOL_BODY" in json.dumps(converted[-1])
+    begin_turn("s-anthropic", "t1")
     anthropic_request = {
-        "model": "claude-opus-5-5", "messages": [{"role": "user", "content": "synthetic"}],
+        "model": "claude-opus-5-5", "messages": converted[:1],
         "max_tokens": 32, "thinking": {"type": "adaptive"}, "output_config": {"effort": "high"},
     }
     result = apply_llm_request_middleware(
         anthropic_request, provider="anthropic", model="claude-opus-5-5",
-        api_mode="anthropic_messages", session_id="s-anthropic", turn_id="t1",
+        api_mode="anthropic_messages", session_id="s-anthropic", task_id="s-anthropic", turn_id="t1",
     )
     assert result.changed and result.payload["output_config"]["effort"] == "low"
+    assert result.payload["messages"] == anthropic_request["messages"], "provider_messages_changed"
+    invoke_hook("post_tool_call", tool_name="shell", result='{"ok": true}',
+                session_id="s-anthropic", task_id="s-anthropic")
+    after_tool = dict(anthropic_request, messages=converted)
+    apply_llm_request_middleware(
+        after_tool, provider="anthropic", model="claude-opus-5-5",
+        api_mode="anthropic_messages", session_id="s-anthropic", task_id="s-anthropic", turn_id="t1",
+    )
+    anthropic_calls = [call for call in fake.calls if call[0]["current_request"] == task_text]
+    outbound = json.dumps(fake.calls)
+    for marker in ("SYNTHETIC_MEMORY", "SYNTHETIC_PLUGIN", "memory-context", "SYNTHETIC_TOOL_BODY",
+                   "SYNTHETIC_ASSISTANT", "SYNTHETIC_HISTORY"):
+        assert marker not in outbound, "jev_payload_leaked_" + marker.lower()
+    assert len(anthropic_calls) == len(fake.calls)
+    invoke_hook("post_llm_call", session_id="s-anthropic", task_id="s-anthropic", turn_id="t1",
+                user_message=task_text, assistant_response="SYNTHETIC_ASSISTANT",
+                conversation_history=[], model="claude-opus-5-5", platform="cli")
+    assert controller._captured_task(session_id="s-anthropic", task_id="s-anthropic", turn_id="t1") is None
     anthropic_wire = []
 
     def capture_anthropic(request):
