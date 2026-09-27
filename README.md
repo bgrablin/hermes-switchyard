@@ -6,12 +6,14 @@ Switchyard is a [Hermes Agent](https://github.com/NousResearch/hermes-agent) plu
 
 ![Rail-yard map of Hermes Switchyard: bounded decisions pass local policy before Hermes acts](docs/assets/hermes-switchyard-overview.png)
 
+The [Switchyard branding image](docs/assets/hermes-switchyard-branding.png) is also packaged.
+
 **Release state:** `plugin.yaml` in this branch still declares version 0.5.4. The 0.5.5 work is not released. Two opt-in features are proposed for 0.5.5:
 
 - **Research Navigator (F1, pending):** an explicit tool will compare up to four claims with six caller-supplied public source windows. It will show support, contradiction, missing quotes, and unassessed windows. It will not fetch pages or verify that a supplied excerpt matches a live URL.
 - **DOM Progress & Recovery (F2, pending):** an opt-in mode will assess repeated, unproductive steps in Switchyard's public DOM browser loop. It can stop that loop as incomplete and suggest a permitted next observation. It will not control desktop apps, repeat a mutation, or certify task completion. Its default will be `off`.
 
-Neither pending feature is available in a current install. The [changelog](CHANGELOG.md) distinguishes work on the branch from work still pending. The [benchmark report](docs/BENCHMARKS.md) identifies the exact source and limits of its older measurements; it does not prove that Jev improves every task.
+Neither pending feature is available in a current install. The [changelog](CHANGELOG.md) distinguishes work on the branch from work still pending. The [benchmark report](docs/BENCHMARKS.md) identifies the source and limits of its measurements: the selector value report uses 0.5.4 source `7dc77c8`; older feature-battery rows use 0.5.0 code. It does not prove that Jev improves every task.
 
 ## 60-second quickstart (after the install gate passes)
 
@@ -65,10 +67,10 @@ The current status command shows the last decision, not the last five. A per-tur
 The two default-on automatic paths have different data rules:
 
 - **Adaptive effort:** the current branch uses Hermes `agent.redact.redact_for_egress` through `redact_for_jev` on the whole current text message before it sends a bounded 1,200-character excerpt. It does not send conversation history, memory, tool bodies, or private files. If the Hermes redactor is absent, it sends no message text and keeps the requested effort. Explicit proprietary and confidential markings stay local. A clean scan does not prove that other private text is safe to send.
-- **Skill routing:** the current branch still uses a local restricted-pattern blocklist. It can send up to 4,000 characters of the current task and exact candidate names when the standing acknowledgement or an allowed host envelope permits it. Bounded descriptions or skill excerpts require a separate opt-in. The **pending routing change** will redact secret values through the same Hermes egress redactor instead of blocking ordinary words such as `password` or `confidential`. When that redactor is absent, it will send no task text. The current branch can still block an email address or phone number. The pending change will not treat those shapes as inherently sensitive; you must still classify the actual content.
+- **Skill routing:** the current branch scans the whole task locally for restricted markings, injection shapes, control characters, and structured payloads. It then passes clean text through Hermes `redact_for_egress` plus bounded masks before sending up to 4,000 characters and exact candidate names. Without the Hermes redactor, it skips hosted routing and uses local matching. Ordinary words such as `password` and `confidential`, email addresses, and phone numbers are not restricted shapes. They do not authorize private content. Bounded descriptions or skill excerpts require a separate opt-in.
 - **Explicit tools and DOM browser:** only submit public or deliberately sanitized inputs. The browser cannot log in to your existing session or upload a private file. F1 and F2 will require a whole-payload eligibility gate and explicit public-data acknowledgement. A public URL alone will not make a private goal safe.
 
-TypeSafe and OpenRouter are external providers. The acknowledgement flags are not DLP. Switchyard does not authorize private, employer, regulated, credential, payment, or verification content for hosted decisions. It does not change approval, destination, or provider-account controls. To stop automatic hosted skill routing, use `local_only`. To stop adaptive message-text egress, set adaptive effort to `false`:
+TypeSafe and OpenRouter are external providers. The acknowledgement flags are not data loss prevention. Switchyard does not authorize private, employer, regulated, credential, payment, or verification content for hosted decisions. To stop automatic hosted skill routing, use `local_only`. To stop adaptive message-text egress, set adaptive effort to `false`:
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode local_only
@@ -144,6 +146,7 @@ All current settings live under `plugins.entries.hermes-switchyard.settings`. Th
 | `automatic_skill_recheck_top_k` | `3` | Maximum finalists for the second-stage check. |
 | `automatic_skill_early_stop` | `true` | Stop the hosted catalog search after a low needs-skill signal. |
 | `automatic_skill_early_stop_threshold` | `0.3` | Uncalibrated needs-skill threshold. |
+| `automatic_skill_stage1_single_round` | `true` | Run stage-one catalog partitions in one parallel round; `false` probes the first partition before fan-out. |
 | `automatic_skill_stage1_min_probability` | `0.05` | Minimum stage-one candidate probability for recheck. |
 | `automatic_skill_parallel_requests` | `4` | Maximum parallel stage-one requests within the shared budget. |
 | `adaptive_reasoning_effort` | `true` | Allow Jev to lower effort; set `false` to stop this message-text path. |
