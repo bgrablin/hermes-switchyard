@@ -35,8 +35,17 @@ Switchyard keeps your level and makes **no** Jev call when:
 
 - it did not capture your current message for this turn (for example, a delegated subagent turn, a background turn, or a host without `pre_llm_call`);
 - the message is empty, has no text part, has an unknown shape, or is longer than 16,000 characters;
-- a local scan finds a restricted document marking (for example `CUI`, `SECRET//`, `FOUO`, `ITAR`, `proprietary`);
-- Hermes has no egress redactor (then no text is sent).
+- a local scan finds a restricted document marking (for example `CUI`, `SECRET//`, `FOUO`, `ITAR`, `proprietary`).
+
+### Metadata only (older Hermes without an egress redactor)
+
+When Hermes has no egress redactor (`agent.redact.redact_for_egress` is missing, raises an error, or returns its unavailable marker), Switchyard sends **no message text**. Jev still gets one ask per turn, with closed-set metadata that Switchyard computes locally:
+
+- `request_shape`: `chars` (bucket `1-16`, `17-64`, `65-256`, `257-1024`, or `1025+`), `lines` (bucket `1`, `2-3`, `4-10`, or `11+`), and the booleans `has_code_fence`, `has_url`, `has_file_path`, and `has_question_mark`;
+- `turn_index`: the count of user turns in this session;
+- the tool statuses and, for step-level asks, the tool kinds and read streak listed above.
+
+Jev receives no excerpt and no part of the message. Two local checks run on the full text and are never sent. A change request (for example `fix`, `edit`, `delete`, or `deploy`) keeps your level with no Jev call (`kept_requested_metadata_change_request`). A high-stakes word (for example `prod`, `delete`, `password`, `token`, `billing`, or `security`) also keeps your level with no Jev call (`kept_requested_metadata_high_stakes`). The decision receipt (`last_receipt()`) shows `scan_reason` `metadata_only`, and the receipt line ends with `metadata only`. Restricted markings and oversized messages still stay local with no Jev call.
 
 Other text is redacted with the Hermes egress redactor before it is cut and sent, so secret-like values are masked in the text Jev receives. Emails and phone numbers are not treated as sensitive.
 
@@ -51,22 +60,54 @@ Switchyard keeps the captured text only in memory for the current turn and clear
 ## Command
 
 ```text
-/switchyard effort status        show mode, your level, last level sent, why, and the last 5 decisions
+/switchyard effort status        show mode, your level, last level sent, why, the last 5 decisions, and the session summary
+/switchyard effort summary       show the session summary only
 /switchyard effort pin           send your /reasoning level unchanged in this session
 /switchyard effort auto          let Switchyard lower effort for routine steps again
-/switchyard effort receipt on    add a receipt line to replies whose effort changed
-/switchyard effort receipt off   remove the receipt line (default)
+/switchyard effort receipt on    add the receipt line to replies where Switchyard did work (default)
+/switchyard effort receipt off   remove the receipt line
 ```
 
 `auto` uses your current level as the new cap. The command acts on the session it runs in. Before the session's first model request, it applies from the first message.
 
-`receipt on|off` changes the setting for this process until restart. The receipt line uses the Hermes `transform_llm_output` hook. It is added only to foreground replies whose sent effort differs from your level, for example:
+`receipt on|off` changes the setting for this process until restart. The receipt line uses the Hermes `transform_llm_output` hook and is **on by default**. It is added to each foreground reply where Switchyard did work: it changed the effort, called Jev, or reused a cached decision. Examples:
 
 ```text
-switchyard: effort high→low (Jev 240 ms)
+switchyard: effort high→low · Jev 180 ms
+switchyard: effort high→low · Jev 180 ms · ~1.2k reasoning tokens saved (est.)
+switchyard: effort high (kept: consequential) · Jev 210 ms
+switchyard: effort high→low · Jev 190 ms · 2 cached
+switchyard: effort high→low · Jev 170 ms · metadata only
 ```
 
-The line is added to the reply you see. It is not stored in the conversation history, so the model does not see it on later turns. Delegated and background turns never get the line.
+`kept:` names why your level was kept: `consequential` (high stakes), `tool failed`, `after write`, `change request`, `Jev unavailable`, `invalid Jev answer`, or `Jev choice` (Jev picked your level). A pinned session, an excluded model, or a request with no room below your level gets no line, because Switchyard did no work.
+
+The line is added to the reply you see. It is not stored in the conversation history, so the model does not see it on later turns. Delegated and background turns never get the line. If the line fails, the reply is sent unchanged.
+
+### Saved-token estimate
+
+The `saved` figure is an estimate from **measured** token counts only. Switchyard reads `usage` from the Hermes `post_api_request` hook (no text, only token counts) for each foreground request it saw:
+
+1. A request sent at your level adds one baseline sample for that model and level (last 20 samples per session).
+2. For a lowered request, when the session has at least 3 baseline samples for the same model and level, the estimate is `median(baseline) − measured`. It uses reasoning tokens when every baseline sample reports them; otherwise it uses output tokens, and the line says which.
+3. The turn shows the figure only when every lowered request in the turn was measured. A negative or zero result shows `no reasoning tokens saved (est.)`.
+
+With fewer than 3 baseline samples, or no usage from the host, Switchyard shows no figure. It never invents a number. The figure is an estimate: a routine message sent at your level could have used fewer tokens than the median baseline.
+
+### Session summary
+
+`/switchyard effort summary` (also part of `status`) is computed from in-memory counters only. It makes no network call and no Jev call:
+
+```text
+Switchyard effort summary (this session)
+  turns: 4
+  requests: lowered 1, kept 3, raised 0, not adapted 0
+  Jev calls: 4, p50 190 ms, p95 240 ms
+  cached reuses: 0
+  estimated tokens saved: ~500 output (est., 1 of 1 lowered requests measured)
+```
+
+`not adapted` counts requests Switchyard passed through (pinned, excluded model, no room, no host effort). Without a measured baseline the last line reads `estimated tokens saved: unknown (no measured baseline yet)`.
 
 Example `status` lines for the last decisions (up to 5 are kept):
 
@@ -86,7 +127,7 @@ Example `status` lines for the last decisions (up to 5 are kept):
 | `adaptive_reasoning_effort_allow_raise` | `false` | When `true`, `auto` may go one level above your level while the latest tool call failed. It drops back after the next successful tool call or new turn. |
 | `adaptive_reasoning_effort_deadline_seconds` | `1.5` | Jev budget per choice. On timeout your level is sent. |
 | `adaptive_reasoning_effort_step_adaptation` | `true` | Allow bounded step-level asks after routine read-only tool rounds (at most one level below your level). Set `false` for one decision per turn. |
-| `adaptive_reasoning_effort_receipt_line` | `false` | Add one receipt line to replies whose effort changed. |
+| `adaptive_reasoning_effort_receipt_line` | `true` | Add one receipt line to each foreground reply where Switchyard did work. Set `false` to turn it off. |
 | `adaptive_reasoning_effort_default` | `medium` | Deprecated and unused since 0.5.4. |
 
 Example:
@@ -116,6 +157,6 @@ Model routing (`jev_model_route`) stays advisory (`applied: false`).
 
 `hermes switchyard status --json` includes `reasoning_effort_adapter` with the effective settings. `last_receipt()` in `hermes_switchyard.reasoning_effort_adapter` returns the last decision with `status`, `effort` (the level sent), `requested_effort`, `cap`, `mode`, `reason_code` and `applied`.
 
-Reason codes: `jev_selected`, `jev_step_selected`, `cached`, `cached_unchanged`, `no_room`, `pinned`, `excluded_model`, `no_host_effort`, `reasoning_disabled`, `unsupported_route`, `disabled`, `invalid_choice`, `kept_requested_on_jev_failure`, `kept_requested_ack_required`, `kept_requested_no_task_text`, `kept_requested_restricted_text`, `kept_requested_high_stakes`, `kept_requested_after_tool_failure`, `kept_requested_after_write`.
+Reason codes: `jev_selected`, `jev_step_selected`, `cached`, `cached_unchanged`, `no_room`, `pinned`, `excluded_model`, `no_host_effort`, `reasoning_disabled`, `unsupported_route`, `disabled`, `invalid_choice`, `kept_requested_on_jev_failure`, `kept_requested_ack_required`, `kept_requested_no_task_text`, `kept_requested_restricted_text`, `kept_requested_high_stakes`, `kept_requested_after_tool_failure`, `kept_requested_after_write`, `kept_requested_metadata_change_request`, `kept_requested_metadata_high_stakes`. A metadata-only decision also has `scan_reason` `metadata_only`.
 
 Since 0.5.5, `pinned_by_user_change` is not used: a `/reasoning` change sets a new cap and keeps `auto`.

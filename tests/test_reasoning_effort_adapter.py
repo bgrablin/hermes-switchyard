@@ -1128,7 +1128,7 @@ class SemanticCurrentTurnTests(unittest.TestCase):
                 self.assertNotIn(INERT_VALUE, excerpt or "")
 
     def test_missing_hermes_redactor_sends_no_text(self):
-        """Fail closed: without agent.redact, Jev gets no text and the user level is kept."""
+        """Without agent.redact, Jev gets closed-set metadata only (no text), never the message."""
         from hermes_switchyard import egress_redaction
 
         egress_redaction._reset_for_tests(None, loaded=True)
@@ -1136,9 +1136,12 @@ class SemanticCurrentTurnTests(unittest.TestCase):
             client = OracleClient()
             controller, _, factory_calls = self.make(client)
             capture_turn(controller, "hello", session_id="s", turn_id="t1")
-            self.assertEqual(self.send(controller, opus("high")), "high")
-            self.assertEqual((client.calls, factory_calls), ([], []))
-            self.assertEqual(last_receipt()["scan_reason"], "redaction_unavailable")
+            self.send(controller, opus("high"))
+            self.assertEqual((len(client.calls), len(factory_calls)), (1, 1))
+            state = client.calls[0][0]
+            self.assertNotIn("current_request", state)
+            self.assertNotIn("hello", json.dumps(client.calls, default=str))
+            self.assertEqual(last_receipt()["scan_reason"], "metadata_only")
         finally:
             egress_redaction._reset_for_tests()
 

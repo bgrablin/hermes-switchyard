@@ -29,6 +29,7 @@ provides_hooks:
   - post_llm_call
   - post_tool_call
   - transform_llm_output
+  - post_api_request
 provides_middleware:
   - llm_request
 config_schema:
@@ -66,7 +67,7 @@ config_schema:
   adaptive_reasoning_effort_exclude_models: {type: list, default: [], description: "Model name patterns (fnmatch, case-insensitive) the adapter never touches, for example [\"*astra*\"]. Excluded models make no Jev calls."}
   adaptive_reasoning_effort_allow_raise: {type: bool, default: false, description: "Off by default. When true, auto may go one level above your /reasoning level while the latest tool call failed."}
   adaptive_reasoning_effort_step_adaptation: {type: bool, default: true, description: "In a long turn with tool calls, auto may ask Jev again after routine read-only tool rounds, for at most one level below your /reasoning level. Only closed-set tool kinds (read, write, exec, other) and a count are sent; tool names and tool output are not sent. A write, a failed tool, a change request, or a high-stakes turn keeps your level. Set false for one decision per turn."}
-  adaptive_reasoning_effort_receipt_line: {type: bool, default: false, description: "Off by default. When true, a reply whose effort differs from your /reasoning level ends with one line, for example 'switchyard: effort high→low (Jev 240 ms)'. /switchyard effort receipt on|off changes it until restart."}
+  adaptive_reasoning_effort_receipt_line: {type: bool, default: true, description: "On by default. A foreground reply where Switchyard did work (changed effort, called Jev, or reused a cached decision) ends with one line, for example 'switchyard: effort high→low · Jev 180 ms' or 'switchyard: effort high (kept: consequential) · Jev 210 ms'. A saved-token figure appears only when measured usage supports it and is marked est. The line never enters stored history and is not added to delegated turns. Set false, or run /switchyard effort receipt off until restart."}
   adaptive_reasoning_effort_default: {type: str, default: "medium", description: "Deprecated and unused since 0.5.4. The fallback is always the level in the request."}
   adaptive_reasoning_effort_deadline_seconds: {type: float, default: 1.5, description: "Wall-clock budget for the adaptive-effort Jev Choice. On timeout your level is sent unchanged."}
   session_search_rerank_choice_confidence_threshold: {type: float, default: 0.8, description: "Uncalibrated local policy threshold for jev_session_search_rerank; below this the tool fail-opens to stock FTS order"}
