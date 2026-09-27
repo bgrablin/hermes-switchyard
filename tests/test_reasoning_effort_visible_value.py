@@ -110,7 +110,7 @@ class DefaultReceiptTests(unittest.TestCase):
 
     def test_lowered_turn_names_the_change_and_latency_without_a_baseline(self):
         controller, _, _ = make()
-        begin(controller, "hi")
+        begin(controller, "status ping")
         self.assertEqual(send(controller, "high"), "low")
         line = receipt_line(controller)
         self.assertRegex(line, r"^switchyard: effort high→low · Jev \d+ ms$")
@@ -138,7 +138,7 @@ class DefaultReceiptTests(unittest.TestCase):
 
     def test_cached_reuse_in_a_later_request_is_named(self):
         controller, jev, _ = make()
-        begin(controller, "hi")
+        begin(controller, "status ping")
         send(controller, "high")
         tool(controller, "terminal")  # a non-routine round: no step ask, the turn choice is reused
         send(controller, "high")
@@ -188,7 +188,7 @@ class SavedEstimateTests(unittest.TestCase):
     def test_saved_reasoning_tokens_use_the_measured_median_baseline(self):
         controller, _, _ = make()
         self._baseline(controller, [1500, 1300, 1400])
-        begin(controller, "hi", turn="t9")
+        begin(controller, "status ping", turn="t9")
         self.assertEqual(send_with_id(controller, "high", turn="t9", request_id="t9:api:1"), "low")
         usage(controller, "t9:api:1", reasoning=200, output=20, turn="t9")
         self.assertRegex(
@@ -199,7 +199,7 @@ class SavedEstimateTests(unittest.TestCase):
     def test_output_tokens_basis_when_the_provider_reports_no_reasoning_tokens(self):
         controller, _, _ = make()
         self._baseline(controller, [900, 700, 800], metric="output")
-        begin(controller, "hi", turn="t9")
+        begin(controller, "status ping", turn="t9")
         send_with_id(controller, "high", turn="t9", request_id="t9:api:1")
         usage(controller, "t9:api:1", reasoning=0, output=300, turn="t9")
         self.assertRegex(receipt_line(controller, turn="t9"), r" · ~500 output tokens saved \(est\.\)$")
@@ -207,20 +207,20 @@ class SavedEstimateTests(unittest.TestCase):
     def test_too_few_baseline_samples_or_no_usage_omits_the_figure(self):
         controller, _, _ = make()
         self._baseline(controller, [1500, 1300])  # 2 samples: below the minimum
-        begin(controller, "hi", turn="t9")
+        begin(controller, "status ping", turn="t9")
         send_with_id(controller, "high", turn="t9", request_id="t9:api:1")
         usage(controller, "t9:api:1", reasoning=200, turn="t9")
         self.assertNotIn("saved", receipt_line(controller, turn="t9"))
         controller, _, _ = make()
         self._baseline(controller, [1500, 1300, 1400])
-        begin(controller, "hi", turn="t9")
+        begin(controller, "status ping", turn="t9")
         send_with_id(controller, "high", turn="t9", request_id="t9:api:1")  # no usage arrives
         self.assertNotIn("saved", receipt_line(controller, turn="t9"))
 
     def test_no_saving_is_reported_as_none_not_hidden(self):
         controller, _, _ = make()
         self._baseline(controller, [300, 300, 300])
-        begin(controller, "hi", turn="t9")
+        begin(controller, "status ping", turn="t9")
         send_with_id(controller, "high", turn="t9", request_id="t9:api:1")
         usage(controller, "t9:api:1", reasoning=400, turn="t9")
         self.assertRegex(receipt_line(controller, turn="t9"), r" · no reasoning tokens saved \(est\.\)$")
@@ -232,7 +232,7 @@ class SavedEstimateTests(unittest.TestCase):
 class SessionSummaryTests(unittest.TestCase):
     def _session(self):
         controller, jev, env = make()
-        begin(controller, "hi", turn="t1")
+        begin(controller, "status ping", turn="t1")
         send(controller, "high", turn="t1")
         tool(controller, "terminal")
         send(controller, "high", turn="t1")  # cached reuse at low
@@ -464,9 +464,9 @@ class TextPathUnchangedTests(unittest.TestCase):
 
     def test_text_path_still_sends_current_request(self):
         controller, jev, _ = make()
-        begin(controller, "hi")
+        begin(controller, "status ping")
         send(controller, "high")
-        self.assertEqual(jev.calls[0]["state"]["current_request"], "hi")
+        self.assertEqual(jev.calls[0]["state"]["current_request"], "status ping")
         self.assertNotIn("request_shape", jev.calls[0]["state"])
         self.assertIsNone(last_receipt().get("scan_reason"))
 

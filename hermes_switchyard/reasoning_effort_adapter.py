@@ -31,6 +31,7 @@ from typing import Any, Callable, Mapping, Sequence
 from .client import request_budget_scope
 from .egress_redaction import REDACTION_UNAVAILABLE_REASON, redact_for_jev
 from .routing import _choice_metrics, _criteria, _decision_metadata, _noul_score
+from .trivial_turn import is_trivial_turn
 
 # Hermes hermes_constants.VALID_REASONING_EFFORTS plus "none" (disabled).
 HERMES_REASONING_EFFORTS: tuple[str, ...] = (
@@ -65,6 +66,8 @@ _RESTRICTED_REASON = "kept_requested_restricted_text"
 _HIGH_STAKES_REASON = "kept_requested_high_stakes"
 _TOOL_FAILED_REASON = "kept_requested_after_tool_failure"
 _AFTER_WRITE_REASON = "kept_requested_after_write"
+# Local-first bypass: a trivial foreground turn goes to the lowest allowed level, no Jev call.
+LOCAL_TRIVIAL_REASON = "local_trivial"
 _STEP_SELECTED_REASON = "jev_step_selected"
 # Metadata-only asks (no Hermes egress redactor): Jev gets closed-set request metadata, no text.
 METADATA_ONLY_REASON = "metadata_only"
@@ -317,6 +320,18 @@ def request_metadata(value: Any) -> dict[str, Any] | None:
         "change_request": bool(_CHANGE_INTENT.search(body)),
         "high_stakes": bool(_LOCAL_HIGH_STAKES.search(body)),
     }
+
+
+def local_trivial_request(value: Any) -> bool:
+    """True when a clean user message is a trivial turn that needs no Jev call.
+
+    Uses the closed acknowledgement list shared with skill routing (``trivial_turn``). A code
+    fence, URL, or file path makes the message non-trivial even when every word is on the list.
+    """
+    text = _clean_user_text(value)
+    if text is None or not text.strip() or not is_trivial_turn(text):
+        return False
+    return not ("```" in text or _URL_RE.search(text) or _FILE_PATH_RE.search(text))
 
 
 def _closed_shape(shape: Mapping[str, Any]) -> dict[str, Any]:
@@ -1102,6 +1117,8 @@ class _SessionEffortState:
         "raised",
         "passed",
         "cached_reuses",
+        "local_decisions",
+        "choice_local",
         "jev_latencies",
         "usage_baseline",
         "saved",
@@ -1146,6 +1163,8 @@ class _SessionEffortState:
         self.raised = 0
         self.passed = 0  # requests the plugin did not adapt (pinned, excluded, no room, ...)
         self.cached_reuses = 0
+        self.local_decisions = 0  # local_trivial decisions (no Jev call)
+        self.choice_local = False  # the turn's cached choice came from the local bypass
         self.jev_latencies: deque[float] = deque(maxlen=512)
         # "model|level" -> measured (reasoning, output) tokens for requests sent at the user's level.
         self.usage_baseline: dict[str, deque[tuple[int, int]]] = {}
@@ -1306,6 +1325,8 @@ class ReasoningEffortController:
             while len(self._turn_index) > _TURN_TASK_LIMIT:
                 self._turn_index.popitem(last=False)
             capture = {"token": self._capture_seq, "excerpt": excerpt, "scan_reason": scan_reason}
+            if scan_reason is None and local_trivial_request(user_message):
+                capture["trivial"] = True
             if metadata is not None:
                 capture["metadata"] = metadata
                 capture["turn_index"] = count
@@ -1559,6 +1580,8 @@ class ReasoningEffortController:
             state.jev_latencies.append(latency)
         if payload.get("status") == "cached":
             state.cached_reuses += 1
+        if payload.get("reason_code") == LOCAL_TRIVIAL_REASON:
+            state.local_decisions += 1
         requested, sent = payload.get("requested_effort"), payload.get("effort")
         if payload.get("reason_code") in _PASS_REASONS or requested not in ALLOWED_EFFORTS or sent not in ALLOWED_EFFORTS:
             state.passed += 1
@@ -1588,7 +1611,7 @@ class ReasoningEffortController:
                 entry = {
                     "requested": requested, "sent": [], "jev_calls": 0, "jev_ms": 0.0, "cached": 0,
                     "kept": None, "metadata_only": False, "lowered": 0, "measured": 0,
-                    "metric": None, "saved": 0,
+                    "metric": None, "saved": 0, "local": 0,
                 }
                 self._turn_receipts[turn] = entry
             self._turn_receipts.move_to_end(turn)
@@ -1600,6 +1623,8 @@ class ReasoningEffortController:
                 entry["jev_ms"] += latency
             if receipt.get("status") == "cached":
                 entry["cached"] += 1
+            if receipt.get("reason_code") == LOCAL_TRIVIAL_REASON:
+                entry["local"] += 1
             if receipt.get("scan_reason") == METADATA_ONLY_REASON:
                 entry["metadata_only"] = True
             order = HERMES_REASONING_EFFORTS.index
@@ -1632,7 +1657,7 @@ class ReasoningEffortController:
         requested = entry["requested"]
         changed = any(level != requested for level in entry["sent"])
         calls = int(entry["jev_calls"])
-        if not changed and calls == 0 and not entry["cached"]:
+        if not changed and calls == 0 and not entry["cached"] and not entry["local"]:
             return None
         if changed:
             levels = [requested, *entry["sent"]]
@@ -1642,7 +1667,9 @@ class ReasoningEffortController:
             parts = [f"effort {path}"]
         else:
             parts = [f"effort {requested} (kept: {entry['kept'] or 'Jev choice'})"]
-        if calls == 1:
+        if calls == 0 and entry["local"]:
+            parts.append("local (no Jev call)")
+        elif calls == 1:
             parts.append(f"Jev {round(entry['jev_ms'])} ms")
         elif calls > 1:
             parts.append(f"Jev {calls} calls, {round(entry['jev_ms'])} ms")
@@ -1843,6 +1870,7 @@ class ReasoningEffortController:
             "jev_p50_ms": _nearest_rank(latencies, 0.50),
             "jev_p95_ms": _nearest_rank(latencies, 0.95),
             "cached_reuses": state.cached_reuses,
+            "local_decisions": state.local_decisions,
             "tokens_saved_est": measured or None,
             "lowered_measured": state.lowered_measured,
             "lowered_unmeasured": state.lowered_unmeasured,
@@ -1941,6 +1969,7 @@ class ReasoningEffortController:
             f"  Jev calls: {summary['jev_calls']}, p50 {ms(summary['jev_p50_ms'])}, "
             f"p95 {ms(summary['jev_p95_ms'])}"
         )
+        lines.append(f"  local decisions (no Jev call): {summary['local_decisions']}")
         lines.append(f"  cached reuses: {summary['cached_reuses']}")
         saved = summary.get("tokens_saved_est")
         if not saved:
@@ -2099,8 +2128,34 @@ class ReasoningEffortController:
             capture = self._captured_task(session_id=session_id, task_id=task_id, turn_id=turn_id)
             token = capture.get("token") if capture is not None else None
             stale_choice = state.choice_effort is not None and state.choice_effort not in candidates
-            if state.dirty or stale_choice or state.choice_cap != cap or state.choice_token != token:
+            # A local choice holds only until a tool runs: then the turn is no longer trivial.
+            local_expired = state.choice_local and closed is not None
+            if state.dirty or stale_choice or local_expired or state.choice_cap != cap or state.choice_token != token:
                 state.step_choice = None
+                state.choice_local = False
+                if (
+                    capture is not None
+                    and capture.get("trivial") is True
+                    and closed is None
+                    and not state.outcomes
+                    and not state.stuck
+                ):
+                    # Local-first bypass: no Jev call, no network, lowest allowed level.
+                    effort = candidates[0]
+                    state.dirty = False
+                    state.choice_cap = cap
+                    state.choice_token = token
+                    state.choice_effort = effort
+                    state.choice_local = True
+                    state.turn_stakes = None
+                    state.rounds_since_ask = 0
+                    state.turn_decisions.append(effort)
+                    receipt = {**base, "status": "selected", "reason_code": LOCAL_TRIVIAL_REASON}
+                    return self._finish_request(
+                        raw_request, receipt, state, capture,
+                        effort=effort, requested=requested, jev_called=False,
+                        provider=provider, model=model, api_mode=api_mode,
+                    )
                 choice = self._ask_jev(state, capture, requested_wire, candidates)
                 jev_called = choice.get("jev_called") is True
                 state.jev_calls += int(jev_called)
@@ -2191,32 +2246,53 @@ class ReasoningEffortController:
                     )
                     receipt = {**base, "status": "cached", "reason_code": reason}
 
-            receipt.update(
-                {
-                    "effort": effort,
-                    "requested_effort": requested,
-                    "jev_called": jev_called,
-                    "stuck_signal": state.stuck,
-                }
+            return self._finish_request(
+                raw_request, receipt, state, capture,
+                effort=effort, requested=requested, jev_called=jev_called,
+                provider=provider, model=model, api_mode=api_mode,
             )
-            if capture is not None and capture.get("metadata") is not None:
-                receipt["scan_reason"] = METADATA_ONLY_REASON
-            modified = apply_effort_to_request(
-                raw_request, effort, provider=provider, model=model, api_mode=api_mode
-            )
-            receipt["applied"] = self._effort_changed(raw_request, modified, provider, api_mode)
-            if modified == dict(raw_request):
-                receipt["source"] = "host_request_unchanged"
-                self._publish(receipt, state)
-                return None
-            receipt["source"] = "llm_request_middleware" if receipt["applied"] else "wire_sanitization"
-            self._publish(receipt, state)
-            return {
-                "request": modified,
-                "source": "hermes-switchyard",
-                "reason": f"reasoning_effort:{effort}",
-                "name": "adaptive_reasoning_effort",
+
+    def _finish_request(
+        self,
+        raw_request: Mapping[str, Any],
+        receipt: dict[str, Any],
+        state: _SessionEffortState,
+        capture: Mapping[str, Any] | None,
+        *,
+        effort: str,
+        requested: str,
+        jev_called: bool,
+        provider: Any,
+        model: Any,
+        api_mode: Any,
+    ) -> dict[str, Any] | None:
+        """Apply *effort* to the request and publish the receipt; the caller holds ``state.lock``."""
+        receipt.update(
+            {
+                "effort": effort,
+                "requested_effort": requested,
+                "jev_called": jev_called,
+                "stuck_signal": state.stuck,
             }
+        )
+        if capture is not None and capture.get("metadata") is not None:
+            receipt["scan_reason"] = METADATA_ONLY_REASON
+        modified = apply_effort_to_request(
+            raw_request, effort, provider=provider, model=model, api_mode=api_mode
+        )
+        receipt["applied"] = self._effort_changed(raw_request, modified, provider, api_mode)
+        if modified == dict(raw_request):
+            receipt["source"] = "host_request_unchanged"
+            self._publish(receipt, state)
+            return None
+        receipt["source"] = "llm_request_middleware" if receipt["applied"] else "wire_sanitization"
+        self._publish(receipt, state)
+        return {
+            "request": modified,
+            "source": "hermes-switchyard",
+            "reason": f"reasoning_effort:{effort}",
+            "name": "adaptive_reasoning_effort",
+        }
 
     # -- step-level adaptation ------------------------------------------------
 

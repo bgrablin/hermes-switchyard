@@ -5,6 +5,7 @@ Switchyard can lower Hermes `reasoning_effort` for routine steps. Your `/reasoni
 ## Behavior
 
 - **Your level is the default cap.** Switchyard reads the level from each request (your `/reasoning` setting after Hermes' per-model clamp). In `auto` mode it asks Jev to pick a level from the ones at or below it for the provider. When `adaptive_reasoning_effort_allow_raise` is enabled and the latest tool call failed, it may offer one higher wire level.
+- **Trivial turns stay local.** When your current message is only a greeting, thanks, or acknowledgement (for example `hi`, `thanks`, `ok thanks!`, or `👍`), Switchyard sends the lowest allowed level for the route with no Jev call and no network (`local_trivial`). It uses the closed word list that automatic skill routing uses (`hermes_switchyard/trivial_turn.py`): at most 6 words, each on the list, or up to 8 characters with no letters or digits. A task word (`hi, delete the prod backups`, `thanks, now deploy`), a code block, a URL, or a file path makes the message non-trivial, so Jev decides. The cap and pin rules do not change: the level never goes above your cap, and a pinned session sends your level. After a tool call in the same turn, Switchyard asks Jev again. Delegated tasks never use this bypass, because they have no user message of their own.
 - **No room, no call.** When no lower level exists for the route (for example `low` on OpenAI Codex models), Switchyard does not call Jev and sends your level unchanged.
 - **A `/reasoning` change sets a new cap.** If you change `/reasoning` mid-session on the same model, the new level becomes the cap and the session stays in `auto`. Switchyard asks Jev again for the next request. For example, after `/reasoning max`, a reply to `thanks!` can still go out below `max`. To send your level unchanged, run `/switchyard effort pin`.
 - **Model switches re-baseline.** A model switch or fallback reads the new level and keeps the current mode.
@@ -74,6 +75,7 @@ Switchyard keeps the captured text only in memory for the current turn and clear
 
 ```text
 switchyard: effort high→low · Jev 180 ms
+switchyard: effort high→low · local (no Jev call)
 switchyard: effort high→low · Jev 180 ms · ~1.2k reasoning tokens saved (est.)
 switchyard: effort high (kept: consequential) · Jev 210 ms
 switchyard: effort high→low · Jev 190 ms · 2 cached
@@ -102,12 +104,13 @@ With fewer than 3 baseline samples, or no usage from the host, Switchyard shows 
 Switchyard effort summary (this session)
   turns: 4
   requests: lowered 1, kept 3, raised 0, not adapted 0
-  Jev calls: 4, p50 190 ms, p95 240 ms
+  Jev calls: 3, p50 190 ms, p95 240 ms
+  local decisions (no Jev call): 1
   cached reuses: 0
   estimated tokens saved: ~500 output (est., 1 of 1 lowered requests measured)
 ```
 
-`not adapted` counts requests Switchyard passed through (pinned, excluded model, no room, no host effort). Without a measured baseline the last line reads `estimated tokens saved: unknown (no measured baseline yet)`.
+`local decisions` counts trivial turns decided locally (`local_trivial`); they are not Jev calls and add no latency sample. `not adapted` counts requests Switchyard passed through (pinned, excluded model, no room, no host effort). Without a measured baseline the last line reads `estimated tokens saved: unknown (no measured baseline yet)`.
 
 Example `status` lines for the last decisions (up to 5 are kept):
 
@@ -157,6 +160,6 @@ Model routing (`jev_model_route`) stays advisory (`applied: false`).
 
 `hermes switchyard status --json` includes `reasoning_effort_adapter` with the effective settings. `last_receipt()` in `hermes_switchyard.reasoning_effort_adapter` returns the last decision with `status`, `effort` (the level sent), `requested_effort`, `cap`, `mode`, `reason_code` and `applied`.
 
-Reason codes: `jev_selected`, `jev_step_selected`, `cached`, `cached_unchanged`, `no_room`, `pinned`, `excluded_model`, `no_host_effort`, `reasoning_disabled`, `unsupported_route`, `disabled`, `invalid_choice`, `kept_requested_on_jev_failure`, `kept_requested_ack_required`, `kept_requested_no_task_text`, `kept_requested_restricted_text`, `kept_requested_high_stakes`, `kept_requested_after_tool_failure`, `kept_requested_after_write`, `kept_requested_metadata_change_request`, `kept_requested_metadata_high_stakes`. A metadata-only decision also has `scan_reason` `metadata_only`.
+Reason codes: `jev_selected`, `jev_step_selected`, `local_trivial` (with `jev_called: false`), `cached`, `cached_unchanged`, `no_room`, `pinned`, `excluded_model`, `no_host_effort`, `reasoning_disabled`, `unsupported_route`, `disabled`, `invalid_choice`, `kept_requested_on_jev_failure`, `kept_requested_ack_required`, `kept_requested_no_task_text`, `kept_requested_restricted_text`, `kept_requested_high_stakes`, `kept_requested_after_tool_failure`, `kept_requested_after_write`, `kept_requested_metadata_change_request`, `kept_requested_metadata_high_stakes`. A metadata-only decision also has `scan_reason` `metadata_only`.
 
 Since 0.5.5, `pinned_by_user_change` is not used: a `/reasoning` change sets a new cap and keeps `auto`.

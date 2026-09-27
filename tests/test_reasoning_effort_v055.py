@@ -18,7 +18,8 @@ from tests.test_reasoning_effort_user_cap import OPUS, Env, opus_request, sent_e
 SESSION = "synthetic-session"
 ROTATED = "synthetic-session-rotated"
 CHILD = "subagent-0-synthetic"
-ROUTINE = re.compile(r"^(hi|hello|thanks!?|thank you|ok)$", re.IGNORECASE)
+# "status ping" is routine but not trivial: it reaches Jev, unlike the closed-list greetings.
+ROUTINE = re.compile(r"^(hi|hello|thanks!?|thank you|ok|status ping)$", re.IGNORECASE)
 
 
 class TextJev:
@@ -117,7 +118,7 @@ class UserLevelChangeTests(unittest.TestCase):
         begin(controller, "refactor the parser module")
         self.assertEqual(send(controller, "high"), "high")
         # The user runs /reasoning max; Hermes sends max from the next request on.
-        begin(controller, "thanks!", turn="t2")
+        begin(controller, "status ping", turn="t2")
         sent = send(controller, "max", turn="t2")
         self.assertNotEqual(sent, "max")
         self.assertEqual(sent, "low")
@@ -129,7 +130,7 @@ class UserLevelChangeTests(unittest.TestCase):
 
     def test_same_turn_level_change_rebaselines_and_asks_again(self):
         controller, jev, _ = make()
-        begin(controller, "hi")
+        begin(controller, "status ping")
         self.assertEqual(send(controller, "high"), "low")
         calls = len(jev.calls)
         self.assertEqual(send(controller, "xhigh"), "low")
@@ -236,7 +237,7 @@ class ReceiptLineTests(unittest.TestCase):
 
     def test_receipt_line_names_the_change_and_latency(self):
         controller, _, _ = make(receipt_line=True)
-        begin(controller, "hi")
+        begin(controller, "status ping")
         send(controller, "high")
         text = self.finish(controller)
         self.assertTrue(text.startswith("Synthetic answer."))

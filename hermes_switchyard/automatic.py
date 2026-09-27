@@ -63,6 +63,12 @@ from .egress import (
 )
 from .reasoning_effort_adapter import _effort_scan_reason
 from .routing import select_skill
+from .trivial_turn import (  # noqa: F401 -- the limits stay importable from automatic
+    TRIVIAL_ACK_MAX_WORDS,
+    TRIVIAL_ACK_WORDS,
+    TRIVIAL_SYMBOL_MAX_CHARS,
+    is_trivial_turn,
+)
 from .two_stage_routing import (
     TwoStageConfig,
     detect_kanban_worker,
@@ -159,18 +165,9 @@ REDACTION_UNAVAILABLE_REASON = egress_redaction.REDACTION_UNAVAILABLE_REASON
 # specialist skill, so the hosted call only adds latency. The rule is a closed
 # word list, not a length rule, so short task requests still reach Jev.
 TRIVIAL_TURN_REASON = "trivial_turn"
-TRIVIAL_ACK_MAX_WORDS = 6
-TRIVIAL_SYMBOL_MAX_CHARS = 8
-_TRIVIAL_WORD_RE = re.compile(r"[a-z0-9']+")
-_TRIVIAL_ACK_WORDS = frozenset(
-    """
-    hi hello hey hiya yo morning afternoon evening night gm gn bye goodbye cheers
-    thanks thank thx ty tysm you so very much appreciate appreciated
-    ok okay k kk yes yep yeah yup sure no nope nah fine right correct agreed
-    great cool nice perfect awesome good excellent lgtm got it sounds that's
-    go ahead continue proceed done again
-    """.split()
-)
+# The closed list lives in trivial_turn.py; adaptive reasoning effort uses the same detector.
+_trivial_turn = is_trivial_turn
+_TRIVIAL_ACK_WORDS = TRIVIAL_ACK_WORDS
 
 # These words do not identify a specialist skill. Keeping this list local makes
 # the default path deterministic and avoids an auxiliary model call.
@@ -294,20 +291,6 @@ def _redact_for_hosted(text: str, max_chars: int = MAX_TASK_CHARS) -> tuple[str 
     if redacted is None:
         return None, reason or REDACTION_UNAVAILABLE_REASON
     return redacted[:max_chars].strip(), None
-
-
-def _trivial_turn(text: str) -> bool:
-    """True for a greeting, thanks, or acknowledgement with no task words.
-
-    Only words from a closed acknowledgement list qualify, so a short request
-    such as ``fix ci`` still goes to the hosted selector. Text with no word
-    characters (an emoji or ``?``) qualifies when it is very short.
-    """
-    stripped = text.strip()
-    words = _TRIVIAL_WORD_RE.findall(stripped.casefold())
-    if not words:
-        return 0 < len(stripped) <= TRIVIAL_SYMBOL_MAX_CHARS
-    return len(words) <= TRIVIAL_ACK_MAX_WORDS and all(word in _TRIVIAL_ACK_WORDS for word in words)
 
 
 def _validate_name(name: Any) -> str:
