@@ -78,6 +78,7 @@ RELEASE_FILES = (
     "hermes_switchyard/routing.py",
     "hermes_switchyard/schemas.py",
     "hermes_switchyard/session_search_rerank.py",
+    "hermes_switchyard/trivial_turn.py",
     "hermes_switchyard/two_stage_routing.py",
     "hermes_switchyard/skills/hermes-switchyard-operations/SKILL.md",
     "plugin.yaml",

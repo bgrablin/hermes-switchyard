@@ -115,23 +115,28 @@ class EffortReplayTests(unittest.TestCase):
             self.ok_tool(controller)
             sent.append(self.call(controller, codex_request("medium")))
         sent.append(self.call(controller, codex_request("medium"), turn="t2"))
-        self.assertEqual(sent, ["low", "low", "medium", "medium", "medium", "medium", "medium"])
+        # v0.5.5: the switch sets a new cap (medium) and keeps auto. The failed tool keeps the
+        # cap until a later success; a Jev answer above the cap is never sent.
+        self.assertEqual(sent, ["low", "low", "medium", "low", "low", "low", "low"])
         self.assertTrue(all(ORDER.index(level) <= ORDER.index("medium") for level in sent))
-        self.assertEqual(client.calls, [])  # low has no room; the switch pinned the session
-        self.assertEqual(controller.session_status("s1")["mode"], "pinned")
+        self.assertEqual(controller.session_status("s1")["mode"], "auto")
 
-    def test_manual_change_pins_and_auto_restores_with_new_cap(self):
+    def test_manual_change_sets_a_new_cap_and_keeps_auto(self):
         controller, client, _ = self.make(choice="low")
         self.assertEqual(self.call(controller, codex_request("high")), "low")
-        self.assertEqual(self.call(controller, codex_request("xhigh")), "xhigh")
-        self.assertEqual(last_receipt()["reason_code"], "pinned_by_user_change")
         calls = len(client.calls)
-        self.assertEqual(self.call(controller, codex_request("xhigh"), turn="t2"), "xhigh")
-        self.assertEqual(len(client.calls), calls)
-        self.assertTrue(controller.set_mode("auto", session_id="s1")["ok"])
-        self.assertEqual(self.call(controller, codex_request("xhigh"), turn="t2"), "low")
+        self.assertEqual(self.call(controller, codex_request("xhigh")), "low")
+        self.assertEqual(len(client.calls), calls + 1, "a new cap is a fresh decision")
+        self.assertEqual(last_receipt()["mode"], "auto")
+        self.assertEqual(last_receipt()["cap"], "xhigh")
         offered = list(client.calls[-1][1]["reasoning_effort"]["criteria"])
         self.assertEqual(offered[-1], "xhigh")
+        status = controller.session_status("s1")
+        self.assertEqual((status["mode"], status["user_level"]), ("auto", "xhigh"))
+        # Only /switchyard effort pin pins the session.
+        self.assertTrue(controller.set_mode("pinned", session_id="s1")["ok"])
+        self.assertEqual(self.call(controller, codex_request("xhigh"), turn="t2"), "xhigh")
+        self.assertEqual(last_receipt()["reason_code"], "pinned")
 
     def test_model_switch_rebaselines_without_pinning(self):
         controller, client, _ = self.make(choice="low")
@@ -226,13 +231,14 @@ class EffortReplayTests(unittest.TestCase):
         self.call(controller, codex_request("high"), turn="t2")
         self.assertEqual(len(client.calls), 2)
 
-    def test_reasoning_none_is_a_baseline_and_manual_change_pins(self):
+    def test_reasoning_none_is_a_baseline_and_a_change_sets_a_new_cap(self):
         controller, client, _ = self.make(choice="low")
         self.assertEqual(self.call(controller, codex_request("none")), "none")
-        self.assertEqual(self.call(controller, codex_request("high")), "high")
-        self.assertEqual(controller.session_status("s1")["mode"], "pinned")
-        self.assertEqual(last_receipt()["reason_code"], "pinned_by_user_change")
         self.assertEqual(client.calls, [])
+        self.assertEqual(self.call(controller, codex_request("high")), "low")
+        self.assertEqual(controller.session_status("s1")["mode"], "auto")
+        self.assertEqual(controller.session_status("s1")["user_level"], "high")
+        self.assertEqual(len(client.calls), 1)
 
     def test_missing_client_and_missing_ack_are_not_jev_calls(self):
         for ack in (True, False):
@@ -338,13 +344,13 @@ class EffortReplayTests(unittest.TestCase):
             raw = (Path(tmp) / "effort-history.jsonl").read_text()
             self.assertNotIn("private text marker", raw)
             records = read_effort_history(data_dir=tmp)
-            self.assertEqual([r["sent"] for r in records], ["low", "xhigh"])
-            self.assertEqual(records[0]["requested"], "high")
+            self.assertEqual([r["sent"] for r in records], ["low", "low"])
+            self.assertEqual([r["requested"] for r in records], ["high", "xhigh"])
             stats = effort_stats(data_dir=tmp, since=timedelta(hours=1))
             self.assertEqual(stats["records"], 2)
-            self.assertEqual(stats["lowered"], 1)
+            self.assertEqual(stats["lowered"], 2)
             self.assertEqual(stats["raised"], 0)
-            self.assertEqual(stats["jev_calls"], 1)
+            self.assertEqual(stats["jev_calls"], 2)
             record = build_effort_record({"mode": "weird", "effort": "ultra-max", "reason_code": "x" * 500})
             self.assertIsNone(record["mode"])
             self.assertIsNone(record["sent"])

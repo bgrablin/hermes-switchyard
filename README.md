@@ -8,12 +8,7 @@ Switchyard is a [Hermes Agent](https://github.com/NousResearch/hermes-agent) plu
 
 The [Switchyard branding image](docs/assets/hermes-switchyard-branding.png) is also packaged.
 
-**Release state:** `plugin.yaml` in this branch still declares version 0.5.4. The 0.5.5 work is not released. Two opt-in features are proposed for 0.5.5:
-
-- **Research Navigator (F1, pending):** an explicit tool will compare up to four claims with six caller-supplied public source windows. It will show support, contradiction, missing quotes, and unassessed windows. It will not fetch pages or verify that a supplied excerpt matches a live URL.
-- **DOM Progress & Recovery (F2, pending):** an opt-in mode will assess repeated, unproductive steps in Switchyard's public DOM browser loop. It can stop that loop as incomplete and suggest a permitted next observation. It will not control desktop apps, repeat a mutation, or certify task completion. Its default will be `off`.
-
-Neither pending feature is available in a current install. The [changelog](CHANGELOG.md) distinguishes work on the branch from work still pending. The [benchmark report](docs/BENCHMARKS.md) identifies the source and limits of its measurements: the selector value report uses 0.5.4 source `7dc77c8`; older feature-battery rows use 0.5.0 code. It does not prove that Jev improves every task.
+**Release state:** the manifest still declares version 0.5.4. The 0.5.5 branch is not released. It includes local decisions for trivial turns, a visible effort receipt, and a session summary. Research Navigator (F1) and DOM Progress & Recovery (F2) are **not included**. F1 failed its frozen end-to-end release gate; [its evaluation is published on PR #132](https://github.com/bgrablin/hermes-switchyard/pull/132). [F2 evaluation is on PR #135](https://github.com/bgrablin/hermes-switchyard/pull/135) and remains in progress. Do not install those PRs as if they were shipped features. The [changelog](CHANGELOG.md) separates included work from the two evaluations. The [benchmark report](docs/BENCHMARKS.md) names the older source and limits of its measurements; it does not prove that Jev improves every task.
 
 ## First-run quickstart
 
@@ -53,31 +48,30 @@ You need a working Hermes installation, one TypeSafe or OpenRouter account key, 
 
 The live test is optional. A status of `ready` checks key presence and tool exposure; it is not a successful Jev decision. The live test reports `passed` only after a provider response. Plugin Doctor checks registration, not account readiness or model quality. The installer can block a community Git source after a security scan. Read the findings before you approve any override; do not treat a blocked install as success. A fresh session or gateway restart is necessary before an already-running session uses a new plugin.
 
-**First-run evidence:** pinned Hermes `8503ee4` installed Switchyard commit `8bfe98d` from a local Git URL in a clean scratch profile without a scan override. Install (5.005 s), enable (0.591 s), status (1.618 s), and Doctor (0.832 s) took 8.046 s in total. Status was `credential_required` because the profile had no provider key. This excludes GitHub download time, masked key setup, a new interactive session, and a paid live decision. **The complete under-two-minute first-run criterion is not verified.** The local Git URL was a test source, not a recommended production command.
+**First-run evidence:** the [public-SHA first-run check](docs/FIRST-RUN.md) measured a clean install, enable, local status, Doctor, and an installed-plugin no-network decision. Those local steps took 8.940 s. Key entry, a fresh interactive session, and a provider response were not measured. The complete under-two-minute first run is **not verified**.
 
 ## What you will see
 
-Automatic skill routing uses `hosted_sanitized` and `load` by default. An eligible turn can send a bounded task and candidate names to Jev, then load one accepted skill through Hermes. `/reasoning` remains the cap for adaptive effort. You can inspect the current session with `/switchyard effort status` and the stored routing decision with `hermes switchyard receipt --json` or `hermes switchyard stats --since 24h`.
-
-**Example only, not observed output from this branch:**
+Automatic skill routing uses `hosted_sanitized` and `load` by default. On an eligible turn, it can send a bounded task and candidate names to Jev, then load one accepted skill. Adaptive effort keeps your `/reasoning` level as the cap. A greeting or thanks can go to `low` locally, with **no Jev call**. A request to act still calls Jev when the hosted route is available. The installed-candidate trace recorded these visible lines:
 
 ```text
-Switchyard adaptive reasoning effort
-  mode: auto
-  your level (cap): high
-  last sent: low (jev_selected)
-  requests: 1, Jev calls: 1
+switchyard: effort high→low · local (no Jev call)
+switchyard: effort high (kept: consequential) · Jev 218 ms
 ```
 
-The current status command shows the last decision, not the last five. **Pending in PR #134, not installed here:** a default-visible per-turn line such as `switchyard: effort high→low (Jev 240 ms)` and a recent-decision view at `/switchyard effort summary`. That line is sample text, not a measured receipt. `/switchyard effort status` works now; `summary` and the per-turn line depend on the unmerged PR. **TODO (Silver, after #134 merges):** capture a real per-turn receipt screenshot. No screenshot is presented as proof here. No receipt proves that an answer was correct or that a whole browser goal succeeded. For the exact current receipt contract, see [automatic routing](docs/AUTOMATIC-INTEGRATION.md) and [adaptive effort](docs/ADAPTIVE-REASONING-EFFORT.md).
+The first line followed `hi`; the second followed `thanks, now deploy`. These are recorded receipt lines, not a latency promise. The image is a rendering of recorded output, not a live terminal capture:
+
+![Rendering of recorded Switchyard receipt output for a greeting and a consequential request](docs/assets/effort-receipts-recorded.png)
+
+Run `/switchyard effort status` for the last decision or `/switchyard effort summary` for recent choices and local/Jev counts. Use `hermes switchyard receipt --json` for stored skill-routing receipts. A receipt reports a decision, not answer correctness or browser-goal completion. See [automatic routing](docs/AUTOMATIC-INTEGRATION.md) and [adaptive effort](docs/ADAPTIVE-REASONING-EFFORT.md).
 
 ## Privacy and egress
 
 The two default-on automatic paths have different data rules:
 
-- **Adaptive effort:** the current branch uses Hermes `agent.redact.redact_for_egress` through `redact_for_jev` on the whole current text message before it sends a bounded 1,200-character excerpt, plus closed-set task-stage and tool-result-status metadata. Its text input is the current message, not earlier messages, memory, tool output, or private files. If the Hermes redactor is absent, the adapter uses a metadata-only local fallback: no message text or Jev request leaves, and the requested effort stays in place. Explicit CUI, ITAR, FOUO, classification, and proprietary markings stay local. A clean scan does not prove that other private text is safe to send.
+- **Adaptive effort:** the current branch uses Hermes `agent.redact.redact_for_egress` through `redact_for_jev` on the whole current message before it sends a bounded 1,200-character excerpt. It also sends closed-set stage and tool-status metadata. It does not send earlier messages, memory, tool output, or private files. Without the Hermes redactor, a nontrivial eligible turn can use a **metadata-only Jev decision**: closed-set size buckets and flags, turn index, and tool statuses, but no message text. A trivial turn can decide locally with no Jev call. If the input is restricted or the acknowledgement is off, it keeps your effort without a hosted call. Explicit CUI, ITAR, FOUO, classification, and proprietary markings stay local. A clean scan does not prove that other private text is safe to send.
 - **Skill routing:** the current branch scans the whole task locally for restricted markings, injection shapes, control characters, and structured payloads. It then passes clean text through Hermes `redact_for_egress` plus bounded masks before sending up to 4,000 characters and exact candidate names. Without the Hermes redactor, it skips hosted routing and uses local matching. Ordinary words such as `password` and `confidential`, email addresses, and phone numbers are not restricted shapes. They do not authorize private content. Bounded descriptions or skill excerpts require a separate opt-in.
-- **Explicit tools and DOM browser:** only submit public or deliberately sanitized inputs. The browser cannot log in to your existing session or upload a private file. F1 and F2 will require a whole-payload eligibility gate and explicit public-data acknowledgement. A public URL alone will not make a private goal safe.
+- **Explicit tools and DOM browser:** only submit public or deliberately sanitized inputs. The browser cannot log in to your existing session or upload a private file. A public URL alone will not make a private goal safe.
 
 TypeSafe and OpenRouter are external providers. Automatic requests do not read raw tool output or files; recognized secret values are scrubbed before the bounded text excerpt. A new secret shape in the current message can still escape a pattern-based scrubber. Do not submit secrets or private content; explicit tools send caller-supplied inputs under their own policy. The acknowledgement flags are not data loss prevention. Switchyard does not authorize private, employer, regulated, credential, payment, or verification content for hosted decisions. To stop automatic hosted skill routing, use `local_only`. To stop adaptive message-text egress, set adaptive effort to `false`:
 
@@ -92,11 +86,11 @@ You can also set `public_or_sanitized_data_ack` and `automatic_skill_public_or_s
 
 | Surface | Available now | Default |
 | --- | --- | --- |
-| Tools (7) | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, `jev_session_search_rerank`, `jev_computer_use` | Callable when their toolsets are selected |
-| Hooks (3) | `pre_llm_call`, `post_llm_call`, `post_tool_call` | Registered after enablement |
-| Middleware (1) | `llm_request` for request-scoped effort | On when supported by Hermes |
+| Tools (7) | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, `jev_session_search_rerank`, `jev_computer_use` | Callable when the corresponding toolset is selected |
+| Hooks (5) | `pre_llm_call` for automatic skill routing and effort capture; `post_llm_call` to clear that capture; `post_tool_call` for reconsideration; `transform_llm_output` for the visible effort line; `post_api_request` for usage counts | On after install |
+| Middleware (1) | `llm_request` for request-scoped reasoning effort | On when supported by Hermes |
 
-Doctor reports four hook registrations because two handlers use `pre_llm_call`; the manifest lists three distinct kinds. `jev_skill_select_many` recommends several skills but does not load them. The automatic hook can load one accepted skill per identified turn. `jev_model_route` and `jev_model_route_approved` do not apply a model switch. Jev `DONE` alone does not verify a browser goal; Switchyard also needs its local completion condition. An early local stop is a candidate, not verified success. [Browser receipts](docs/DOM-BROWSER-BACKEND.md) show the separate action, effect, and goal fields.
+Doctor reports six hook registrations because two handlers use `pre_llm_call`; the manifest lists five distinct kinds. `jev_skill_select_many` recommends several skills but does not load them. The automatic hook can load one accepted skill per identified turn. The model-routing tools do not apply a model switch. Jev `DONE` alone does not verify a browser goal; Switchyard also needs its local completion condition. An early local stop is a candidate, not verified success. [Browser receipts](docs/DOM-BROWSER-BACKEND.md) show the separate action, effect, and goal fields.
 
 ## Automatic skill recommendations
 
@@ -104,7 +98,7 @@ Switchyard reads the active profile's skills at the beginning of an eligible tur
 
 ## Computer use
 
-`jev_computer_use` uses a fresh, ephemeral Chromium profile for eligible public DOM goals. It does not attach to a signed-in browser, authenticate, or upload files. The caller supplies ordinary field values in `text_inputs`; Jev chooses a safe target but does not receive those values. Desktop goals use Hermes Cua Driver on supported hosts. A proposed finish is not a verified task. [Browser and desktop limits](docs/DOM-BROWSER-BACKEND.md) include destination checks, receipts, and recovery conditions. F2 will apply **only** to the plugin-owned public DOM loop, after its implementation and evaluation gates pass.
+`jev_computer_use` uses a fresh, ephemeral Chromium profile for eligible public DOM goals. It does not attach to a signed-in browser, authenticate, or upload files. The caller supplies ordinary field values in `text_inputs`; Jev chooses a safe target but does not receive those values. Desktop goals use Hermes Cua Driver on supported hosts. A proposed finish is not a verified task. [Browser and desktop limits](docs/DOM-BROWSER-BACKEND.md) include destination checks, receipts, and recovery conditions. F2 is not included.
 
 ## Toolsets and session exposure
 
@@ -162,14 +156,17 @@ All current settings live under `plugins.entries.hermes-switchyard.settings`. Th
 | `adaptive_reasoning_effort_mode` | `auto` | `auto` can lower effort; `pinned` keeps your level. |
 | `adaptive_reasoning_effort_exclude_models` | `[]` | Model patterns that the effort adapter does not touch. |
 | `adaptive_reasoning_effort_allow_raise` | `false` | Permit one level above your cap after a failed tool call only when enabled. |
+| `adaptive_reasoning_effort_step_adaptation` | `true` | Reconsider after routine read-only tool rounds; writes and failures keep the cap. |
+| `adaptive_reasoning_effort_receipt_line` | `true` | Show one foreground effort line after a turn where the plugin worked. |
 | `adaptive_reasoning_effort_default` | `medium` | Deprecated and unused; the request's own effort is the fallback. |
 | `adaptive_reasoning_effort_deadline_seconds` | `1.5` | Wall-clock budget for one adaptive Jev decision; timeout keeps your level. |
+| Decision budget guard (not a setting) | **pending PR** | A proposed 0.25 s guard is not in this branch. The live warm p95 target is not verified. |
 | `session_search_rerank_choice_confidence_threshold` | `0.8` | Minimum Jev Choice confidence to change FTS order. |
 | `session_search_rerank_winning_probability_threshold` | `0.8` | Minimum winning probability to change FTS order. |
 | `session_search_rerank_max_card_chars` | `360` | Maximum text in a redacted FTS candidate card. |
 | `public_or_sanitized_data_ack` | `true` | Standing acknowledgement for explicit Jev tools and adaptive effort; callers can refuse one call. |
 
-**Not current settings:** F1 proposes `research_navigator_enabled=false`, `research_navigator_deadline_seconds=6.0`, `research_support_threshold=0.85`, and `research_contradiction_threshold=0.85`. F2 proposes `browser_progress_mode=off`, `browser_progress_stall_count=2`, `browser_progress_confidence_threshold=0.85`, and `browser_progress_new_evidence_no_threshold=0.15`. Do not set these keys until the corresponding implementation and manifest changes land. Both features must stay off if their predeclared evaluation gates fail.
+The 41 setting rows above match the manifest defaults. The budget row is explicitly **not** a setting. F1 and F2 settings from their PRs are not in this manifest; do not set them. F1 failed its frozen release evaluation. F2 evaluation is still in progress.
 
 ## Troubleshooting
 
@@ -188,7 +185,7 @@ These are code-owned status or receipt reasons. They identify a gate, not necess
 
 The installer can also report `Security scan blocked plugin install`. This occurs before any plugin status command is available. Review the exact scanner findings and source; do not pass `--force` merely to make the quickstart appear complete. [Setup](docs/SETUP.md) covers browser startup, explicit pins, and further status reasons.
 
-**No per-turn effort line?** That line and `/switchyard effort summary` are pending in PR #134. On this branch, use `/switchyard effort status` or `hermes switchyard status --json` to inspect the available state. Doctor cannot make an unmerged feature appear.
+**No per-turn effort line?** It appears only on a foreground turn where the plugin changed effort, called Jev, or reused a cached choice. Check `adaptive_reasoning_effort_receipt_line`, `/switchyard effort receipt`, the selected mode, and whether you started a fresh session after enabling the plugin. A disabled adapter or unsupported Hermes middleware cannot produce it. Use `/switchyard effort status` and `hermes switchyard status --json` to see the current state.
 
 ## Uninstall and rollback
 

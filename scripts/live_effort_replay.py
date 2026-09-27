@@ -206,6 +206,10 @@ def run_installed(plugin: Path, source_sha: str, tree: str, provider: str, secre
             receipts.append(step("1-first", "low", "t1"))
             hook(tool_name="shell", status="error", error_message="synthetic failure", session_id=session)
             receipts.append(step("2-after-failure", "low", "t1"))
+            # v0.5.5: a /reasoning change alone sets a new cap and keeps auto. The replay pins
+            # explicitly first so the low/pin sequence stays free of hosted Jev calls.
+            if not controller.set_mode("pinned", session_id=session).get("ok"):
+                raise ReplayError(f"{label}: explicit pin failed")
             receipts.append(step("3-user-changes-level", "medium", "t1"))
             for _ in range(3):
                 hook(tool_name="shell", result='{"ok":true}', session_id=session)
@@ -216,8 +220,11 @@ def run_installed(plugin: Path, source_sha: str, tree: str, provider: str, secre
             receipts.append(step("6-after-six-successes", "medium", "t2"))
             receipts.append(step("7-another-turn", "medium", "t3"))
             sequence = receipts[-7:]
-            if sequence[2]["reason"] != "pinned_by_user_change" or any(r["jev_called"] for r in sequence):
-                raise ReplayError(f"{label}: pin/low sequence made an unexpected Jev call")
+            if sequence[2]["reason"] != "pinned" or any(r["jev_called"] for r in sequence):
+                raise ReplayError(
+                    f"{label}: pin/low sequence made an unexpected Jev call: "
+                    + json.dumps([(r["step"], r["reason"], r["jev_called"]) for r in sequence])
+                )
             if sequence[0]["reason"] != "no_room":
                 raise ReplayError(f"{label}: low did not skip Jev")
             with scoped_current_session_id(session):
