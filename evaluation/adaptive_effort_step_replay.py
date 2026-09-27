@@ -74,6 +74,10 @@ def load_fixtures(path: Path = FIXTURES) -> dict[str, Any]:
         raise ValueError(f"fixture book changed after freeze: {digest} != {frozen}")
     if book.get("data_class") != "public_synthetic_and_aggregate":
         raise ValueError("fixture book is not marked public_synthetic_and_aggregate")
+    provenance = book.get("provenance")
+    required = {"source", "fixture_commit", "extracted_at", "raw_extract_retained", "claim_scope"}
+    if not isinstance(provenance, dict) or not required <= provenance.keys():
+        raise ValueError("fixture book has no complete provenance record")
     return book
 
 
