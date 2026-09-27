@@ -410,9 +410,18 @@ def _scan_reason(text: str) -> str | None:
 
 
 def _bounded_detail(value: Any, limit: int) -> str | None:
+    """Return at most *limit* characters of whole whitespace-separated tokens.
+
+    The local scan runs on this exact projection. A token cut in the middle
+    can lose the characters that make a value recognizable, so a token that
+    does not fit is dropped whole. No safe boundary sends no detail.
+    """
     if type(value) is not str:
         return None
-    text = " ".join(value.split())[:limit]
+    text = " ".join(value.split())
+    if len(text) > limit:
+        cut = text[: limit + 1].rfind(" ")
+        text = text[:cut] if cut > 0 else ""
     return text or None
 
 

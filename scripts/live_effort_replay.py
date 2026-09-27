@@ -84,7 +84,7 @@ def run_installed(plugin: Path, source_sha: str, tree: str, provider: str, secre
     from agent.transports.codex import _reasoning_fields
     from hermes_cli.env_loader import hydrate_profile_secret_sources
     from hermes_cli.middleware import apply_llm_request_middleware
-    from hermes_cli.plugins import get_plugin_manager
+    from hermes_cli.plugins import get_plugin_manager, invoke_hook
 
     if provider not in {"typesafe", "openrouter"}:
         raise ReplayError("provider must be explicitly typesafe or openrouter")
@@ -163,12 +163,21 @@ def run_installed(plugin: Path, source_sha: str, tree: str, provider: str, secre
 
             session = f"replay-{label}"
             hook = controller.build_post_tool_call_hook()
+            captured_turns: set[str] = set()
+
             def step(name: str, effort: str, turn: str) -> dict:
+                if turn not in captured_turns:
+                    # #121: Hermes fires pre_llm_call once per turn with the clean user message;
+                    # without it the adapter keeps the requested level and makes no Jev call.
+                    invoke_hook("pre_llm_call", session_id=session, task_id=session, turn_id=turn,
+                        user_message="Synthetic public status.", conversation_history=[],
+                        is_first_turn=True, model=model, platform="cli", sender_id="", parent_session_id="")
+                    captured_turns.add(turn)
                 before = controller.session_status(session).get("jev_calls", 0)
                 start = time.monotonic()
                 original = request_for(effort)
                 result = apply_llm_request_middleware(original, provider=route, model=model,
-                    api_mode=api_mode, session_id=session, turn_id=turn)
+                    api_mode=api_mode, session_id=session, task_id=session, turn_id=turn)
                 elapsed = time.monotonic() - start
                 payload = result.payload
                 sent = wire(payload)

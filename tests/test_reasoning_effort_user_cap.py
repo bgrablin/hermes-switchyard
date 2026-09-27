@@ -26,7 +26,7 @@ from hermes_switchyard.reasoning_effort_adapter import (
     read_effort_history,
 )
 
-from tests.test_reasoning_effort_adapter import FakeClient
+from tests.test_reasoning_effort_adapter import FakeClient, ensure_turn
 
 ASTRA = {"provider": "openai-codex", "model": "gpt-6-astra-900k", "api_mode": "codex_responses"}
 OPUS = {"provider": "anthropic", "model": "claude-opus-5-5", "api_mode": "anthropic_messages"}
@@ -77,6 +77,7 @@ class EffortReplayTests(unittest.TestCase):
         return controller, client, records
 
     def call(self, controller, request, *, turn="t1", session="s1", route=ASTRA):
+        ensure_turn(controller, session_id=session, turn_id=turn)
         result = controller.on_llm_request(request, session_id=session, turn_id=turn, **route)
         return sent_effort(request, result)
 
@@ -159,13 +160,14 @@ class EffortReplayTests(unittest.TestCase):
         client.choice = "high"
         self.assertEqual(self.call(controller, codex_request("medium")), "high")
         self.assertEqual(list(client.calls[-1][1]["reasoning_effort"]["criteria"])[-1], "high")
-        self.assertFalse(client.calls[-1][0]["policy"]["ceiling_is_user_level"])
+        self.assertTrue(client.calls[-1][0]["latest_tool_failed"])
         self.assertIn("one wire level above", client.calls[-1][1]["reasoning_effort"]["instructions"])
         self.ok_tool(controller)
         client.choice = "medium"
         self.assertEqual(self.call(controller, codex_request("medium")), "medium")
         self.assertEqual(list(client.calls[-1][1]["reasoning_effort"]["criteria"])[-1], "medium")
-        self.assertTrue(client.calls[-1][0]["policy"]["ceiling_is_user_level"])
+        self.assertFalse(client.calls[-1][0]["latest_tool_failed"])
+        self.assertIn("stop at the level the user selected", client.calls[-1][1]["reasoning_effort"]["instructions"])
 
     def test_allow_raise_off_by_default(self):
         controller, client, _ = self.make(choice="medium")
@@ -205,10 +207,14 @@ class EffortReplayTests(unittest.TestCase):
         self.call(controller, codex_request("high"))
         self.fail_tool(controller)
         self.call(controller, codex_request("high"))
-        self.assertTrue(client.calls[-1][0]["stuck_signal"])
+        self.assertTrue(client.calls[-1][0]["latest_tool_failed"])
+        # #121: after a failed tool the choice may not go below the user's level.
+        self.assertEqual(last_receipt()["effort"], "high")
+        self.assertEqual(last_receipt()["reason_code"], "kept_requested_after_tool_failure")
         self.call(controller, codex_request("high"), turn="t2")
-        self.assertFalse(client.calls[-1][0]["stuck_signal"])
-        self.assertEqual(client.calls[-1][0]["recent_tool_outcomes"], [])
+        self.assertFalse(client.calls[-1][0]["latest_tool_failed"])
+        self.assertEqual(client.calls[-1][0]["recent_tool_statuses"], [])
+        self.assertEqual(last_receipt()["effort"], "medium")
 
     def test_successful_tool_loop_reuses_one_choice_per_turn(self):
         controller, client, _ = self.make(choice="low")
