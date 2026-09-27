@@ -5,7 +5,8 @@ A fake Jev decides only from the outbound ``current_request`` text. With the use
 and Codex Responses (``reasoning.effort``) wire shapes, and a consequential request keeps
 ``high``. The receipt line is on by default: it reaches the final response through the Hermes
 ``transform_llm_output`` seam for the lowered and the kept turn, and never enters the stored
-conversation history. ``/switchyard effort receipt off`` removes it.
+conversation history. ``/switchyard effort receipt off`` removes it. A Jev slower than the
+default 0.25 s budget keeps the cap on both wire shapes, and its late answer is discarded.
 
 All values are synthetic. The provider call is replaced at ``_interruptible_api_call``, so
 nothing leaves the process.
@@ -18,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -26,6 +28,7 @@ from scripts.build_release import RELEASE_FILES
 
 ROUTINE = ("hi", "thanks!")
 CONSEQUENTIAL = "delete the prod database backups"
+SLOW_TASK = "refactor the parser module"
 # Local-first bypass: trivial by the shared closed list, so no Jev call at all.
 TRIVIAL = ("hi", "thanks", "ok thanks!", "👍")
 # Not trivial: these still reach Jev (task words, a code block, a URL, or a path).
@@ -81,6 +84,7 @@ def _child(plugin_dir: Path) -> None:
             }}
 
     controller.client_factory = TextOnlyJev
+    wire_clock: list[float] = []
 
     def make_agent(route: str):
         spec = ROUTES[route]
@@ -101,6 +105,7 @@ def _child(plugin_dir: Path) -> None:
 
         def provider_call(api_kwargs):
             wire.append(api_kwargs)
+            wire_clock.append(time.perf_counter())
             if spec["api_mode"] == "anthropic_messages":
                 return SimpleNamespace(content=[SimpleNamespace(type="text", text="Synthetic answer.")],
                                        stop_reason="end_turn", model=spec["model"],
@@ -158,7 +163,36 @@ def _child(plugin_dir: Path) -> None:
     measured.append(run("anthropic", "hi", output_tokens=300, agent=session_agent))
     os.environ["HERMES_SESSION_ID"] = session_agent.session_id
     measured_summary = controller.handle_command("effort summary")
-    print(json.dumps({"rows": rows, "bypass": bypass, "pinned": pinned, "measured": measured, "measured_summary": measured_summary, "jev_requests": [s.get("current_request") for s in jev_states],
+    # Decision budget: a Jev that answers "low" after 400 ms under the default 0.25 s budget.
+    slow_started: list[float] = []
+
+    class SlowJev:
+        def decide(self, state, questions, **kwargs):
+            slow_started.append(time.perf_counter())
+            time.sleep(0.4)
+            levels = list(questions["reasoning_effort"]["criteria"])
+            return {"answers": {
+                "reasoning_effort": {"choice": levels[0], "confidence": 1.0,
+                                     "probabilities": {level: float(level == levels[0]) for level in levels}},
+                "stakes": {"noul": 0.0},
+            }}
+
+    slow = []
+    for route in ROUTES:
+        controller.client_factory = SlowJev
+        slow_agent = make_agent(route)
+        row = run(route, SLOW_TASK, agent=slow_agent)
+        added = wire_clock[-1] - slow_started[-1]
+        time.sleep(0.3)  # the late "low" arrives here; it must not reach a later request
+        controller.client_factory = TextOnlyJev
+        before = len(jev_states)
+        after = run(route, CONSEQUENTIAL, agent=slow_agent)  # same session, next turn
+        slow.append({**row, "added_s": added, "after_sent": after["sent"],
+                     "after_jev_calls": len(jev_states) - before})
+    os.environ["HERMES_SESSION_ID"] = slow[-1]["session"]
+    slow_status = controller.handle_command("effort status")
+    os.environ.pop("HERMES_SESSION_ID", None)
+    print(json.dumps({"slow": slow, "slow_status": slow_status, "rows": rows, "bypass": bypass, "pinned": pinned, "measured": measured, "measured_summary": measured_summary, "jev_requests": [s.get("current_request") for s in jev_states],
                       "jev_keys": sorted({key for s in jev_states for key in s}),
                       "default_on": default_on, "off_reply": off_reply, "summary": summary}))
     manager.unload()
@@ -257,6 +291,19 @@ class HermesTurnLoopEffortTests(unittest.TestCase):
         print("E2E receipt samples:", by_case[("anthropic", "hi")]["final"].splitlines()[-1], "|",
               by_case[("codex", CONSEQUENTIAL)]["final"].splitlines()[-1])
         print("E2E summary sample:\n" + summary)
+
+        # Decision budget on both wire shapes: a 400 ms Jev under the default 0.25 s budget.
+        self.assertEqual(len(proof["slow"]), len(ROUTES))
+        for row in proof["slow"]:
+            self.assertEqual(row["sent"], "high", row)
+            self.assertLessEqual(row["added_s"], 0.30, row)
+            self.assertEqual(row["final"], "Synthetic answer.\n\nswitchyard: effort high (kept: Jev over 250 ms budget)")
+            self.assertEqual(row["history"], ["Synthetic answer."])
+            self.assertEqual((row["after_sent"], row["after_jev_calls"]), ("high", 1), row)
+        self.assertIn("kept_requested_on_jev_timeout", proof["slow_status"])
+        self.assertIn("deadline: 0.25 seconds", proof["slow_status"])
+        print("E2E budget samples:", [round(row["added_s"] * 1000) for row in proof["slow"]], "ms added;",
+              proof["slow"][0]["final"].splitlines()[-1])
 
 
 if __name__ == "__main__":

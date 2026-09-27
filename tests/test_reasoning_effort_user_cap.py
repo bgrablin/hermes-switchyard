@@ -266,9 +266,13 @@ class EffortReplayTests(unittest.TestCase):
 
     def test_jev_failure_sends_the_user_level(self):
         controller, client, _ = self.make()
-        client.error = TimeoutError("synthetic")
+        client.error = ConnectionError("synthetic")
         self.assertEqual(self.call(controller, codex_request("high")), "high")
         self.assertEqual(last_receipt()["reason_code"], "kept_requested_on_jev_failure")
+        controller, client, _ = self.make()
+        client.error = TimeoutError("synthetic")
+        self.assertEqual(self.call(controller, codex_request("high")), "high")
+        self.assertEqual(last_receipt()["reason_code"], "kept_requested_on_jev_timeout")
 
     def test_choose_offers_only_given_candidates(self):
         client = FakeClient(choice="max")
@@ -299,7 +303,7 @@ class EffortReplayTests(unittest.TestCase):
         self.call(controller, codex_request("medium"))
         message = controller.handle_command("effort auto")
         self.assertIn("one level above", message)
-        self.assertIn("deadline: 1.5", controller.handle_command("effort status"))
+        self.assertIn("deadline: 0.25", controller.handle_command("effort status"))
 
     def test_command_maps_gateway_session_key(self):
         env = Env(HERMES_SESSION_KEY="agent:main:discord:dm:1")
