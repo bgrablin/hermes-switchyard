@@ -385,7 +385,13 @@ def run_a(case: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def run_jev_arm(arm: str, case: dict[str, Any]) -> dict[str, Any]:
+def a_prime_call_bound(book: dict[str, Any]) -> int:
+    """Most main-model judgments A' can make on the held-out split: one per logical step."""
+    return sum(case["max_steps"] for case in book["cases"] if case["split"] == "heldout")
+
+
+def run_jev_arm(arm: str, case: dict[str, Any], judge: Any = None) -> dict[str, Any]:
+    """Run B, C, C_off, or A_prime. A_prime needs ``judge`` (see progress_e2e.MainModelJudge)."""
     from unittest import mock
 
     import hermes_switchyard.browser_use as browser_use
@@ -405,12 +411,22 @@ def run_jev_arm(arm: str, case: dict[str, Any]) -> dict[str, Any]:
         "completion_condition": case.get("completion_condition"),
         "text_inputs": case.get("text_inputs"),
     }
-    if arm == "C":
+    post: Any = exchange
+    judge_before = 0
+    if arm in {"C", "A_prime"}:
         kwargs["progress_mode"] = "advisory_stop"
     elif arm == "C_off":
         kwargs["progress_mode"] = "off"
+    if arm == "A_prime":
+        # Same controller and stop rule as C; the main model answers the
+        # progress questions instead of Jev.
+        from progress_e2e import JudgeExchange
+
+        require(judge is not None, "a_prime_needs_a_judge")
+        judge_before = len(judge.calls)
+        post = JudgeExchange(exchange, judge)
     started = time.perf_counter()
-    with mock.patch.object(client, "_post_attempt", side_effect=exchange), mock.patch.object(
+    with mock.patch.object(client, "_post_attempt", side_effect=post), mock.patch.object(
         client, "_sleep_before_retry", side_effect=lambda delay: delays.append(float(delay))
     ):
         result = browser_use.run_browser_goal(**kwargs)
@@ -455,6 +471,10 @@ def run_jev_arm(arm: str, case: dict[str, Any]) -> dict[str, Any]:
     )
     progress = result.get("progress") if isinstance(result.get("progress"), dict) else {}
     status = result.get("status")
+    jev_cost = round(sum(item["cost"] for item in steps), 10)
+    judge_calls = list(judge.calls[judge_before:]) if arm == "A_prime" else []
+    main_cost = round(sum(call["list_price_usd"] for call in judge_calls if call["list_price_usd"] is not None), 10)
+    main_unknown = sum(1 for call in judge_calls if call["list_price_usd"] is None)
     return {
         "status": status,
         "failure_phase": result.get("failure_phase"),
@@ -473,8 +493,14 @@ def run_jev_arm(arm: str, case: dict[str, Any]) -> dict[str, Any]:
         "semantic_stop": result.get("failure_phase") == "semantic_stall",
         "verified": result.get("verified"),
         "steps": steps,
-        "known_cost": round(sum(item["cost"] for item in steps), 10),
-        "unknown_cost_count": sum(1 for record in exchange.log if record["cost"] is None),
+        "jev_cost": jev_cost,
+        "main_model_cost": main_cost,
+        "main_model_calls": len(judge_calls),
+        "main_model_unknown_cost_count": main_unknown,
+        "main_model_judgments": judge_calls,
+        "known_cost": round(jev_cost + main_cost, 10),
+        "unknown_cost_count": sum(1 for record in exchange.log if record["cost"] is None) + main_unknown,
+        "task_latency_ms": round(sum(item["latency_ms"] for item in steps), 3),
         "caller_value_leak": leak,
         "feature_questions_sent": feature_sent,
         "recovery_suggestion": progress.get("recovery_suggestion"),
