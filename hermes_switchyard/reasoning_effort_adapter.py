@@ -14,7 +14,9 @@ and Jev is not called. Receipts and history never store the text.
 """
 from __future__ import annotations
 
+import contextvars
 import fnmatch
+import hashlib
 import json
 import math
 import os
@@ -28,7 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from .client import request_budget_scope
+from .client import MAX_CONNECTION_IDLE_SECONDS, HostCancelled, request_budget_scope
 from .egress_redaction import REDACTION_UNAVAILABLE_REASON, redact_for_jev
 from .routing import _choice_metrics, _criteria, _decision_metadata, _noul_score
 from .trivial_turn import is_trivial_turn
@@ -47,7 +49,20 @@ HERMES_REASONING_EFFORTS: tuple[str, ...] = (
 ALLOWED_EFFORTS = frozenset(HERMES_REASONING_EFFORTS)
 DEFAULT_EFFORT = "medium"
 DEFAULT_ADAPTIVE_REASONING_EFFORT = True
-DEFAULT_ADAPTIVE_REASONING_DEADLINE_SECONDS = 1.5
+DEFAULT_ADAPTIVE_REASONING_DEADLINE_SECONDS = 0.25
+MIN_ADAPTIVE_REASONING_DEADLINE_SECONDS = 0.1
+MAX_ADAPTIVE_REASONING_DEADLINE_SECONDS = 1.5
+_TIMEOUT_REASON = "kept_requested_on_jev_timeout"
+# Idle Jev clients kept per controller, and decisions allowed in flight at one time.
+_POOL_MAX_IDLE_CLIENTS = 4
+_MAX_DECISION_THREADS = 8
+
+
+def normalize_deadline_seconds(value: Any) -> float:
+    """Return the Jev decision budget in seconds: 0.1 to 1.5; an invalid value gives 0.25."""
+    if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+        return DEFAULT_ADAPTIVE_REASONING_DEADLINE_SECONDS
+    return float(min(max(value, MIN_ADAPTIVE_REASONING_DEADLINE_SECONDS), MAX_ADAPTIVE_REASONING_DEADLINE_SECONDS))
 MAX_TASK_CHARS = 1_200
 MAX_TOOL_OUTCOMES = 6
 MAX_OUTCOME_CHARS = 160
@@ -731,6 +746,7 @@ EFFORT_HISTORY_MAX_BYTES = 1024 * 1024
 _JEV_FAILURE_REASONS = frozenset(
     {
         "kept_requested_on_jev_failure",
+        _TIMEOUT_REASON,
         "kept_requested_ack_required",
         "invalid_choice",
         _NO_TASK_REASON,
@@ -1019,11 +1035,13 @@ def choose_reasoning_effort(
             "jev_latency_ms": latency,
         }
     except Exception as exc:  # noqa: BLE001 -- fail closed to the requested level
+        # A deadline, a late result, or a socket timeout keeps the cap with its own reason.
+        timed_out = isinstance(exc, TimeoutError) and not isinstance(exc, HostCancelled)
         return {
             **base,
             "status": "kept_requested",
             "effort": requested,
-            "reason_code": "kept_requested_on_jev_failure",
+            "reason_code": _TIMEOUT_REASON if timed_out else "kept_requested_on_jev_failure",
             "error_type": type(exc).__name__,
             "jev_latency_ms": round((time.perf_counter() - started) * 1000, 1),
         }
@@ -1050,6 +1068,9 @@ def _kept_label(receipt: Mapping[str, Any]) -> str:
         "kept_requested_on_jev_failure": "Jev unavailable",
         "invalid_choice": "invalid Jev answer",
     }
+    if reason == _TIMEOUT_REASON:
+        budget = receipt.get("jev_budget_ms")
+        return f"Jev over {budget} ms budget" if isinstance(budget, int) else "Jev over budget"
     return labels.get(str(reason), "Jev choice")
 
 
@@ -1078,6 +1099,73 @@ def _saved_text(delta: int, metric: str) -> str:
     if delta <= 0:
         return f"no {metric} tokens saved (est.)"
     return f"~{_compact_tokens(delta)} {metric} tokens saved (est.)"
+
+
+def _close_quietly(clients: Sequence[Any]) -> None:
+    for client in clients:
+        close = getattr(client, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:  # noqa: BLE001 -- closing an idle client never breaks a request
+                pass
+
+
+class _JevClientPool:
+    """Idle Jev clients reused across decisions, so a warm decision skips DNS, TCP, and TLS.
+
+    A decision checks a client out and returns it when its call ends, so two concurrent
+    decisions (foreground and delegated turns) never share one in-flight connection. A new
+    client factory or route identity (endpoint, model, credential digest, profile) closes the
+    idle clients. A client idle longer than the connection idle limit is closed at the next
+    checkout. The pool keeps only a one-way identity digest, never a credential value.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._idle: list[tuple[Any, float]] = []
+        self._factory: Any = None
+        self._identity: str | None = None
+        self._generation = 0
+
+    def checkout(self, factory: Callable[[], Any], identity: str) -> tuple[Any, int]:
+        stale: list[Any] = []
+        client = None
+        with self._lock:
+            if factory is not self._factory or identity != self._identity:
+                stale = [item for item, _ in self._idle]
+                self._idle = []
+                self._factory = factory
+                self._identity = identity
+                self._generation += 1
+            now = time.monotonic()
+            while self._idle and client is None:
+                candidate, last_used = self._idle.pop()
+                if now - last_used > MAX_CONNECTION_IDLE_SECONDS:
+                    stale.append(candidate)
+                else:
+                    client = candidate
+            generation = self._generation
+        _close_quietly(stale)
+        if client is None:
+            client = factory()
+        return client, generation
+
+    def checkin(self, client: Any, generation: int) -> None:
+        with self._lock:
+            if generation == self._generation and len(self._idle) < _POOL_MAX_IDLE_CLIENTS:
+                self._idle.append((client, time.monotonic()))
+                return
+        _close_quietly([client])
+
+    def close(self) -> None:
+        with self._lock:
+            stale = [item for item, _ in self._idle]
+            self._idle = []
+            self._factory = None
+            self._identity = None
+            self._generation += 1
+        _close_quietly(stale)
 
 
 class _SessionEffortState:
@@ -1239,13 +1327,18 @@ class ReasoningEffortController:
         session_env: Callable[[str], str] | None = None,
         step_adaptation: Any = True,
         receipt_line: Any = True,
+        client_identity: Callable[[], Any] | None = None,
     ) -> None:
         self.enabled = enabled is True
         # Deprecated: the fallback is always the request's own level.
         self.default_effort = normalize_effort(default_effort)
         self.client_factory = client_factory
         self.public_or_sanitized_data_ack = public_or_sanitized_data_ack is True
-        self.deadline_seconds = float(deadline_seconds)
+        self.deadline_seconds = normalize_deadline_seconds(deadline_seconds)
+        # Live route identity (no raw credential); a change replaces the pooled Jev clients.
+        self.client_identity = client_identity
+        self._client_pool = _JevClientPool()
+        self._decision_slots = threading.BoundedSemaphore(_MAX_DECISION_THREADS)
         self.allowed_efforts = tuple(
             level
             for level in (allowed_efforts or HERMES_REASONING_EFFORTS)
@@ -1611,14 +1704,16 @@ class ReasoningEffortController:
                 entry = {
                     "requested": requested, "sent": [], "jev_calls": 0, "jev_ms": 0.0, "cached": 0,
                     "kept": None, "metadata_only": False, "lowered": 0, "measured": 0,
-                    "metric": None, "saved": 0, "local": 0,
+                    "metric": None, "saved": 0, "local": 0, "timeouts": 0,
                 }
                 self._turn_receipts[turn] = entry
             self._turn_receipts.move_to_end(turn)
             if not entry["sent"] or entry["sent"][-1] != sent:
                 entry["sent"].append(sent)
             entry["requested"] = requested
-            if latency is not None:
+            if receipt.get("reason_code") == _TIMEOUT_REASON:
+                entry["timeouts"] += 1  # the label names the budget; no Jev time is shown
+            elif latency is not None:
                 entry["jev_calls"] += 1
                 entry["jev_ms"] += latency
             if receipt.get("status") == "cached":
@@ -1657,7 +1752,7 @@ class ReasoningEffortController:
         requested = entry["requested"]
         changed = any(level != requested for level in entry["sent"])
         calls = int(entry["jev_calls"])
-        if not changed and calls == 0 and not entry["cached"] and not entry["local"]:
+        if not changed and calls == 0 and not entry["cached"] and not entry["local"] and not entry["timeouts"]:
             return None
         if changed:
             levels = [requested, *entry["sent"]]
@@ -2172,6 +2267,8 @@ class ReasoningEffortController:
                         "error_type": choice.get("error_type"),
                         "stuck_signal": state.stuck,
                     }
+                    if choice.get("jev_budget_ms") is not None:
+                        extra["jev_budget_ms"] = choice["jev_budget_ms"]
                     if choice.get("scan_reason"):
                         extra["scan_reason"] = choice["scan_reason"]
                     return self._unchanged(
@@ -2389,35 +2486,99 @@ class ReasoningEffortController:
                 return {"reason_code": _NO_TASK_REASON, "jev_called": False}
         if self.client_factory is None:
             return {"reason_code": "kept_requested_on_jev_failure", "error_type": "client_unavailable", "jev_called": False}
-        try:
-            client = self.client_factory()
-        except Exception as exc:  # noqa: BLE001
-            return {"reason_code": "kept_requested_on_jev_failure", "error_type": type(exc).__name__, "jev_called": False}
-        if client is None:
-            return {"reason_code": "kept_requested_on_jev_failure", "error_type": "client_unavailable", "jev_called": False}
-        try:
-            choice = choose_reasoning_effort(
+        return self._decide_within_budget(
+            requested_wire,
+            dict(
                 task=task,
                 recent_tool_outcomes=list(state.outcomes),
                 requested_effort=requested_wire,
-                client=client,
                 public_or_sanitized_data_ack=self.public_or_sanitized_data_ack,
-                deadline_seconds=self.deadline_seconds,
                 allowed_efforts=candidates,
                 turn_phase="after_tool" if state.outcomes else "new_turn",
                 recent_tool_kinds=list(step_kinds) if step_kinds is not None else None,
                 routine_success_streak=state.streak if step_kinds is not None else None,
                 request_shape=metadata["shape"] if metadata is not None else None,
                 turn_index=capture.get("turn_index") if metadata is not None else None,
-            )
+            ),
+        )
+
+    def _pooled_decision(self, factory: Callable[[], Any], deadline_at: float, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Check out a pooled client, ask Jev within the remaining budget, and check it back in."""
+        try:
+            identity = self.client_identity() if self.client_identity is not None else None
+            digest = hashlib.sha256(
+                json.dumps(identity, sort_keys=True, separators=(",", ":"), default=repr).encode("utf-8")
+            ).hexdigest()
+        except Exception:  # noqa: BLE001 -- an unknown route never reuses a client
+            self._client_pool.close()
+            return {"reason_code": "kept_requested_on_jev_failure", "error_type": "client_identity_unavailable", "jev_called": False}
+        try:
+            client, generation = self._client_pool.checkout(factory, digest)
+        except Exception as exc:  # noqa: BLE001
+            return {"reason_code": "kept_requested_on_jev_failure", "error_type": type(exc).__name__, "jev_called": False}
+        if client is None:
+            return {"reason_code": "kept_requested_on_jev_failure", "error_type": "client_unavailable", "jev_called": False}
+        try:
+            remaining = deadline_at - time.monotonic()
+            if remaining <= 0:
+                return {"reason_code": _TIMEOUT_REASON, "error_type": "DeadlineExceeded", "jev_called": False}
+            choice = choose_reasoning_effort(client=client, deadline_seconds=remaining, **kwargs)
             return {**choice, "jev_called": choice.get("reason_code") not in {_NO_TASK_REASON, _RESTRICTED_REASON}}
         finally:
-            close = getattr(client, "close", None)
-            if callable(close):
-                try:
-                    close()
-                except Exception:  # noqa: BLE001
-                    pass
+            # Check the client in before the waiting request reads the result, so a
+            # sequential decision reuses it; an abandoned call checks it in when it ends.
+            self._client_pool.checkin(client, generation)
+
+    def _decide_within_budget(self, requested: str, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Run one Jev decision on a worker thread and wait at most the decision budget.
+
+        On expiry the request keeps the cap (``kept_requested_on_jev_timeout``). The late
+        result is dropped: only this waiting request could read it, and it has returned. The
+        client stays checked out until the late call ends, so it is never shared in flight.
+        """
+        budget = self.deadline_seconds
+        budget_ms = round(budget * 1000)
+        if not self._decision_slots.acquire(blocking=False):
+            return {"reason_code": "kept_requested_on_jev_failure", "error_type": "decision_workers_busy", "jev_called": False}
+        started = time.perf_counter()
+        deadline_at = time.monotonic() + budget
+        factory = self.client_factory
+        box: dict[str, Any] = {}
+        done = threading.Event()
+
+        def work() -> None:
+            try:
+                box["choice"] = self._pooled_decision(factory, deadline_at, kwargs)
+            except BaseException as exc:  # noqa: BLE001 -- a worker thread never raises
+                box["choice"] = {"reason_code": "kept_requested_on_jev_failure", "error_type": type(exc).__name__, "jev_called": True}
+            finally:
+                self._decision_slots.release()
+                done.set()
+
+        context = contextvars.copy_context()
+        try:
+            threading.Thread(target=context.run, args=(work,), name="switchyard-effort-decision", daemon=True).start()
+        except RuntimeError as exc:
+            self._decision_slots.release()
+            return {"reason_code": "kept_requested_on_jev_failure", "error_type": type(exc).__name__, "jev_called": False}
+        if not done.wait(budget):
+            return {
+                "status": "kept_requested",
+                "effort": requested,
+                "reason_code": _TIMEOUT_REASON,
+                "error_type": "DeadlineExceeded",
+                "jev_called": True,
+                "jev_latency_ms": round((time.perf_counter() - started) * 1000, 1),
+                "jev_budget_ms": budget_ms,
+            }
+        choice = dict(box["choice"])
+        if choice.get("reason_code") == _TIMEOUT_REASON:
+            choice["jev_budget_ms"] = budget_ms
+        return choice
+
+    def close(self) -> None:
+        """Close the idle pooled Jev clients (plugin unload)."""
+        self._client_pool.close()
 
     @staticmethod
     def _effort_changed(
@@ -2690,6 +2851,7 @@ def register_reasoning_effort_adapter(
     record_decision: Callable[[dict[str, Any]], Any] | None = None,
     step_adaptation: Any = True,
     receipt_line: Any = True,
+    client_identity: Callable[[], Any] | None = None,
 ) -> dict[str, Any]:
     """Register llm_request middleware, turn and tool hooks, and ``/switchyard``."""
     global _LAST_REGISTRATION
@@ -2698,7 +2860,7 @@ def register_reasoning_effort_adapter(
         "mode": normalize_mode(mode),
         "exclude_models": list(parse_exclude_models(exclude_models)),
         "allow_raise": parse_bool_setting(allow_raise),
-        "deadline_seconds": float(deadline_seconds),
+        "deadline_seconds": normalize_deadline_seconds(deadline_seconds),
         "step_adaptation": step_adaptation is True or (
             not isinstance(step_adaptation, bool) and parse_bool_setting(step_adaptation)
         ),
@@ -2742,6 +2904,7 @@ def register_reasoning_effort_adapter(
         record_decision=record_decision,
         step_adaptation=settings["step_adaptation"],
         receipt_line=settings["receipt_line"],
+        client_identity=client_identity,
     )
     register_middleware = getattr(ctx, "register_middleware")
     register_middleware("llm_request", controller.on_llm_request)
@@ -2777,6 +2940,16 @@ def register_reasoning_effort_adapter(
         except Exception:  # noqa: BLE001 -- without usage the saved figure is omitted
             usage_registered = False
 
+    # Close the pooled Jev clients when Hermes unloads the plugin; otherwise idle expiry applies.
+    pool_close_registered = False
+    on_unload = getattr(ctx, "on_unload", None)
+    if callable(on_unload):
+        try:
+            on_unload(controller.close)
+            pool_close_registered = True
+        except Exception:  # noqa: BLE001 -- the unload hook is optional
+            pool_close_registered = False
+
     command_registered = False
     register_command = getattr(ctx, "register_command", None)
     if callable(register_command):
@@ -2804,6 +2977,7 @@ def register_reasoning_effort_adapter(
         "transform_llm_output_registered": receipt_line_registered,
         "post_api_request_registered": usage_registered,
         "command_registered": command_registered,
+        "client_pool_close_registered": pool_close_registered,
         "integration_point": (
             "hermes_switchyard.reasoning_effort_adapter.register_reasoning_effort_adapter"
         ),
