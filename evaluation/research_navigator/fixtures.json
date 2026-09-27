@@ -1487,7 +1487,7 @@
    "windows": [
     {
      "id": "w1",
-     "url": "https://intranet.corp.example.internal/b",
+     "url": "https://127.0.0.1/b",
      "text": "Release B supports Linux."
     }
    ],

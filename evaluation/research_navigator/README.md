@@ -45,7 +45,9 @@ Live set: no false supported claim, at least 5 of 6 class matches, and no source
 
 ## Offline result
 
-Fixture SHA-256 `56f5362dfede6c92511bbfa270c563fdf3464e2ce0f1a0de2f894a679933eddf`. Baseline `v0.5.4` at `5e2b878`.
+Fixture SHA-256 at freeze: `56f5362dfede6c92511bbfa270c563fdf3464e2ce0f1a0de2f894a679933eddf`. Baseline `v0.5.4` at `5e2b878`.
+
+Amendment (recorded in `fixtures.lock.json`): the `ho-31` window URL used a private-name host suffix, which the public-hygiene scan refuses. It is now `https://127.0.0.1/b`, which is also not a public URL. No label and no live case changed. The current fixture SHA-256 is `a907e9df418cfdad40053b3a3ec0fd85cd30dcbb1217693590084892282e5091`. The offline replay on the amended fixtures gives the same counts as the table below.
 
 | Arm | Split | Class correct | False assertions | Wrong mappings | Max requests per case |
 | --- | --- | --- | --- | --- | --- |

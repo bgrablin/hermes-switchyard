@@ -1,5 +1,5 @@
 {
- "fixtures_sha256": "56f5362dfede6c92511bbfa270c563fdf3464e2ce0f1a0de2f894a679933eddf",
+ "fixtures_sha256": "a907e9df418cfdad40053b3a3ec0fd85cd30dcbb1217693590084892282e5091",
  "frozen_at": "2026-09-27T14:22:29Z",
  "policy_version": "research-v1",
  "thresholds": {
@@ -7,5 +7,16 @@
   "contradiction": 0.85,
   "decisive_no": 0.15
  },
- "note": "Frozen before any provider-backed run. Do not edit fixtures.json without a new lock and a new report."
+ "note": "Frozen before any provider-backed run. Do not edit fixtures.json without a new lock and a new report.",
+ "amendments": [
+  {
+   "at": "2026-09-27T14:37:36Z",
+   "previous_sha256": "56f5362dfede6c92511bbfa270c563fdf3464e2ce0f1a0de2f894a679933eddf",
+   "case": "ho-31",
+   "change": "window URL https host with a private-name suffix replaced by https://127.0.0.1/b so the public-hygiene scan passes",
+   "labels_changed": false,
+   "live_cases_changed": false,
+   "live_subset_sha256": "9baf11ed988e6f10d46ba55ebc2df51af0875d3bce412e5fb831d14d14e364a6"
+  }
+ ]
 }
