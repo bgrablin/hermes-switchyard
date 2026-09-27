@@ -228,6 +228,15 @@ _CASES: tuple[dict[str, Any], ...] = (
         },
     },
     {
+        "tool": "jev_research_navigator",
+        "arguments": {
+            "goal": "Check one public claim against a source excerpt.",
+            "claims": [{"id": "claim-1", "text": "The stated public fact is present."}],
+            "windows": [{"id": "window-1", "url": "https://example.org/source", "text": "The stated public fact is present."}],
+            "public_or_sanitized_data_ack": True,
+        },
+    },
+    {
         "tool": "jev_computer_use",
         "arguments": {
             "goal": "Click the harmless synthetic Continue control, then finish the fixture.",
@@ -262,6 +271,7 @@ def _load_registered_tools(plugin_root: Path) -> tuple[Any, dict[str, Any], set[
         }],
         "approved_model_registry_version": "offline-fixture-v1",
         "approved_model_registry_valid_until": "2099-12-31T23:59:59Z",
+        "research_navigator_enabled": True,
     }
     import hermes_cli.plugins as hermes_plugins
 
@@ -373,6 +383,15 @@ def _validate_success(tool: str, parsed: dict[str, Any]) -> str:
                 "jev_model_route_approved cannot reach a successful state without a valid, "
                 "operator-owned approved-model registry fixture"
             )
+        return str(status)
+    if tool == "jev_research_navigator":
+        claims = parsed.get("claims")
+        if status != "assessed" or not isinstance(claims, list) or len(claims) != 1:
+            raise NativeInvocationError("jev_research_navigator did not assess the synthetic public claim")
+        if claims[0].get("class") not in {"supported", "contradicted", "mixed", "unresolved"}:
+            raise NativeInvocationError("jev_research_navigator returned no typed claim class")
+        if parsed.get("verified") is not False:
+            raise NativeInvocationError("jev_research_navigator overstated source verification")
         return str(status)
     if tool == "jev_computer_use":
         actions = parsed.get("actions")
