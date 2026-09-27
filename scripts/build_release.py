@@ -61,6 +61,7 @@ RELEASE_FILES = (
     "hermes_switchyard/automatic.py",
     "hermes_switchyard/browser_use.py",
     "hermes_switchyard/egress.py",
+    "hermes_switchyard/egress_redaction.py",
     "hermes_switchyard/_win_acl.py",
     "hermes_switchyard/receipt_history.py",
     "hermes_switchyard/receipt_state.py",
