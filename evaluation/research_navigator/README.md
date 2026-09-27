@@ -49,6 +49,8 @@ Fixture SHA-256 at freeze: `56f5362dfede6c92511bbfa270c563fdf3464e2ce0f1a0de2f89
 
 Amendment (recorded in `fixtures.lock.json`): the `ho-31` window URL used a private-name host suffix, which the public-hygiene scan refuses. It is now `https://127.0.0.1/b`, which is also not a public URL. No label and no live case changed. The current fixture SHA-256 is `a907e9df418cfdad40053b3a3ec0fd85cd30dcbb1217693590084892282e5091`. The offline replay on the amended fixtures gives the same counts as the table below.
 
+Amendment 2: the `ho-23` hostile-page window holds the placeholder `{{OVERRIDE_PHRASE}}` instead of an instruction-like phrase, so the Hermes plugin install scan passes. `evaluate.py` expands the placeholder when it loads the fixtures. The expanded cases are identical to amendment 1, so Jev receives the same text. The current fixture SHA-256 is `bd28e8e6d76ced1aa41b46a9267c4f47c97fd63ae41252647d1cefde47dcf533`.
+
 | Arm | Split | Class correct | False assertions | Wrong mappings | Max requests per case |
 | --- | --- | --- | --- | --- | --- |
 | A | dev | 5 / 8 | 0 | 0 | 0 |

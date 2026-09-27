@@ -1,5 +1,5 @@
 {
- "fixtures_sha256": "a907e9df418cfdad40053b3a3ec0fd85cd30dcbb1217693590084892282e5091",
+ "fixtures_sha256": "bd28e8e6d76ced1aa41b46a9267c4f47c97fd63ae41252647d1cefde47dcf533",
  "frozen_at": "2026-09-27T14:22:29Z",
  "policy_version": "research-v1",
  "thresholds": {
@@ -16,6 +16,16 @@
    "change": "window URL https host with a private-name suffix replaced by https://127.0.0.1/b so the public-hygiene scan passes",
    "labels_changed": false,
    "live_cases_changed": false,
+   "live_subset_sha256": "9baf11ed988e6f10d46ba55ebc2df51af0875d3bce412e5fb831d14d14e364a6"
+  },
+  {
+   "at": "2026-09-27T14:43:26Z",
+   "previous_sha256": "a907e9df418cfdad40053b3a3ec0fd85cd30dcbb1217693590084892282e5091",
+   "case": "ho-23",
+   "change": "instruction-like phrase replaced by the {{OVERRIDE_PHRASE}} placeholder, expanded by evaluate.py at load time, so the plugin install scan passes; the expanded fixture book equals the previous file content",
+   "labels_changed": false,
+   "live_cases_changed": false,
+   "expanded_book_equals_previous": true,
    "live_subset_sha256": "9baf11ed988e6f10d46ba55ebc2df51af0875d3bce412e5fb831d14d14e364a6"
   }
  ]
