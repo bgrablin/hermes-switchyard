@@ -15,30 +15,36 @@ The [Switchyard branding image](docs/assets/hermes-switchyard-branding.png) is a
 
 Neither pending feature is available in a current install. The [changelog](CHANGELOG.md) distinguishes work on the branch from work still pending. The [benchmark report](docs/BENCHMARKS.md) identifies the source and limits of its measurements: the selector value report uses 0.5.4 source `7dc77c8`; older feature-battery rows use 0.5.0 code. It does not prove that Jev improves every task.
 
-## 60-second quickstart (after the install gate passes)
+## First-run quickstart
 
 You need a working Hermes installation, one TypeSafe or OpenRouter account key, and approval to send **public or sanitized** task data to that provider. Jev requests can incur charges beyond a ChatGPT or Codex subscription. The commands below use the active Hermes profile.
 
-1. Install the public Git repository and enable it:
+1. Install the public Git repository. Hermes scans the source before it installs anything:
 
    ```text
-   hermes plugins install bgrablin/hermes-switchyard --enable
+   hermes plugins install bgrablin/hermes-switchyard --no-enable
    ```
 
-2. Save one provider key in the masked prompt. Do not put it in a command, chat, URL, or repository:
+2. Enable the plugin without granting built-in tool overrides:
+
+   ```text
+   hermes plugins enable hermes-switchyard --no-allow-tool-override
+   ```
+
+3. Save one provider key in the masked prompt. Do not put it in a command, chat, URL, or repository:
 
    ```text
    hermes switchyard setup --provider typesafe
    # or: hermes switchyard setup --provider openrouter
    ```
 
-3. Start a fresh Hermes session. Read the local status:
+4. Start a fresh Hermes session. Read the local status:
 
    ```text
    hermes switchyard status --json
    ```
 
-4. If you accept a billed **public synthetic** test, make one explicit decision request:
+5. If you accept a billed **public synthetic** test, make one explicit decision request:
 
    ```text
    hermes switchyard test --live --public-or-sanitized-data-ack
@@ -66,7 +72,7 @@ The current status command shows the last decision, not the last five. A per-tur
 
 The two default-on automatic paths have different data rules:
 
-- **Adaptive effort:** the current branch uses Hermes `agent.redact.redact_for_egress` through `redact_for_jev` on the whole current text message before it sends a bounded 1,200-character excerpt. It does not send conversation history, memory, tool bodies, or private files. If the Hermes redactor is absent, it sends no message text and keeps the requested effort. Explicit proprietary and confidential markings stay local. A clean scan does not prove that other private text is safe to send.
+- **Adaptive effort:** the current branch uses Hermes `agent.redact.redact_for_egress` through `redact_for_jev` on the whole current text message before it sends a bounded 1,200-character excerpt. Its text input is the current message, not earlier messages, memory, tool bodies, or private files. If the Hermes redactor is absent, it sends no message text and keeps the requested effort. Explicit proprietary and confidential markings stay local. A clean scan does not prove that other private text is safe to send.
 - **Skill routing:** the current branch scans the whole task locally for restricted markings, injection shapes, control characters, and structured payloads. It then passes clean text through Hermes `redact_for_egress` plus bounded masks before sending up to 4,000 characters and exact candidate names. Without the Hermes redactor, it skips hosted routing and uses local matching. Ordinary words such as `password` and `confidential`, email addresses, and phone numbers are not restricted shapes. They do not authorize private content. Bounded descriptions or skill excerpts require a separate opt-in.
 - **Explicit tools and DOM browser:** only submit public or deliberately sanitized inputs. The browser cannot log in to your existing session or upload a private file. F1 and F2 will require a whole-payload eligibility gate and explicit public-data acknowledgement. A public URL alone will not make a private goal safe.
 
