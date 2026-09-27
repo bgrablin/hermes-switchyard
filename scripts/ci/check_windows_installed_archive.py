@@ -33,7 +33,7 @@ from scripts.ci.check_native_tool_invocation import (  # noqa: E402
 )
 
 PLUGIN = "hermes-switchyard"
-VERSION = "0.5.4"
+VERSION = "0.5.5"
 HEX40 = re.compile(r"[0-9a-f]{40}\Z")
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 MEMBERS = set(RELEASE_FILES) | {SOURCE_MANIFEST_NAME, CHECKSUMS_NAME}

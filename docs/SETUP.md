@@ -39,7 +39,7 @@ hermes plugins list
 hermes plugins enable hermes-switchyard
 ```
 
-Start a fresh Hermes session after installation or an update.
+Restart open TUI windows after installation or an update; they keep their previously loaded plugin code. Then start a fresh Hermes session.
 
 ## Add a Jev key safely
 
@@ -85,9 +85,11 @@ After install, adaptive reasoning effort is **on** in `auto` mode. Your
 middleware and may ask Jev to pick a lower level for routine steps. To choose, it
 sends Jev bounded text from your current message (not history, memory, plugin
 context, or tool results); set `adaptive_reasoning_effort` to `false` to send no
-message text. It sends
-your level unchanged when Jev fails, when no lower level exists, or after you
-change `/reasoning` mid-session (that pins the session). The middleware rewrites only request-scoped effort fields;
+message text. The default Jev decision budget is 0.4 s (configurable from 0.1 to 1.5 s); on timeout your level is sent unchanged. It also sends your level unchanged when Jev fails or no lower level exists.
+Changing `/reasoning` mid-session sets a new cap and keeps `auto` mode; it does
+not pin the session. Run `/switchyard effort pin` to send your selected level
+unchanged; run `/switchyard effort auto` to resume adaptation.
+The middleware rewrites only request-scoped effort fields;
 messages stay untouched for prompt-cache friendliness. The optional
 `adaptive_reasoning_effort_allow_raise` setting lets auto mode raise one wire
 level while the latest tool call failed; the next successful call clears it.
@@ -118,9 +120,9 @@ advisory (`applied: false`); adaptive effort is the apply path.
 Hermes puts a tool in a session's callable catalog only when the toolset the tool is registered under is selected for that session. The required composition is:
 
 - `jev_computer_use` is exposed only when the `computer_use` toolset is selected. Hermes' own `computer_use` tool is in the same toolset.
-- `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, and `jev_model_route` are exposed only when the `hermes_switchyard` toolset is selected.
+- `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, and `jev_session_search_rerank` are exposed only when the `hermes_switchyard` toolset is selected.
 - A session started without `--toolsets` uses Hermes' default CLI selection, which includes both toolsets under a default configuration. A toolset list saved by `hermes tools` that leaves Computer Use off keeps `jev_computer_use` out of sessions.
-- An explicit `--toolsets` (`-t`) pin replaces the default selection and does not add plugin toolsets. To expose all five tools, name both: `hermes -t computer_use,hermes_switchyard chat`. In PowerShell, quote the list, because an unquoted comma is PowerShell's array operator.
+- An explicit `--toolsets` (`-t`) pin replaces the default selection and does not add plugin toolsets. To expose all seven tools, name both: `hermes -t computer_use,hermes_switchyard chat`. In PowerShell, quote the list, because an unquoted comma is PowerShell's array operator.
 - Hermes also subtracts the configured `agent.disabled_toolsets` list from every CLI session, including one with an explicit pin. A required toolset named there stays unreachable whatever `--toolsets` says, so naming both toolsets is not enough while either is listed. To clear the suppression, remove the name from `agent.disabled_toolsets` in `config.yaml`, or enable the toolset in `hermes tools`, which also removes it from that list for the CLI. `status` reads the same list, so it reports the suppression instead of a false `callable`.
 
 Registered and callable are different facts. Registered means Hermes' registry holds this plugin's own registration for the tool. Callable means the tool is in the catalog Hermes builds for a session with a given toolset selection. Hermes Plugin Doctor reports discovery/import/registration only and does not evaluate per-session callable exposure. The plugin's own status command reports both, with no network access. `status --json` also includes a `toolset_composition` object that names the required toolsets and repeats that Doctor boundary. To add `computer_use` and `hermes_switchyard` to `platform_toolsets.cli` without enabling unrelated toolsets, run `hermes switchyard ensure-toolsets` (also invoked from `setup` after saving a key):
