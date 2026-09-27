@@ -63,3 +63,35 @@ The one C miss is `ho-24`. The window says "Tool Q is proprietary software". The
 B false assertions come from missing local checks: B accepts support when the exact quote is absent (`dev-05`, `ho-13`, `ho-14`), assesses stale windows (`ho-25`, `ho-26`), accepts an extra answer key (`ho-28`; the fake client bypasses `DecisionClient` response validation in both arms, so this B result may not occur with the real client), and sends marked or private-URL text (`dev-08`, `ho-31`, `ho-32`).
 
 Offline latency is local handler time with a fake client (C p50 about 0.4 ms). It is not a provider latency claim.
+
+## Live result
+
+Arms B and C ran on the same 6 frozen public cases (`ho-01`, `ho-03`, `ho-05`, `ho-06`, `ho-09`, `ho-23`). Each case used one Jev request per arm, 12 operations in total. The route was the plugin's configured `jev_provider: auto`, which resolved to OpenRouter. The returned model was `typesafe/jev-1.13-20260917` in all 12 operations. The candidate was head `6a17053`. The baseline was `v0.5.4` at `5e2b878`.
+
+| Case | Kind | Label | B class | C class | B ms | C ms | B cost (USD) | C cost (USD) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `ho-01` | direct support | supported | supported | supported | 243.6 | 242.6 | 0.0000221 | 0.0000249 |
+| `ho-03` | qualified support | unresolved | unresolved | unresolved | 284.1 | 248.3 | 0.0000169 | 0.0000184 |
+| `ho-05` | contradiction | contradicted | contradicted | contradicted | 225.9 | 233.8 | 0.0000176 | 0.0000191 |
+| `ho-06` | contradiction | contradicted | contradicted | contradicted | 203.4 | 288.1 | 0.0000180 | 0.0000195 |
+| `ho-09` | absence | unresolved | unresolved | unresolved | 229.6 | 200.4 | 0.0000181 | 0.0000196 |
+| `ho-23` | injected instructions | unresolved | unresolved | unresolved | 215.3 | 249.7 | 0.0000168 | 0.0000183 |
+
+| Predeclared live gate | B | C | Limit | Result |
+| --- | --- | --- | --- | --- |
+| False supported claims | 0 | 0 | 0 | PASS |
+| Class matches | 6 / 6 | 6 / 6 | at least 5 / 6 | PASS |
+| Source coverage (labelled windows found) | 3 / 3 | 3 / 3 | C not lower than B | PASS |
+| p50 end-to-end ms | 225.9 | 242.6 | at most B × 1.15 = 259.7 | PASS |
+| p95 end-to-end ms | 284.1 | 288.1 | at most B + 300 = 584.1 | PASS |
+| Physical Jev requests per case | 1 | 1 | at most 1 | PASS |
+| Known cost, 6 cases (USD) | 0.00010949 | 0.00011978 | at most B × 1.15 (ratio 1.094) | PASS |
+| Unknown cost count | 0 | 0 | a null cost cannot pass | PASS |
+
+Limits of this result:
+
+- There are only 6 cases, so the latency numbers are weak evidence. The arms ran about 12 minutes apart and were not interleaved.
+- Cold and warm latency were not separated. Each case builds a new client and a new connection.
+- On this set, B and C gave the same classes. The live set does not include the cases where B makes false assertions offline (missing quote, stale source, denied egress). C's benefit on this set is the local gates, not better answers.
+- C costs about 9% more per case because its question text is longer.
+- These are real Jev answers on author-written windows. They do not prove model accuracy on general public pages.
