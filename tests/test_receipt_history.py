@@ -439,7 +439,7 @@ class GitSourceShaTests(unittest.TestCase):
         unavailable = receipt_state.RECEIPT_SOURCE_SHA_UNAVAILABLE
         self.assertEqual(rh.resolve_git_source_sha(Path(self._tmp.name) / "none"), unavailable)
         for head in (
-            "", "garbage\n", "ref: refs/heads/missing\n", "ref: refs/../../etc/passwd\n",
+            "", "garbage\n", "ref: refs/heads/missing\n", "ref: refs/../../outside-repo\n",
             "ref: HEAD\n", "A" * 40 + "\n", "a" * 64 + "\n", "x" * 5000,
         ):
             (self.git / "HEAD").write_text(head)
