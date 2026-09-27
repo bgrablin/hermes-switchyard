@@ -859,8 +859,7 @@ class F5RestrictedMarkerTests(unittest.TestCase):
         for marked in [
             "Client confidential: Review the technical design.",
             "Company confidential information: Review the technical design.",
-            # v0.5.5: a bare "Confidential:" word is a topic word, not a
-            # restricted marking; it is redacted and sent. Markings still block.
+            "Confidential: Review the technical design.",
             "Employer confidential: Review the technical design.",
             "Confidential//Draft: Review the technical design.",
             "client confidential lower: review the technical design.",

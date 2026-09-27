@@ -243,9 +243,8 @@ def _clean_user_text(value: Any) -> str | None:
         return None
     parts: list[str] = []
     for block in value:
-        if isinstance(block, str):
-            parts.append(block)
-        elif isinstance(block, Mapping):
+        # Only explicitly typed text parts are read; bare strings in a part list are rejected.
+        if isinstance(block, Mapping):
             kind = block.get("type")
             text = block.get("text")
             if kind in ("text", "input_text") and isinstance(text, str):
@@ -267,6 +266,11 @@ _EFFORT_MARKING_RE = re.compile(
     r"\b(?:company|employer|client)\s+confidential\b",
     re.IGNORECASE,
 )
+# A standalone banner on the first non-blank line ("Confidential:", "CONFIDENTIAL",
+# "CONFIDENTIAL//DRAFT") marks the document. Mid-sentence words stay ordinary.
+_CONFIDENTIAL_BANNER_RE = re.compile(r"\A\s*confidential(?:\s*//[^\n]*|\s*:|[ \t]*(?:\n|\Z))", re.IGNORECASE)
+
+
 def _effort_scan_reason(text: str) -> str | None:
     """Return a reason when *text* must stay local, or None.
 
@@ -275,7 +279,7 @@ def _effort_scan_reason(text: str) -> str | None:
     Secret values are not blocked here; ``_task_scan`` masks them with the Hermes
     egress redactor so Jev still runs. This is not DLP.
     """
-    if _EFFORT_MARKING_RE.search(text):
+    if _EFFORT_MARKING_RE.search(text) or _CONFIDENTIAL_BANNER_RE.match(text):
         return "local_scan_restricted_marking"
     return None
 
