@@ -43,7 +43,7 @@ def _skipped_receipt():
 
 
 def _open_descriptor_count() -> int | None:
-    fd_dir = Path("/proc/self/fd")
+    fd_dir = Path("/dev/fd")
     if not fd_dir.is_dir():
         return None
     return len(list(fd_dir.iterdir()))
