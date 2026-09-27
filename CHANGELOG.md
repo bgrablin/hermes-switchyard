@@ -1,8 +1,25 @@
 # Changelog
 
-## Unreleased
+## 0.5.5 (in progress; not released)
 
-- **Egress change for adaptive reasoning effort (issue #121).** When adaptive effort is on and `public_or_sanitized_data_ack` is `true` (both are the defaults, also after an upgrade), Switchyard now sends up to 1,200 characters of the clean current user message to Jev, so Jev can tell a greeting from a short but consequential request. Before this change it sent only metadata. Set `adaptive_reasoning_effort: false` to send no message text; this is the privacy opt-out. Switchyard takes the text from Hermes' `pre_llm_call` hook and never from the provider request, so conversation history, memory and plugin context, tool names, and tool results are not sent. Only `text` and `input_text` parts are sent. A message longer than 16,000 characters stays local. A local scan keeps a message local, with your level and no Jev call, when it finds a secret-like value (for example `DB_PASSWORD=…`, `OPENAI_API_KEY=…`, a password in a URL, an `Authorization:` header value, or a known token prefix), payment or verification data, a contact identifier, a restricted marking, prompt injection, or a structured payload. The scan is not DLP: it cannot find unmarked private or employer text. Jev answers one effort choice and one stakes value; a stakes value of 0.5 or more keeps your level. The 0.5 threshold is provisional and is not yet calibrated on hosted data. Your `/reasoning` level stays the cap, and the pin, `allow_raise`, provider clamps, and fail-closed behavior are unchanged.
+The manifest in this branch still declares 0.5.4. The items below distinguish integrated work from work that remains pending; no 0.5.5 tag or measured production gain is claimed.
+
+### Integrated at this documentation base
+
+- [#121](https://github.com/bgrablin/hermes-switchyard/issues/121) adds default-on adaptive reasoning effort for supported Claude and Codex requests. It keeps `/reasoning` as the cap and supports `/switchyard effort status|pin|auto`. Current code uses Hermes `redact_for_egress` to remove secret values before it sends a bounded current-turn excerpt. If the redactor is absent, no message text is sent; restricted markings remain local. `adaptive_reasoning_effort=false` disables the path. The 0.5 stakes threshold remains provisional.
+- [#117](https://github.com/bgrablin/hermes-switchyard/issues/117) includes public DOM browser repairs for confirmed fills, stable element identity, same-URL document replacement, and field-value readback. This does not add authenticated browsing or private-file upload.
+- [#122](https://github.com/bgrablin/hermes-switchyard/issues/122) and [#123](https://github.com/bgrablin/hermes-switchyard/issues/123) closed a secret-shape gap in the earlier automatic routing blocklist. That blocklist is **not** the planned 0.5.5 policy; the pending routing work will redact values, keep restricted markings local, and leave ordinary topic words eligible. Do not layer a second secret detector on the redactor.
+- [#124](https://github.com/bgrablin/hermes-switchyard/issues/124) added bounded current-turn context for the effort decision. The branch reworked its initial local blocklist to use Hermes egress redaction. This makes the old claim that the effort path sends only metadata false when the redactor is available and acknowledgement is on.
+
+### Pending before 0.5.5 release
+
+- [#118](https://github.com/bgrablin/hermes-switchyard/issues/118) must isolate foreground and delegated-child effort state when they share a session ID.
+- [#98](https://github.com/bgrablin/hermes-switchyard/issues/98) F1 Research Navigator will be an explicit, default-off comparison of caller-supplied public excerpt windows with local quote checks and explicit coverage gaps. It will not fetch the source or verify that a URL matches a supplied excerpt.
+- [#98](https://github.com/bgrablin/hermes-switchyard/issues/98) F2 DOM Progress & Recovery will be opt-in and limited to the plugin-owned public DOM loop. It will stop unproductive repeated actions as incomplete, without controlling desktop or general-tool execution.
+- [#98](https://github.com/bgrablin/hermes-switchyard/issues/98) automatic skill routing will use Hermes egress redaction rather than block benign security vocabulary. The current branch still uses a local blocklist for that path.
+- The per-turn effort line, last-five status, bounded evaluation gates, release manifest update, exact-head CI, and independent review remain pending. A failed evaluation gate leaves the new features off.
+
+The post-0.5.5 roadmap is tracked in [#126](https://github.com/bgrablin/hermes-switchyard/issues/126), [#127](https://github.com/bgrablin/hermes-switchyard/issues/127), [#128](https://github.com/bgrablin/hermes-switchyard/issues/128), [#129](https://github.com/bgrablin/hermes-switchyard/issues/129), and [#130](https://github.com/bgrablin/hermes-switchyard/issues/130), not in this release.
 
 ## 0.5.4
 
