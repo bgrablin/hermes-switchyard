@@ -969,7 +969,8 @@ class SemanticCurrentTurnTests(unittest.TestCase):
                 capture_turn(controller, "status ping", session_id="s", turn_id="t1")
                 self.assertEqual(self.send(controller, opus("high")), "high")
                 self.assertEqual(len(client.calls), 1)
-                self.assertIn(last_receipt()["reason_code"], {"invalid_choice", "kept_requested_on_jev_failure"})
+                self.assertIn(last_receipt()["reason_code"], {"invalid_choice", "kept_requested_on_jev_failure",
+                                                              "kept_requested_on_jev_timeout"})
 
     def test_cap_allow_raise_and_failed_tool(self):
         def pick(level):

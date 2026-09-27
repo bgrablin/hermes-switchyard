@@ -34,6 +34,7 @@ from .egress import (
 from .model_policy import recommend_approved_model
 from .model_route_adapter import register_model_route_adapter
 from .reasoning_effort_adapter import (
+    DEFAULT_ADAPTIVE_REASONING_DEADLINE_SECONDS,
     append_effort_record,
     effort_stats,
     register_reasoning_effort_adapter,
@@ -1648,16 +1649,13 @@ def register(ctx):
         ),
         client_factory=client,
         public_or_sanitized_data_ack=standing_ack,
-        deadline_seconds=_config_float(
-            ctx_get_config(
-                ctx,
-                "adaptive_reasoning_effort_deadline_seconds",
-                default=1.5,
-            ),
-            1.5,
-            minimum=0.5,
-            maximum=DEFAULT_OPERATION_DEADLINE_SECONDS,
+        # Bounded to 0.1-1.5 s by the adapter; 0.25 s by default.
+        deadline_seconds=ctx_get_config(
+            ctx,
+            "adaptive_reasoning_effort_deadline_seconds",
+            default=DEFAULT_ADAPTIVE_REASONING_DEADLINE_SECONDS,
         ),
+        client_identity=cache_identity,
         mode=str(ctx_get_config(ctx, "adaptive_reasoning_effort_mode", default="auto") or "auto"),
         exclude_models=ctx_get_config(ctx, "adaptive_reasoning_effort_exclude_models", default=None),
         allow_raise=ctx_get_config(ctx, "adaptive_reasoning_effort_allow_raise", default=False),
