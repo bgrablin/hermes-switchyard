@@ -303,7 +303,7 @@ class EffortReplayTests(unittest.TestCase):
         self.call(controller, codex_request("medium"))
         message = controller.handle_command("effort auto")
         self.assertIn("one level above", message)
-        self.assertIn("deadline: 0.25", controller.handle_command("effort status"))
+        self.assertIn("deadline: 0.4", controller.handle_command("effort status"))
 
     def test_command_maps_gateway_session_key(self):
         env = Env(HERMES_SESSION_KEY="agent:main:discord:dm:1")

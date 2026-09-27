@@ -6,7 +6,7 @@ and Codex Responses (``reasoning.effort``) wire shapes, and a consequential requ
 ``high``. The receipt line is on by default: it reaches the final response through the Hermes
 ``transform_llm_output`` seam for the lowered and the kept turn, and never enters the stored
 conversation history. ``/switchyard effort receipt off`` removes it. A Jev slower than the
-default 0.25 s budget keeps the cap on both wire shapes, and its late answer is discarded.
+default 0.4 s budget keeps the cap on both wire shapes, and its late answer is discarded.
 
 All values are synthetic. The provider call is replaced at ``_interruptible_api_call``, so
 nothing leaves the process.
@@ -163,13 +163,13 @@ def _child(plugin_dir: Path) -> None:
     measured.append(run("anthropic", "hi", output_tokens=300, agent=session_agent))
     os.environ["HERMES_SESSION_ID"] = session_agent.session_id
     measured_summary = controller.handle_command("effort summary")
-    # Decision budget: a Jev that answers "low" after 400 ms under the default 0.25 s budget.
+    # Decision budget: a Jev that answers "low" after 650 ms under the default 0.4 s budget.
     slow_started: list[float] = []
 
     class SlowJev:
         def decide(self, state, questions, **kwargs):
             slow_started.append(time.perf_counter())
-            time.sleep(0.4)
+            time.sleep(0.65)
             levels = list(questions["reasoning_effort"]["criteria"])
             return {"answers": {
                 "reasoning_effort": {"choice": levels[0], "confidence": 1.0,
@@ -292,16 +292,16 @@ class HermesTurnLoopEffortTests(unittest.TestCase):
               by_case[("codex", CONSEQUENTIAL)]["final"].splitlines()[-1])
         print("E2E summary sample:\n" + summary)
 
-        # Decision budget on both wire shapes: a 400 ms Jev under the default 0.25 s budget.
+        # Decision budget on both wire shapes: a 650 ms Jev under the default 0.4 s budget.
         self.assertEqual(len(proof["slow"]), len(ROUTES))
         for row in proof["slow"]:
             self.assertEqual(row["sent"], "high", row)
-            self.assertLessEqual(row["added_s"], 0.30, row)
-            self.assertEqual(row["final"], "Synthetic answer.\n\nswitchyard: effort high (kept: Jev over 250 ms budget)")
+            self.assertLessEqual(row["added_s"], 0.45, row)
+            self.assertEqual(row["final"], "Synthetic answer.\n\nswitchyard: effort high (kept: Jev over 400 ms budget)")
             self.assertEqual(row["history"], ["Synthetic answer."])
             self.assertEqual((row["after_sent"], row["after_jev_calls"]), ("high", 1), row)
         self.assertIn("kept_requested_on_jev_timeout", proof["slow_status"])
-        self.assertIn("deadline: 0.25 seconds", proof["slow_status"])
+        self.assertIn("deadline: 0.4 seconds", proof["slow_status"])
         print("E2E budget samples:", [round(row["added_s"] * 1000) for row in proof["slow"]], "ms added;",
               proof["slow"][0]["final"].splitlines()[-1])
 

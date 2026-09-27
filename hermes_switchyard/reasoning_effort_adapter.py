@@ -49,7 +49,7 @@ HERMES_REASONING_EFFORTS: tuple[str, ...] = (
 ALLOWED_EFFORTS = frozenset(HERMES_REASONING_EFFORTS)
 DEFAULT_EFFORT = "medium"
 DEFAULT_ADAPTIVE_REASONING_EFFORT = True
-DEFAULT_ADAPTIVE_REASONING_DEADLINE_SECONDS = 0.25
+DEFAULT_ADAPTIVE_REASONING_DEADLINE_SECONDS = 0.4
 MIN_ADAPTIVE_REASONING_DEADLINE_SECONDS = 0.1
 MAX_ADAPTIVE_REASONING_DEADLINE_SECONDS = 1.5
 _TIMEOUT_REASON = "kept_requested_on_jev_timeout"
@@ -59,7 +59,7 @@ _MAX_DECISION_THREADS = 8
 
 
 def normalize_deadline_seconds(value: Any) -> float:
-    """Return the Jev decision budget in seconds: 0.1 to 1.5; an invalid value gives 0.25."""
+    """Return the Jev decision budget in seconds: 0.1 to 1.5; an invalid value gives 0.4."""
     if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
         return DEFAULT_ADAPTIVE_REASONING_DEADLINE_SECONDS
     return float(min(max(value, MIN_ADAPTIVE_REASONING_DEADLINE_SECONDS), MAX_ADAPTIVE_REASONING_DEADLINE_SECONDS))
