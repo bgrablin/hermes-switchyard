@@ -554,6 +554,11 @@ def compute_stats(records: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
         for r in receipts if r.get("hosted_error_detail") or r.get("hosted_error")
     )
     skip_reasons = Counter(str(r["hosted_skip_reason"]) for r in receipts if r.get("hosted_skip_reason"))
+    bypass_reasons = Counter(str(r["bypass_reason"]) for r in receipts if r.get("bypass_reason"))
+    input_chars = [
+        float(r["input_chars"]) for r in receipts
+        if r.get("hosted_attempted") is True and type(r.get("input_chars")) is int
+    ]
     abstention_reasons = Counter(
         str(r["abstention_reason"]) for r in receipts if not r.get("selected") and r.get("abstention_reason")
     )
@@ -599,6 +604,8 @@ def compute_stats(records: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
         "hosted_failure_rate": _rate(sum(failure_codes.values()), hosted_attempts),
         "hosted_failures_by_code": dict(sorted(failure_codes.items())),
         "hosted_skip_reasons": dict(sorted(skip_reasons.items())),
+        "bypass_reasons": dict(sorted(bypass_reasons.items())),
+        "hosted_input_chars_p50": _percentile(input_chars, 0.50),
         "consumer_statuses": dict(sorted(consumer.items())),
         "skill_loads": consumer.get("loaded", 0),
         "skill_load_rate": _rate(consumer.get("loaded", 0), consumer_total),

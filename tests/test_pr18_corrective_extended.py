@@ -859,7 +859,9 @@ class F5RestrictedMarkerTests(unittest.TestCase):
         for marked in [
             "CUI: Review the technical design.",
             "Controlled Unclassified Information: Review the technical design.",
-            "Confidential: Review the technical design.",
+            # v0.5.5: a bare "Confidential:" word is a topic word, not a
+            # restricted marking; it is redacted and sent. Markings still block.
+            "Employer confidential: Review the technical design.",
             "CUI//FOUO: Review the technical design.",
             "cui lower: review the technical design.",
         ]:
