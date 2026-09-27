@@ -129,3 +129,39 @@ With the issue #121 adapter, Jev receives the bounded current request, so the
 gate is `GREEN` and `tests/test_adaptive_effort_eval_hermes.py` asserts it
 directly. A `GREEN` contrast gate shows that Jev can tell the pairs apart. It
 does not show that Jev decides correctly.
+
+## Step-level replay (v0.5.5)
+
+`evaluation/adaptive_effort_step_replay.py` runs the real controller hooks
+(`pre_llm_call`, `llm_request`, `post_tool_call`) over frozen turn shapes. It
+measures step-level asks, lowered steps, and added latency.
+
+Inputs in `evaluation/adaptive_effort_step_fixtures.json` (hash-frozen):
+
+- `turn_request_counts`: requests per turn from one real effort history
+  snapshot (77 turns, 2,000 requests). Aggregate counts only.
+- `jev_latency_ms`: 188 recorded Jev latencies from the same snapshot.
+- `scenarios`: synthetic tool-kind mixes. The history has no tool kinds, so
+  these mixes are assumptions, not measurements.
+
+The fake Jev is an upper bound. At step level it always picks the lowest
+level it is offered (one level below the cap).
+
+```sh
+"$HERMES_PYTHON" evaluation/adaptive_effort_step_replay.py \
+  --output evaluation/adaptive_effort_step_results.json
+```
+
+Result at cap `high` (upper-bound responder):
+
+| Scenario | Step asks | Lowered steps | Lowered steps that wrote | Extra Jev calls per turn (mean / p95 / max) | Added per step ask p50 / p95 | Added per turn p50 / p95 |
+| --- | --- | --- | --- | --- | --- | --- |
+| coding_mixed | 17 | 28 of 2,000 | 5 (17.9%) | 0.22 / 1 / 2 | 249 / 346 ms | 0 / 346 ms |
+| review_heavy | 55 | 159 of 2,000 | 4 (2.5%) | 0.71 / 2 / 2 | 248 / 321 ms | 0 / 555 ms |
+| write_heavy | 1 | 1 of 2,000 | 0 | 0.01 / 0 / 1 | 256 / 256 ms | 0 / 0 ms |
+| coding_mixed, step adaptation off | 0 | 0 | 0 | 0 / 0 / 0 | none | 0 / 0 ms |
+
+No run sent more than the cap or more than one level below it at step level.
+A lowered step that emits a write tool call runs at one level below the cap.
+The next request goes back to the cap without a Jev call. A lowered step is
+kept only for read-only requests with no failure and no high-stakes signal.
