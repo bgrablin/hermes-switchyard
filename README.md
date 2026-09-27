@@ -38,10 +38,11 @@ You need a working Hermes installation, one TypeSafe or OpenRouter account key, 
    # or: hermes switchyard setup --provider openrouter
    ```
 
-4. Start a fresh Hermes session. Read the local status:
+4. Start a fresh Hermes session. Read the local status and registration result:
 
    ```text
    hermes switchyard status --json
+   hermes plugins doctor hermes-switchyard --ci
    ```
 
 5. If you accept a billed **public synthetic** test, make one explicit decision request:
@@ -52,7 +53,7 @@ You need a working Hermes installation, one TypeSafe or OpenRouter account key, 
 
 The live test is optional. A status of `ready` checks key presence and tool exposure; it is not a successful Jev decision. The live test reports `passed` only after a provider response. Plugin Doctor checks registration, not account readiness or model quality. The installer can block a community Git source after a security scan. Read the findings before you approve any override; do not treat a blocked install as success. A fresh session or gateway restart is necessary before an already-running session uses a new plugin.
 
-**First-run evidence:** pinned Hermes `8503ee4` installed Switchyard commit `08e1941` from a local Git URL in a clean scratch profile without a scan override. Install (4.984 s), enable (0.611 s), Doctor (0.779 s), and status (2.307 s) took 8.681 s in total. Status was `credential_required` because the profile had no provider key. This excludes GitHub download time, masked key setup, a new interactive session, and a paid live decision. **The complete under-two-minute first-run criterion is not verified.** The local Git URL was a test source, not a recommended production command.
+**First-run evidence:** pinned Hermes `8503ee4` installed Switchyard commit `8bfe98d` from a local Git URL in a clean scratch profile without a scan override. Install (5.005 s), enable (0.591 s), status (1.618 s), and Doctor (0.832 s) took 8.046 s in total. Status was `credential_required` because the profile had no provider key. This excludes GitHub download time, masked key setup, a new interactive session, and a paid live decision. **The complete under-two-minute first-run criterion is not verified.** The local Git URL was a test source, not a recommended production command.
 
 ## What you will see
 
@@ -68,17 +69,17 @@ Switchyard adaptive reasoning effort
   requests: 1, Jev calls: 1
 ```
 
-The current status command shows the last decision, not the last five. A per-turn line such as `switchyard: effort high→low (Jev 240 ms)` and five-decision history are **pending** in the effort lane. No receipt proves that an answer was correct or that a whole browser goal succeeded. For the exact current receipt contract, see [automatic routing](docs/AUTOMATIC-INTEGRATION.md) and [adaptive effort](docs/ADAPTIVE-REASONING-EFFORT.md).
+The current status command shows the last decision, not the last five. **Pending in PR #134, not installed here:** a default-visible per-turn line such as `switchyard: effort high→low (Jev 240 ms)` and a recent-decision view at `/switchyard effort summary`. That line is sample text, not a measured receipt. `/switchyard effort status` works now; `summary` and the per-turn line depend on the unmerged PR. **TODO (Silver, after #134 merges):** capture a real per-turn receipt screenshot. No screenshot is presented as proof here. No receipt proves that an answer was correct or that a whole browser goal succeeded. For the exact current receipt contract, see [automatic routing](docs/AUTOMATIC-INTEGRATION.md) and [adaptive effort](docs/ADAPTIVE-REASONING-EFFORT.md).
 
 ## Privacy and egress
 
 The two default-on automatic paths have different data rules:
 
-- **Adaptive effort:** the current branch uses Hermes `agent.redact.redact_for_egress` through `redact_for_jev` on the whole current text message before it sends a bounded 1,200-character excerpt. Its text input is the current message, not earlier messages, memory, tool bodies, or private files. If the Hermes redactor is absent, it sends no message text and keeps the requested effort. Explicit CUI, ITAR, FOUO, classification, and proprietary markings stay local. A clean scan does not prove that other private text is safe to send.
+- **Adaptive effort:** the current branch uses Hermes `agent.redact.redact_for_egress` through `redact_for_jev` on the whole current text message before it sends a bounded 1,200-character excerpt, plus closed-set task-stage and tool-result-status metadata. Its text input is the current message, not earlier messages, memory, tool output, or private files. If the Hermes redactor is absent, the adapter uses a metadata-only local fallback: no message text or Jev request leaves, and the requested effort stays in place. Explicit CUI, ITAR, FOUO, classification, and proprietary markings stay local. A clean scan does not prove that other private text is safe to send.
 - **Skill routing:** the current branch scans the whole task locally for restricted markings, injection shapes, control characters, and structured payloads. It then passes clean text through Hermes `redact_for_egress` plus bounded masks before sending up to 4,000 characters and exact candidate names. Without the Hermes redactor, it skips hosted routing and uses local matching. Ordinary words such as `password` and `confidential`, email addresses, and phone numbers are not restricted shapes. They do not authorize private content. Bounded descriptions or skill excerpts require a separate opt-in.
 - **Explicit tools and DOM browser:** only submit public or deliberately sanitized inputs. The browser cannot log in to your existing session or upload a private file. F1 and F2 will require a whole-payload eligibility gate and explicit public-data acknowledgement. A public URL alone will not make a private goal safe.
 
-TypeSafe and OpenRouter are external providers. The acknowledgement flags are not data loss prevention. Switchyard does not authorize private, employer, regulated, credential, payment, or verification content for hosted decisions. To stop automatic hosted skill routing, use `local_only`. To stop adaptive message-text egress, set adaptive effort to `false`:
+TypeSafe and OpenRouter are external providers. Automatic requests do not read raw tool output or files; recognized secret values are scrubbed before the bounded text excerpt. A new secret shape in the current message can still escape a pattern-based scrubber. Do not submit secrets or private content; explicit tools send caller-supplied inputs under their own policy. The acknowledgement flags are not data loss prevention. Switchyard does not authorize private, employer, regulated, credential, payment, or verification content for hosted decisions. To stop automatic hosted skill routing, use `local_only`. To stop adaptive message-text egress, set adaptive effort to `false`:
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode local_only
@@ -186,6 +187,8 @@ These are code-owned status or receipt reasons. They identify a gate, not necess
 | `client_unavailable` / `provider_request_failed` | No usable Jev client exists or the provider request failed. | Inspect key, route, allowance, and typed receipt; do not assume fallback. |
 
 The installer can also report `Security scan blocked plugin install`. This occurs before any plugin status command is available. Review the exact scanner findings and source; do not pass `--force` merely to make the quickstart appear complete. [Setup](docs/SETUP.md) covers browser startup, explicit pins, and further status reasons.
+
+**No per-turn effort line?** That line and `/switchyard effort summary` are pending in PR #134. On this branch, use `/switchyard effort status` or `hermes switchyard status --json` to inspect the available state. Doctor cannot make an unmerged feature appear.
 
 ## Uninstall and rollback
 
