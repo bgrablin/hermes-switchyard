@@ -105,6 +105,7 @@ class CaseTableTests(unittest.TestCase):
             "jev_skill_select_many",
             "jev_model_route",
             "jev_model_route_approved",
+            "jev_research_navigator",
             "jev_session_search_rerank",
         }
         self.assertEqual({case["tool"] for case in _CASES}, expected)
@@ -174,6 +175,8 @@ class HandlerFailureReportingTests(unittest.TestCase):
         def ok_handler(args):
             calls.append(args["_tool"])
             tool = args["_tool"]
+            if tool == "jev_research_navigator":
+                return json.dumps({"status": "assessed", "verified": False, "claims": [{"class": "mixed"}]})
             if tool == "jev_computer_use":
                 return json.dumps({
                     "status": "completion_candidate",
