@@ -189,9 +189,13 @@ def _coerce_bounded_text(value: Any, max_chars: int) -> str:
         for block in value:
             if remaining <= 0:
                 break
-            if isinstance(block, str):
-                text = block
-            elif isinstance(block, Mapping) and isinstance(block.get("text"), str):
+            # Only explicitly typed text parts cross the boundary: no bare strings,
+            # documents, tool results, or image captions.
+            if (
+                isinstance(block, Mapping)
+                and block.get("type") in ("text", "input_text")
+                and isinstance(block.get("text"), str)
+            ):
                 text = block["text"]
             else:
                 continue

@@ -2,6 +2,13 @@
  "schema": "switchyard.adaptive_effort_step_fixtures.v1",
  "data_class": "public_synthetic_and_aggregate",
  "note": "turn_request_counts and jev_latency_ms are sorted aggregate counts from one real effort history; no text, ids, or tool names. tool_mix is a synthetic assumption.",
+ "provenance": {
+  "source": "installed Hermes Switchyard adaptive-effort history on the maintainer's host (Silver)",
+  "fixture_commit": "f4dd5c3676b8c8e214cd3f350c3d828a92571a93",
+  "extracted_at": "2026-09-27T09:42:00-05:00",
+  "raw_extract_retained": false,
+  "claim_scope": "regression replay input only; not a published benchmark or performance claim"
+ },
  "seed": "switchyard-v055-step-replay",
  "turn_request_counts": [
   1,
@@ -304,5 +311,5 @@
    }
   }
  },
- "frozen_sha256": "a005a5c672cb2ec33bfb9bd5d59fc43b98d287bf27c0242ccd6465e00e49066c"
+ "frozen_sha256": "55822c8a1243dae2ace827ca5d41330912fa5cc26fc2af5d85d11b9bcbc92dab"
 }

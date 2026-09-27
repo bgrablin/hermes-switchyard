@@ -42,11 +42,11 @@ _CARD_RE = re.compile(r"(?<![\d-])\d(?:[ -]?\d){12,18}(?![\d-])")
 _SECRET_WORD = r"(?:pass(?:word|wd|phrase)|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credentials?)"
 _ASSIGN_RE = re.compile(
     r"(?i)(?<![A-Za-z0-9])([A-Za-z0-9_.-]{0,40}" + _SECRET_WORD + r"[\"']?\]?\s{0,3}[:=]\s{0,3}[\"']?)"
-    r"(?![<$%{*])([^\s\"'`,;()\[\]{}]{4,256})"
+    r"(?![<$%{*])([^\s\"'`,;()\[\]{}]{1,256})"
 )
 _FLAG_RE = re.compile(
     r"(?i)(?<![A-Za-z0-9-])(--?[A-Za-z0-9_-]{0,40}" + _SECRET_WORD + r"[= ]\s{0,3}[\"']?)"
-    r"(?![<$%{*-])([^\s\"'`,;()\[\]{}]{4,256})"
+    r"(?![<$%{*-])([^\s\"'`,;()\[\]{}]{1,256})"
 )
 
 
