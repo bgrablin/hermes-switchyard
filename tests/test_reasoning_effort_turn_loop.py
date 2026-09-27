@@ -3,8 +3,9 @@
 A fake Jev decides only from the outbound ``current_request`` text. With the user's level at
 ``high``, a greeting and a thanks go out at ``low`` on the Anthropic (``output_config.effort``)
 and Codex Responses (``reasoning.effort``) wire shapes, and a consequential request keeps
-``high``. The opt-in receipt line reaches the final response through the Hermes
-``transform_llm_output`` seam and never enters the stored conversation history.
+``high``. The receipt line is on by default: it reaches the final response through the Hermes
+``transform_llm_output`` seam for the lowered and the kept turn, and never enters the stored
+conversation history. ``/switchyard effort receipt off`` removes it.
 
 All values are synthetic. The provider call is replaced at ``_interruptible_api_call``, so
 nothing leaves the process.
@@ -12,6 +13,7 @@ nothing leaves the process.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -70,19 +72,23 @@ def _child(plugin_dir: Path) -> None:
             return {"answers": {
                 "reasoning_effort": {"choice": pick, "confidence": 1.0,
                                      "probabilities": {level: 1.0 if level == pick else 0.0 for level in levels}},
-                "stakes": {"noul": 0.0},
+                "stakes": {"noul": 0.0 if routine else 1.0},
             }}
 
     controller.client_factory = TextOnlyJev
 
-    def run(route: str, text: str) -> dict:
+    def make_agent(route: str):
         spec = ROUTES[route]
-        agent = run_agent.AIAgent(
+        return run_agent.AIAgent(
             model=spec["model"], provider=spec["provider"], api_mode=spec["api_mode"],
             api_key="test-key", base_url="http://localhost:1234/v1", quiet_mode=True,
             skip_context_files=True, skip_memory=True, max_iterations=2,
             reasoning_config={"enabled": True, "effort": "high"},
         )
+
+    def run(route: str, text: str, output_tokens: int = 1, agent=None) -> dict:
+        spec = ROUTES[route]
+        agent = agent or make_agent(route)
         agent._cleanup_task_resources = agent._persist_session = lambda *a, **k: None
         agent._save_trajectory = lambda *a, **k: None
         agent._disable_streaming = True
@@ -93,14 +99,14 @@ def _child(plugin_dir: Path) -> None:
             if spec["api_mode"] == "anthropic_messages":
                 return SimpleNamespace(content=[SimpleNamespace(type="text", text="Synthetic answer.")],
                                        stop_reason="end_turn", model=spec["model"],
-                                       usage=SimpleNamespace(input_tokens=1, output_tokens=1))
+                                       usage=SimpleNamespace(input_tokens=1, output_tokens=output_tokens))
             return SimpleNamespace(
                 output=[SimpleNamespace(type="message", content=[SimpleNamespace(type="output_text", text="Synthetic answer.")])],
                 usage=SimpleNamespace(input_tokens=1, output_tokens=1, total_tokens=2),
                 status="completed", model=spec["model"])
 
         agent._interruptible_api_call = provider_call
-        result = agent.run_conversation(text)
+        result = agent.run_conversation(text, conversation_history=[])
         assert len(wire) == 1, "unexpected_provider_call_count"
         sent = wire[0]
         if spec["api_mode"] == "anthropic_messages":
@@ -112,14 +118,27 @@ def _child(plugin_dir: Path) -> None:
         assert "reasoning_effort" not in sent, "flat_reasoning_effort_on_native_wire"
         history = [m.get("content") for m in result["messages"] if m.get("role") == "assistant"]
         return {"route": route, "text": text, "sent": effort, "final": result["final_response"],
-                "history": history, "transformed": bool(result.get("response_transformed"))}
+                "history": history, "transformed": bool(result.get("response_transformed")),
+                "session": agent.session_id}
 
     rows = [run(route, text) for route in ROUTES for text in (*ROUTINE, CONSEQUENTIAL)]
-    controller.set_receipt_line(True)
-    rows.append({**run("anthropic", "hi"), "receipt_line": True})
-    rows.append({**run("codex", CONSEQUENTIAL), "receipt_line": True})
-    print(json.dumps({"rows": rows, "jev_requests": [s.get("current_request") for s in jev_states],
-                      "jev_keys": sorted({key for s in jev_states for key in s})}))
+    default_on = controller.receipt_line
+    off_reply = controller.handle_command("effort receipt off")
+    rows.append({**run("anthropic", "hi"), "receipt_off": True})
+    # The CLI command context names the live session the way Hermes does.
+    os.environ["HERMES_SESSION_ID"] = rows[-1]["session"]
+    summary = controller.handle_command("effort summary")
+    # Measured basis through the real post_api_request hook: three consequential turns at the
+    # user's level give the baseline, then a lowered greeting reports the measured difference.
+    controller.handle_command("effort receipt on")
+    session_agent = make_agent("anthropic")
+    measured = [run("anthropic", CONSEQUENTIAL, output_tokens=value, agent=session_agent) for value in (900, 700, 800)]
+    measured.append(run("anthropic", "hi", output_tokens=300, agent=session_agent))
+    os.environ["HERMES_SESSION_ID"] = session_agent.session_id
+    measured_summary = controller.handle_command("effort summary")
+    print(json.dumps({"rows": rows, "measured": measured, "measured_summary": measured_summary, "jev_requests": [s.get("current_request") for s in jev_states],
+                      "jev_keys": sorted({key for s in jev_states for key in s}),
+                      "default_on": default_on, "off_reply": off_reply, "summary": summary}))
     manager.unload()
 
 
@@ -151,26 +170,49 @@ class HermesTurnLoopEffortTests(unittest.TestCase):
             proof = json.loads(result.stdout.splitlines()[-1])
 
         rows = proof["rows"]
-        by_case = {(row["route"], row["text"]): row for row in rows if not row.get("receipt_line")}
+        self.assertTrue(proof["default_on"], "receipt line must be on by default")
+        by_case = {(row["route"], row["text"]): row for row in rows if not row.get("receipt_off")}
         for route in ROUTES:
             for text in ROUTINE:
-                self.assertEqual(by_case[(route, text)]["sent"], "low", (route, text))
-            self.assertEqual(by_case[(route, CONSEQUENTIAL)]["sent"], "high", route)
-        # Receipt line is off by default: no reply was changed.
+                row = by_case[(route, text)]
+                self.assertEqual(row["sent"], "low", (route, text))
+                self.assertRegex(row["final"], r"^Synthetic answer\.\n\nswitchyard: effort high→low · Jev \d+ ms$")
+            kept = by_case[(route, CONSEQUENTIAL)]
+            self.assertEqual(kept["sent"], "high", route)
+            self.assertRegex(
+                kept["final"], r"^Synthetic answer\.\n\nswitchyard: effort high \(kept: consequential\) · Jev \d+ ms$"
+            )
+        # The default-on line reaches every foreground reply and never enters stored history.
         for row in by_case.values():
-            self.assertEqual(row["final"], "Synthetic answer.")
-            self.assertFalse(row["transformed"])
+            self.assertTrue(row["transformed"], row)
+            self.assertEqual(row["history"], ["Synthetic answer."], "receipt line entered model history")
         # Jev saw the real current request text, and only closed-set state fields.
         self.assertEqual(proof["jev_requests"][:6], [*ROUTINE, CONSEQUENTIAL] * 2)
         self.assertEqual(proof["jev_keys"], ["current_request", "latest_tool_failed", "recent_tool_statuses", "turn_phase"])
 
-        lowered, kept = [row for row in rows if row.get("receipt_line")]
-        self.assertEqual(lowered["sent"], "low")
-        self.assertRegex(lowered["final"], r"^Synthetic answer\.\n\nswitchyard: effort high→low \(Jev \d+ ms\)$")
-        self.assertTrue(lowered["transformed"])
-        self.assertEqual(lowered["history"], ["Synthetic answer."], "receipt line entered model history")
-        self.assertEqual(kept["sent"], "high")
-        self.assertEqual(kept["final"], "Synthetic answer.", "unchanged effort must stay quiet")
+        self.assertIn("off", proof["off_reply"])
+        (quiet,) = [row for row in rows if row.get("receipt_off")]
+        self.assertEqual(quiet["sent"], "low")
+        self.assertEqual(quiet["final"], "Synthetic answer.")
+        self.assertFalse(quiet["transformed"])
+
+        summary = proof["summary"]
+        self.assertIn("Switchyard effort summary (this session)", summary)
+        self.assertRegex(summary, r"Jev calls: \d+, p50 \d+ ms, p95 \d+ ms")
+        measured = proof["measured"]
+        self.assertEqual([row["sent"] for row in measured], ["high", "high", "high", "low"])
+        self.assertRegex(
+            measured[-1]["final"],
+            r"^Synthetic answer\.\n\nswitchyard: effort high→low · Jev \d+ ms · ~500 output tokens saved \(est\.\)$",
+        )
+        self.assertNotIn("switchyard:", json.dumps(measured[-1]["history"]), "receipt line entered model history")
+        self.assertIn("estimated tokens saved: ~500 output (est., 1 of 1 lowered requests measured)",
+                      proof["measured_summary"])
+        print("E2E measured summary sample:\n" + proof["measured_summary"])
+        print("\nE2E measured receipt sample:", measured[-1]["final"].splitlines()[-1])
+        print("E2E receipt samples:", by_case[("anthropic", "hi")]["final"].splitlines()[-1], "|",
+              by_case[("codex", CONSEQUENTIAL)]["final"].splitlines()[-1])
+        print("E2E summary sample:\n" + summary)
 
 
 if __name__ == "__main__":

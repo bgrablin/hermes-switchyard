@@ -228,8 +228,8 @@ class ReceiptLineTests(unittest.TestCase):
         hook = controller.build_transform_llm_output_hook()
         return hook(response_text=text, session_id=session, model=OPUS["model"], platform="cli", turn_id=turn)
 
-    def test_receipt_line_is_off_by_default(self):
-        controller, _, _ = make()
+    def test_receipt_line_is_off_when_configured_off(self):
+        controller, _, _ = make(receipt_line=False)
         begin(controller, "hi")
         send(controller, "high")
         self.assertIsNone(self.finish(controller))
@@ -241,13 +241,14 @@ class ReceiptLineTests(unittest.TestCase):
         text = self.finish(controller)
         self.assertTrue(text.startswith("Synthetic answer."))
         line = text.splitlines()[-1]
-        self.assertRegex(line, r"^switchyard: effort high→low \(Jev \d+ ms\)$")
+        self.assertRegex(line, r"^switchyard: effort high→low · Jev \d+ ms$")
 
-    def test_receipt_line_is_quiet_when_nothing_changed(self):
+    def test_receipt_line_says_kept_when_jev_kept_the_level(self):
         controller, _, _ = make(receipt_line=True)
         begin(controller, "refactor the parser module")
         send(controller, "high")
-        self.assertIsNone(self.finish(controller))
+        self.assertRegex(self.finish(controller).splitlines()[-1],
+                         r"^switchyard: effort high \(kept: Jev choice\) · Jev \d+ ms$")
 
     def test_child_turn_gets_no_receipt_line(self):
         controller, _, _ = make(receipt_line=True)
@@ -256,7 +257,7 @@ class ReceiptLineTests(unittest.TestCase):
         self.assertIsNone(self.finish(controller, turn="c1"))
 
     def test_command_turns_the_receipt_line_on_and_off(self):
-        controller, _, _ = make()
+        controller, _, _ = make(receipt_line=False)
         self.assertIn("on", controller.handle_command("effort receipt on"))
         begin(controller, "hi")
         send(controller, "high")

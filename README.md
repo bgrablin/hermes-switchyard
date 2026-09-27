@@ -71,7 +71,7 @@ The [setup guide](docs/SETUP.md) covers provider selection and further privacy s
 | Surface | What is available | Default |
 | --- | --- | --- |
 | Tools (7) | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, `jev_session_search_rerank`, `jev_computer_use` | Callable when the corresponding toolset is selected |
-| Hooks (4) | `pre_llm_call` for automatic skill routing and current-message capture for effort; `post_llm_call` to clear that capture at turn end; `post_tool_call` for effort reconsideration; `transform_llm_output` for the opt-in effort receipt line (off by default, reply unchanged) | On after install |
+| Hooks (5) | `pre_llm_call` for automatic skill routing and current-message capture for effort; `post_llm_call` to clear that capture at turn end; `post_tool_call` for effort reconsideration; `transform_llm_output` for the per-turn effort receipt line (on by default; `/switchyard effort receipt off` removes it); `post_api_request` to read token usage counts for the measured saved-token estimate | On after install |
 | Middleware (1) | `llm_request` for per-request reasoning effort | On after install |
 
 A skill suggestion is not a correctness guarantee. The automatic hook can load at most one accepted skill **per identified turn**; it can consider many skills and choose again on later turns. The separate multi-skill tool recommends a set but does not load it. Model-routing tools recommend but do not apply a model change. Computer use returns a receipt: an action, a local condition, and completion of the whole goal are separate claims. See [computer-use receipts](docs/DOM-BROWSER-BACKEND.md) for the exact verification rules.
