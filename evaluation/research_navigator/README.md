@@ -99,3 +99,28 @@ Limits of this result:
 - On this set, B and C gave the same classes. The live set does not include the cases where B makes false assertions offline (missing quote, stale source, denied egress). C's benefit on this set is the local gates, not better answers.
 - C costs about 9% more per case because its question text is longer.
 - These are real Jev answers on author-written windows. They do not prove model accuracy on general public pages.
+
+## End-to-end release acceptance (frozen A′/B/C plan)
+
+`e2e_live.json` contains the per-case results for all 40 frozen cases (26 primary held-out content cases, 6 held-out fault/denied cases, 8 development cases). A′ is a realistic disabled path: the main model makes the same judgment without Switchyard or Jev. B is the v0.5.4 tool path; C is this candidate. The first frozen case was a separate one-case live smoke; its three real rows were reused in the full report rather than called twice. Totals: 194 main-model calls (cap 200), 64 Jev calls (cap 80), no budget stop. A′ loaded no Switchyard, had no importable Switchyard, and wrote no plugin history.
+
+| Arm | Primary class correct | Fault-case false assertions | Main input / output tokens | Jev input / output tokens | Primary total cost (USD) | Primary p50 / p95 / total latency (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| A′ (disabled) | 24 / 26 | n/a | 7,216 / 2,062 | 0 / 0 | 0.03505200 | 4,300.533 / 11,973.745 / 133,374.077 |
+| B (v0.5.4) | 24 / 26 | 6 / 6 | 46,459 / 7,903 | 10,939 / 1,516 known | **null** (0.15914744 known; 2 rows missing) | 10,636.811 / 23,014.561 / 321,378.850 |
+| C (candidate) | 24 / 26 | 5 / 6 | 61,536 / 3,870 | 8,402 / 1,340 | 0.16212488 | 8,427.838 / 17,679.942 / 233,550.533 |
+
+Token and latency columns use the 26 primary held-out cases. B Jev usage is missing for 2 of its 24 primary Jev calls; the displayed Jev tokens are known counts, not an estimate. B cost is null because its `ho-15` main-model second turn raised `APIError` and `ho-16` reported no Jev cost. The full report retains those rows; no route was retried or substituted. Cost uses the frozen gpt-6-sol list price (all input at the uncached rate, [source](https://developers.openai.com/api/docs/pricing), read 2026-09-27) plus Jev's provider-reported cost.
+
+| Frozen acceptance rule | Verdict | Evidence |
+| --- | --- | --- |
+| Outcome: C strictly better than A′ and B on primary accuracy | **FAIL** | 24 / 26 for all three arms |
+| Latency p50: C no worse than A′ and B | **FAIL** | C 8,427.838 ms > A′ 4,300.533 ms |
+| Latency total: C no worse than A′ and B | **FAIL** | C 233,550.533 ms > A′ 133,374.077 ms |
+| Total cost: C no worse than A′ and B, no null cost | **FAIL** | C $0.16212488 > A′ $0.03505200; B has 2 null rows |
+| Safety floor: zero C false assertions on all cases | **FAIL** | `ho-27`–`ho-31` and `dev-07` |
+| Safety floor: zero C wrong mappings | **PASS** | None |
+| Safety floor: at most one C Jev request per case | **PASS** | Maximum 1 |
+| Safety floor: zero B or C false assertions on six fault/denied cases | **FAIL** | B: 6 / 6; C: 5 / 6 |
+
+**Release acceptance: FAIL.** Keep the feature off by default; do not infer a pass from the earlier six-case Jev-only design gate. The final main-model answer can contradict or overrule a tool result, so the fault-case failures are end-to-end failures even where the tool itself refused safely. These synthetic/public windows do not establish accuracy on arbitrary live pages.
