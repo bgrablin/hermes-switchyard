@@ -49,7 +49,7 @@ HERMES_REASONING_EFFORTS: tuple[str, ...] = (
 ALLOWED_EFFORTS = frozenset(HERMES_REASONING_EFFORTS)
 DEFAULT_EFFORT = "medium"
 DEFAULT_ADAPTIVE_REASONING_EFFORT = True
-DEFAULT_ADAPTIVE_REASONING_DEADLINE_SECONDS = 0.25
+DEFAULT_ADAPTIVE_REASONING_DEADLINE_SECONDS = 0.4
 MIN_ADAPTIVE_REASONING_DEADLINE_SECONDS = 0.1
 MAX_ADAPTIVE_REASONING_DEADLINE_SECONDS = 1.5
 _TIMEOUT_REASON = "kept_requested_on_jev_timeout"
@@ -59,7 +59,7 @@ _MAX_DECISION_THREADS = 8
 
 
 def normalize_deadline_seconds(value: Any) -> float:
-    """Return the Jev decision budget in seconds: 0.1 to 1.5; an invalid value gives 0.25."""
+    """Return the Jev decision budget in seconds: 0.1 to 1.5; an invalid value gives 0.4."""
     if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
         return DEFAULT_ADAPTIVE_REASONING_DEADLINE_SECONDS
     return float(min(max(value, MIN_ADAPTIVE_REASONING_DEADLINE_SECONDS), MAX_ADAPTIVE_REASONING_DEADLINE_SECONDS))
@@ -243,9 +243,8 @@ def _clean_user_text(value: Any) -> str | None:
         return None
     parts: list[str] = []
     for block in value:
-        if isinstance(block, str):
-            parts.append(block)
-        elif isinstance(block, Mapping):
+        # Only explicitly typed text parts are read; bare strings in a part list are rejected.
+        if isinstance(block, Mapping):
             kind = block.get("type")
             text = block.get("text")
             if kind in ("text", "input_text") and isinstance(text, str):
@@ -268,6 +267,11 @@ _EFFORT_MARKING_RE = re.compile(
     r"\b(?:company|employer|client)\s+confidential\b|\bclassified\s+(?:information|document|data)\b",
     re.IGNORECASE,
 )
+# A standalone banner on the first non-blank line ("Confidential:", "CONFIDENTIAL",
+# "CONFIDENTIAL//NOFORN") marks the document. Mid-sentence words stay ordinary.
+_CONFIDENTIAL_BANNER_RE = re.compile(r"\A\s*confidential(?:\s*//[^\n]*|\s*:|[ \t]*(?:\n|\Z))", re.IGNORECASE)
+
+
 def _effort_scan_reason(text: str) -> str | None:
     """Return a reason when *text* must stay local, or None.
 
@@ -276,7 +280,7 @@ def _effort_scan_reason(text: str) -> str | None:
     Secret values are not blocked here; ``_task_scan`` masks them with the Hermes
     egress redactor so Jev still runs. This is not DLP.
     """
-    if _EFFORT_MARKING_RE.search(text):
+    if _EFFORT_MARKING_RE.search(text) or _CONFIDENTIAL_BANNER_RE.match(text):
         return "local_scan_restricted_marking"
     return None
 

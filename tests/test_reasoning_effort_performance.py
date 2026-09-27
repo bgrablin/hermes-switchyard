@@ -2,7 +2,7 @@
 
 The adapter keeps idle Jev clients and reuses them across decisions, so a warm decision does
 not pay DNS, TCP, and TLS again. One client serves one decision at a time. The decision budget
-defaults to 0.25 s. When Jev is slower, the request goes out at the cap with reason
+defaults to 0.4 s. When Jev is slower, the request goes out at the cap with reason
 ``kept_requested_on_jev_timeout``, and the late answer is discarded.
 
 All values are synthetic. No test reaches the network.
@@ -284,22 +284,22 @@ class SlowJev:
 
 class DecisionBudgetTests(unittest.TestCase):
     def test_default_budget_is_a_quarter_second(self):
-        self.assertEqual(adapter.DEFAULT_ADAPTIVE_REASONING_DEADLINE_SECONDS, 0.25)
-        self.assertEqual(ReasoningEffortController().deadline_seconds, 0.25)
+        self.assertEqual(adapter.DEFAULT_ADAPTIVE_REASONING_DEADLINE_SECONDS, 0.4)
+        self.assertEqual(ReasoningEffortController().deadline_seconds, 0.4)
         manifest = (Path(__file__).resolve().parent.parent / "plugin.yaml").read_text(encoding="utf-8")
         line = next(item for item in manifest.splitlines() if "adaptive_reasoning_effort_deadline_seconds" in item)
-        self.assertIn("default: 0.25", line)
+        self.assertIn("default: 0.4", line)
 
     def test_budget_setting_is_bounded(self):
-        cases = {0.05: 0.1, 0.1: 0.1, 0.4: 0.4, 1.5: 1.5, 30: 1.5, 0: 0.25, -1: 0.25,
-                 float("nan"): 0.25, float("inf"): 0.25, True: 0.25, "0.4": 0.25, None: 0.25}
+        cases = {0.05: 0.1, 0.1: 0.1, 0.25: 0.25, 1.5: 1.5, 30: 1.5, 0: 0.4, -1: 0.4,
+                 float("nan"): 0.4, float("inf"): 0.4, True: 0.4, "0.25": 0.4, None: 0.4}
         for value, expected in cases.items():
             with self.subTest(value=value):
                 self.assertEqual(adapter.normalize_deadline_seconds(value), expected)
                 self.assertEqual(ReasoningEffortController(deadline_seconds=value).deadline_seconds, expected)
 
     def test_slow_jev_keeps_the_cap_within_the_budget_and_the_late_answer_is_discarded(self):
-        slow = SlowJev(0.4)
+        slow = SlowJev(0.65)
         records = []
         controller = make(lambda: slow, receipt_line=True, record_decision=records.append)
         begin(controller, WORK[0], turn="t1")
@@ -307,11 +307,11 @@ class DecisionBudgetTests(unittest.TestCase):
         sent = send(controller, "high", turn="t1")
         added = time.perf_counter() - started
         self.assertEqual(sent, "high")
-        self.assertLessEqual(added, 0.30)
+        self.assertLessEqual(added, 0.45)
         receipt = last_receipt()
         self.assertEqual(receipt["reason_code"], TIMEOUT)
         self.assertIs(receipt["jev_called"], True)
-        self.assertEqual(finish(controller).splitlines()[-1], "switchyard: effort high (kept: Jev over 250 ms budget)")
+        self.assertEqual(finish(controller).splitlines()[-1], "switchyard: effort high (kept: Jev over 400 ms budget)")
 
         # The late "low" arrives; it must not change this turn or the next one.
         time.sleep(0.3)
@@ -326,9 +326,9 @@ class DecisionBudgetTests(unittest.TestCase):
 
     def test_client_deadline_errors_are_timeouts_and_other_errors_are_failures(self):
         cases = (
-            (jev_client.DeadlineExceeded("synthetic"), TIMEOUT, "Jev over 250 ms budget"),
-            (jev_client.LateResultDiscarded("synthetic"), TIMEOUT, "Jev over 250 ms budget"),
-            (TimeoutError("synthetic"), TIMEOUT, "Jev over 250 ms budget"),
+            (jev_client.DeadlineExceeded("synthetic"), TIMEOUT, "Jev over 400 ms budget"),
+            (jev_client.LateResultDiscarded("synthetic"), TIMEOUT, "Jev over 400 ms budget"),
+            (TimeoutError("synthetic"), TIMEOUT, "Jev over 400 ms budget"),
             (ConnectionError("synthetic"), FAILURE, "Jev unavailable"),
         )
         for error, reason, label in cases:
@@ -342,13 +342,13 @@ class DecisionBudgetTests(unittest.TestCase):
 
     def test_real_client_under_budget_discards_a_late_transport_answer(self):
         def transport(payload):
-            time.sleep(0.4)
+            time.sleep(0.65)
             return {"model": jev_client.EXPECTED_MODEL, "answers": pick(payload["questions"], "low"), "usage": {}}
 
         controller = make(lambda: DecisionClient(api_key="fixture", transport=transport))
         started = time.perf_counter()
         self.assertEqual(decide(controller, WORK[0], "t1"), "high")
-        self.assertLessEqual(time.perf_counter() - started, 0.30)
+        self.assertLessEqual(time.perf_counter() - started, 0.45)
         self.assertEqual(last_receipt()["reason_code"], TIMEOUT)
 
 

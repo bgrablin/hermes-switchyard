@@ -1649,7 +1649,7 @@ def register(ctx):
         ),
         client_factory=client,
         public_or_sanitized_data_ack=standing_ack,
-        # Bounded to 0.1-1.5 s by the adapter; 0.25 s by default.
+        # Bounded to 0.1-1.5 s by the adapter; 0.4 s by default (measured warm Jev p95).
         deadline_seconds=ctx_get_config(
             ctx,
             "adaptive_reasoning_effort_deadline_seconds",
