@@ -1,0 +1,456 @@
+{
+ "baseline": {
+  "arm_b_tool": "jev_assess",
+  "tag": "v0.5.4"
+ },
+ "budgets": {
+  "jev_calls_max": 80,
+  "main_calls_max": 200
+ },
+ "candidate_sha256": "46fe046f4029411169c30d7bde1c0e2d2f300aaccf53138dcbe96f4fd7f535f4",
+ "cases": [
+  "dev-01",
+  "dev-02",
+  "dev-03",
+  "dev-04",
+  "dev-05",
+  "dev-06",
+  "dev-07",
+  "dev-08",
+  "ho-01",
+  "ho-02",
+  "ho-03",
+  "ho-04",
+  "ho-05",
+  "ho-06",
+  "ho-07",
+  "ho-08",
+  "ho-09",
+  "ho-10",
+  "ho-11",
+  "ho-12",
+  "ho-13",
+  "ho-14",
+  "ho-15",
+  "ho-16",
+  "ho-17",
+  "ho-18",
+  "ho-19",
+  "ho-20",
+  "ho-21",
+  "ho-22",
+  "ho-23",
+  "ho-24",
+  "ho-25",
+  "ho-26",
+  "ho-27",
+  "ho-28",
+  "ho-29",
+  "ho-30",
+  "ho-31",
+  "ho-32"
+ ],
+ "codex_credential_selection": "Hermes CredentialPool availability rules in fill_first order over auth.json openai-codex entries; read-only (persist disabled), no refresh; stop if the selected entry needs a refresh or has less than 6 h left; record the selected label only",
+ "excluded_from_primary": [
+  "ho-27",
+  "ho-28",
+  "ho-29",
+  "ho-30",
+  "ho-31",
+  "ho-32"
+ ],
+ "fixtures_sha256": "bd28e8e6d76ced1aa41b46a9267c4f47c97fd63ae41252647d1cefde47dcf533",
+ "harness_sha256": "c9259db117a24619606522e813feb106fd9d73707b570beb00cedc4e0a83576f",
+ "jev_route": {
+  "fallback": "none",
+  "jev_provider": "auto"
+ },
+ "main_route": {
+  "model": "gpt-6-sol",
+  "provider": "openai-codex",
+  "reasoning_effort": "high"
+ },
+ "main_timeout_seconds": 180.0,
+ "main_transport": "pinned Hermes CodexAuxiliaryClient (Codex Responses API), OAuth pool credential read-only, no refresh",
+ "metrics": {
+  "cost": "main-model tokens at the list price plus provider-reported Jev cost; any unknown cost is null",
+  "false_assertion": "final class supported, contradicted, or mixed that differs from the label",
+  "latency": "per-case wall time from the first main-model request to the final answer (interpreter start excluded)",
+  "primary": "held-out class accuracy of the main model's final answer on primary_heldout_ids"
+ },
+ "offline_harness_sha256": "2746d524ef82174153b31f528e7b68c4bb5534b94a3159b49013facdd6a0f126",
+ "order": [
+  {
+   "arms": [
+    "A_prime",
+    "B",
+    "C"
+   ],
+   "case": "ho-03"
+  },
+  {
+   "arms": [
+    "B",
+    "C",
+    "A_prime"
+   ],
+   "case": "ho-19"
+  },
+  {
+   "arms": [
+    "C",
+    "A_prime",
+    "B"
+   ],
+   "case": "ho-05"
+  },
+  {
+   "arms": [
+    "A_prime",
+    "C",
+    "B"
+   ],
+   "case": "ho-15"
+  },
+  {
+   "arms": [
+    "C",
+    "B",
+    "A_prime"
+   ],
+   "case": "ho-29"
+  },
+  {
+   "arms": [
+    "B",
+    "A_prime",
+    "C"
+   ],
+   "case": "ho-11"
+  },
+  {
+   "arms": [
+    "A_prime",
+    "B",
+    "C"
+   ],
+   "case": "ho-32"
+  },
+  {
+   "arms": [
+    "B",
+    "C",
+    "A_prime"
+   ],
+   "case": "ho-09"
+  },
+  {
+   "arms": [
+    "C",
+    "A_prime",
+    "B"
+   ],
+   "case": "ho-22"
+  },
+  {
+   "arms": [
+    "A_prime",
+    "C",
+    "B"
+   ],
+   "case": "ho-12"
+  },
+  {
+   "arms": [
+    "C",
+    "B",
+    "A_prime"
+   ],
+   "case": "dev-02"
+  },
+  {
+   "arms": [
+    "B",
+    "A_prime",
+    "C"
+   ],
+   "case": "ho-06"
+  },
+  {
+   "arms": [
+    "A_prime",
+    "B",
+    "C"
+   ],
+   "case": "ho-20"
+  },
+  {
+   "arms": [
+    "B",
+    "C",
+    "A_prime"
+   ],
+   "case": "ho-17"
+  },
+  {
+   "arms": [
+    "C",
+    "A_prime",
+    "B"
+   ],
+   "case": "ho-26"
+  },
+  {
+   "arms": [
+    "A_prime",
+    "C",
+    "B"
+   ],
+   "case": "ho-30"
+  },
+  {
+   "arms": [
+    "C",
+    "B",
+    "A_prime"
+   ],
+   "case": "dev-07"
+  },
+  {
+   "arms": [
+    "B",
+    "A_prime",
+    "C"
+   ],
+   "case": "ho-10"
+  },
+  {
+   "arms": [
+    "A_prime",
+    "B",
+    "C"
+   ],
+   "case": "ho-04"
+  },
+  {
+   "arms": [
+    "B",
+    "C",
+    "A_prime"
+   ],
+   "case": "ho-27"
+  },
+  {
+   "arms": [
+    "C",
+    "A_prime",
+    "B"
+   ],
+   "case": "dev-01"
+  },
+  {
+   "arms": [
+    "A_prime",
+    "C",
+    "B"
+   ],
+   "case": "ho-01"
+  },
+  {
+   "arms": [
+    "C",
+    "B",
+    "A_prime"
+   ],
+   "case": "ho-21"
+  },
+  {
+   "arms": [
+    "B",
+    "A_prime",
+    "C"
+   ],
+   "case": "ho-07"
+  },
+  {
+   "arms": [
+    "A_prime",
+    "B",
+    "C"
+   ],
+   "case": "ho-23"
+  },
+  {
+   "arms": [
+    "B",
+    "C",
+    "A_prime"
+   ],
+   "case": "ho-25"
+  },
+  {
+   "arms": [
+    "C",
+    "A_prime",
+    "B"
+   ],
+   "case": "dev-06"
+  },
+  {
+   "arms": [
+    "A_prime",
+    "C",
+    "B"
+   ],
+   "case": "dev-03"
+  },
+  {
+   "arms": [
+    "C",
+    "B",
+    "A_prime"
+   ],
+   "case": "ho-02"
+  },
+  {
+   "arms": [
+    "B",
+    "A_prime",
+    "C"
+   ],
+   "case": "dev-04"
+  },
+  {
+   "arms": [
+    "A_prime",
+    "B",
+    "C"
+   ],
+   "case": "ho-14"
+  },
+  {
+   "arms": [
+    "B",
+    "C",
+    "A_prime"
+   ],
+   "case": "ho-16"
+  },
+  {
+   "arms": [
+    "C",
+    "A_prime",
+    "B"
+   ],
+   "case": "ho-18"
+  },
+  {
+   "arms": [
+    "A_prime",
+    "C",
+    "B"
+   ],
+   "case": "ho-31"
+  },
+  {
+   "arms": [
+    "C",
+    "B",
+    "A_prime"
+   ],
+   "case": "ho-28"
+  },
+  {
+   "arms": [
+    "B",
+    "A_prime",
+    "C"
+   ],
+   "case": "dev-05"
+  },
+  {
+   "arms": [
+    "A_prime",
+    "B",
+    "C"
+   ],
+   "case": "dev-08"
+  },
+  {
+   "arms": [
+    "B",
+    "C",
+    "A_prime"
+   ],
+   "case": "ho-13"
+  },
+  {
+   "arms": [
+    "C",
+    "A_prime",
+    "B"
+   ],
+   "case": "ho-24"
+  },
+  {
+   "arms": [
+    "A_prime",
+    "C",
+    "B"
+   ],
+   "case": "ho-08"
+  }
+ ],
+ "order_seed": 20260927,
+ "pricing": {
+  "cached_input_policy": "all input tokens priced at the uncached input rate",
+  "input_per_million_usd": 2.0,
+  "jev": "provider-reported cost per call",
+  "model": "gpt-6-sol",
+  "output_per_million_usd": 10.0,
+  "read_on": "2026-09-27",
+  "source": "https://developers.openai.com/api/docs/pricing",
+  "tier": "Standard, short context"
+ },
+ "primary_heldout_ids": [
+  "ho-01",
+  "ho-02",
+  "ho-03",
+  "ho-04",
+  "ho-05",
+  "ho-06",
+  "ho-07",
+  "ho-08",
+  "ho-09",
+  "ho-10",
+  "ho-11",
+  "ho-12",
+  "ho-13",
+  "ho-14",
+  "ho-15",
+  "ho-16",
+  "ho-17",
+  "ho-18",
+  "ho-19",
+  "ho-20",
+  "ho-21",
+  "ho-22",
+  "ho-23",
+  "ho-24",
+  "ho-25",
+  "ho-26"
+ ],
+ "prompts_sha256": "2c46f958b5cf09a02621714a4c9e39d94907cf8d6c33a46407f277a8f9226a26",
+ "schema_version": 1,
+ "suite": "research_navigator_e2e",
+ "thresholds": {
+  "cost_total": "C total <= A_prime and <= B (primary); a null total fails",
+  "floor_false_assertions": "C: 0 on all 40 cases",
+  "floor_fault_cases": "B and C: 0 false supported/contradicted/mixed final answers on each excluded fault/denied case",
+  "floor_jev_requests": "C: at most 1 Jev call per case",
+  "floor_wrong_mappings": "C: 0 on all 40 cases",
+  "latency_p50": "C p50 <= A_prime and <= B (primary)",
+  "latency_total": "C total <= A_prime and <= B (primary)",
+  "outcome": "C primary_correct > A_prime and > B"
+ }
+}
