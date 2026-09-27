@@ -259,12 +259,12 @@ class AutomaticSecretEgressTests(HermesHomeTestCase):
         clean = recommender.recommend(filler + "clean tail")
         self.assertEqual(clean["source"], "jev")
         request_count = len(calls)
-        secret = recommender.recommend(filler + f"clean tail GITHUB_TOKEN={INERT}")
+        restricted_turn = recommender.recommend(filler + f"clean tail GITHUB_TOKEN={INERT}")
         self.assertEqual(len(calls), request_count)
         self.assertEqual(len(constructed), 1)
-        self.assertFalse(secret["cache_hit"])
-        self.assertEqual(secret["hosted_skipped"], "local_scan_secret_like_value")
-        self.assertNotEqual(secret["source"], "jev")
+        self.assertFalse(restricted_turn["cache_hit"])
+        self.assertEqual(restricted_turn["hosted_skipped"], "local_scan_secret_like_value")
+        self.assertNotEqual(restricted_turn["source"], "jev")
 
     def test_allow_envelope_payload_with_secret_never_constructs_client(self):
         for key in ("DB_PASSWORD", "OPENAI_API_KEY", "GITHUB_TOKEN"):
@@ -363,6 +363,178 @@ class AutomaticSecretEgressTests(HermesHomeTestCase):
                 self.assertTrue(callback.last_receipt["hosted_skip_reason"].startswith("local_scan_"))
                 self.assertNotIn(INERT, json.dumps(response))
                 self.assertNotIn(INERT, json.dumps(callback.last_receipt))
+
+
+# Command-line flags that carry a credential value. The value follows the flag
+# after whitespace, with or without quotes, or after ``=``.
+CLI_FLAG_SECRET_TASKS = {
+    "space_api_key": f"run tool --api-key {INERT} to list the Docker images",
+    "space_access_token": f"run tool --access-token {INERT} for the Docker registry",
+    "space_db_password": f"run migrate --db-password {INERT} in the Docker container",
+    "space_client_secret_double_quoted": f'run tool --client-secret "{INERT}" for Docker',
+    "space_auth_token_single_quoted": f"run tool --auth-token '{INERT}' for Docker",
+    "space_token_last": f"docker compose run app --token {INERT}",
+    "space_secret_key": f"run tool --secret-key {INERT} for the Docker bucket",
+    "space_underscore_api_key": f"run tool --openai_api_key {INERT} in Docker",
+    "space_single_dash": f"run tool -api-key {INERT} in Docker",
+    "space_pass_suffix": f"run tool --registry-pass {INERT} in Docker",
+    "space_short_password_digits": "run migrate --db-password hunter2 in the Docker container",
+    "tab_separated": f"run tool --api-key\t{INERT} in Docker",
+    "equals_api_key": f"run tool --api-key={INERT} for Docker",
+    "equals_access_token_quoted": f'run tool --access-token="{INERT}" for Docker',
+    "equals_db_password": f"run migrate --db-password={INERT} in Docker",
+    "equals_client_secret_single_quoted": f"run tool --client-secret='{INERT}' for Docker",
+    # A plain word in the argument position of a secret-named flag is a value.
+    "space_api_key_plain_word": "tool --api-key mykey",
+    "space_access_token_plain_word": "tool --access-token hunter",
+    "space_client_secret_plain_word_mid": "run tool --client-secret opensesame for Docker",
+}
+
+# Public text about the same flags, without a credential value.
+CLI_FLAG_PUBLIC_TASKS = {
+    "prose_flag_name": "use the --api-key flag to pass a key to the Docker tool",
+    "prose_question": "what does --access-token do in the Docker CLI?",
+    "prose_option_list": "the tool accepts --api-key and --token options for Docker",
+    "placeholder_angle": "run tool --api-key <YOUR_API_KEY> for Docker",
+    "placeholder_env": "run tool --api-key $OPENAI_API_KEY for Docker",
+    "placeholder_env_quoted": 'run tool --access-token "${GITHUB_TOKEN}" for Docker',
+    "placeholder_masked": "run tool --api-key **** for Docker",
+    "next_flag": "run tool --api-key --help to see the Docker usage",
+    "help_and_version": "run tool --help and tool --version for Docker",
+    "non_secret_options": "docker run --rm --name web --network host nginx:1.27",
+    "token_count": "set --max-tokens 4096 for the Docker model call",
+    "token_file_path": "run tool --token-file ~/.config/tool/token for Docker",
+    "key_file_path": "run tool --private-key ~/.ssh/id_ed25519 for Docker",
+    "key_file_name": "run tool --private-key deploy.pem for Docker",
+    "stdin_token": "gh auth login --with-token < token.txt then run Docker",
+    "prose_option_is_required": "the --api-key option is required by the Docker tool",
+    "prose_flag_then_verb": "pass --access-token when the Docker registry asks for it",
+    "prose_value_placeholder": "run tool --api-key <value> for Docker",
+    "prose_literal_none": "the tool --token none setting disables Docker auth",
+}
+
+# Prose about a password flag. The secret-value classifier must not match.
+# The separate pre-existing restricted-word scan keeps any turn that names
+# ``password`` local; that behavior is outside this secret-value contract.
+CLI_FLAG_PASSWORD_PROSE = (
+    "pass the --db-password option to the Docker migrate job",
+    "the --db-password flag is required by the Docker job",
+    "the --db-password 12 characters minimum rule for Docker",
+)
+
+
+class AutomaticCliFlagSecretEgressTests(HermesHomeTestCase):
+    """Space-separated and ``=`` credential flags stay local (issue #122)."""
+
+    candidates = AutomaticSecretEgressTests.candidates
+
+    def _recommender(self, calls, constructed):
+        def factory():
+            constructed.append(True)
+            return DecisionClient(api_key="fixture-key", transport=_jev_transport(calls))
+
+        return AutomaticSkillRecommender(
+            configured_candidates=self.candidates,
+            routing_mode="hosted_sanitized",
+            hosted_mode="always",
+            public_or_sanitized_data_ack=True,
+            client_factory=factory,
+            adoption_capable=True,
+            cache_seconds=0.0,
+        )
+
+    def test_secret_flag_values_classify_as_secret_like_value(self):
+        for label, task in CLI_FLAG_SECRET_TASKS.items():
+            with self.subTest(case=label):
+                self.assertTrue(automatic._contains_secret_value(task))
+                self.assertEqual(_local_scan_reason(task, task), "local_scan_secret_like_value")
+                self.assertEqual(
+                    automatic._whole_task_scan_reason(task), "local_scan_secret_like_value"
+                )
+
+    def test_secret_flag_values_never_reach_the_hosted_client(self):
+        for label, task in CLI_FLAG_SECRET_TASKS.items():
+            with self.subTest(case=label):
+                calls, constructed = [], []
+                result = self._recommender(calls, constructed).recommend(task)
+                self.assertEqual(constructed, [])
+                self.assertEqual(calls, [])
+                self.assertFalse(result["hosted_attempted"])
+                self.assertEqual(result["hosted_skipped"], "local_scan_secret_like_value")
+                self.assertNotIn(INERT, json.dumps(result))
+
+    def test_secret_flag_after_task_bound_never_reaches_the_hosted_client(self):
+        head = "Docker compose container notes " * (MAX_TASK_CHARS // 10)
+        task = f"{head} run tool --api-key {INERT}"
+        self.assertGreater(len(task), MAX_TASK_CHARS)
+        calls, constructed = [], []
+        result = self._recommender(calls, constructed).recommend(task)
+        self.assertEqual((constructed, calls), ([], []))
+        self.assertEqual(result["hosted_skipped"], "local_scan_secret_like_value")
+
+    def test_two_stage_hook_keeps_secret_flag_turn_local(self):
+        calls, constructed = [], []
+
+        def factory():
+            constructed.append(True)
+            return DecisionClient(api_key="fixture-key", transport=_jev_transport(calls))
+
+        callback = build_pre_llm_call_hook(
+            configured_candidates=self.candidates,
+            routing_mode="hosted_sanitized",
+            hosted_mode="always",
+            client_factory=factory,
+            consumer_mode="load",
+            skill_loader=lambda name, task_id=None: f"SYNTHETIC SKILL BODY {name}",
+            cache_seconds=0.0,
+            two_stage=TwoStageConfig(),
+            environ={},
+        )
+        assert callback is not None
+        for label in ("space_api_key", "space_access_token", "space_client_secret_double_quoted"):
+            with self.subTest(case=label):
+                response = callback(user_message=CLI_FLAG_SECRET_TASKS[label], platform="cli")
+                self.assertEqual((constructed, calls), ([], []))
+                self.assertFalse(callback.last_result["hosted_attempted"])
+                self.assertEqual(
+                    callback.last_receipt["hosted_skip_reason"], "local_scan_secret_like_value"
+                )
+                self.assertNotIn(INERT, json.dumps(response))
+                self.assertNotIn(INERT, json.dumps(callback.last_receipt))
+
+    def test_public_flag_text_still_routes_through_jev(self):
+        for label, task in CLI_FLAG_PUBLIC_TASKS.items():
+            with self.subTest(case=label):
+                self.assertFalse(automatic._contains_secret_value(task))
+                self.assertIsNone(_local_scan_reason(task, task))
+                calls, constructed = [], []
+                result = self._recommender(calls, constructed).recommend(task)
+                self.assertEqual(constructed, [True])
+                self.assertTrue(result["hosted_attempted"])
+                self.assertNotIn("hosted_skipped", result)
+                self.assertEqual(calls[0]["state"]["task"], task)
+
+    def test_password_flag_prose_is_not_a_secret_value(self):
+        for task in CLI_FLAG_PASSWORD_PROSE:
+            with self.subTest(task=task):
+                self.assertFalse(automatic._contains_secret_value(task))
+                self.assertNotEqual(_local_scan_reason(task, task), "local_scan_secret_like_value")
+
+    def test_off_and_local_only_modes_never_construct_client_for_flags(self):
+        task = CLI_FLAG_PUBLIC_TASKS["prose_flag_name"]
+        for mode in ("off", "local_only"):
+            with self.subTest(mode=mode):
+                constructed = []
+                AutomaticSkillRecommender(
+                    configured_candidates=self.candidates,
+                    routing_mode=mode,
+                    hosted_mode="always",
+                    public_or_sanitized_data_ack=True,
+                    client_factory=lambda: constructed.append(True),
+                    adoption_capable=True,
+                    cache_seconds=0.0,
+                ).recommend(task)
+                self.assertEqual(constructed, [])
 
 
 if __name__ == "__main__":

@@ -174,6 +174,34 @@ _SECRET_ASSIGNMENT_RE = re.compile(
     r"(?P<value>[^\s\"'`,;]+)",
     re.IGNORECASE,
 )
+# A command-line flag whose name ENDS in a secret word, then whitespace and a
+# value: ``--api-key VALUE``, ``-access-token 'VALUE'``, ``--db-password
+# "VALUE"``. The ``--flag=VALUE`` form is an assignment and is matched above.
+_SECRET_FLAG_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])--?(?P<key>"
+    r"[A-Za-z0-9_-]*(?:password|passwd|passphrase|secret|token|"
+    r"api[_-]?key|access[_-]?key|private[_-]?key|secret[_-]?key|credentials?)"
+    r"|[A-Za-z0-9_-]*[_-](?:pass|pwd)"
+    r")[ \t]+[\"']?(?P<value>[^\s\"'`,;]+)",
+    re.IGNORECASE,
+)
+# A key or certificate file name, not a key value: ``--private-key deploy.pem``.
+_KEY_FILE_NAME_RE = re.compile(
+    r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*\.(?:pem|key|pub|crt|cer|der|p12|pfx|jks|json|txt|asc|gpg)",
+    re.IGNORECASE,
+)
+# Words that follow a flag name in prose (``the --api-key option is required``)
+# rather than in the argument position of a command.
+_FLAG_PROSE_WORDS = frozenset(
+    {
+        "flag", "flags", "option", "options", "argument", "arguments", "parameter",
+        "parameters", "switch", "value", "values", "field", "setting", "settings",
+        "a", "an", "and", "are", "as", "at", "be", "by", "can", "do", "does", "for",
+        "from", "has", "have", "if", "in", "instead", "is", "must", "not", "of",
+        "on", "only", "or", "should", "that", "the", "then", "to", "was", "were",
+        "when", "which", "will", "with",
+    }
+)
 # ``scheme://user:password@host`` with a non-empty password part.
 _URL_USERINFO_RE = re.compile(
     r"(?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@]+:(?P<value>[^\s/@]+)@",
@@ -226,6 +254,25 @@ def _is_assigned_secret(key: str, value: str) -> bool:
     )
 
 
+def _is_flag_secret(key: str, value: str) -> bool:
+    """Classify the argument after a secret-named command-line flag.
+
+    The argument position of a secret-named flag holds a value, so a short
+    plain word there (``--api-key mykey``) counts. A prose word
+    (``--api-key option``), a count, a literal, another flag, a reference, a
+    mask, a path, or a key file name is not a value.
+    """
+    value = value.rstrip(".)]}>")
+    if value.startswith("-") or _KEY_FILE_NAME_RE.fullmatch(value):
+        return False
+    if _PLAIN_WORD_OR_COUNT_RE.fullmatch(value):
+        word = value.casefold()
+        return not (
+            value.isdigit() or word in _LITERAL_WORDS or word in _FLAG_PROSE_WORDS
+        )
+    return _is_assigned_secret(key, value)
+
+
 def _contains_secret_value(text: str) -> bool:
     """Return True when text holds a recognizable credential value.
 
@@ -239,6 +286,11 @@ def _contains_secret_value(text: str) -> bool:
     for match in _URL_USERINFO_RE.finditer(text):
         if not _is_reference_or_mask(match.group("value")):
             return True
+    if any(
+        _is_flag_secret(match.group("key"), match.group("value"))
+        for match in _SECRET_FLAG_RE.finditer(text)
+    ):
+        return True
     return any(
         _is_assigned_secret(match.group("key"), match.group("value"))
         for match in _SECRET_ASSIGNMENT_RE.finditer(text)
