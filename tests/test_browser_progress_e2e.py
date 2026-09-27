@@ -167,22 +167,22 @@ class MainModelJudgeTests(unittest.TestCase):
         self.assertEqual(len(runner.prompts), 1)
 
     def test_oneshot_command_uses_the_main_route_without_plugins(self):
-        command = e2e.oneshot_command("hermes", "PROMPT", "/tmp/u.json")
+        command = e2e.oneshot_command("hermes", "PROMPT", "usage.json")
         self.assertEqual(command[0], "hermes")
         for flag in ("--safe-mode", "--ignore-rules"):
             self.assertIn(flag, command)
         self.assertEqual(command[command.index("-m") + 1], "gpt-6-sol")
         self.assertEqual(command[command.index("--provider") + 1], "openai-codex")
         self.assertEqual(command[command.index("--reasoning") + 1], e2e.PLAN_REASONING)
-        self.assertEqual(command[command.index("--usage-file") + 1], "/tmp/u.json")
+        self.assertEqual(command[command.index("--usage-file") + 1], "usage.json")
         self.assertEqual(command[-2:], ["-z", "PROMPT"])
         self.assertNotIn("HERMES_HOME", " ".join(command))
 
     def test_a_scratch_hermes_home_is_refused(self):
         with self.assertRaisesRegex(RuntimeError, "HERMES_HOME"):
-            e2e.check_real_hermes_home({"HERMES_HOME": "/tmp/scratch-home"}, home=Path("/home/u"))
-        e2e.check_real_hermes_home({}, home=Path("/home/u"))
-        e2e.check_real_hermes_home({"HERMES_HOME": "/home/u/.hermes"}, home=Path("/home/u"))
+            e2e.check_real_hermes_home({"HERMES_HOME": str(Path("scratch-home").resolve())}, home=Path("u").resolve())
+        e2e.check_real_hermes_home({}, home=Path("u").resolve())
+        e2e.check_real_hermes_home({"HERMES_HOME": str(Path("u").resolve() / ".hermes")}, home=Path("u").resolve())
 
 
 class JudgeExchangeTests(unittest.TestCase):

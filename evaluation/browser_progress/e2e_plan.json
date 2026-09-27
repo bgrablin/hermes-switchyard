@@ -63,7 +63,7 @@
   "cost": "C total known cost <= every baseline; any null cost in C or a baseline fails",
   "latency": "C task latency p50 and total <= every baseline",
   "outcome": "C completion >= every baseline; C labelled stalls stopped early with a recovery suggestion > every baseline; 0 premature stops; 0 false completions",
-  "source": "/home/brian/.hermes/cache/scratch/v055-eval-acceptance.md",
+  "source": "coordinator release-acceptance decision for v0.5.5 features (published-eval rules)",
   "tuning": "none after results; a failing rule is published as is"
  },
  "fixtures_sha256": "f4ceb2728f713d0c4988c8abcf19546c37f8e7f612c423385038b764691ce299",

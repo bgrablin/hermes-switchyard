@@ -630,7 +630,7 @@ def build_plan() -> dict[str, Any]:
             "cost": "sum of provider-reported usage.cost per physical Jev request; a missing cost is null",
         },
         "acceptance": {
-            "source": "/home/brian/.hermes/cache/scratch/v055-eval-acceptance.md",
+            "source": "coordinator release-acceptance decision for v0.5.5 features (published-eval rules)",
             "baselines": {"heldout": ["A_prime", "B"], "live": ["B"]},
             "outcome": ("C completion >= every baseline; C labelled stalls stopped early with a recovery suggestion "
                         "> every baseline; 0 premature stops; 0 false completions"),
