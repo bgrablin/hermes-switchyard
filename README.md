@@ -52,7 +52,7 @@ The live test is optional. A status of `ready` checks key presence and tool expo
 
 ## What you will see
 
-Automatic skill routing uses `hosted_sanitized` and `load` by default. On an eligible turn, it can send a bounded task and candidate names to Jev, then load one accepted skill. Adaptive effort keeps your `/reasoning` level as the cap. A greeting or thanks can go to `low` locally, with **no Jev call**. A request to act still calls Jev when the hosted route is available. The installed-candidate trace recorded these visible lines:
+Automatic skill routing uses `hosted_sanitized` and `load` by default. On an eligible turn, it can send a bounded task and candidate names to Jev, then load one accepted skill. Adaptive effort keeps your `/reasoning` level as the cap. A greeting or thanks can go to `low` locally, with **no Jev call**. A consequential request such as `thanks, now deploy` did call Jev in the installed-candidate trace. The trace recorded these visible lines:
 
 ```text
 switchyard: effort high→low · local (no Jev call)
