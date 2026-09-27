@@ -346,6 +346,83 @@ low_confidence` or `ambiguous_decision` and dispatches nothing. The floors are
 conservative for the public-navigation risk class and are single-sourced module
 constants, not values copied from another task.
 
+## Progress and recovery (opt-in, F2)
+
+This mode is off by default. Set `browser_progress_mode: advisory_stop` in the
+plugin settings to enable it. When the mode is `off`, the loop sends the same
+requests as it does without the feature and asks no feature questions.
+
+When the mode is on, the loop can stop a run that repeats one strategy without
+new goal evidence. The stop is an incomplete result: `status: blocked`,
+`failure_phase: semantic_stall`, `verified: false`, and
+`reconcile_before_retry: true`. Jev never sets `verified`.
+
+### When the loop asks
+
+The feature adds questions to the existing per-step request. It never makes a
+second request for them.
+
+1. The loop asks nothing on the first step, because no previous observation
+   exists.
+2. The loop asks nothing until the same strategy (the same operation, and for a
+   click or a fill, the same target label) was used twice in a row. Receipt
+   reason: `not_armed`.
+3. When the run is armed, the request gets two questions: `trajectory` (a
+   Choice of progress, stagnant, regression, or unclear) and
+   `new_goal_evidence` (a Noul). The state gets a bounded `previous_page`
+   digest.
+4. The request gets `next_observation` only when one more confident stall can
+   stop the run. This is advice. The loop never runs it.
+5. After one abstention in a run, the loop asks nothing more in that run.
+   Receipt reason: `abstained_in_run`. An abstention is an `unclear` choice, a
+   choice or winning probability below the confidence threshold, a confident
+   `stagnant` choice with a Noul above the new-evidence threshold, or a missing
+   or malformed answer. A confident `progress` or `regression` answer is not an
+   abstention. A new strategy starts a new run, which can arm again.
+6. If the added questions would make the request too large, or the payload has
+   a restricted marking or a secret shape, the loop asks nothing. Receipt
+   reasons: `skipped_budget`, `ineligible_restricted_marking`,
+   `ineligible_secret_shape`, `ineligible_redaction_unavailable`.
+
+### The previous-page digest
+
+The digest has four fields: `title`, `path` (the URL path without the query
+string and fragment), `text_head` (the first 160 characters), and `text_chars`
+(a length bucket: 0, 250, 1000, or 4000). The loop masks caller values with the
+same functions that it uses for the current page. The repetition facts that the
+stop rule uses stay local and are not sent.
+
+### The stop rule
+
+The loop stops only when all of these conditions are true:
+
+- the mode is `advisory_stop`;
+- at least two actions, and at least `min_actions_before_done` actions, were
+  dispatched;
+- the same strategy was used at least twice in a row;
+- two consecutive answers are `stagnant`, with confidence and winning
+  probability at least `browser_progress_confidence_threshold` (default 0.85),
+  and a `new_goal_evidence` Noul at most
+  `browser_progress_new_evidence_no_threshold` (default 0.15);
+- the operation answer is not `DONE` or `BLOCKED`;
+- the local completion predicate is not satisfied;
+- no destination refusal is pending.
+
+`browser_progress_stall_count` sets the number of consecutive stalls. The
+minimum and default is 2.
+
+### Receipt
+
+The result gets a `progress` object. It has the mode, the spec and policy
+versions, the thresholds, `semantic_stop`, the stall count, the recovery
+suggestion, the skip reasons, the question IDs, the logical and physical Jev
+request counts, optional-answer retries, and known and unknown cost. Each step
+record has observation hashes, the local repetition facts, the typed answers,
+the band, and the reason. The receipt does not store previous-page text.
+
+An offline evaluation is in `evaluation/browser_progress/`. It checks wiring
+and policy with scripted answers. It does not measure model accuracy.
+
 ## Verification status
 
 Offline behavior is covered by `tests/test_browser_use.py`, which uses scripted

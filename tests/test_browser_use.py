@@ -3271,7 +3271,8 @@ class BrowserProgressRecoveryTests(unittest.TestCase):
         self.assertIs(result["goal_verified"], False)
         self.assertNotIn("completion_source", result)
         self.assertTrue(result["reconcile_before_retry"])
-        self.assertEqual(session.clicks, ["n", "n"])
+        # Stall questions arm after the second click; two confident stalls stop before the fourth.
+        self.assertEqual(session.clicks, ["n", "n", "n"])
         self.assertLess(result["action_dispatched_count"], baseline["action_dispatched_count"])
         self.assertEqual(session.scrolls, [], "the recovery suggestion must never be executed")
         progress = result["progress"]
@@ -3291,14 +3292,146 @@ class BrowserProgressRecoveryTests(unittest.TestCase):
         self.assertEqual(result["status"], "completion_candidate")
         self.assertEqual(len(client.calls), 7)
         self.assertEqual(result["jev_request_count"], 7)
-        first, second, third = client.calls[:3]
-        self.assertTrue(set(first["questions"]) <= BASE_QUESTIONS, "no previous observation on step 1")
-        self.assertEqual(set(second["questions"]) - BASE_QUESTIONS, {"trajectory", "new_goal_evidence"})
-        self.assertIn("next_observation", third["questions"])
-        self.assertEqual(second["state"]["previous_page"]["url"], "https://example.org/archive/1")
-        self.assertEqual(second["state"]["trajectory_facts"]["dispatched_actions"], 1)
-        self.assertEqual(third["state"]["trajectory_facts"]["same_strategy_count"], 2)
+        third = client.calls[2]
+        self.assertEqual(set(third["questions"]) - BASE_QUESTIONS, {"trajectory", "new_goal_evidence"})
+        self.assertEqual(third["state"]["previous_page"]["path"], "/archive/2")
         self.assertIs(result["progress"]["semantic_stop"], False)
+
+    def test_feature_questions_wait_for_the_local_repeat_predicate(self):
+        session = PagedSession(8)
+        client = ProgressJev([STALL] * 8)
+        self.run_goal(session, client, progress_mode="advisory_stop")
+        first, second, third, fourth = client.calls[:4]
+        # Step 1 has no previous observation; step 2 has one repeat of the strategy.
+        self.assertTrue(set(first["questions"]) <= BASE_QUESTIONS)
+        self.assertTrue(set(second["questions"]) <= BASE_QUESTIONS)
+        self.assertNotIn("previous_page", second["state"])
+        # Step 3: the same strategy was used twice, so the stall questions are armed.
+        self.assertEqual(set(third["questions"]) - BASE_QUESTIONS, {"trajectory", "new_goal_evidence"})
+        # Step 4: one more confident stall can stop, so recovery advice is asked.
+        self.assertIn("next_observation", fourth["questions"])
+
+    def test_recovery_advice_is_asked_only_when_one_more_stall_can_stop(self):
+        session = PagedSession(9)
+        client = ProgressJev([PROGRESS] * 9)
+        self.run_goal(session, client, progress_mode="advisory_stop", max_steps=8)
+        self.assertTrue(any("trajectory" in call["questions"] for call in client.calls))
+        self.assertFalse(any("next_observation" in call["questions"] for call in client.calls))
+
+    def test_code_owned_trajectory_facts_stay_local(self):
+        session = PagedSession(8)
+        client = ProgressJev([STALL] * 8)
+        result = self.run_goal(session, client, progress_mode="advisory_stop")
+        self.assertTrue(any("previous_page" in call["state"] for call in client.calls))
+        self.assertFalse(any("trajectory_facts" in call["state"] for call in client.calls))
+        facts = result["progress"]["steps"][-1]["trajectory_facts"]
+        self.assertGreaterEqual(facts["same_strategy_count"], 2)
+
+    def test_changing_strategy_skips_the_feature_questions(self):
+        session = PagedSession(8)
+        script = [dict(STALL) if index % 2 == 0 else dict(STALL, op="SCROLL_DOWN") for index in range(8)]
+        client = ProgressJev(script)
+        result = self.run_goal(session, client, progress_mode="advisory_stop")
+        self.assertTrue(all(set(call["questions"]) <= BASE_QUESTIONS for call in client.calls))
+        self.assertEqual(result["progress"]["last_skip_reason"], "not_armed")
+
+    # -- abstention cap -----------------------------------------------------
+
+    def test_one_abstention_stops_the_stall_questions_for_the_rest_of_the_run(self):
+        for weak in ({"conf": 0.84}, {"p": 0.84}, {"traj": "unclear"}):
+            with self.subTest(weak=weak):
+                session = PagedSession(9)
+                script = [STALL, STALL, dict(STALL, **weak)] + [STALL] * 6
+                client = ProgressJev(script)
+                result = self.run_goal(session, client, progress_mode="advisory_stop", max_steps=8)
+                asked = [bool(set(call["questions"]) - BASE_QUESTIONS) for call in client.calls]
+                self.assertEqual(asked[:3], [False, False, True])
+                self.assertFalse(any(asked[3:]), "no stall question after an abstention in the run")
+                self.assertTrue(all("previous_page" not in call["state"] for call in client.calls[3:]))
+                self.assertEqual(result["failure_phase"], "max_steps")
+                self.assertIs(result["progress"]["semantic_stop"], False)
+                skips = [step["skip_reason"] for step in result["progress"]["steps"][3:]]
+                self.assertTrue(skips and set(skips) == {"abstained_in_run"})
+
+    def test_malformed_or_missing_optional_answer_also_caps_the_run(self):
+        for bad in ({"drop": ("trajectory",)}, {"drop": ("new_goal_evidence",)}):
+            with self.subTest(bad=bad):
+                session = PagedSession(9)
+                client = ProgressJev([STALL, STALL, dict(STALL, **bad)] + [STALL] * 6)
+                result = self.run_goal(session, client, progress_mode="advisory_stop", max_steps=8)
+                self.assertFalse(any(set(call["questions"]) - BASE_QUESTIONS for call in client.calls[3:]))
+                self.assertEqual(result["progress"]["last_skip_reason"], "abstained_in_run")
+
+    def test_a_confident_non_stall_answer_does_not_cap_the_run(self):
+        session = PagedSession(9)
+        client = ProgressJev([STALL, STALL, PROGRESS, STALL, STALL, STALL, STALL, STALL])
+        result = self.run_goal(session, client, progress_mode="advisory_stop", max_steps=8)
+        # A confident progress answer is a judgment, not an abstention: the run stays armed.
+        self.assertTrue(all(set(call["questions"]) - BASE_QUESTIONS for call in client.calls[2:]))
+        self.assertEqual(result["failure_phase"], "semantic_stall")
+        self.assertEqual(len(session.clicks), 4)
+
+    def test_a_new_strategy_rearms_after_an_abstention(self):
+        pages = {}
+        for index in range(1, 14):
+            pages[f"https://example.org/archive/{index}"] = {
+                "title": f"Archive {index}", "text": f"Archive page {index}: unrelated notes.",
+                "document_id": f"doc-{index}", "elements": [
+                    {"id": "n", "role": "link", "label": "Next page", "href": f"https://example.org/archive/{index + 1}"},
+                    {"id": "m", "role": "link", "label": "More notes", "href": f"https://example.org/archive/{index + 1}"},
+                ]}
+        session = FakeSession(pages)
+        other = dict(STALL, target="m")
+        # Run 1 (Next page) abstains; run 2 (More notes) re-arms and stops.
+        script = [STALL, STALL, dict(STALL, traj="unclear")] + [other] * 9
+        client = ProgressJev(script)
+        result = self.run_goal(session, client, progress_mode="advisory_stop", max_steps=11)
+        asked = [bool(set(call["questions"]) - BASE_QUESTIONS) for call in client.calls]
+        self.assertEqual(asked[:5], [False, False, True, False, False])
+        self.assertTrue(any(asked[5:]), "the new same-strategy run is armed again")
+        self.assertEqual(result["failure_phase"], "semantic_stall")
+
+    # -- previous page digest -----------------------------------------------
+
+    def test_previous_page_is_a_bounded_digest(self):
+        long_text = "Archive notes. " * 400
+        pages = {}
+        for index in range(1, 10):
+            url = f"https://example.org/archive/{index}?ref=nav&session=abc#top"
+            pages[url] = {
+                "title": f"Archive {index}", "text": f"Page {index}. " + long_text, "document_id": f"doc-{index}",
+                "elements": [{"id": "n", "role": "link", "label": "Next page",
+                              "href": f"https://example.org/archive/{index + 1}?ref=nav&session=abc#top"}],
+            }
+        session = FakeSession(pages)
+        client = ProgressJev([STALL] * 8)
+        self.run_goal(session, client, progress_mode="advisory_stop")
+        digests = [call["state"]["previous_page"] for call in client.calls if "previous_page" in call["state"]]
+        self.assertTrue(digests)
+        for digest in digests:
+            self.assertEqual(set(digest), {"title", "path", "text_head", "text_chars"})
+            self.assertNotIn("?", digest["path"])
+            self.assertNotIn("#", digest["path"])
+            self.assertTrue(digest["path"].startswith("/archive/"))
+            self.assertLessEqual(len(digest["text_head"]), browser_use.MAX_PREVIOUS_PAGE_HEAD)
+            self.assertIn(digest["text_chars"], browser_use._TEXT_LENGTH_BUCKETS)
+        self.assertLess(len(json.dumps(digests[0])), 400)
+
+    def test_previous_page_digest_is_stable_and_drops_query_and_fragment(self):
+        digest = browser_use._previous_page_digest
+        a = digest({"url": "https://example.org/a?q=1", "title": "A", "text": "same text"}, ())
+        b = digest({"url": "https://example.org/a#x", "title": "A", "text": "same text"}, ())
+        self.assertEqual(a, b)
+        self.assertEqual(a, {"title": "A", "path": "/a", "text_head": "same text", "text_chars": 0})
+        self.assertEqual(digest({"url": "", "title": "", "text": "x" * 5000}, ())["text_chars"], 4000)
+
+    def test_previous_page_digest_masks_caller_values(self):
+        value = "SyntheticCallerTerm"
+        page = {"url": f"https://example.org/r/{value}/2?q={value}", "title": f"Results for {value}",
+                "text": f"No results for {value}"}
+        digest = browser_use._previous_page_digest(page, (value,))
+        self.assertNotIn(value, json.dumps(digest))
+        self.assertEqual(digest["path"], "/r/[editable text]/2")
 
     def test_productive_trace_is_never_stopped(self):
         session = PagedSession(8, goal_page=6)
@@ -3385,14 +3518,15 @@ class BrowserProgressRecoveryTests(unittest.TestCase):
         session = PagedSession(8)
         calls = {"n": 0}
         def flaky(state, questions):
-            calls["n"] += 1
-            if "trajectory" in questions and calls["n"] == 2:
+            if "trajectory" in questions and not calls["n"]:
+                calls["n"] += 1
                 return ValueError("Jev choice trajectory is outside the offered criteria")
             return STALL
         client = ProgressJev([flaky] * 12)
         result = self.run_goal(session, client, progress_mode="advisory_stop")
-        second, retry = client.calls[1], client.calls[2]
-        self.assertIn("trajectory", second["questions"])
+        index = next(i for i, call in enumerate(client.calls) if "trajectory" in call["questions"])
+        self.assertFalse(any(set(call["questions"]) - BASE_QUESTIONS for call in client.calls[index + 2:]))
+        retry = client.calls[index + 1]
         self.assertTrue(set(retry["questions"]) <= BASE_QUESTIONS)
         self.assertNotIn("previous_page", retry["state"])
         progress = result["progress"]
@@ -3400,9 +3534,10 @@ class BrowserProgressRecoveryTests(unittest.TestCase):
         self.assertEqual(progress["jev_logical_requests"], len(client.calls))
         self.assertEqual(progress["jev_physical_attempts"], len(client.calls))
         self.assertEqual(result["attempted_request_count"], len(client.calls))
-        # The cleared streak delays the stop by one step.
-        self.assertEqual(result["failure_phase"], "semantic_stall")
-        self.assertEqual(len(session.clicks), 3)
+        # An invalid optional answer caps the run: it degrades to baseline behavior.
+        self.assertEqual(result["failure_phase"], "max_steps")
+        self.assertIs(progress["semantic_stop"], False)
+        self.assertEqual(progress["last_skip_reason"], "abstained_in_run")
 
     def test_malformed_base_answer_is_not_retried(self):
         session = PagedSession(8)
@@ -3414,16 +3549,19 @@ class BrowserProgressRecoveryTests(unittest.TestCase):
         result = self.run_goal(session, client, progress_mode="advisory_stop")
         self.assertEqual(result["status"], "partial_failure")
         self.assertEqual(result["failure_phase"], "decision")
-        self.assertEqual(len(client.calls), 2)
+        # The first armed step (call 3) fails on a base answer and is not retried.
+        self.assertEqual(len(client.calls), 3)
 
     def test_missing_optional_answer_clears_the_streak_and_keeps_the_action(self):
         session = PagedSession(8)
-        script = [STALL, STALL, dict(STALL, drop=("trajectory",)), STALL, STALL, STALL, STALL]
+        script = [STALL, STALL, STALL, dict(STALL, drop=("trajectory",)), STALL, STALL, STALL]
         result = self.run_goal(session, ProgressJev(script), progress_mode="advisory_stop")
-        self.assertEqual(result["failure_phase"], "semantic_stall")
-        self.assertEqual(len(session.clicks), 4)
+        # The action of the step is kept; the streak clears and the run is capped.
+        self.assertEqual(result["failure_phase"], "max_steps")
+        self.assertEqual(len(session.clicks), 7)
         reasons = [item["reason"] for item in result["progress"]["steps"]]
         self.assertIn("missing_optional_answer", reasons)
+        self.assertEqual(result["progress"]["consecutive_stall_count"], 0)
 
     def test_provider_outage_keeps_the_existing_partial_failure_path(self):
         from hermes_switchyard.client import JevRequestError
@@ -3454,8 +3592,8 @@ class BrowserProgressRecoveryTests(unittest.TestCase):
     def test_optional_questions_are_omitted_when_they_would_split_the_request(self):
         session = PagedSession(8)
         client = ProgressJev([STALL] * 8)
-        baseline_size = len(json.dumps({"state": {"goal": "x" * 10}, "questions": {}}))
-        with mock.patch.object(browser_use, "MAX_REQUEST_BYTES", baseline_size + 2600):
+        # Any added byte would exceed the budget; the base request itself still fits.
+        with mock.patch.object(browser_use, "_PROGRESS_ENVELOPE_BYTES", browser_use.MAX_REQUEST_BYTES):
             result = self.run_goal(session, client, progress_mode="advisory_stop")
         self.assertTrue(all(set(call["questions"]) <= BASE_QUESTIONS for call in client.calls))
         self.assertEqual(result["progress"]["last_skip_reason"], "skipped_budget")
@@ -3524,7 +3662,7 @@ class BrowserProgressRecoveryTests(unittest.TestCase):
 
     def test_next_observation_offers_only_safe_read_only_operations(self):
         session = PagedSession(8)
-        client = ProgressJev([dict(STALL, traj="progress")] * 5)
+        client = ProgressJev([STALL] * 5)
         self.run_goal(session, client, progress_mode="advisory_stop", max_steps=4)
         offered = [call["questions"]["next_observation"]["criteria"] for call in client.calls
                    if "next_observation" in call["questions"]]

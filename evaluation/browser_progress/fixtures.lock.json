@@ -1,0 +1,12 @@
+{
+ "fixtures_sha256": "f4ceb2728f713d0c4988c8abcf19546c37f8e7f612c423385038b764691ce299",
+ "frozen_at": "2026-09-27T14:48:56+00:00",
+ "live_sha256": "c45ef00cf0bfc0df6135bdca0882cfd3147e2f9d5bcf575d2466d0eb8ef35c60",
+ "note": "Frozen before any run. A changed fixture or live goal hash refuses the run.",
+ "policy": {
+  "confidence": 0.85,
+  "new_evidence_no": 0.15,
+  "spec_version": "dom-progress-v1",
+  "stall_count": 2
+ }
+}

@@ -1,0 +1,5202 @@
+{
+ "cases": [
+  {
+   "goal": "Find the public release date of Release 7",
+   "id": "dev-stall-1",
+   "kind": "semantic_stall",
+   "label": "semantic_stall",
+   "max_steps": 7,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.55,
+     "noul": 0.5,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.6,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "SCROLL_DOWN",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "SCROLL_DOWN",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "SCROLL_DOWN",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "SCROLL_DOWN",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "SCROLL_DOWN",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "SCROLL_DOWN",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "SCROLL_DOWN",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "dev",
+   "start": "arc1",
+   "states": {
+    "arc1": {
+     "elements": [
+      {
+       "href": "https://example.org/arc2",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "arc2"
+      }
+     ],
+     "goal": false,
+     "text": "Archive page 1: notes about unrelated build 13 and a list of older mirrors.",
+     "title": "Archive 1",
+     "url": "https://example.org/arc/1"
+    },
+    "arc2": {
+     "elements": [
+      {
+       "href": "https://example.org/arc3",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "arc3"
+      }
+     ],
+     "goal": false,
+     "text": "Archive page 2: notes about unrelated build 26 and a list of older mirrors.",
+     "title": "Archive 2",
+     "url": "https://example.org/arc/2"
+    },
+    "arc3": {
+     "elements": [
+      {
+       "href": "https://example.org/arc4",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "arc4"
+      }
+     ],
+     "goal": false,
+     "text": "Archive page 3: notes about unrelated build 39 and a list of older mirrors.",
+     "title": "Archive 3",
+     "url": "https://example.org/arc/3"
+    },
+    "arc4": {
+     "elements": [
+      {
+       "href": "https://example.org/arc5",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "arc5"
+      }
+     ],
+     "goal": false,
+     "text": "Archive page 4: notes about unrelated build 52 and a list of older mirrors.",
+     "title": "Archive 4",
+     "url": "https://example.org/arc/4"
+    },
+    "arc5": {
+     "elements": [
+      {
+       "href": "https://example.org/arc6",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "arc6"
+      }
+     ],
+     "goal": false,
+     "text": "Archive page 5: notes about unrelated build 65 and a list of older mirrors.",
+     "title": "Archive 5",
+     "url": "https://example.org/arc/5"
+    },
+    "arc6": {
+     "elements": [
+      {
+       "href": "https://example.org/arc7",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "arc7"
+      }
+     ],
+     "goal": false,
+     "text": "Archive page 6: notes about unrelated build 78 and a list of older mirrors.",
+     "title": "Archive 6",
+     "url": "https://example.org/arc/6"
+    },
+    "arc7": {
+     "elements": [
+      {
+       "href": "https://example.org/arc8",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "arc8"
+      }
+     ],
+     "goal": false,
+     "text": "Archive page 7: notes about unrelated build 91 and a list of older mirrors.",
+     "title": "Archive 7",
+     "url": "https://example.org/arc/7"
+    },
+    "arc8": {
+     "elements": [],
+     "goal": false,
+     "text": "Archive page 8: notes about unrelated build 104 and a list of older mirrors.",
+     "title": "Archive 8",
+     "url": "https://example.org/arc/8"
+    }
+   }
+  },
+  {
+   "goal": "Find the public maintenance window for the north region",
+   "id": "dev-stall-2",
+   "kind": "semantic_stall",
+   "label": "semantic_stall",
+   "max_steps": 7,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.55,
+     "noul": 0.5,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.6,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "SCROLL_DOWN",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "SCROLL_DOWN",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "SCROLL_DOWN",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "SCROLL_DOWN",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "SCROLL_DOWN",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "SCROLL_DOWN",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "SCROLL_DOWN",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "dev",
+   "start": "feed1",
+   "states": {
+    "feed1": {
+     "elements": [
+      {
+       "href": "https://example.org/feed2",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "feed2"
+      }
+     ],
+     "goal": false,
+     "text": "News feed page 1: community picnic photos, volunteer thanks, and item 7.",
+     "title": "Community news 1",
+     "url": "https://example.org/feed/1"
+    },
+    "feed2": {
+     "elements": [
+      {
+       "href": "https://example.org/feed3",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "feed3"
+      }
+     ],
+     "goal": false,
+     "text": "News feed page 2: community picnic photos, volunteer thanks, and item 14.",
+     "title": "Community news 2",
+     "url": "https://example.org/feed/2"
+    },
+    "feed3": {
+     "elements": [
+      {
+       "href": "https://example.org/feed4",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "feed4"
+      }
+     ],
+     "goal": false,
+     "text": "News feed page 3: community picnic photos, volunteer thanks, and item 21.",
+     "title": "Community news 3",
+     "url": "https://example.org/feed/3"
+    },
+    "feed4": {
+     "elements": [
+      {
+       "href": "https://example.org/feed5",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "feed5"
+      }
+     ],
+     "goal": false,
+     "text": "News feed page 4: community picnic photos, volunteer thanks, and item 28.",
+     "title": "Community news 4",
+     "url": "https://example.org/feed/4"
+    },
+    "feed5": {
+     "elements": [
+      {
+       "href": "https://example.org/feed6",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "feed6"
+      }
+     ],
+     "goal": false,
+     "text": "News feed page 5: community picnic photos, volunteer thanks, and item 35.",
+     "title": "Community news 5",
+     "url": "https://example.org/feed/5"
+    },
+    "feed6": {
+     "elements": [
+      {
+       "href": "https://example.org/feed7",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "feed7"
+      }
+     ],
+     "goal": false,
+     "text": "News feed page 6: community picnic photos, volunteer thanks, and item 42.",
+     "title": "Community news 6",
+     "url": "https://example.org/feed/6"
+    },
+    "feed7": {
+     "elements": [
+      {
+       "href": "https://example.org/feed8",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "feed8"
+      }
+     ],
+     "goal": false,
+     "text": "News feed page 7: community picnic photos, volunteer thanks, and item 49.",
+     "title": "Community news 7",
+     "url": "https://example.org/feed/7"
+    },
+    "feed8": {
+     "elements": [],
+     "goal": false,
+     "text": "News feed page 8: community picnic photos, volunteer thanks, and item 56.",
+     "title": "Community news 8",
+     "url": "https://example.org/feed/8"
+    }
+   }
+  },
+  {
+   "goal": "Find the public opening hours of the river museum",
+   "id": "ho-stall-1",
+   "kind": "semantic_stall",
+   "label": "semantic_stall",
+   "max_steps": 7,
+   "min_actions_before_done": 0,
+   "note": "confident stagnant answers",
+   "script": [
+    {
+     "conf": 0.55,
+     "noul": 0.5,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.6,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "heldout",
+   "start": "tag1",
+   "states": {
+    "tag1": {
+     "elements": [
+      {
+       "href": "https://example.org/tag2",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "tag2"
+      }
+     ],
+     "goal": false,
+     "text": "Tag page 1: posts tagged travel, food, and weather for week 21.",
+     "title": "Tag travel page 1",
+     "url": "https://example.org/tag/1"
+    },
+    "tag2": {
+     "elements": [
+      {
+       "href": "https://example.org/tag3",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "tag3"
+      }
+     ],
+     "goal": false,
+     "text": "Tag page 2: posts tagged travel, food, and weather for week 22.",
+     "title": "Tag travel page 2",
+     "url": "https://example.org/tag/2"
+    },
+    "tag3": {
+     "elements": [
+      {
+       "href": "https://example.org/tag4",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "tag4"
+      }
+     ],
+     "goal": false,
+     "text": "Tag page 3: posts tagged travel, food, and weather for week 23.",
+     "title": "Tag travel page 3",
+     "url": "https://example.org/tag/3"
+    },
+    "tag4": {
+     "elements": [
+      {
+       "href": "https://example.org/tag5",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "tag5"
+      }
+     ],
+     "goal": false,
+     "text": "Tag page 4: posts tagged travel, food, and weather for week 24.",
+     "title": "Tag travel page 4",
+     "url": "https://example.org/tag/4"
+    },
+    "tag5": {
+     "elements": [
+      {
+       "href": "https://example.org/tag6",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "tag6"
+      }
+     ],
+     "goal": false,
+     "text": "Tag page 5: posts tagged travel, food, and weather for week 25.",
+     "title": "Tag travel page 5",
+     "url": "https://example.org/tag/5"
+    },
+    "tag6": {
+     "elements": [
+      {
+       "href": "https://example.org/tag7",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "tag7"
+      }
+     ],
+     "goal": false,
+     "text": "Tag page 6: posts tagged travel, food, and weather for week 26.",
+     "title": "Tag travel page 6",
+     "url": "https://example.org/tag/6"
+    },
+    "tag7": {
+     "elements": [
+      {
+       "href": "https://example.org/tag8",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "tag8"
+      }
+     ],
+     "goal": false,
+     "text": "Tag page 7: posts tagged travel, food, and weather for week 27.",
+     "title": "Tag travel page 7",
+     "url": "https://example.org/tag/7"
+    },
+    "tag8": {
+     "elements": [],
+     "goal": false,
+     "text": "Tag page 8: posts tagged travel, food, and weather for week 28.",
+     "title": "Tag travel page 8",
+     "url": "https://example.org/tag/8"
+    }
+   }
+  },
+  {
+   "goal": "Find the public date of the spring library book sale",
+   "id": "ho-stall-2",
+   "kind": "semantic_stall",
+   "label": "semantic_stall",
+   "max_steps": 7,
+   "min_actions_before_done": 0,
+   "note": "confident stagnant answers",
+   "script": [
+    {
+     "conf": 0.55,
+     "noul": 0.5,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.6,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "heldout",
+   "start": "cal1",
+   "states": {
+    "cal1": {
+     "elements": [
+      {
+       "href": "https://example.org/cal2",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "cal2"
+      }
+     ],
+     "goal": false,
+     "text": "Calendar month 1: yoga class, chess club, and a garden walk on day 4.",
+     "title": "Events month 1",
+     "url": "https://example.org/cal/1"
+    },
+    "cal2": {
+     "elements": [
+      {
+       "href": "https://example.org/cal3",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "cal3"
+      }
+     ],
+     "goal": false,
+     "text": "Calendar month 2: yoga class, chess club, and a garden walk on day 5.",
+     "title": "Events month 2",
+     "url": "https://example.org/cal/2"
+    },
+    "cal3": {
+     "elements": [
+      {
+       "href": "https://example.org/cal4",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "cal4"
+      }
+     ],
+     "goal": false,
+     "text": "Calendar month 3: yoga class, chess club, and a garden walk on day 6.",
+     "title": "Events month 3",
+     "url": "https://example.org/cal/3"
+    },
+    "cal4": {
+     "elements": [
+      {
+       "href": "https://example.org/cal5",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "cal5"
+      }
+     ],
+     "goal": false,
+     "text": "Calendar month 4: yoga class, chess club, and a garden walk on day 7.",
+     "title": "Events month 4",
+     "url": "https://example.org/cal/4"
+    },
+    "cal5": {
+     "elements": [
+      {
+       "href": "https://example.org/cal6",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "cal6"
+      }
+     ],
+     "goal": false,
+     "text": "Calendar month 5: yoga class, chess club, and a garden walk on day 8.",
+     "title": "Events month 5",
+     "url": "https://example.org/cal/5"
+    },
+    "cal6": {
+     "elements": [
+      {
+       "href": "https://example.org/cal7",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "cal7"
+      }
+     ],
+     "goal": false,
+     "text": "Calendar month 6: yoga class, chess club, and a garden walk on day 9.",
+     "title": "Events month 6",
+     "url": "https://example.org/cal/6"
+    },
+    "cal7": {
+     "elements": [
+      {
+       "href": "https://example.org/cal8",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "cal8"
+      }
+     ],
+     "goal": false,
+     "text": "Calendar month 7: yoga class, chess club, and a garden walk on day 10.",
+     "title": "Events month 7",
+     "url": "https://example.org/cal/7"
+    },
+    "cal8": {
+     "elements": [],
+     "goal": false,
+     "text": "Calendar month 8: yoga class, chess club, and a garden walk on day 11.",
+     "title": "Events month 8",
+     "url": "https://example.org/cal/8"
+    }
+   }
+  },
+  {
+   "goal": "Find the public contact form for the parks department",
+   "id": "ho-stall-3",
+   "kind": "semantic_stall",
+   "label": "semantic_stall",
+   "max_steps": 7,
+   "min_actions_before_done": 0,
+   "note": "confident stagnant answers",
+   "script": [
+    {
+     "conf": 0.55,
+     "noul": 0.5,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.6,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "heldout",
+   "start": "res1",
+   "states": {
+    "res1": {
+     "elements": [
+      {
+       "href": "https://example.org/res2",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "res2"
+      }
+     ],
+     "goal": false,
+     "text": "Search results page 1: pages about park trail maps and bird counts, result block 1.",
+     "title": "Results page 1",
+     "url": "https://example.org/res/1"
+    },
+    "res2": {
+     "elements": [
+      {
+       "href": "https://example.org/res3",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "res3"
+      }
+     ],
+     "goal": false,
+     "text": "Search results page 2: pages about park trail maps and bird counts, result block 2.",
+     "title": "Results page 2",
+     "url": "https://example.org/res/2"
+    },
+    "res3": {
+     "elements": [
+      {
+       "href": "https://example.org/res4",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "res4"
+      }
+     ],
+     "goal": false,
+     "text": "Search results page 3: pages about park trail maps and bird counts, result block 3.",
+     "title": "Results page 3",
+     "url": "https://example.org/res/3"
+    },
+    "res4": {
+     "elements": [
+      {
+       "href": "https://example.org/res5",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "res5"
+      }
+     ],
+     "goal": false,
+     "text": "Search results page 4: pages about park trail maps and bird counts, result block 4.",
+     "title": "Results page 4",
+     "url": "https://example.org/res/4"
+    },
+    "res5": {
+     "elements": [
+      {
+       "href": "https://example.org/res6",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "res6"
+      }
+     ],
+     "goal": false,
+     "text": "Search results page 5: pages about park trail maps and bird counts, result block 5.",
+     "title": "Results page 5",
+     "url": "https://example.org/res/5"
+    },
+    "res6": {
+     "elements": [
+      {
+       "href": "https://example.org/res7",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "res7"
+      }
+     ],
+     "goal": false,
+     "text": "Search results page 6: pages about park trail maps and bird counts, result block 6.",
+     "title": "Results page 6",
+     "url": "https://example.org/res/6"
+    },
+    "res7": {
+     "elements": [
+      {
+       "href": "https://example.org/res8",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "res8"
+      }
+     ],
+     "goal": false,
+     "text": "Search results page 7: pages about park trail maps and bird counts, result block 7.",
+     "title": "Results page 7",
+     "url": "https://example.org/res/7"
+    },
+    "res8": {
+     "elements": [],
+     "goal": false,
+     "text": "Search results page 8: pages about park trail maps and bird counts, result block 8.",
+     "title": "Results page 8",
+     "url": "https://example.org/res/8"
+    }
+   }
+  },
+  {
+   "goal": "Find the public changelog entry for version 3.2",
+   "id": "ho-stall-4",
+   "kind": "semantic_stall",
+   "label": "semantic_stall",
+   "max_steps": 7,
+   "min_actions_before_done": 0,
+   "note": "confident stagnant answers",
+   "script": [
+    {
+     "conf": 0.55,
+     "noul": 0.5,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.6,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "heldout",
+   "start": "rel1",
+   "states": {
+    "rel1": {
+     "elements": [
+      {
+       "href": "https://example.org/rel2",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "rel2"
+      }
+     ],
+     "goal": false,
+     "text": "Related articles page 1: essays about tooling history and design topic 3.",
+     "title": "Related reading 1",
+     "url": "https://example.org/rel/1"
+    },
+    "rel2": {
+     "elements": [
+      {
+       "href": "https://example.org/rel3",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "rel3"
+      }
+     ],
+     "goal": false,
+     "text": "Related articles page 2: essays about tooling history and design topic 6.",
+     "title": "Related reading 2",
+     "url": "https://example.org/rel/2"
+    },
+    "rel3": {
+     "elements": [
+      {
+       "href": "https://example.org/rel4",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "rel4"
+      }
+     ],
+     "goal": false,
+     "text": "Related articles page 3: essays about tooling history and design topic 9.",
+     "title": "Related reading 3",
+     "url": "https://example.org/rel/3"
+    },
+    "rel4": {
+     "elements": [
+      {
+       "href": "https://example.org/rel5",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "rel5"
+      }
+     ],
+     "goal": false,
+     "text": "Related articles page 4: essays about tooling history and design topic 12.",
+     "title": "Related reading 4",
+     "url": "https://example.org/rel/4"
+    },
+    "rel5": {
+     "elements": [
+      {
+       "href": "https://example.org/rel6",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "rel6"
+      }
+     ],
+     "goal": false,
+     "text": "Related articles page 5: essays about tooling history and design topic 15.",
+     "title": "Related reading 5",
+     "url": "https://example.org/rel/5"
+    },
+    "rel6": {
+     "elements": [
+      {
+       "href": "https://example.org/rel7",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "rel7"
+      }
+     ],
+     "goal": false,
+     "text": "Related articles page 6: essays about tooling history and design topic 18.",
+     "title": "Related reading 6",
+     "url": "https://example.org/rel/6"
+    },
+    "rel7": {
+     "elements": [
+      {
+       "href": "https://example.org/rel8",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "rel8"
+      }
+     ],
+     "goal": false,
+     "text": "Related articles page 7: essays about tooling history and design topic 21.",
+     "title": "Related reading 7",
+     "url": "https://example.org/rel/7"
+    },
+    "rel8": {
+     "elements": [],
+     "goal": false,
+     "text": "Related articles page 8: essays about tooling history and design topic 24.",
+     "title": "Related reading 8",
+     "url": "https://example.org/rel/8"
+    }
+   }
+  },
+  {
+   "goal": "Find the public phone line for the recycling center",
+   "id": "ho-stall-5",
+   "kind": "semantic_stall",
+   "label": "semantic_stall",
+   "max_steps": 7,
+   "min_actions_before_done": 0,
+   "note": "confident stagnant answers",
+   "script": [
+    {
+     "conf": 0.55,
+     "noul": 0.5,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.6,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "heldout",
+   "start": "dir1",
+   "states": {
+    "dir1": {
+     "elements": [
+      {
+       "href": "https://example.org/dir2",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "dir2"
+      }
+     ],
+     "goal": false,
+     "text": "Directory letter page 1: listings for bakeries, florists, and shop number 11.",
+     "title": "Directory section 1",
+     "url": "https://example.org/dir/1"
+    },
+    "dir2": {
+     "elements": [
+      {
+       "href": "https://example.org/dir3",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "dir3"
+      }
+     ],
+     "goal": false,
+     "text": "Directory letter page 2: listings for bakeries, florists, and shop number 22.",
+     "title": "Directory section 2",
+     "url": "https://example.org/dir/2"
+    },
+    "dir3": {
+     "elements": [
+      {
+       "href": "https://example.org/dir4",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "dir4"
+      }
+     ],
+     "goal": false,
+     "text": "Directory letter page 3: listings for bakeries, florists, and shop number 33.",
+     "title": "Directory section 3",
+     "url": "https://example.org/dir/3"
+    },
+    "dir4": {
+     "elements": [
+      {
+       "href": "https://example.org/dir5",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "dir5"
+      }
+     ],
+     "goal": false,
+     "text": "Directory letter page 4: listings for bakeries, florists, and shop number 44.",
+     "title": "Directory section 4",
+     "url": "https://example.org/dir/4"
+    },
+    "dir5": {
+     "elements": [
+      {
+       "href": "https://example.org/dir6",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "dir6"
+      }
+     ],
+     "goal": false,
+     "text": "Directory letter page 5: listings for bakeries, florists, and shop number 55.",
+     "title": "Directory section 5",
+     "url": "https://example.org/dir/5"
+    },
+    "dir6": {
+     "elements": [
+      {
+       "href": "https://example.org/dir7",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "dir7"
+      }
+     ],
+     "goal": false,
+     "text": "Directory letter page 6: listings for bakeries, florists, and shop number 66.",
+     "title": "Directory section 6",
+     "url": "https://example.org/dir/6"
+    },
+    "dir7": {
+     "elements": [
+      {
+       "href": "https://example.org/dir8",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "dir8"
+      }
+     ],
+     "goal": false,
+     "text": "Directory letter page 7: listings for bakeries, florists, and shop number 77.",
+     "title": "Directory section 7",
+     "url": "https://example.org/dir/7"
+    },
+    "dir8": {
+     "elements": [],
+     "goal": false,
+     "text": "Directory letter page 8: listings for bakeries, florists, and shop number 88.",
+     "title": "Directory section 8",
+     "url": "https://example.org/dir/8"
+    }
+   }
+  },
+  {
+   "goal": "Find the public bus schedule for route 12",
+   "id": "ho-stall-6",
+   "kind": "semantic_stall",
+   "label": "semantic_stall",
+   "max_steps": 7,
+   "min_actions_before_done": 0,
+   "note": "confident stagnant answers",
+   "script": [
+    {
+     "conf": 0.55,
+     "noul": 0.5,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.6,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "heldout",
+   "start": "gal1",
+   "states": {
+    "gal1": {
+     "elements": [
+      {
+       "href": "https://example.org/gal2",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "gal2"
+      }
+     ],
+     "goal": false,
+     "text": "Photo gallery page 1: harbor sunsets, city parks, and image set 5.",
+     "title": "Gallery 1",
+     "url": "https://example.org/gal/1"
+    },
+    "gal2": {
+     "elements": [
+      {
+       "href": "https://example.org/gal3",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "gal3"
+      }
+     ],
+     "goal": false,
+     "text": "Photo gallery page 2: harbor sunsets, city parks, and image set 10.",
+     "title": "Gallery 2",
+     "url": "https://example.org/gal/2"
+    },
+    "gal3": {
+     "elements": [
+      {
+       "href": "https://example.org/gal4",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "gal4"
+      }
+     ],
+     "goal": false,
+     "text": "Photo gallery page 3: harbor sunsets, city parks, and image set 15.",
+     "title": "Gallery 3",
+     "url": "https://example.org/gal/3"
+    },
+    "gal4": {
+     "elements": [
+      {
+       "href": "https://example.org/gal5",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "gal5"
+      }
+     ],
+     "goal": false,
+     "text": "Photo gallery page 4: harbor sunsets, city parks, and image set 20.",
+     "title": "Gallery 4",
+     "url": "https://example.org/gal/4"
+    },
+    "gal5": {
+     "elements": [
+      {
+       "href": "https://example.org/gal6",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "gal6"
+      }
+     ],
+     "goal": false,
+     "text": "Photo gallery page 5: harbor sunsets, city parks, and image set 25.",
+     "title": "Gallery 5",
+     "url": "https://example.org/gal/5"
+    },
+    "gal6": {
+     "elements": [
+      {
+       "href": "https://example.org/gal7",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "gal7"
+      }
+     ],
+     "goal": false,
+     "text": "Photo gallery page 6: harbor sunsets, city parks, and image set 30.",
+     "title": "Gallery 6",
+     "url": "https://example.org/gal/6"
+    },
+    "gal7": {
+     "elements": [
+      {
+       "href": "https://example.org/gal8",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "gal8"
+      }
+     ],
+     "goal": false,
+     "text": "Photo gallery page 7: harbor sunsets, city parks, and image set 35.",
+     "title": "Gallery 7",
+     "url": "https://example.org/gal/7"
+    },
+    "gal8": {
+     "elements": [],
+     "goal": false,
+     "text": "Photo gallery page 8: harbor sunsets, city parks, and image set 40.",
+     "title": "Gallery 8",
+     "url": "https://example.org/gal/8"
+    }
+   }
+  },
+  {
+   "goal": "Find the public refund policy for event tickets",
+   "id": "ho-stall-7",
+   "kind": "semantic_stall",
+   "label": "semantic_stall",
+   "max_steps": 7,
+   "min_actions_before_done": 0,
+   "note": "alternating stagnant and unclear answers; the streak must reset",
+   "script": [
+    {
+     "conf": 0.55,
+     "noul": 0.5,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.6,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.5,
+     "noul": 0.4,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.5,
+     "target": "n",
+     "traj": "unclear"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.5,
+     "noul": 0.4,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.5,
+     "target": "n",
+     "traj": "unclear"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.5,
+     "noul": 0.4,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.5,
+     "target": "n",
+     "traj": "unclear"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.5,
+     "noul": 0.4,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.5,
+     "target": "n",
+     "traj": "unclear"
+    }
+   ],
+   "split": "heldout",
+   "start": "faq1",
+   "states": {
+    "faq1": {
+     "elements": [
+      {
+       "href": "https://example.org/faq2",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "faq2"
+      }
+     ],
+     "goal": false,
+     "text": "Help topics page 1: account basics, display settings, and topic group 1.",
+     "title": "Help topics 1",
+     "url": "https://example.org/faq/1"
+    },
+    "faq2": {
+     "elements": [
+      {
+       "href": "https://example.org/faq3",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "faq3"
+      }
+     ],
+     "goal": false,
+     "text": "Help topics page 2: account basics, display settings, and topic group 2.",
+     "title": "Help topics 2",
+     "url": "https://example.org/faq/2"
+    },
+    "faq3": {
+     "elements": [
+      {
+       "href": "https://example.org/faq4",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "faq4"
+      }
+     ],
+     "goal": false,
+     "text": "Help topics page 3: account basics, display settings, and topic group 3.",
+     "title": "Help topics 3",
+     "url": "https://example.org/faq/3"
+    },
+    "faq4": {
+     "elements": [
+      {
+       "href": "https://example.org/faq5",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "faq5"
+      }
+     ],
+     "goal": false,
+     "text": "Help topics page 4: account basics, display settings, and topic group 4.",
+     "title": "Help topics 4",
+     "url": "https://example.org/faq/4"
+    },
+    "faq5": {
+     "elements": [
+      {
+       "href": "https://example.org/faq6",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "faq6"
+      }
+     ],
+     "goal": false,
+     "text": "Help topics page 5: account basics, display settings, and topic group 5.",
+     "title": "Help topics 5",
+     "url": "https://example.org/faq/5"
+    },
+    "faq6": {
+     "elements": [
+      {
+       "href": "https://example.org/faq7",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "faq7"
+      }
+     ],
+     "goal": false,
+     "text": "Help topics page 6: account basics, display settings, and topic group 6.",
+     "title": "Help topics 6",
+     "url": "https://example.org/faq/6"
+    },
+    "faq7": {
+     "elements": [
+      {
+       "href": "https://example.org/faq8",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "faq8"
+      }
+     ],
+     "goal": false,
+     "text": "Help topics page 7: account basics, display settings, and topic group 7.",
+     "title": "Help topics 7",
+     "url": "https://example.org/faq/7"
+    },
+    "faq8": {
+     "elements": [],
+     "goal": false,
+     "text": "Help topics page 8: account basics, display settings, and topic group 8.",
+     "title": "Help topics 8",
+     "url": "https://example.org/faq/8"
+    }
+   }
+  },
+  {
+   "goal": "Find the public founding year of the harbor rowing club",
+   "id": "ho-stall-8",
+   "kind": "semantic_stall",
+   "label": "semantic_stall",
+   "max_steps": 7,
+   "min_actions_before_done": 0,
+   "note": "stagnant below the 0.85 confidence threshold",
+   "script": [
+    {
+     "conf": 0.55,
+     "noul": 0.5,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.6,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.78,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.8,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.78,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.8,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.78,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.8,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.78,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.8,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.78,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.8,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.78,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.8,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.78,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.8,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "heldout",
+   "start": "wiki1",
+   "states": {
+    "wiki1": {
+     "elements": [
+      {
+       "href": "https://example.org/wiki2",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "wiki2"
+      }
+     ],
+     "goal": false,
+     "text": "Random article 1: a short text about a mountain range and river 2.",
+     "title": "Article 1",
+     "url": "https://example.org/wiki/1"
+    },
+    "wiki2": {
+     "elements": [
+      {
+       "href": "https://example.org/wiki3",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "wiki3"
+      }
+     ],
+     "goal": false,
+     "text": "Random article 2: a short text about a mountain range and river 4.",
+     "title": "Article 2",
+     "url": "https://example.org/wiki/2"
+    },
+    "wiki3": {
+     "elements": [
+      {
+       "href": "https://example.org/wiki4",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "wiki4"
+      }
+     ],
+     "goal": false,
+     "text": "Random article 3: a short text about a mountain range and river 6.",
+     "title": "Article 3",
+     "url": "https://example.org/wiki/3"
+    },
+    "wiki4": {
+     "elements": [
+      {
+       "href": "https://example.org/wiki5",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "wiki5"
+      }
+     ],
+     "goal": false,
+     "text": "Random article 4: a short text about a mountain range and river 8.",
+     "title": "Article 4",
+     "url": "https://example.org/wiki/4"
+    },
+    "wiki5": {
+     "elements": [
+      {
+       "href": "https://example.org/wiki6",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "wiki6"
+      }
+     ],
+     "goal": false,
+     "text": "Random article 5: a short text about a mountain range and river 10.",
+     "title": "Article 5",
+     "url": "https://example.org/wiki/5"
+    },
+    "wiki6": {
+     "elements": [
+      {
+       "href": "https://example.org/wiki7",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "wiki7"
+      }
+     ],
+     "goal": false,
+     "text": "Random article 6: a short text about a mountain range and river 12.",
+     "title": "Article 6",
+     "url": "https://example.org/wiki/6"
+    },
+    "wiki7": {
+     "elements": [
+      {
+       "href": "https://example.org/wiki8",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "wiki8"
+      }
+     ],
+     "goal": false,
+     "text": "Random article 7: a short text about a mountain range and river 14.",
+     "title": "Article 7",
+     "url": "https://example.org/wiki/7"
+    },
+    "wiki8": {
+     "elements": [],
+     "goal": false,
+     "text": "Random article 8: a short text about a mountain range and river 16.",
+     "title": "Article 8",
+     "url": "https://example.org/wiki/8"
+    }
+   }
+  },
+  {
+   "goal": "Find the public release date of Release 2.1",
+   "id": "dev-prod-1",
+   "kind": "productive_multi_hop",
+   "label": "productive",
+   "max_steps": 6,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.93,
+     "noul": 0.95,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "DONE",
+     "p": 0.95,
+     "traj": "progress"
+    }
+   ],
+   "split": "dev",
+   "start": "g1",
+   "states": {
+    "g1": {
+     "elements": [
+      {
+       "href": "https://example.org/g2",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "g2"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 1: the next part covers step 2.",
+     "title": "Guide part 1",
+     "url": "https://example.org/g/1"
+    },
+    "g2": {
+     "elements": [
+      {
+       "href": "https://example.org/g3",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "g3"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 2: the next part covers step 3.",
+     "title": "Guide part 2",
+     "url": "https://example.org/g/2"
+    },
+    "g3": {
+     "elements": [
+      {
+       "href": "https://example.org/g4",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "g4"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 3: the next part covers step 4.",
+     "title": "Guide part 3",
+     "url": "https://example.org/g/3"
+    },
+    "g4": {
+     "elements": [],
+     "goal": true,
+     "text": "Release 2.1 was published on 2021-04-05.",
+     "title": "Release 2.1",
+     "url": "https://example.org/g/4"
+    }
+   }
+  },
+  {
+   "goal": "Find the public release date of Release 4.0",
+   "id": "ho-prod-1",
+   "kind": "productive_multi_hop",
+   "label": "productive",
+   "max_steps": 7,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.93,
+     "noul": 0.95,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "DONE",
+     "p": 0.95,
+     "traj": "progress"
+    }
+   ],
+   "split": "heldout",
+   "start": "h1",
+   "states": {
+    "h1": {
+     "elements": [
+      {
+       "href": "https://example.org/h2",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "h2"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 1: the next part covers step 2.",
+     "title": "Guide part 1",
+     "url": "https://example.org/h/1"
+    },
+    "h2": {
+     "elements": [
+      {
+       "href": "https://example.org/h3",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "h3"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 2: the next part covers step 3.",
+     "title": "Guide part 2",
+     "url": "https://example.org/h/2"
+    },
+    "h3": {
+     "elements": [
+      {
+       "href": "https://example.org/h4",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "h4"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 3: the next part covers step 4.",
+     "title": "Guide part 3",
+     "url": "https://example.org/h/3"
+    },
+    "h4": {
+     "elements": [
+      {
+       "href": "https://example.org/h5",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "h5"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 4: the next part covers step 5.",
+     "title": "Guide part 4",
+     "url": "https://example.org/h/4"
+    },
+    "h5": {
+     "elements": [],
+     "goal": true,
+     "text": "Release 4.0 was published on 2024-02-11.",
+     "title": "Release 4.0",
+     "url": "https://example.org/h/5"
+    }
+   }
+  },
+  {
+   "goal": "Find the public weekday opening time of the library",
+   "id": "ho-prod-2",
+   "kind": "productive_multi_hop",
+   "label": "productive",
+   "max_steps": 8,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.5,
+     "noul": 0.4,
+     "op": "CLICK",
+     "p": 0.6,
+     "target": "n",
+     "traj": "unclear"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.93,
+     "noul": 0.95,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "DONE",
+     "p": 0.95,
+     "traj": "progress"
+    }
+   ],
+   "split": "heldout",
+   "start": "u1",
+   "states": {
+    "u1": {
+     "elements": [
+      {
+       "href": "https://example.org/u2",
+       "id": "n",
+       "label": "Continue to the next part",
+       "no_effect_once": true,
+       "role": "link",
+       "to": "u2"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 1: the next part covers step 2.",
+     "title": "Guide part 1",
+     "url": "https://example.org/u/1"
+    },
+    "u2": {
+     "elements": [
+      {
+       "href": "https://example.org/u3",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "u3"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 2: the next part covers step 3.",
+     "title": "Guide part 2",
+     "url": "https://example.org/u/2"
+    },
+    "u3": {
+     "elements": [
+      {
+       "href": "https://example.org/u4",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "u4"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 3: the next part covers step 4.",
+     "title": "Guide part 3",
+     "url": "https://example.org/u/3"
+    },
+    "u4": {
+     "elements": [],
+     "goal": true,
+     "text": "The library opens at 09:00 on weekdays.",
+     "title": "Library hours",
+     "url": "https://example.org/u/4"
+    }
+   }
+  },
+  {
+   "goal": "Public race: reach the Harbor page in four hops",
+   "id": "ho-prod-3",
+   "kind": "productive_multi_hop",
+   "label": "productive",
+   "max_steps": 7,
+   "min_actions_before_done": 4,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.93,
+     "noul": 0.95,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "DONE",
+     "p": 0.95,
+     "traj": "progress"
+    }
+   ],
+   "split": "heldout",
+   "start": "s1",
+   "states": {
+    "s1": {
+     "elements": [
+      {
+       "href": "https://example.org/s2",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "s2"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 1: the next part covers step 2.",
+     "title": "Guide part 1",
+     "url": "https://example.org/s/1"
+    },
+    "s2": {
+     "elements": [
+      {
+       "href": "https://example.org/s3",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "s3"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 2: the next part covers step 3.",
+     "title": "Guide part 2",
+     "url": "https://example.org/s/2"
+    },
+    "s3": {
+     "elements": [
+      {
+       "href": "https://example.org/s4",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "s4"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 3: the next part covers step 4.",
+     "title": "Guide part 3",
+     "url": "https://example.org/s/3"
+    },
+    "s4": {
+     "elements": [
+      {
+       "href": "https://example.org/s5",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "s5"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 4: the next part covers step 5.",
+     "title": "Guide part 4",
+     "url": "https://example.org/s/4"
+    },
+    "s5": {
+     "elements": [],
+     "goal": true,
+     "text": "Harbor: the public harbor page.",
+     "title": "Harbor",
+     "url": "https://example.org/s/5"
+    }
+   }
+  },
+  {
+   "goal": "Find the public release date of Release 5.3",
+   "id": "ho-prod-4",
+   "kind": "productive_multi_hop",
+   "label": "productive",
+   "max_steps": 7,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.93,
+     "noul": 0.95,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "DONE",
+     "p": 0.95,
+     "traj": "progress"
+    }
+   ],
+   "split": "heldout",
+   "start": "i1",
+   "states": {
+    "i1": {
+     "elements": [
+      {
+       "href": "https://example.org/i2",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "i2"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 1: the next part covers step 2.",
+     "title": "Guide part 1",
+     "url": "https://example.org/i/1"
+    },
+    "i2": {
+     "elements": [
+      {
+       "href": "https://example.org/i3",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "i3"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 2: the next part covers step 3.",
+     "title": "Guide part 2",
+     "url": "https://example.org/i/2"
+    },
+    "i3": {
+     "elements": [
+      {
+       "href": "https://example.org/i4",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "i4"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 3: the next part covers step 4.",
+     "title": "Guide part 3",
+     "url": "https://example.org/i/3"
+    },
+    "i4": {
+     "elements": [
+      {
+       "href": "https://example.org/i5",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "i5"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 4: the next part covers step 5.",
+     "title": "Guide part 4",
+     "url": "https://example.org/i/4"
+    },
+    "i5": {
+     "elements": [],
+     "goal": true,
+     "text": "Release 5.3 was published on 2025-09-30.",
+     "title": "Release 5.3",
+     "url": "https://example.org/i/5"
+    }
+   }
+  },
+  {
+   "goal": "Find the public bus schedule for route 12",
+   "id": "ho-trap-1",
+   "kind": "false_stall_trap",
+   "label": "productive",
+   "max_steps": 6,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "SCROLL_DOWN",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.93,
+     "noul": 0.95,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "DONE",
+     "p": 0.95,
+     "traj": "progress"
+    }
+   ],
+   "split": "heldout",
+   "start": "t1",
+   "states": {
+    "t1": {
+     "elements": [
+      {
+       "href": "https://example.org/t2",
+       "id": "n",
+       "label": "River station",
+       "role": "link",
+       "to": "t2"
+      }
+     ],
+     "goal": false,
+     "scroll_to": "t1b",
+     "text": "Station list: north, south, and river stations.",
+     "title": "Station list",
+     "url": "https://example.org/t/1"
+    },
+    "t1b": {
+     "elements": [
+      {
+       "href": "https://example.org/t2",
+       "id": "n",
+       "label": "River station",
+       "role": "link",
+       "to": "t2"
+      }
+     ],
+     "goal": false,
+     "text": "Station list: north, south, and river stations. More stations below.",
+     "title": "Station list",
+     "url": "https://example.org/t/1"
+    },
+    "t2": {
+     "elements": [
+      {
+       "href": "https://example.org/t3",
+       "id": "n",
+       "label": "Route 12 schedule",
+       "role": "link",
+       "to": "t3"
+      }
+     ],
+     "goal": false,
+     "text": "River station: the bus schedule for route 12 is below.",
+     "title": "River station",
+     "url": "https://example.org/t/2"
+    },
+    "t3": {
+     "elements": [],
+     "goal": true,
+     "text": "Route 12 runs every 20 minutes from 06:00.",
+     "title": "Route 12",
+     "url": "https://example.org/t/3"
+    }
+   }
+  },
+  {
+   "goal": "Find the public release date of Release 6.0",
+   "id": "ho-trap-2",
+   "kind": "false_stall_trap",
+   "label": "productive",
+   "max_steps": 7,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.3,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.3,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.93,
+     "noul": 0.95,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "DONE",
+     "p": 0.95,
+     "traj": "progress"
+    }
+   ],
+   "split": "heldout",
+   "start": "k1",
+   "states": {
+    "k1": {
+     "elements": [
+      {
+       "href": "https://example.org/k2",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "k2"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 1: the next part covers step 2.",
+     "title": "Guide part 1",
+     "url": "https://example.org/k/1"
+    },
+    "k2": {
+     "elements": [
+      {
+       "href": "https://example.org/k3",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "k3"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 2: the next part covers step 3.",
+     "title": "Guide part 2",
+     "url": "https://example.org/k/2"
+    },
+    "k3": {
+     "elements": [
+      {
+       "href": "https://example.org/k4",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "k4"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 3: the next part covers step 4.",
+     "title": "Guide part 3",
+     "url": "https://example.org/k/3"
+    },
+    "k4": {
+     "elements": [
+      {
+       "href": "https://example.org/k5",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "k5"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 4: the next part covers step 5.",
+     "title": "Guide part 4",
+     "url": "https://example.org/k/4"
+    },
+    "k5": {
+     "elements": [],
+     "goal": true,
+     "text": "Release 6.0 was published on 2026-01-15.",
+     "title": "Release 6.0",
+     "url": "https://example.org/k/5"
+    }
+   }
+  },
+  {
+   "goal": "Find the public release date of Release 8",
+   "id": "dev-scroll-1",
+   "kind": "unchanged_scroll",
+   "label": "baseline_stop",
+   "max_steps": 5,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "SCROLL_DOWN",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "SCROLL_DOWN",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "SCROLL_DOWN",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "SCROLL_DOWN",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "SCROLL_DOWN",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "dev",
+   "start": "v1",
+   "states": {
+    "v1": {
+     "elements": [
+      {
+       "href": "https://example.org/v2",
+       "id": "n",
+       "label": "Home",
+       "role": "link",
+       "to": "v2"
+      }
+     ],
+     "goal": false,
+     "text": "A short public notice with no further content.",
+     "title": "Short notice",
+     "url": "https://example.org/v/1"
+    },
+    "v2": {
+     "elements": [],
+     "goal": false,
+     "text": "Home page.",
+     "title": "Home",
+     "url": "https://example.org/v/2"
+    }
+   }
+  },
+  {
+   "goal": "Find the public event date on this page",
+   "id": "ho-scroll-1",
+   "kind": "unchanged_scroll",
+   "label": "baseline_stop",
+   "max_steps": 5,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "SCROLL_DOWN",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "SCROLL_DOWN",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "SCROLL_DOWN",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "SCROLL_DOWN",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "SCROLL_DOWN",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "heldout",
+   "start": "w1",
+   "states": {
+    "w1": {
+     "elements": [
+      {
+       "href": "https://example.org/w2",
+       "id": "n",
+       "label": "About",
+       "role": "link",
+       "to": "w2"
+      }
+     ],
+     "goal": false,
+     "text": "Only one paragraph of public text here.",
+     "title": "Tiny page",
+     "url": "https://example.org/w/1"
+    },
+    "w2": {
+     "elements": [],
+     "goal": false,
+     "text": "About page.",
+     "title": "About",
+     "url": "https://example.org/w/2"
+    }
+   }
+  },
+  {
+   "goal": "Find the public address on this page",
+   "id": "ho-scroll-2",
+   "kind": "unchanged_scroll",
+   "label": "baseline_stop",
+   "max_steps": 5,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "SCROLL_UP",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "SCROLL_UP",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "SCROLL_UP",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "SCROLL_UP",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "SCROLL_UP",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "heldout",
+   "start": "x1",
+   "states": {
+    "x1": {
+     "elements": [
+      {
+       "href": "https://example.org/x2",
+       "id": "n",
+       "label": "Back",
+       "role": "link",
+       "to": "x2"
+      }
+     ],
+     "goal": false,
+     "text": "Public notice.",
+     "title": "Blank notice",
+     "url": "https://example.org/x/1"
+    },
+    "x2": {
+     "elements": [],
+     "goal": false,
+     "text": "Back page.",
+     "title": "Back",
+     "url": "https://example.org/x/2"
+    }
+   }
+  },
+  {
+   "goal": "Find the public fee table",
+   "id": "ho-aba-1",
+   "kind": "a_b_a",
+   "label": "baseline_stop",
+   "max_steps": 5,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "heldout",
+   "start": "y1",
+   "states": {
+    "y1": {
+     "elements": [
+      {
+       "href": "https://example.org/y2",
+       "id": "n",
+       "label": "Topic detail",
+       "role": "link",
+       "to": "y2"
+      }
+     ],
+     "goal": false,
+     "text": "Topics index page.",
+     "title": "Topics",
+     "url": "https://example.org/y/1"
+    },
+    "y2": {
+     "elements": [
+      {
+       "href": "https://example.org/y1",
+       "id": "n",
+       "label": "Back to topics",
+       "role": "link",
+       "to": "y1"
+      }
+     ],
+     "goal": false,
+     "text": "Topic detail page.",
+     "title": "Topic detail",
+     "url": "https://example.org/y/2"
+    }
+   }
+  },
+  {
+   "goal": "Find the public water quality score for the east beach",
+   "id": "ho-wait-1",
+   "kind": "async_wait",
+   "label": "productive",
+   "max_steps": 4,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.5,
+     "noul": 0.4,
+     "op": "WAIT",
+     "p": 0.6,
+     "traj": "unclear"
+    },
+    {
+     "conf": 0.93,
+     "noul": 0.95,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "DONE",
+     "p": 0.95,
+     "traj": "progress"
+    }
+   ],
+   "split": "heldout",
+   "start": "aw1",
+   "states": {
+    "aw1": {
+     "elements": [],
+     "goal": false,
+     "text": "Loading results, please wait.",
+     "title": "Loading",
+     "url": "https://example.org/aw/1",
+     "wait_to": "aw2"
+    },
+    "aw2": {
+     "elements": [],
+     "goal": true,
+     "text": "East beach water quality score: good.",
+     "title": "Beach report",
+     "url": "https://example.org/aw/1"
+    }
+   }
+  },
+  {
+   "goal": "Find the public air quality index for today",
+   "id": "ho-wait-2",
+   "kind": "async_wait",
+   "label": "productive",
+   "max_steps": 4,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.5,
+     "noul": 0.4,
+     "op": "WAIT",
+     "p": 0.6,
+     "traj": "unclear"
+    },
+    {
+     "conf": 0.93,
+     "noul": 0.95,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "DONE",
+     "p": 0.95,
+     "traj": "progress"
+    }
+   ],
+   "split": "heldout",
+   "start": "aq1",
+   "states": {
+    "aq1": {
+     "elements": [],
+     "goal": false,
+     "text": "Loading results, please wait.",
+     "title": "Loading",
+     "url": "https://example.org/aq/1",
+     "wait_to": "aq2"
+    },
+    "aq2": {
+     "elements": [],
+     "goal": true,
+     "text": "Air quality index today: 42, good.",
+     "title": "Air quality",
+     "url": "https://example.org/aq/1"
+    }
+   }
+  },
+  {
+   "goal": "Find the public hours of the open library branch",
+   "id": "ho-revisit-1",
+   "kind": "useful_revisit",
+   "label": "productive",
+   "max_steps": 6,
+   "min_actions_before_done": 3,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "a",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.6,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "h",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "b",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.93,
+     "noul": 0.95,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "DONE",
+     "p": 0.95,
+     "traj": "progress"
+    }
+   ],
+   "split": "heldout",
+   "start": "rv0",
+   "states": {
+    "rv0": {
+     "elements": [
+      {
+       "href": "https://example.org/rv1",
+       "id": "a",
+       "label": "North branch",
+       "role": "link",
+       "to": "rv1"
+      },
+      {
+       "href": "https://example.org/rv2",
+       "id": "b",
+       "label": "South branch",
+       "role": "link",
+       "to": "rv2"
+      }
+     ],
+     "goal": false,
+     "text": "Branch hub: choose a branch.",
+     "title": "Branch hub",
+     "url": "https://example.org/rv/hub"
+    },
+    "rv1": {
+     "elements": [
+      {
+       "href": "https://example.org/rv/hub",
+       "id": "h",
+       "label": "Back to hub",
+       "role": "link",
+       "to": "rv0"
+      }
+     ],
+     "goal": false,
+     "text": "North branch: closed for repairs.",
+     "title": "North branch",
+     "url": "https://example.org/rv/north"
+    },
+    "rv2": {
+     "elements": [],
+     "goal": true,
+     "text": "South branch: open 10:00 to 18:00.",
+     "title": "South branch",
+     "url": "https://example.org/rv/south"
+    }
+   }
+  },
+  {
+   "goal": "Find the public phone line of the open clinic branch",
+   "id": "ho-revisit-2",
+   "kind": "useful_revisit",
+   "label": "productive",
+   "max_steps": 6,
+   "min_actions_before_done": 3,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "a",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.6,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "h",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "b",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.93,
+     "noul": 0.95,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "DONE",
+     "p": 0.95,
+     "traj": "progress"
+    }
+   ],
+   "split": "heldout",
+   "start": "rw0",
+   "states": {
+    "rw0": {
+     "elements": [
+      {
+       "href": "https://example.org/rw1",
+       "id": "a",
+       "label": "North branch",
+       "role": "link",
+       "to": "rw1"
+      },
+      {
+       "href": "https://example.org/rw2",
+       "id": "b",
+       "label": "South branch",
+       "role": "link",
+       "to": "rw2"
+      }
+     ],
+     "goal": false,
+     "text": "Branch hub: choose a branch.",
+     "title": "Branch hub",
+     "url": "https://example.org/rw/hub"
+    },
+    "rw1": {
+     "elements": [
+      {
+       "href": "https://example.org/rw/hub",
+       "id": "h",
+       "label": "Back to hub",
+       "role": "link",
+       "to": "rw0"
+      }
+     ],
+     "goal": false,
+     "text": "North branch: closed for repairs.",
+     "title": "North branch",
+     "url": "https://example.org/rw/north"
+    },
+    "rw2": {
+     "elements": [],
+     "goal": true,
+     "text": "South branch clinic: public line 555-0100.",
+     "title": "South branch",
+     "url": "https://example.org/rw/south"
+    }
+   }
+  },
+  {
+   "completion_condition": {
+    "url_contains": "/pa/4"
+   },
+   "goal": "Open report page 4 of the public district reports",
+   "goal_state": "pa4",
+   "id": "dev-pred-1",
+   "kind": "predicate_satisfied",
+   "label": "productive",
+   "max_steps": 6,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "dev",
+   "start": "pa1",
+   "states": {
+    "pa1": {
+     "elements": [
+      {
+       "href": "https://example.org/pa2",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "pa2"
+      }
+     ],
+     "goal": false,
+     "text": "Report page 1: yearly figures for district 1.",
+     "title": "Report 1",
+     "url": "https://example.org/pa/1"
+    },
+    "pa2": {
+     "elements": [
+      {
+       "href": "https://example.org/pa3",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "pa3"
+      }
+     ],
+     "goal": false,
+     "text": "Report page 2: yearly figures for district 2.",
+     "title": "Report 2",
+     "url": "https://example.org/pa/2"
+    },
+    "pa3": {
+     "elements": [
+      {
+       "href": "https://example.org/pa4",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "pa4"
+      }
+     ],
+     "goal": false,
+     "text": "Report page 3: yearly figures for district 3.",
+     "title": "Report 3",
+     "url": "https://example.org/pa/3"
+    },
+    "pa4": {
+     "elements": [
+      {
+       "href": "https://example.org/pa5",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "pa5"
+      }
+     ],
+     "goal": false,
+     "text": "Report page 4: yearly figures for district 4.",
+     "title": "Report 4",
+     "url": "https://example.org/pa/4"
+    },
+    "pa5": {
+     "elements": [
+      {
+       "href": "https://example.org/pa6",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "pa6"
+      }
+     ],
+     "goal": false,
+     "text": "Report page 5: yearly figures for district 5.",
+     "title": "Report 5",
+     "url": "https://example.org/pa/5"
+    },
+    "pa6": {
+     "elements": [],
+     "goal": false,
+     "text": "Report page 6: yearly figures for district 6.",
+     "title": "Report 6",
+     "url": "https://example.org/pa/6"
+    }
+   }
+  },
+  {
+   "completion_condition": {
+    "url_contains": "/pb/4"
+   },
+   "goal": "Open report page 4 of the public district reports",
+   "goal_state": "pb4",
+   "id": "ho-pred-1",
+   "kind": "predicate_satisfied",
+   "label": "productive",
+   "max_steps": 6,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "heldout",
+   "start": "pb1",
+   "states": {
+    "pb1": {
+     "elements": [
+      {
+       "href": "https://example.org/pb2",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "pb2"
+      }
+     ],
+     "goal": false,
+     "text": "Report page 1: yearly figures for district 1.",
+     "title": "Report 1",
+     "url": "https://example.org/pb/1"
+    },
+    "pb2": {
+     "elements": [
+      {
+       "href": "https://example.org/pb3",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "pb3"
+      }
+     ],
+     "goal": false,
+     "text": "Report page 2: yearly figures for district 2.",
+     "title": "Report 2",
+     "url": "https://example.org/pb/2"
+    },
+    "pb3": {
+     "elements": [
+      {
+       "href": "https://example.org/pb4",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "pb4"
+      }
+     ],
+     "goal": false,
+     "text": "Report page 3: yearly figures for district 3.",
+     "title": "Report 3",
+     "url": "https://example.org/pb/3"
+    },
+    "pb4": {
+     "elements": [
+      {
+       "href": "https://example.org/pb5",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "pb5"
+      }
+     ],
+     "goal": false,
+     "text": "Report page 4: yearly figures for district 4.",
+     "title": "Report 4",
+     "url": "https://example.org/pb/4"
+    },
+    "pb5": {
+     "elements": [
+      {
+       "href": "https://example.org/pb6",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "pb6"
+      }
+     ],
+     "goal": false,
+     "text": "Report page 5: yearly figures for district 5.",
+     "title": "Report 5",
+     "url": "https://example.org/pb/5"
+    },
+    "pb6": {
+     "elements": [],
+     "goal": false,
+     "text": "Report page 6: yearly figures for district 6.",
+     "title": "Report 6",
+     "url": "https://example.org/pb/6"
+    }
+   }
+  },
+  {
+   "completion_condition": {
+    "url_contains": "/pc/4"
+   },
+   "goal": "Open report page 4 of the public district reports",
+   "goal_state": "pc4",
+   "id": "ho-pred-2",
+   "kind": "predicate_satisfied",
+   "label": "productive",
+   "max_steps": 6,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "heldout",
+   "start": "pc1",
+   "states": {
+    "pc1": {
+     "elements": [
+      {
+       "href": "https://example.org/pc2",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "pc2"
+      }
+     ],
+     "goal": false,
+     "text": "Report page 1: yearly figures for district 1.",
+     "title": "Report 1",
+     "url": "https://example.org/pc/1"
+    },
+    "pc2": {
+     "elements": [
+      {
+       "href": "https://example.org/pc3",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "pc3"
+      }
+     ],
+     "goal": false,
+     "text": "Report page 2: yearly figures for district 2.",
+     "title": "Report 2",
+     "url": "https://example.org/pc/2"
+    },
+    "pc3": {
+     "elements": [
+      {
+       "href": "https://example.org/pc4",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "pc4"
+      }
+     ],
+     "goal": false,
+     "text": "Report page 3: yearly figures for district 3.",
+     "title": "Report 3",
+     "url": "https://example.org/pc/3"
+    },
+    "pc4": {
+     "elements": [
+      {
+       "href": "https://example.org/pc5",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "pc5"
+      }
+     ],
+     "goal": false,
+     "text": "Report page 4: yearly figures for district 4.",
+     "title": "Report 4",
+     "url": "https://example.org/pc/4"
+    },
+    "pc5": {
+     "elements": [
+      {
+       "href": "https://example.org/pc6",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "pc6"
+      }
+     ],
+     "goal": false,
+     "text": "Report page 5: yearly figures for district 5.",
+     "title": "Report 5",
+     "url": "https://example.org/pc/5"
+    },
+    "pc6": {
+     "elements": [],
+     "goal": false,
+     "text": "Report page 6: yearly figures for district 6.",
+     "title": "Report 6",
+     "url": "https://example.org/pc/6"
+    }
+   }
+  },
+  {
+   "goal": "Find the public catalog entry for the supplied search term",
+   "id": "dev-mask-1",
+   "kind": "caller_value_masked",
+   "label": "semantic_stall",
+   "max_steps": 5,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.5,
+     "noul": 0.5,
+     "op": "TYPE_TEXT",
+     "p": 0.6,
+     "target": "q",
+     "traj": "unclear"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "dev",
+   "start": "ma1",
+   "states": {
+    "ma1": {
+     "elements": [
+      {
+       "href": "",
+       "id": "q",
+       "kind": "type",
+       "label": "Search",
+       "role": "textbox",
+       "type_to": "ma2"
+      }
+     ],
+     "goal": false,
+     "text": "Search the public catalog.",
+     "title": "Public search",
+     "url": "https://example.org/ma"
+    },
+    "ma2": {
+     "elements": [
+      {
+       "href": "https://example.org/ma/results?q=SyntheticQueryAlpha&page=2",
+       "id": "n",
+       "label": "Next results",
+       "role": "link",
+       "to": "ma3"
+      }
+     ],
+     "goal": false,
+     "text": "No catalog entries match SyntheticQueryAlpha. Try the next result page.",
+     "title": "Results for SyntheticQueryAlpha",
+     "url": "https://example.org/ma/results?q=SyntheticQueryAlpha"
+    },
+    "ma3": {
+     "elements": [
+      {
+       "href": "https://example.org/ma/results?q=SyntheticQueryAlpha&page=3",
+       "id": "n",
+       "label": "Next results",
+       "role": "link",
+       "to": "ma4"
+      }
+     ],
+     "goal": false,
+     "text": "Page 2: still no entries for SyntheticQueryAlpha.",
+     "title": "Results for SyntheticQueryAlpha, page 2",
+     "url": "https://example.org/ma/results?q=SyntheticQueryAlpha&page=2"
+    },
+    "ma4": {
+     "elements": [],
+     "goal": false,
+     "text": "Page 3: no entries for SyntheticQueryAlpha.",
+     "title": "Results for SyntheticQueryAlpha, page 3",
+     "url": "https://example.org/ma/results?q=SyntheticQueryAlpha&page=3"
+    }
+   },
+   "text_inputs": [
+    {
+     "field_label": "Search",
+     "value": "SyntheticQueryAlpha"
+    }
+   ]
+  },
+  {
+   "goal": "Find the public catalog entry for the supplied search term",
+   "id": "ho-mask-1",
+   "kind": "caller_value_masked",
+   "label": "semantic_stall",
+   "max_steps": 5,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.5,
+     "noul": 0.5,
+     "op": "TYPE_TEXT",
+     "p": 0.6,
+     "target": "q",
+     "traj": "unclear"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "heldout",
+   "start": "mb1",
+   "states": {
+    "mb1": {
+     "elements": [
+      {
+       "href": "",
+       "id": "q",
+       "kind": "type",
+       "label": "Search",
+       "role": "textbox",
+       "type_to": "mb2"
+      }
+     ],
+     "goal": false,
+     "text": "Search the public catalog.",
+     "title": "Public search",
+     "url": "https://example.org/mb"
+    },
+    "mb2": {
+     "elements": [
+      {
+       "href": "https://example.org/mb/results?q=SyntheticQueryBravo&page=2",
+       "id": "n",
+       "label": "Next results",
+       "role": "link",
+       "to": "mb3"
+      }
+     ],
+     "goal": false,
+     "text": "No catalog entries match SyntheticQueryBravo. Try the next result page.",
+     "title": "Results for SyntheticQueryBravo",
+     "url": "https://example.org/mb/results?q=SyntheticQueryBravo"
+    },
+    "mb3": {
+     "elements": [
+      {
+       "href": "https://example.org/mb/results?q=SyntheticQueryBravo&page=3",
+       "id": "n",
+       "label": "Next results",
+       "role": "link",
+       "to": "mb4"
+      }
+     ],
+     "goal": false,
+     "text": "Page 2: still no entries for SyntheticQueryBravo.",
+     "title": "Results for SyntheticQueryBravo, page 2",
+     "url": "https://example.org/mb/results?q=SyntheticQueryBravo&page=2"
+    },
+    "mb4": {
+     "elements": [],
+     "goal": false,
+     "text": "Page 3: no entries for SyntheticQueryBravo.",
+     "title": "Results for SyntheticQueryBravo, page 3",
+     "url": "https://example.org/mb/results?q=SyntheticQueryBravo&page=3"
+    }
+   },
+   "text_inputs": [
+    {
+     "field_label": "Search",
+     "value": "SyntheticQueryBravo"
+    }
+   ]
+  },
+  {
+   "goal": "Find the public catalog entry for the supplied search term",
+   "id": "ho-mask-2",
+   "kind": "caller_value_masked",
+   "label": "semantic_stall",
+   "max_steps": 5,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.5,
+     "noul": 0.5,
+     "op": "TYPE_TEXT",
+     "p": 0.6,
+     "target": "q",
+     "traj": "unclear"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "heldout",
+   "start": "mc1",
+   "states": {
+    "mc1": {
+     "elements": [
+      {
+       "href": "",
+       "id": "q",
+       "kind": "type",
+       "label": "Search",
+       "role": "textbox",
+       "type_to": "mc2"
+      }
+     ],
+     "goal": false,
+     "text": "Search the public catalog.",
+     "title": "Public search",
+     "url": "https://example.org/mc"
+    },
+    "mc2": {
+     "elements": [
+      {
+       "href": "https://example.org/mc/results?q=SyntheticQueryCharlie&page=2",
+       "id": "n",
+       "label": "Next results",
+       "role": "link",
+       "to": "mc3"
+      }
+     ],
+     "goal": false,
+     "text": "No catalog entries match SyntheticQueryCharlie. Try the next result page.",
+     "title": "Results for SyntheticQueryCharlie",
+     "url": "https://example.org/mc/results?q=SyntheticQueryCharlie"
+    },
+    "mc3": {
+     "elements": [
+      {
+       "href": "https://example.org/mc/results?q=SyntheticQueryCharlie&page=3",
+       "id": "n",
+       "label": "Next results",
+       "role": "link",
+       "to": "mc4"
+      }
+     ],
+     "goal": false,
+     "text": "Page 2: still no entries for SyntheticQueryCharlie.",
+     "title": "Results for SyntheticQueryCharlie, page 2",
+     "url": "https://example.org/mc/results?q=SyntheticQueryCharlie&page=2"
+    },
+    "mc4": {
+     "elements": [],
+     "goal": false,
+     "text": "Page 3: no entries for SyntheticQueryCharlie.",
+     "title": "Results for SyntheticQueryCharlie, page 3",
+     "url": "https://example.org/mc/results?q=SyntheticQueryCharlie&page=3"
+    }
+   },
+   "text_inputs": [
+    {
+     "field_label": "Search",
+     "value": "SyntheticQueryCharlie"
+    }
+   ]
+  },
+  {
+   "goal": "Find the public release date of Release 9.1",
+   "id": "ho-rate-1",
+   "kind": "rate_limited",
+   "label": "productive",
+   "max_steps": 6,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "fault": "http_429",
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.93,
+     "noul": 0.95,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "DONE",
+     "p": 0.95,
+     "traj": "progress"
+    }
+   ],
+   "split": "heldout",
+   "start": "r4291",
+   "states": {
+    "r4291": {
+     "elements": [
+      {
+       "href": "https://example.org/r4292",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "r4292"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 1: the next part covers step 2.",
+     "title": "Guide part 1",
+     "url": "https://example.org/r429/1"
+    },
+    "r4292": {
+     "elements": [
+      {
+       "href": "https://example.org/r4293",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "r4293"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 2: the next part covers step 3.",
+     "title": "Guide part 2",
+     "url": "https://example.org/r429/2"
+    },
+    "r4293": {
+     "elements": [
+      {
+       "href": "https://example.org/r4294",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "r4294"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 3: the next part covers step 4.",
+     "title": "Guide part 3",
+     "url": "https://example.org/r429/3"
+    },
+    "r4294": {
+     "elements": [],
+     "goal": true,
+     "text": "Release 9.1 was published on 2026-03-03.",
+     "title": "Release 9.1",
+     "url": "https://example.org/r429/4"
+    }
+   }
+  },
+  {
+   "goal": "Find the public release date of Release 9.1",
+   "id": "ho-rate-2",
+   "kind": "rate_limited",
+   "label": "productive",
+   "max_steps": 6,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "fault": "http_529",
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.93,
+     "noul": 0.95,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "DONE",
+     "p": 0.95,
+     "traj": "progress"
+    }
+   ],
+   "split": "heldout",
+   "start": "r5291",
+   "states": {
+    "r5291": {
+     "elements": [
+      {
+       "href": "https://example.org/r5292",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "r5292"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 1: the next part covers step 2.",
+     "title": "Guide part 1",
+     "url": "https://example.org/r529/1"
+    },
+    "r5292": {
+     "elements": [
+      {
+       "href": "https://example.org/r5293",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "r5293"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 2: the next part covers step 3.",
+     "title": "Guide part 2",
+     "url": "https://example.org/r529/2"
+    },
+    "r5293": {
+     "elements": [
+      {
+       "href": "https://example.org/r5294",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "r5294"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 3: the next part covers step 4.",
+     "title": "Guide part 3",
+     "url": "https://example.org/r529/3"
+    },
+    "r5294": {
+     "elements": [],
+     "goal": true,
+     "text": "Release 9.1 was published on 2026-03-03.",
+     "title": "Release 9.1",
+     "url": "https://example.org/r529/4"
+    }
+   }
+  },
+  {
+   "goal": "Find the public release date of Release 10",
+   "id": "dev-malf-1",
+   "kind": "malformed_optional",
+   "label": "productive",
+   "max_steps": 7,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "fault": "malformed_optional",
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.93,
+     "noul": 0.95,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "DONE",
+     "p": 0.95,
+     "traj": "progress"
+    }
+   ],
+   "split": "dev",
+   "start": "mf1",
+   "states": {
+    "mf1": {
+     "elements": [
+      {
+       "href": "https://example.org/mf2",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "mf2"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 1: the next part covers step 2.",
+     "title": "Guide part 1",
+     "url": "https://example.org/mf/1"
+    },
+    "mf2": {
+     "elements": [
+      {
+       "href": "https://example.org/mf3",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "mf3"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 2: the next part covers step 3.",
+     "title": "Guide part 2",
+     "url": "https://example.org/mf/2"
+    },
+    "mf3": {
+     "elements": [
+      {
+       "href": "https://example.org/mf4",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "mf4"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 3: the next part covers step 4.",
+     "title": "Guide part 3",
+     "url": "https://example.org/mf/3"
+    },
+    "mf4": {
+     "elements": [
+      {
+       "href": "https://example.org/mf5",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "mf5"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 4: the next part covers step 5.",
+     "title": "Guide part 4",
+     "url": "https://example.org/mf/4"
+    },
+    "mf5": {
+     "elements": [],
+     "goal": true,
+     "text": "Release 10 was published on 2026-06-01.",
+     "title": "Release 10",
+     "url": "https://example.org/mf/5"
+    }
+   }
+  },
+  {
+   "goal": "Find the public release date of Release 10",
+   "id": "ho-malf-1",
+   "kind": "malformed_optional",
+   "label": "productive",
+   "max_steps": 7,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "fault": "malformed_optional",
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.93,
+     "noul": 0.95,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "DONE",
+     "p": 0.95,
+     "traj": "progress"
+    }
+   ],
+   "split": "heldout",
+   "start": "mg1",
+   "states": {
+    "mg1": {
+     "elements": [
+      {
+       "href": "https://example.org/mg2",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "mg2"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 1: the next part covers step 2.",
+     "title": "Guide part 1",
+     "url": "https://example.org/mg/1"
+    },
+    "mg2": {
+     "elements": [
+      {
+       "href": "https://example.org/mg3",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "mg3"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 2: the next part covers step 3.",
+     "title": "Guide part 2",
+     "url": "https://example.org/mg/2"
+    },
+    "mg3": {
+     "elements": [
+      {
+       "href": "https://example.org/mg4",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "mg4"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 3: the next part covers step 4.",
+     "title": "Guide part 3",
+     "url": "https://example.org/mg/3"
+    },
+    "mg4": {
+     "elements": [
+      {
+       "href": "https://example.org/mg5",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "mg5"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 4: the next part covers step 5.",
+     "title": "Guide part 4",
+     "url": "https://example.org/mg/4"
+    },
+    "mg5": {
+     "elements": [],
+     "goal": true,
+     "text": "Release 10 was published on 2026-06-01.",
+     "title": "Release 10",
+     "url": "https://example.org/mg/5"
+    }
+   }
+  },
+  {
+   "goal": "Find the public release date of Release 10",
+   "id": "ho-malf-2",
+   "kind": "malformed_optional",
+   "label": "productive",
+   "max_steps": 7,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "fault": "malformed_optional",
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.93,
+     "noul": 0.95,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "DONE",
+     "p": 0.95,
+     "traj": "progress"
+    }
+   ],
+   "split": "heldout",
+   "start": "mh1",
+   "states": {
+    "mh1": {
+     "elements": [
+      {
+       "href": "https://example.org/mh2",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "mh2"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 1: the next part covers step 2.",
+     "title": "Guide part 1",
+     "url": "https://example.org/mh/1"
+    },
+    "mh2": {
+     "elements": [
+      {
+       "href": "https://example.org/mh3",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "mh3"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 2: the next part covers step 3.",
+     "title": "Guide part 2",
+     "url": "https://example.org/mh/2"
+    },
+    "mh3": {
+     "elements": [
+      {
+       "href": "https://example.org/mh4",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "mh4"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 3: the next part covers step 4.",
+     "title": "Guide part 3",
+     "url": "https://example.org/mh/3"
+    },
+    "mh4": {
+     "elements": [
+      {
+       "href": "https://example.org/mh5",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "mh5"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 4: the next part covers step 5.",
+     "title": "Guide part 4",
+     "url": "https://example.org/mh/4"
+    },
+    "mh5": {
+     "elements": [],
+     "goal": true,
+     "text": "Release 10 was published on 2026-06-01.",
+     "title": "Release 10",
+     "url": "https://example.org/mh/5"
+    }
+   }
+  },
+  {
+   "goal": "Find the public release date of Release 11",
+   "id": "ho-outage-1",
+   "kind": "model_outage",
+   "label": "provider_failure",
+   "max_steps": 6,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    },
+    {
+     "conf": 0.9,
+     "fault": "outage",
+     "noul": 0.9,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.92,
+     "target": "n",
+     "traj": "progress"
+    }
+   ],
+   "split": "heldout",
+   "start": "mo1",
+   "states": {
+    "mo1": {
+     "elements": [
+      {
+       "href": "https://example.org/mo2",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "mo2"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 1: the next part covers step 2.",
+     "title": "Guide part 1",
+     "url": "https://example.org/mo/1"
+    },
+    "mo2": {
+     "elements": [
+      {
+       "href": "https://example.org/mo3",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "mo3"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 2: the next part covers step 3.",
+     "title": "Guide part 2",
+     "url": "https://example.org/mo/2"
+    },
+    "mo3": {
+     "elements": [
+      {
+       "href": "https://example.org/mo4",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "mo4"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 3: the next part covers step 4.",
+     "title": "Guide part 3",
+     "url": "https://example.org/mo/3"
+    },
+    "mo4": {
+     "elements": [
+      {
+       "href": "https://example.org/mo5",
+       "id": "n",
+       "label": "Continue to the next part",
+       "role": "link",
+       "to": "mo5"
+      }
+     ],
+     "goal": false,
+     "text": "Guide part 4: the next part covers step 5.",
+     "title": "Guide part 4",
+     "url": "https://example.org/mo/4"
+    },
+    "mo5": {
+     "elements": [],
+     "goal": true,
+     "text": "Release 11 was published on 2026-07-07.",
+     "title": "Release 11",
+     "url": "https://example.org/mo/5"
+    }
+   }
+  },
+  {
+   "goal": "Find the public member directory",
+   "id": "dev-deny-1",
+   "kind": "destination_denial",
+   "label": "destination_denial",
+   "max_steps": 5,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "x",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "dev",
+   "start": "da1",
+   "states": {
+    "da1": {
+     "elements": [
+      {
+       "href": "https://example.org/da2",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "da2"
+      }
+     ],
+     "goal": false,
+     "text": "Public links page.",
+     "title": "Links",
+     "url": "https://example.org/da/1"
+    },
+    "da2": {
+     "elements": [
+      {
+       "denied": true,
+       "href": "https://login.example.net/",
+       "id": "x",
+       "label": "Sign in",
+       "role": "link"
+      },
+      {
+       "href": "https://example.org/da3",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "da3"
+      }
+     ],
+     "goal": false,
+     "text": "More public links.",
+     "title": "More links",
+     "url": "https://example.org/da/2"
+    },
+    "da3": {
+     "elements": [],
+     "goal": false,
+     "text": "Even more public links.",
+     "title": "Even more links",
+     "url": "https://example.org/da/3"
+    }
+   }
+  },
+  {
+   "goal": "Find the public member directory",
+   "id": "ho-deny-1",
+   "kind": "destination_denial",
+   "label": "destination_denial",
+   "max_steps": 5,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "x",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "heldout",
+   "start": "db1",
+   "states": {
+    "db1": {
+     "elements": [
+      {
+       "href": "https://example.org/db2",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "db2"
+      }
+     ],
+     "goal": false,
+     "text": "Public links page.",
+     "title": "Links",
+     "url": "https://example.org/db/1"
+    },
+    "db2": {
+     "elements": [
+      {
+       "denied": true,
+       "href": "https://login.example.net/",
+       "id": "x",
+       "label": "Sign in",
+       "role": "link"
+      },
+      {
+       "href": "https://example.org/db3",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "db3"
+      }
+     ],
+     "goal": false,
+     "text": "More public links.",
+     "title": "More links",
+     "url": "https://example.org/db/2"
+    },
+    "db3": {
+     "elements": [],
+     "goal": false,
+     "text": "Even more public links.",
+     "title": "Even more links",
+     "url": "https://example.org/db/3"
+    }
+   }
+  },
+  {
+   "goal": "Find the public member directory",
+   "id": "ho-deny-2",
+   "kind": "destination_denial",
+   "label": "destination_denial",
+   "max_steps": 5,
+   "min_actions_before_done": 0,
+   "script": [
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "x",
+     "traj": "stagnant"
+    },
+    {
+     "conf": 0.9,
+     "noul": 0.05,
+     "nxt": "RETURN_INCOMPLETE",
+     "op": "CLICK",
+     "p": 0.93,
+     "target": "n",
+     "traj": "stagnant"
+    }
+   ],
+   "split": "heldout",
+   "start": "dc1",
+   "states": {
+    "dc1": {
+     "elements": [
+      {
+       "href": "https://example.org/dc2",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "dc2"
+      }
+     ],
+     "goal": false,
+     "text": "Public links page.",
+     "title": "Links",
+     "url": "https://example.org/dc/1"
+    },
+    "dc2": {
+     "elements": [
+      {
+       "denied": true,
+       "href": "https://login.example.net/",
+       "id": "x",
+       "label": "Sign in",
+       "role": "link"
+      },
+      {
+       "href": "https://example.org/dc3",
+       "id": "n",
+       "label": "Next page",
+       "role": "link",
+       "to": "dc3"
+      }
+     ],
+     "goal": false,
+     "text": "More public links.",
+     "title": "More links",
+     "url": "https://example.org/dc/2"
+    },
+    "dc3": {
+     "elements": [],
+     "goal": false,
+     "text": "Even more public links.",
+     "title": "Even more links",
+     "url": "https://example.org/dc/3"
+    }
+   }
+  }
+ ],
+ "data_class": "public_synthetic",
+ "note": "Synthetic public DOM traces. Labels were set before any run.",
+ "schema_version": 1,
+ "spec_version": "dom-progress-v1",
+ "suite": "browser_progress"
+}

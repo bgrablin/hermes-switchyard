@@ -1,0 +1,12 @@
+{
+ "schema_version": 1,
+ "suite": "browser_progress_live",
+ "data_class": "public",
+ "note": "Four public goals for the optional capped live run (arm C). Five steps maximum each; at most 24 physical Jev requests in total. No credentials, no authenticated pages.",
+ "goals": [
+  {"id": "live-1", "expect": "productive", "goal": "Public Wikipedia race starting on Cat. Reach the Felidae article.", "start_url": "https://en.wikipedia.org/wiki/Cat", "completion_condition": {"url_contains": "/wiki/Felidae"}},
+  {"id": "live-2", "expect": "done_on_first_page", "goal": "Confirm that the public page title says Example Domain.", "start_url": "https://example.com/"},
+  {"id": "live-3", "expect": "incomplete", "goal": "Find the public 2031 opening date of the Moon Harbor library on this page.", "start_url": "https://example.com/"},
+  {"id": "live-4", "expect": "incomplete", "goal": "Find the public population of the town of Zqxv Harbor in 1850.", "start_url": "https://en.wikipedia.org/wiki/Special:Random"}
+ ]
+}
