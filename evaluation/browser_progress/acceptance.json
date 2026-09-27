@@ -1,0 +1,333 @@
+{
+ "heldout": {
+  "passed": false,
+  "rules": {
+   "cost": {
+    "failures": [
+     "null cost in C: 3",
+     "null cost in A_prime: 3",
+     "null cost in B: 3"
+    ],
+    "passed": false
+   },
+   "latency_p50": {
+    "failures": [],
+    "passed": true
+   },
+   "latency_total": {
+    "failures": [],
+    "passed": true
+   },
+   "outcome": {
+    "failures": [
+     "early stops with suggestion not above A_prime: 6 <= 8"
+    ],
+    "passed": false
+   }
+  },
+  "summaries": {
+   "A_prime": {
+    "cases": 32,
+    "completed": 9,
+    "dispatched_actions": 117,
+    "early_stops_with_suggestion": [
+     "ho-stall-1",
+     "ho-stall-2",
+     "ho-stall-3",
+     "ho-stall-4",
+     "ho-stall-5",
+     "ho-stall-6",
+     "ho-stall-7",
+     "ho-stall-8"
+    ],
+    "false_completions": [],
+    "known_cost_usd": 0.35554465,
+    "labelled_stalls": [
+     "ho-stall-1",
+     "ho-stall-2",
+     "ho-stall-3",
+     "ho-stall-4",
+     "ho-stall-5",
+     "ho-stall-6",
+     "ho-stall-7",
+     "ho-stall-8",
+     "ho-mask-1",
+     "ho-mask-2"
+    ],
+    "null_cost_count": 3,
+    "null_cost_from_injected_faults": 3,
+    "premature_stops": [
+     "ho-prod-1",
+     "ho-prod-2",
+     "ho-prod-4",
+     "ho-trap-2",
+     "ho-malf-1",
+     "ho-malf-2"
+    ],
+    "task_latency_p50_ms": 24808.789,
+    "task_latency_total_ms": 712030.096
+   },
+   "B": {
+    "cases": 32,
+    "completed": 14,
+    "dispatched_actions": 159,
+    "early_stops_with_suggestion": [],
+    "false_completions": [],
+    "known_cost_usd": 0.00968885,
+    "labelled_stalls": [
+     "ho-stall-1",
+     "ho-stall-2",
+     "ho-stall-3",
+     "ho-stall-4",
+     "ho-stall-5",
+     "ho-stall-6",
+     "ho-stall-7",
+     "ho-stall-8",
+     "ho-mask-1",
+     "ho-mask-2"
+    ],
+    "null_cost_count": 3,
+    "null_cost_from_injected_faults": 3,
+    "premature_stops": [],
+    "task_latency_p50_ms": 1251.042,
+    "task_latency_total_ms": 37534.288
+   },
+   "C": {
+    "cases": 32,
+    "completed": 14,
+    "dispatched_actions": 135,
+    "early_stops_with_suggestion": [
+     "ho-stall-1",
+     "ho-stall-2",
+     "ho-stall-3",
+     "ho-stall-4",
+     "ho-stall-5",
+     "ho-stall-6"
+    ],
+    "false_completions": [],
+    "known_cost_usd": 0.00939425,
+    "labelled_stalls": [
+     "ho-stall-1",
+     "ho-stall-2",
+     "ho-stall-3",
+     "ho-stall-4",
+     "ho-stall-5",
+     "ho-stall-6",
+     "ho-stall-7",
+     "ho-stall-8",
+     "ho-mask-1",
+     "ho-mask-2"
+    ],
+    "null_cost_count": 3,
+    "null_cost_from_injected_faults": 3,
+    "premature_stops": [],
+    "task_latency_p50_ms": 1003.142,
+    "task_latency_total_ms": 33574.221
+   }
+  }
+ },
+ "live": {
+  "passed": false,
+  "rules": {
+   "cost": {
+    "failures": [],
+    "passed": true
+   },
+   "latency_p50": {
+    "failures": [],
+    "passed": true
+   },
+   "latency_total": {
+    "failures": [],
+    "passed": true
+   },
+   "outcome": {
+    "failures": [
+     "early stops with suggestion not above B: 0 <= 0"
+    ],
+    "passed": false
+   }
+  },
+  "skipped": [],
+  "summaries": {
+   "B": {
+    "cases": 4,
+    "completed": 2,
+    "dispatched_actions": 1,
+    "early_stops_with_suggestion": [],
+    "false_completions": [],
+    "known_cost_usd": 0.000399462,
+    "labelled_stalls": [
+     "live-3",
+     "live-4"
+    ],
+    "null_cost_count": 0,
+    "null_cost_from_injected_faults": 0,
+    "premature_stops": [],
+    "task_latency_p50_ms": 1434.3,
+    "task_latency_total_ms": 6151.2
+   },
+   "C": {
+    "cases": 4,
+    "completed": 2,
+    "dispatched_actions": 1,
+    "early_stops_with_suggestion": [],
+    "false_completions": [],
+    "known_cost_usd": 0.00034251,
+    "labelled_stalls": [
+     "live-3",
+     "live-4"
+    ],
+    "null_cost_count": 0,
+    "null_cost_from_injected_faults": 0,
+    "premature_stops": [],
+    "task_latency_p50_ms": 1378.6,
+    "task_latency_total_ms": 6143.9
+   }
+  }
+ },
+ "offline_candidate_head": "1bb4cea2d8fe3b2bb48460fd05fbebb2e3df1126",
+ "plan": {
+  "a_prime": {
+   "cases": [
+    "ho-stall-1",
+    "ho-stall-2",
+    "ho-stall-3",
+    "ho-stall-4",
+    "ho-stall-5",
+    "ho-stall-6",
+    "ho-stall-7",
+    "ho-stall-8",
+    "ho-prod-1",
+    "ho-prod-2",
+    "ho-prod-3",
+    "ho-prod-4",
+    "ho-trap-1",
+    "ho-trap-2",
+    "ho-scroll-1",
+    "ho-scroll-2",
+    "ho-aba-1",
+    "ho-wait-1",
+    "ho-wait-2",
+    "ho-revisit-1",
+    "ho-revisit-2",
+    "ho-pred-1",
+    "ho-pred-2",
+    "ho-mask-1",
+    "ho-mask-2",
+    "ho-rate-1",
+    "ho-rate-2",
+    "ho-malf-1",
+    "ho-malf-2",
+    "ho-outage-1",
+    "ho-deny-1",
+    "ho-deny-2"
+   ],
+   "failure_rule": "a failed, timed-out, wrong-route, or invalid judgment is an abstention; its measured tokens still count",
+   "flags": [
+    "--safe-mode",
+    "--ignore-rules"
+   ],
+   "hermes_home": "real (~/.hermes); a scratch HERMES_HOME is refused",
+   "judge_timeout_seconds": 300.0,
+   "latency": "per-step local loop time (includes the real main-model wall time) plus the modeled Jev time, as for B and C",
+   "max_main_model_calls": 197,
+   "model": "gpt-6-sol",
+   "provider": "openai-codex",
+   "reasoning": "high",
+   "split": "heldout",
+   "stop_rule": "candidate _ProgressTracker, same thresholds as C (fixtures.lock.json policy)",
+   "toolsets": "context_engine"
+  },
+  "acceptance": {
+   "baselines": {
+    "heldout": [
+     "A_prime",
+     "B"
+    ],
+    "live": [
+     "B"
+    ]
+   },
+   "cost": "C total known cost <= every baseline; any null cost in C or a baseline fails",
+   "latency": "C task latency p50 and total <= every baseline",
+   "outcome": "C completion >= every baseline; C labelled stalls stopped early with a recovery suggestion > every baseline; 0 premature stops; 0 false completions",
+   "source": "coordinator release-acceptance decision for v0.5.5 features (published-eval rules)",
+   "tuning": "none after results; a failing rule is published as is"
+  },
+  "fixtures_sha256": "f4ceb2728f713d0c4988c8abcf19546c37f8e7f612c423385038b764691ce299",
+  "judge_prompt_sha256": "588076a833ea4eddd1a17537853e7629f1f3f1c93e73881bc6df908d4b41cda9",
+  "live": {
+   "arms": [
+    "B",
+    "C"
+   ],
+   "completed": "status completion_candidate on a productive or done_on_first_page goal",
+   "cost": "sum of provider-reported usage.cost per physical Jev request; a missing cost is null",
+   "fallback": "none; a route failure is recorded as a failed run",
+   "jev_provider": "auto",
+   "latency": "handler wall time per goal, including browser and network",
+   "max_physical_requests": 24,
+   "max_steps": 4,
+   "order": [
+    {
+     "arm": "B",
+     "goal": "live-2"
+    },
+    {
+     "arm": "C",
+     "goal": "live-2"
+    },
+    {
+     "arm": "C",
+     "goal": "live-3"
+    },
+    {
+     "arm": "B",
+     "goal": "live-3"
+    },
+    {
+     "arm": "B",
+     "goal": "live-1"
+    },
+    {
+     "arm": "C",
+     "goal": "live-1"
+    },
+    {
+     "arm": "C",
+     "goal": "live-4"
+    },
+    {
+     "arm": "B",
+     "goal": "live-4"
+    }
+   ],
+   "pair_rule": "a pair runs only when the cap left covers both runs at the per-run cap; else both are skipped",
+   "per_run_physical_cap": 4
+  },
+  "live_sha256": "c45ef00cf0bfc0df6135bdca0882cfd3147e2f9d5bcf575d2466d0eb8ef35c60",
+  "pricing": {
+   "currency": "USD",
+   "long_prompt_threshold_tokens": 272000,
+   "model": "gpt-6-sol",
+   "per_million_tokens": {
+    "cache_write": 2.5,
+    "cached_input": 0.2,
+    "input": 2.0,
+    "output": 10.0
+   },
+   "per_million_tokens_above_threshold": {
+    "cache_write": 5.0,
+    "cached_input": 0.4,
+    "input": 4.0,
+    "output": 15.0
+   },
+   "retrieved": "2026-09-27",
+   "rules": "Standard (not Fast) API list price. Prompt tokens = input + cache_read + cache_write; above the threshold the higher rates apply to the whole request. Reasoning tokens are part of output_tokens and are not added again. Harness auxiliary calls (one-shot title generation) are recorded and not priced.",
+   "source_url": "https://developers.openai.com/api/docs/models/gpt-6-sol"
+  },
+  "schema_version": 1,
+  "suite": "browser_progress_e2e"
+ }
+}

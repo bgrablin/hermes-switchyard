@@ -95,3 +95,31 @@ bytes as the pre-feature tree on all 40 cases.
   `ho-stall-8`) have scripted answers that are not confident. The loop then
   keeps the baseline behavior, as designed.
 - A live run is separate. It needs its own approval and its own report.
+
+## Frozen end-to-end release evaluation
+
+The signed `e2e_plan.json` fixes 32 held-out traces for A′ (the main model judges the optional progress questions while the scripted Jev handles base questions), B (v0.5.4), and C (this candidate). The separate live B/C run alternates on four public browser goals. Per-case results are in `offline.json`, `a_prime.jsonl`, and `live.jsonl`; `acceptance.json` contains the frozen rule verdicts. A′ used 41 gpt-6-sol calls (cap 197; 38 valid and 3 invalid replies counted as abstentions). The live browser run used 8 physical Jev requests (cap 24) and skipped no pair. No route fallback or result tuning was used.
+
+| Held-out arm (32 traces) | Completion candidates | Stalls stopped early with suggestion (8 labelled) | Premature / false completions | Main input + cached input / output tokens | Jev tokens | Known cost (USD); null requests | Task p50 / p95 / total latency (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| A′ realistic judgment | 9 / 32 | 8 / 8 | 6 / 0 | 147,172 + 89,088 / 3,608 | not recorded | 0.35554465; 3 null | 24,808.789 / 41,977.754 / 712,030.096 |
+| B v0.5.4 | 14 / 32 | 0 / 8 | 0 / 0 | 0 / 0 | not recorded | 0.00968885; 3 null | 1,251.042 / 1,751.786 / 37,534.288 |
+| C candidate | 14 / 32 | 6 / 8 | 0 / 0 | 0 / 0 | not recorded | 0.00939425; 3 null | 1,003.142 / 1,752.888 / 33,574.221 |
+
+The Jev exchange token counts are not captured by this harness; do not read “not recorded” as zero. A′'s main-model price is the frozen [gpt-6-sol standard list price](https://developers.openai.com/api/docs/models/gpt-6-sol) (retrieved 2026-09-27), including cached input and output; 21,857 auxiliary title-generation tokens are recorded but not priced. The held-out Jev costs are modeled from request bytes, not provider charges. All three arms have three null Jev costs caused by the frozen injected 429/529/outage faults. The frozen rule treats each null as a failure; it does not replace it with zero. These traces use scripted Jev answers and modeled request latency, not measured model quality or network latency.
+
+| Live arm (4 public goals) | Completion candidates | Incomplete goals stopped early with suggestion | False completions | Main / Jev tokens | Provider cost (USD); null requests | Task p50 / p95 / total latency (ms) | Physical requests |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| B v0.5.4 | 2 / 4 | 0 / 2 | 0 | 0 / not recorded | 0.000399462; 0 null | 1,434.3 / 1,962.2 / 6,151.2 | 4 |
+| C candidate | 2 / 4 | 0 / 2 | 0 | 0 / not recorded | 0.000342510; 0 null | 1,378.6 / 2,067.9 / 6,143.9 | 4 |
+
+The live task times include real headless-browser setup and provider time. Both incomplete goals blocked at operation selection before the semantic-stall rule fired. `completion_candidate` is not independent goal verification. The p95 column is descriptive, not one of the frozen release gates.
+
+| Frozen acceptance rule | Held-out verdict | Live verdict |
+| --- | --- | --- |
+| Outcome: C completes at least as many as each baseline, stops more labelled stalls early with a suggestion, and has zero premature stops and false completions | **FAIL**: C 6 early stops ≤ A′ 8 (C 14 completions, 0 premature/false) | **FAIL**: C 0 early stops ≤ B 0 (both 2 completion candidates) |
+| Task p50 latency no worse than each baseline | **PASS**: C 1,003.142 ms ≤ B 1,251.042 ms and A′ 24,808.789 ms | **PASS**: C 1,378.6 ms ≤ B 1,434.3 ms |
+| Task total latency no worse than each baseline | **PASS**: C 33,574.221 ms ≤ B 37,534.288 ms and A′ 712,030.096 ms | **PASS**: C 6,143.9 ms ≤ B 6,151.2 ms |
+| Total cost no worse than each baseline, with no null cost | **FAIL**: three injected-fault nulls in each arm | **PASS**: C $0.000342510 ≤ B $0.000399462; no nulls |
+
+**Release acceptance: FAIL.** Keep `browser_progress_mode` at its existing default `off`. The earlier offline design gate passed, but it was a scripted wiring gate and cannot override the frozen end-to-end rule failures.
