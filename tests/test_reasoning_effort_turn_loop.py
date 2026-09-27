@@ -184,6 +184,9 @@ class HermesTurnLoopEffortTests(unittest.TestCase):
             bundled.mkdir()
             env = replay._sparse_child_env(("PATH", "PYTHONPATH", "TMPDIR", "LANG"))
             env.update({"HOME": str(workspace), "HERMES_HOME": str(home), "HERMES_BUNDLED_PLUGINS": str(bundled)})
+            if os.name == "nt":
+                # Windows Path.home() reads USERPROFILE, not HOME; the real turn loop resolves it on import.
+                env["USERPROFILE"] = str(workspace)
             result = subprocess.run(
                 [sys.executable, "-m", "tests.test_reasoning_effort_turn_loop", "--child", str(plugin)],
                 cwd=root, env=env, text=True, capture_output=True, timeout=120,
