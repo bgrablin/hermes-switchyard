@@ -365,6 +365,19 @@ class StatsTests(_Isolated):
         self.assertAlmostEqual(stats["cost_per_turn_known"], 0.00075)
         json.dumps(stats, allow_nan=False)
 
+    def test_bypass_and_input_size_stats(self):
+        bypassed = dict(_receipt(), hosted_skip_reason="trivial_turn", bypass_reason="trivial_turn", input_chars=0)
+        hosted = dict(_hosted_selection(), bypass_reason=None, input_chars=120)
+        hosted_small = dict(_hosted_abstention(), bypass_reason=None, input_chars=40)
+        legacy = _hosted_selection()  # pre-v0.5.5 record without the new fields
+        for index, receipt in enumerate((bypassed, hosted, hosted_small, legacy)):
+            self.assertTrue(self.append(receipt, session_id="s", turn_id=f"t{index}"))
+        stats = rh.routing_stats(data_dir=self.data)
+        self.assertEqual(stats["turns"], 4)
+        self.assertEqual(stats["bypass_reasons"], {"trivial_turn": 1})
+        self.assertEqual(stats["hosted_input_chars_p50"], 40.0)
+        json.dumps(stats, allow_nan=False)
+
     def test_failure_stats_prefer_closed_set_subcode_with_legacy_fallback(self):
         detailed = _hosted_failure("transport_or_execution_failure")
         detailed["hosted_error_detail"] = "http_429"
