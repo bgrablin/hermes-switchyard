@@ -369,14 +369,41 @@ class DataBoundaryTests(unittest.TestCase):
 
 class EarlyStopTests(unittest.TestCase):
     def test_low_needs_skill_stops_after_one_request(self):
+        # Sequential probe mode: partition 0 goes first and can stop fan-out.
         transport = responder(needs=0.05)
-        result = run_two_stage(task=TASK, candidates=catalog(), client=client_for(transport))
+        result = run_two_stage(task=TASK, candidates=catalog(), client=client_for(transport),
+                               config=TwoStageConfig(stage1_single_round=False))
         self.assertEqual(len(transport.payloads), 1)
         self.assertIsNone(result["selected"])
         self.assertTrue(result["early_stop"])
         self.assertEqual(result["shortlist_policy"], SHORTLIST_POLICY_TWO_STAGE_EARLY_STOP)
         self.assertIn("needs_skill_early_stop", result["abstention_reason"])
         self.assertEqual(result["request_count"], 1)
+
+    def test_single_round_sends_all_partitions_in_one_round_and_skips_stage2(self):
+        # Default mode: no sequential probe round. A low needs-skill answer
+        # still skips the stage-2 recheck.
+        transport = responder(needs=0.05)
+        config = TwoStageConfig()
+        self.assertTrue(config.stage1_single_round)
+        plan = plan_two_stage(TASK, catalog(), config)
+        result = run_two_stage(task=TASK, candidates=catalog(), client=client_for(transport), config=config)
+        self.assertEqual(len(transport.payloads), plan.stage1_requests)
+        self.assertEqual(result["request_rounds"], 1)
+        self.assertIsNone(result["selected"])
+        self.assertTrue(result["early_stop"])
+        self.assertEqual(result["shortlist_policy"], SHORTLIST_POLICY_TWO_STAGE_EARLY_STOP)
+
+    def test_single_round_fit_turn_uses_two_rounds_not_three(self):
+        transport = responder()
+        config = TwoStageConfig()
+        plan = plan_two_stage(TASK, catalog(), config)
+        self.assertGreater(plan.stage1_requests, 1)
+        result = run_two_stage(task=TASK, candidates=catalog(), client=client_for(transport), config=config)
+        self.assertEqual(result["request_rounds"], 2)
+        sequential = run_two_stage(task=TASK, candidates=catalog(), client=client_for(responder()),
+                                   config=TwoStageConfig(stage1_single_round=False))
+        self.assertEqual(sequential["request_rounds"], 3)
 
     def test_early_stop_question_asks_about_the_whole_catalog(self):
         transport = responder(needs=0.05)

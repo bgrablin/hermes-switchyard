@@ -121,6 +121,7 @@ TWO_STAGE_CONFIG_KEYS = (
     "automatic_skill_early_stop_threshold",
     "automatic_skill_stage1_min_probability",
     "automatic_skill_parallel_requests",
+    "automatic_skill_stage1_single_round",
 )
 
 _STAGE2_NONE_TEXT = "No offered skill materially fits the task"
@@ -162,6 +163,11 @@ class TwoStageConfig:
     early_stop_threshold: float = DEFAULT_EARLY_STOP_THRESHOLD
     stage1_min_probability: float = DEFAULT_STAGE1_MIN_PROBABILITY
     parallel_requests: int = DEFAULT_PARALLEL_REQUESTS
+    # True sends every stage-1 partition in one parallel round. The partition 0
+    # needs-skill signal then only skips stage 2. False keeps the older
+    # sequential probe (partition 0 first), which saves requests on no-fit
+    # turns but adds one full request round to every other turn.
+    stage1_single_round: bool = True
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any] | None) -> "TwoStageConfig":
@@ -192,6 +198,7 @@ class TwoStageConfig:
                 1,
                 MAX_PARALLEL_REQUESTS,
             ),
+            stage1_single_round=_bool(raw.get("automatic_skill_stage1_single_round"), True),
         )
 
 
@@ -404,9 +411,9 @@ def plan_two_stage(task: str, candidates: Sequence[Any], config: TwoStageConfig)
 
 
 def _scan_reason(text: str) -> str | None:
-    from .automatic import _local_scan_reason  # late import: automatic imports routing
+    from .automatic import _catalog_scan_reason  # late import: automatic imports routing
 
-    return _local_scan_reason(text, text)
+    return _catalog_scan_reason(text, text)
 
 
 def _bounded_detail(value: Any, limit: int) -> str | None:
@@ -869,7 +876,7 @@ def _run_planned(
             first: _PartitionResult | None = None
             early_stopped = False
             rounds = 0
-            if config.early_stop:
+            if config.early_stop and not config.stage1_single_round:
                 first = partition_job(0)(client)
                 calls.append(first.metadata)
                 stage1.append((plan.partitions[0], first.probabilities))
@@ -896,6 +903,8 @@ def _run_planned(
             if first is None:
                 raise RuntimeError("two-stage partition 0 produced no result")
             needs_stage1 = first.needs
+            if config.early_stop and config.stage1_single_round:
+                early_stopped = needs_stage1 is not None and needs_stage1 < config.early_stop_threshold
 
             base: dict[str, Any] = {
                 "thresholds": thresholds,

@@ -154,6 +154,15 @@ jobs:
           set -euo pipefail
           hermes plugins doctor --ci "$GITHUB_WORKSPACE" 2>&1 | tee "$RUNNER_TEMP/switchyard-receipts/plugin-doctor.log"
 
+      - name: Scan the install tree with the Hermes plugin scanner
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$HERMES_PYTHON" scripts/ci/check_install_scan.py \
+            --plugin-root "$GITHUB_WORKSPACE" \
+            --upstream-root "$RUNNER_TEMP/hermes-agent" \
+            --report "$RUNNER_TEMP/switchyard-receipts/install-scan.json"
+
       - name: Check native loader, registration, and tool schemas
         shell: bash
         run: |
