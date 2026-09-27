@@ -52,6 +52,8 @@ You need a working Hermes installation, one TypeSafe or OpenRouter account key, 
 
 The live test is optional. A status of `ready` checks key presence and tool exposure; it is not a successful Jev decision. The live test reports `passed` only after a provider response. Plugin Doctor checks registration, not account readiness or model quality. The installer can block a community Git source after a security scan. Read the findings before you approve any override; do not treat a blocked install as success. A fresh session or gateway restart is necessary before an already-running session uses a new plugin.
 
+**First-run evidence:** pinned Hermes `8503ee4` installed Switchyard commit `08e1941` from a local Git URL in a clean scratch profile without a scan override. Install (4.984 s), enable (0.611 s), Doctor (0.779 s), and status (2.307 s) took 8.681 s in total. Status was `credential_required` because the profile had no provider key. This excludes GitHub download time, masked key setup, a new interactive session, and a paid live decision. **The complete under-two-minute first-run criterion is not verified.** The local Git URL was a test source, not a recommended production command.
+
 ## What you will see
 
 Automatic skill routing uses `hosted_sanitized` and `load` by default. An eligible turn can send a bounded task and candidate names to Jev, then load one accepted skill through Hermes. `/reasoning` remains the cap for adaptive effort. You can inspect the current session with `/switchyard effort status` and the stored routing decision with `hermes switchyard receipt --json` or `hermes switchyard stats --since 24h`.
@@ -93,7 +95,7 @@ You can also set `public_or_sanitized_data_ack` and `automatic_skill_public_or_s
 | Hooks (3) | `pre_llm_call`, `post_llm_call`, `post_tool_call` | Registered after enablement |
 | Middleware (1) | `llm_request` for request-scoped effort | On when supported by Hermes |
 
-`jev_skill_select_many` recommends several skills but does not load them. The automatic hook can load one accepted skill per identified turn. `jev_model_route` and `jev_model_route_approved` do not apply a model switch. Jev `DONE` alone does not verify a browser goal; Switchyard also needs its local completion condition. An early local stop is a candidate, not verified success. [Browser receipts](docs/DOM-BROWSER-BACKEND.md) show the separate action, effect, and goal fields.
+Doctor reports four hook registrations because two handlers use `pre_llm_call`; the manifest lists three distinct kinds. `jev_skill_select_many` recommends several skills but does not load them. The automatic hook can load one accepted skill per identified turn. `jev_model_route` and `jev_model_route_approved` do not apply a model switch. Jev `DONE` alone does not verify a browser goal; Switchyard also needs its local completion condition. An early local stop is a candidate, not verified success. [Browser receipts](docs/DOM-BROWSER-BACKEND.md) show the separate action, effect, and goal fields.
 
 ## Automatic skill recommendations
 
