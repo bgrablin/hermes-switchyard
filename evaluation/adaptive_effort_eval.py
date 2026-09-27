@@ -430,7 +430,7 @@ def _send_through_sdk(route: Mapping[str, str], payload: dict[str, Any]) -> dict
                 "content": [], "stop_reason": "end_turn", "stop_sequence": None,
                 "usage": {"input_tokens": 1, "output_tokens": 1}})
 
-        with anthropic.Anthropic(api_key="offline-eval", base_url="https://example.invalid",
+        with anthropic.Anthropic(api_key="fixture-key", base_url="https://example.invalid",
                                  http_client=httpx.Client(transport=httpx.MockTransport(capture))) as client:
             client.messages.create(**payload)
     else:
@@ -441,7 +441,7 @@ def _send_through_sdk(route: Mapping[str, str], payload: dict[str, Any]) -> dict
             return httpx.Response(200, json={"id": "resp_eval", "object": "response", "model": route["model"],
                                              "created_at": 0, "output": [], "status": "completed"})
 
-        with openai.OpenAI(api_key="offline-eval", base_url="https://example.invalid/v1",
+        with openai.OpenAI(api_key="fixture-key", base_url="https://example.invalid/v1",
                            http_client=httpx.Client(transport=httpx.MockTransport(capture))) as client:
             client.responses.create(**payload)
     if len(captured) != 1:
@@ -481,7 +481,7 @@ class _JevRecorder:
         if self.mode == "live":
             client = self.original_factory()
         else:
-            client = self.client_module.DecisionClient(api_key="offline-eval", transport=self._offline_transport)
+            client = self.client_module.DecisionClient(api_key="fixture-key", transport=self._offline_transport)
         original_post = client._post
         recorder = self
 
