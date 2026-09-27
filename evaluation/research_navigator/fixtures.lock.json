@@ -1,0 +1,11 @@
+{
+ "fixtures_sha256": "56f5362dfede6c92511bbfa270c563fdf3464e2ce0f1a0de2f894a679933eddf",
+ "frozen_at": "2026-09-27T14:22:29Z",
+ "policy_version": "research-v1",
+ "thresholds": {
+  "support": 0.85,
+  "contradiction": 0.85,
+  "decisive_no": 0.15
+ },
+ "note": "Frozen before any provider-backed run. Do not edit fixtures.json without a new lock and a new report."
+}

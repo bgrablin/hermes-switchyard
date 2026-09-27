@@ -24,6 +24,7 @@ provides_tools:
   - jev_model_route
   - jev_model_route_approved
   - jev_session_search_rerank
+  - jev_research_navigator
 provides_hooks:
   - pre_llm_call
   - post_llm_call
@@ -68,4 +69,8 @@ config_schema:
   session_search_rerank_choice_confidence_threshold: {type: float, default: 0.8, description: "Uncalibrated local policy threshold for jev_session_search_rerank; below this the tool fail-opens to stock FTS order"}
   session_search_rerank_winning_probability_threshold: {type: float, default: 0.8, description: "Uncalibrated winning-probability threshold for jev_session_search_rerank fail-open"}
   session_search_rerank_max_card_chars: {type: int, default: 360, description: "Per-card text cap after redaction for jev_session_search_rerank"}
+  research_navigator_enabled: {type: bool, default: false, description: "Off by default. When true, jev_research_navigator sends the goal, up to 4 claims, and up to 6 caller-supplied public excerpt windows (1,200 characters each) to Jev in one request. Private, credentialed, or marked text is refused locally."}
+  research_navigator_deadline_seconds: {type: float, default: 6.0, description: "Wall-clock budget for the one research navigator Jev request; bounded by the operation deadline"}
+  research_support_threshold: {type: float, default: 0.85, description: "Policy research-v1 support Noul threshold; below it a window does not support a claim. Not a correctness probability"}
+  research_contradiction_threshold: {type: float, default: 0.85, description: "Policy research-v1 contradiction Noul threshold; below it a window does not contradict a claim. Not a correctness probability"}
   public_or_sanitized_data_ack: {type: bool, default: true, description: "Standing consent for Jev tool calls and for adaptive effort, which sends up to 1,200 characters of the clean current user message to Jev. On after install. Callers may omit the field. Set false to refuse Jev calls; adaptive effort then sends no message text."}

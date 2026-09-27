@@ -456,3 +456,63 @@ SESSION_SEARCH_RERANK = {
         "additionalProperties": False,
     },
 }
+
+RESEARCH_NAVIGATOR = {
+    "name": "jev_research_navigator",
+    "description": (
+        "Off by default (research_navigator_enabled). Link named claims to public source windows that "
+        "the caller already retrieved. Send up to 4 claims and up to 6 original public excerpt windows "
+        "(each at most 1,200 characters, with its public https URL). One Jev request asks, for each "
+        "claim and window, whether the window supports or contradicts the claim. Returns one card per "
+        "claim: supported, contradicted, mixed, or unresolved, with the original window text as "
+        "evidence. An exact_quote must appear verbatim in a window before that window is assessed. The "
+        "tool does not fetch pages and does not prove a window matches its live URL; verified is "
+        "always false. Private, credentialed, or marked (CUI, FOUO, proprietary) text is refused locally."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "goal": {"type": "string", "minLength": 1, "maxLength": 400, "description": "Public research goal."},
+            "claims": {
+                "type": "array",
+                "maxItems": 4,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,31}$"},
+                        "text": {"type": "string", "minLength": 1, "maxLength": 300},
+                        "exact_quote": {
+                            "type": ["string", "null"],
+                            "maxLength": 300,
+                            "description": "Optional quote that must appear verbatim in a window before that window is assessed.",
+                        },
+                    },
+                    "required": ["id", "text"],
+                    "additionalProperties": False,
+                },
+            },
+            "windows": {
+                "type": "array",
+                "maxItems": 6,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,31}$"},
+                        "url": {"type": "string", "minLength": 1, "maxLength": 2048, "description": "Public https URL of the source. Display provenance only; not fetched."},
+                        "text": {"type": "string", "minLength": 1, "maxLength": 1200, "description": "Original excerpt text, unchanged."},
+                        "sha256": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$",
+                            "description": "Optional hash of text from an earlier result. A mismatch marks the window stale.",
+                        },
+                    },
+                    "required": ["id", "url", "text"],
+                    "additionalProperties": False,
+                },
+            },
+            "public_or_sanitized_data_ack": _ACKNOWLEDGEMENT,
+        },
+        "required": ["goal", "claims", "windows"],
+        "additionalProperties": False,
+    },
+}

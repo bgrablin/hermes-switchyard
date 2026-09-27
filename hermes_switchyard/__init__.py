@@ -40,6 +40,7 @@ from .reasoning_effort_adapter import (
 )
 from .routing import route_model, select_skill, select_skills
 from .session_search_rerank import rerank_session_search
+from . import research_navigator
 from .two_stage_routing import TWO_STAGE_CONFIG_KEYS, TwoStageConfig, skill_excerpt
 
 from .host_compat import ctx_get_config, register_auxiliary_task as register_host_auxiliary_task
@@ -70,6 +71,7 @@ TOOL_TOOLSETS = {
     "jev_model_route": PLUGIN_TOOLSET,
     "jev_model_route_approved": PLUGIN_TOOLSET,
     "jev_session_search_rerank": PLUGIN_TOOLSET,
+    "jev_research_navigator": PLUGIN_TOOLSET,
 }
 # Sessions that advertise Switchyard computer use need both toolsets selected.
 # Plugin Doctor / plugin-enable only toggles one plugin toolset key
@@ -1437,6 +1439,61 @@ def _load_skill_context(name: str, *, task_id: str | None = None) -> str:
     return content
 
 
+def _research_navigator_handler(ctx, *, standing_ack, route, client):
+    """Build the jev_research_navigator handler. Settings are read once at register time."""
+    enabled = ctx_get_config(ctx, "research_navigator_enabled", default=False) is True
+    deadline = _config_float(
+        ctx_get_config(
+            ctx,
+            "research_navigator_deadline_seconds",
+            default=research_navigator.DEFAULT_DEADLINE_SECONDS,
+        ),
+        research_navigator.DEFAULT_DEADLINE_SECONDS,
+        minimum=0.5,
+        maximum=DEFAULT_OPERATION_DEADLINE_SECONDS,
+    )
+    support = _config_float(
+        ctx_get_config(ctx, "research_support_threshold", default=research_navigator.DEFAULT_SUPPORT_THRESHOLD),
+        research_navigator.DEFAULT_SUPPORT_THRESHOLD,
+        minimum=0.51,
+        maximum=1.0,
+    )
+    contradiction = _config_float(
+        ctx_get_config(
+            ctx,
+            "research_contradiction_threshold",
+            default=research_navigator.DEFAULT_CONTRADICTION_THRESHOLD,
+        ),
+        research_navigator.DEFAULT_CONTRADICTION_THRESHOLD,
+        minimum=0.51,
+        maximum=1.0,
+    )
+
+    def factory():
+        requested_model = route()[1]
+        return client(), requested_model
+
+    def handler(args, **kwargs):
+        try:
+            _require_public_data_ack(args, standing=standing_ack)
+            result = research_navigator.navigate_research(
+                goal=args.get("goal"),
+                claims=args.get("claims"),
+                windows=args.get("windows"),
+                client_factory=factory,
+                enabled=enabled,
+                public_or_sanitized_data_ack=_resolved_public_data_ack(args, standing_ack),
+                support_threshold=support,
+                contradiction_threshold=contradiction,
+                deadline_seconds=deadline,
+            )
+            return research_navigator.result_json(result)
+        except Exception as exc:  # noqa: BLE001 -- tool handlers return structured errors
+            return _error(exc)
+
+    return handler
+
+
 def register(ctx):
     default_steps = int(ctx_get_config(ctx, "computer_max_steps", default=100))
     approved_registry = ctx_get_config(ctx, "approved_model_registry", default=[])
@@ -1869,6 +1926,12 @@ def register(ctx):
         "jev_session_search_rerank",
         schemas.SESSION_SEARCH_RERANK,
         session_search_rerank_handler,
+        decision_tools_available,
+    )
+    register_tool(
+        "jev_research_navigator",
+        schemas.RESEARCH_NAVIGATOR,
+        _research_navigator_handler(ctx, standing_ack=standing_ack, route=_route, client=client),
         decision_tools_available,
     )
     if hasattr(ctx, "register_skill"):

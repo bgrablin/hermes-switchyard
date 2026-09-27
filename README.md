@@ -70,7 +70,7 @@ The [setup guide](docs/SETUP.md) covers provider selection and further privacy s
 
 | Surface | What is available | Default |
 | --- | --- | --- |
-| Tools (7) | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, `jev_session_search_rerank`, `jev_computer_use` | Callable when the corresponding toolset is selected |
+| Tools (8) | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, `jev_session_search_rerank`, `jev_research_navigator`, `jev_computer_use` | Callable when the corresponding toolset is selected |
 | Hooks (3) | `pre_llm_call` for automatic skill routing and current-message capture for effort; `post_llm_call` to clear that capture at turn end; `post_tool_call` for effort reconsideration | On after install |
 | Middleware (1) | `llm_request` for per-request reasoning effort | On after install |
 
@@ -86,14 +86,14 @@ For public web goals, Switchyard uses a fresh browser profile and chooses from t
 
 ## Toolsets and session exposure
 
-Hermes exposes a plugin tool only when its toolset is selected. Switchyard registers its seven tools under two toolsets:
+Hermes exposes a plugin tool only when its toolset is selected. Switchyard registers its eight tools under two toolsets:
 
 | Toolset | Tools |
 | --- | --- |
 | `computer_use` | `jev_computer_use` |
-| `hermes_switchyard` | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, `jev_session_search_rerank` |
+| `hermes_switchyard` | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, `jev_session_search_rerank`, `jev_research_navigator` |
 
-An explicit `-t` pin replaces the default selection. Pinning only `computer_use` leaves out the six decision tools; pinning only `hermes_switchyard` leaves out computer use. A pin that names neither toolset exposes none of the seven tools. To expose all seven in one session:
+An explicit `-t` pin replaces the default selection. Pinning only `computer_use` leaves out the seven decision tools; pinning only `hermes_switchyard` leaves out computer use. A pin that names neither toolset exposes none of the eight tools. To expose all eight in one session:
 
 ```text
 hermes -t computer_use,hermes_switchyard chat
