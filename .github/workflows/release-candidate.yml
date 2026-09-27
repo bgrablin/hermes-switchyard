@@ -110,7 +110,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          "$HERMES_PYTHON" -c 'import hashlib,json,os,pathlib; p=pathlib.Path("dist/hermes-switchyard-0.5.4.zip"); out=pathlib.Path(os.environ["RUNNER_TEMP"])/"switchyard-release-receipts/archive-sha256.json"; out.write_text(json.dumps({"source_sha":os.environ["SWITCHYARD_SOURCE_SHA"],"archive_sha256":hashlib.sha256(p.read_bytes()).hexdigest()},sort_keys=True)+"\n",encoding="utf-8")'
+          "$HERMES_PYTHON" scripts/ci/record_archive_sha256.py \
+            --archive dist/hermes-switchyard-0.5.4.zip \
+            --out "$RUNNER_TEMP/switchyard-release-receipts/archive-sha256.json"
 
       - name: Write release candidate summary
         if: always()
