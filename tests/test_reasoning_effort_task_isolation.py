@@ -96,7 +96,7 @@ class TaskIsolationTests(unittest.TestCase):
         controller, _, _ = self.make(choice="low")
         self.assertEqual(self.parent(controller, opus_request("high")), "low")
         self.child(controller, opus_request("medium"))
-        self.assertNotEqual(last_receipt()["reason_code"], "pinned_by_user_change")
+        self.assertNotEqual(last_receipt()["reason_code"], "pinned")
         self.assertEqual(self.parent(controller, opus_request("high")), "low")
         status = controller.session_status(SESSION)
         self.assertEqual(status["mode"], "auto")
