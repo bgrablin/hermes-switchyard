@@ -344,7 +344,7 @@ class CheapHostedSelectIntegrationTests(unittest.TestCase):
 
     def test_fail_open_rescans_full_catalog_names_before_expand(self):
         # Shortlist is clean (printer/debug names), but a padded catalog name is
-        # secret-like. Expand must refuse rather than send the unsafe name.
+        # restricted. Expand must refuse rather than send the unsafe name.
         pad = [
             {"name": f"skill-{index}", "description": f"generic helper utility {index}"}
             for index in range(90)
@@ -360,7 +360,7 @@ class CheapHostedSelectIntegrationTests(unittest.TestCase):
                 "description": "Debug application errors and logs.",
             },
             {
-                "name": "api_key=sk-test-leak-name",
+                "name": "proprietary-confidential-skill",
                 "description": "Should never cross the hosted boundary.",
             },
         ]
@@ -371,13 +371,15 @@ class CheapHostedSelectIntegrationTests(unittest.TestCase):
             prefer="systematic-debugging",
             cheap=True,
         )
-        # Expand scan must block; no full-catalog offer of the secret-like name.
+        # Expand scan must block; no full-catalog offer of the restricted name.
         all_offered = set().union(*client.offered_per_call) if client.offered_per_call else set()
-        self.assertNotIn("api_key=sk-test-leak-name", all_offered)
+        self.assertNotIn("proprietary-confidential-skill", all_offered)
         self.assertIn(result.get("routing_reason"), {
             "local_scan_secret_like_value",
             "local_scan_restricted_data",
+            "local_scan_restricted_marking",
             "local_scan_payment_data",
+            "local_scan_contact_identifier",
         })
         self.assertEqual(result.get("routing_status"), "hosted_skipped")
         self.assertNotEqual(result.get("shortlist_policy"), SHORTLIST_POLICY_CHEAP_FAIL_OPEN)
