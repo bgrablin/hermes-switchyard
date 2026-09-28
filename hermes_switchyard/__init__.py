@@ -1613,6 +1613,8 @@ def register(ctx):
         mandatory_skills=discover_mandatory_skills(
             ctx_get_config(ctx, "automatic_skill_mandatory_skills", default=[])
         ),
+        honor_no_skill_gate=setting_bool("automatic_skill_honor_no_skill_gate", False),
+        light_turn_bypass=setting_bool("automatic_skill_light_turn_bypass", True),
         two_stage=TwoStageConfig.from_mapping(
             {
                 key: ctx_get_config(ctx, key, default=None)

@@ -33,7 +33,7 @@ from typing import Any, Callable, Mapping, Sequence
 from .client import MAX_CONNECTION_IDLE_SECONDS, HostCancelled, request_budget_scope
 from .egress_redaction import REDACTION_UNAVAILABLE_REASON, redact_for_jev
 from .routing import _choice_metrics, _criteria, _decision_metadata, _noul_score
-from .trivial_turn import is_trivial_turn
+from .trivial_turn import is_greeting_class_prompt, is_trivial_turn
 
 # Hermes hermes_constants.VALID_REASONING_EFFORTS plus "none" (disabled).
 HERMES_REASONING_EFFORTS: tuple[str, ...] = (
@@ -343,11 +343,14 @@ def request_metadata(value: Any) -> dict[str, Any] | None:
 def local_trivial_request(value: Any) -> bool:
     """True when a clean user message is a trivial turn that needs no Jev call.
 
-    Uses the closed acknowledgement list shared with skill routing (``trivial_turn``). A code
-    fence, URL, or file path makes the message non-trivial even when every word is on the list.
+    Uses the closed acknowledgement list and greeting-class instruction detector shared with
+    skill routing (``trivial_turn``). A code fence, URL, or file path makes the message
+    non-trivial even when every word is on the list.
     """
     text = _clean_user_text(value)
-    if text is None or not text.strip() or not is_trivial_turn(text):
+    if text is None or not text.strip():
+        return False
+    if not (is_trivial_turn(text) or is_greeting_class_prompt(text)):
         return False
     return not ("```" in text or _URL_RE.search(text) or _FILE_PATH_RE.search(text))
 

@@ -64,9 +64,11 @@ from .egress import (
 from .reasoning_effort_adapter import _effort_scan_reason
 from .routing import select_skill
 from .trivial_turn import (  # noqa: F401 -- the limits stay importable from automatic
+    LIGHT_NO_SKILL_REASON,
     TRIVIAL_ACK_MAX_WORDS,
     TRIVIAL_ACK_WORDS,
     TRIVIAL_SYMBOL_MAX_CHARS,
+    hosted_skill_bypass_reason,
     is_trivial_turn,
 )
 from .two_stage_routing import (
@@ -160,12 +162,14 @@ _RESTRICTED_WORD_RE = re.compile(
 MAX_SCANNED_TASK_CHARS = 64_000
 REDACTION_UNAVAILABLE_REASON = egress_redaction.REDACTION_UNAVAILABLE_REASON
 
-# Trivial-turn bypass: a greeting, thanks, or acknowledgement never names a
-# specialist skill, so the hosted call only adds latency. The rule is a closed
-# word list, not a length rule, so short task requests still reach Jev.
+# Light-turn bypass: greetings / thanks / acknowledgements, greeting-class
+# instructions, pure read-only listings, and short no-action explanations never
+# name a specialist skill, so the hosted call only adds latency. Closed-list and
+# predicate detectors live in trivial_turn.py; adaptive effort shares the ack list
+# and greeting-class path.
 TRIVIAL_TURN_REASON = "trivial_turn"
-# The closed list lives in trivial_turn.py; adaptive reasoning effort uses the same detector.
 _trivial_turn = is_trivial_turn
+_hosted_skill_bypass_reason = hosted_skill_bypass_reason
 _TRIVIAL_ACK_WORDS = TRIVIAL_ACK_WORDS
 
 # These words do not identify a specialist skill. Keeping this list local makes
@@ -523,6 +527,8 @@ class AutomaticSkillRecommender:
         prefilter_no_skill_threshold: float = DEFAULT_PREFILTER_NO_SKILL_THRESHOLD,
         prefilter_min_score: float = DEFAULT_PREFILTER_MIN_SCORE,
         prefilter_cutoff_margin: float = DEFAULT_PREFILTER_CUTOFF_MARGIN,
+        honor_no_skill_gate: bool = False,
+        light_turn_bypass: bool = True,
         two_stage: TwoStageConfig | None = None,
         excerpt_loader: Callable[[str], Any] | None = None,
     ) -> None:
@@ -568,6 +574,11 @@ class AutomaticSkillRecommender:
         self.prefilter_no_skill_threshold = max(0.0, min(float(prefilter_no_skill_threshold), 1.0))
         self.prefilter_min_score = max(0.0, min(float(prefilter_min_score), 1.0))
         self.prefilter_cutoff_margin = max(0.0, min(float(prefilter_cutoff_margin), 1.0))
+        # When true, honor local_no_skill_gate even under hosted_mode=always.
+        # Default false preserves always-mode full fan-out on near-zero overlap
+        # (short opaque tasks such as ``fix ci``). Opt in to cut needless tax.
+        self.honor_no_skill_gate = honor_no_skill_gate is True
+        self.light_turn_bypass = light_turn_bypass is True
         self._cache: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
         self._lock = threading.RLock()
         self._client: Any | None = None
@@ -767,6 +778,23 @@ class AutomaticSkillRecommender:
             self._record_receipt(result)
             return result
 
+        # Local-first light-turn bypass before catalog work or hosted calls.
+        light_bypass = (
+            _hosted_skill_bypass_reason(task_text) if self.light_turn_bypass else None
+        )
+        if light_bypass is not None:
+            result = self._empty_result(
+                routing_mode=self.routing_mode,
+                reason=light_bypass,
+                routing_status="hosted_skipped",
+            )
+            result["bypass_reason"] = light_bypass
+            result["request_count"] = 0
+            result["offered_count"] = 0
+            result["input_chars"] = 0
+            self._record_receipt(result)
+            return result
+
         if self.configured_candidates:
             candidate_set = self.configured_candidates
         else:
@@ -890,13 +918,13 @@ class AutomaticSkillRecommender:
                 min_score=self.prefilter_min_score,
                 cutoff_margin=self.prefilter_cutoff_margin,
             )
-            # ``always`` still evaluates hosted fit even when local overlap is
-            # near zero (opaque identifiers / weak lexical signal). The cheap
-            # no-skill gate applies only for ``uncertain_only``, where local
-            # abstention would otherwise pay full fan-out for an obvious miss.
+            # ``always`` historically forced full fan-out even on near-zero local
+            # overlap (opaque identifiers). Default honor_no_skill_gate=False keeps
+            # that always override; set true to skip needless zero-overlap tax.
             if (
                 prefilter_policy == SHORTLIST_POLICY_NO_SKILL_GATE
                 and self.hosted_mode == "always"
+                and not self.honor_no_skill_gate
             ):
                 prefilter_policy = SHORTLIST_POLICY_FULL_FAN_OUT
                 prefilter_subset = None
@@ -932,13 +960,6 @@ class AutomaticSkillRecommender:
             result["bypass_reason"] = "local_confident"
             result["routing_status"] = "hosted_skipped"
             result["routing_reason"] = "local_confident"
-        elif _trivial_turn(task_text):
-            # Local-first bypass: greetings, thanks, and acknowledgements
-            # never pay for a hosted request.
-            result["hosted_skipped"] = TRIVIAL_TURN_REASON
-            result["bypass_reason"] = TRIVIAL_TURN_REASON
-            result["routing_status"] = "hosted_skipped"
-            result["routing_reason"] = TRIVIAL_TURN_REASON
         elif outbound_scan_reason is not None:
             result["hosted_skipped"] = outbound_scan_reason
             result["routing_status"] = "hosted_skipped"
@@ -1551,6 +1572,8 @@ def build_pre_llm_call_hook(
     consumer_mode: str = DEFAULT_CONSUMER_MODE,
     skill_loader: Callable[..., str] | None = None,
     mandatory_skills: Any = (),
+    honor_no_skill_gate: bool = False,
+    light_turn_bypass: bool = True,
     two_stage: TwoStageConfig | None = None,
     excerpt_loader: Callable[[str], Any] | None = None,
     environ: Mapping[str, str] | None = None,
@@ -1578,6 +1601,8 @@ def build_pre_llm_call_hook(
             cache_seconds=cache_seconds,
             deadline_seconds=deadline_seconds,
             adoption_capable=(consumer_mode == "load"),
+            honor_no_skill_gate=honor_no_skill_gate,
+            light_turn_bypass=light_turn_bypass,
             two_stage=two_stage,
             excerpt_loader=excerpt_loader,
         )
@@ -1666,6 +1691,60 @@ def build_pre_llm_call_hook(
         # Hermes' conversation_history does not include the cached system prompt
         # that advertises skills. Discover the active profile registry directly.
         del conversation_history  # local-only input; never part of an egress payload
+        # Light-turn bypass before catalog discovery: greetings, greeting-class
+        # instructions, pure listings, and short no-action explanations never
+        # pay for skill registry scans or hosted Jev.
+        light_bypass = (
+            _hosted_skill_bypass_reason(_coerce_text(user_message))
+            if recommender.light_turn_bypass
+            else None
+        )
+        if light_bypass is not None:
+            result = {
+                "status": "abstained",
+                "selected": None,
+                "source": "none",
+                "abstention_reason": light_bypass,
+                "routing_mode": recommender.routing_mode,
+                "routing_status": "hosted_skipped",
+                "routing_reason": light_bypass,
+                "hosted_attempted": False,
+                "hosted_skipped": light_bypass,
+                "bypass_reason": light_bypass,
+                "candidate_count": 0,
+                "candidates_considered": [],
+                "cache_hit": False,
+                "request_count": 0,
+                "offered_count": 0,
+                "input_chars": 0,
+            }
+            contract = build_consumption_contract(
+                delivery_status="not_delivered",
+                adoption_status="not_applicable",
+            )
+            receipt = _attach_consumption_contract(build_routing_receipt(result), contract)
+            recommender.last_receipt = receipt
+            persist_failed = not _persist_receipt(receipt)
+            record_history(receipt)
+            metadata = redacted_routing_metadata(result)
+            _mark_persist_failure(metadata, persist_failed)
+            metadata["skill_recommendation"] = {
+                "status": "abstained",
+                "selected": None,
+                "source": "none",
+                "loaded_once": False,
+                **contract,
+            }
+            setattr(on_pre_llm_call, "last_result", dict(result))
+            setattr(on_pre_llm_call, "last_receipt", dict(receipt))
+            setattr(on_pre_llm_call, "last_metadata", dict(metadata))
+            setattr(on_pre_llm_call, "last_routing_metadata", dict(metadata))
+            response = {"metadata": metadata}
+            if turn_key is not None:
+                consumed_turns[turn_key] = dict(response)
+                while len(consumed_turns) > DEFAULT_CACHE_SIZE:
+                    consumed_turns.popitem(last=False)
+            return response
         catalog_candidates = (
             ()
             if configured or recommender.routing_mode == "off"
