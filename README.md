@@ -158,7 +158,6 @@ All current settings live under `plugins.entries.hermes-switchyard.settings`. Th
 | `adaptive_reasoning_effort_allow_raise` | `false` | Permit one level above your cap after a failed tool call only when enabled. |
 | `adaptive_reasoning_effort_step_adaptation` | `true` | Reconsider after routine read-only tool rounds; writes and failures keep the cap. |
 | `adaptive_reasoning_effort_receipt_line` | `true` | Show one foreground effort line after a turn where the plugin worked. |
-| `adaptive_reasoning_effort_status_bar` | `true` | In the Hermes TUI, show the level sent next to your level in the status bar, for example `high→low`. Your `/reasoning` setting does not change. |
 | `adaptive_reasoning_effort_default` | `medium` | Deprecated and unused; the request's own effort is the fallback. |
 | `adaptive_reasoning_effort_deadline_seconds` | `0.4` | Wall-clock budget for one adaptive Jev decision; allowed range is 0.1–1.5 s. On timeout your level is sent unchanged. |
 | `session_search_rerank_choice_confidence_threshold` | `0.8` | Minimum Jev Choice confidence to change FTS order. |
@@ -166,7 +165,7 @@ All current settings live under `plugins.entries.hermes-switchyard.settings`. Th
 | `session_search_rerank_max_card_chars` | `360` | Maximum text in a redacted FTS candidate card. |
 | `public_or_sanitized_data_ack` | `true` | Standing acknowledgement for explicit Jev tools and adaptive effort; callers can refuse one call. |
 
-The 42 setting rows above match the manifest defaults. F1 and F2 settings from their PRs are not in this manifest; do not set them. Both failed their frozen release evaluations. On timeout the 0.4 s guard sends your level unchanged. With the earlier 0.25 s guard, an installed cold one-shot sample had 8 timeouts in 14 non-trivial decisions (57.1%). A fresh TUI yielded one client-reused Jev call at 178.4 ms; n=1 cannot establish a warm p95 for the current default.
+The 41 setting rows above match the manifest defaults. F1 and F2 settings from their PRs are not in this manifest; do not set them. Both failed their frozen release evaluations. On timeout the 0.4 s guard sends your level unchanged. With the earlier 0.25 s guard, an installed cold one-shot sample had 8 timeouts in 14 non-trivial decisions (57.1%). A fresh TUI yielded one client-reused Jev call at 178.4 ms; n=1 cannot establish a warm p95 for the current default.
 
 ## Troubleshooting
 
@@ -184,8 +183,6 @@ These are code-owned status or receipt reasons. They identify a gate, not necess
 | `client_unavailable` / `provider_request_failed` | No usable Jev client exists or the provider request failed. | Inspect key, route, allowance, and typed receipt; do not assume fallback. |
 
 The installer can also report `Security scan blocked plugin install`. This occurs before any plugin status command is available. Review the exact scanner findings and source; do not pass `--force` merely to make the quickstart appear complete. [Setup](docs/SETUP.md) covers browser startup, explicit pins, and further status reasons.
-
-**Status bar still shows your level?** The Hermes TUI status bar shows `high→low` while Switchyard sends a lower level, and your level alone when it sends yours. It changes at the first model request of a turn. Start a fresh `hermes --tui` after installing or updating the plugin; an open session keeps the old plugin code. Other Hermes clients (CLI, gateway platforms) have no status bar and show only the receipt line. Set `adaptive_reasoning_effort_status_bar: false` to turn it off.
 
 **No per-turn effort line?** It appears only on a foreground turn where the plugin changed effort, called Jev, or reused a cached choice. Check `adaptive_reasoning_effort_receipt_line`, `/switchyard effort receipt`, the selected mode, and whether you started a fresh session after enabling the plugin. A disabled adapter or unsupported Hermes middleware cannot produce it. Use `/switchyard effort status` and `hermes switchyard status --json` to see the current state.
 

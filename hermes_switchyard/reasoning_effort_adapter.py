@@ -34,7 +34,6 @@ from .client import MAX_CONNECTION_IDLE_SECONDS, HostCancelled, request_budget_s
 from .egress_redaction import REDACTION_UNAVAILABLE_REASON, redact_for_jev
 from .routing import _choice_metrics, _criteria, _decision_metadata, _noul_score
 from .trivial_turn import is_trivial_turn
-from .tui_status import SentEffortStatus
 
 # Hermes hermes_constants.VALID_REASONING_EFFORTS plus "none" (disabled).
 HERMES_REASONING_EFFORTS: tuple[str, ...] = (
@@ -612,6 +611,69 @@ def _set_effort_mapping(mapping: dict[str, Any], level: str) -> dict[str, Any]:
         out["enabled"] = True
         out["effort"] = level
     return out
+
+
+# The receipt line that ``transform_llm_output`` appends: a blank line, then one line that
+# ``turn_receipt_line`` builds. Only this exact shape at the end of an assistant turn matches.
+_RECEIPT_TAIL = re.compile(
+    r"\n\nswitchyard: effort [a-z]+(?:→[a-z]+)*(?: \(kept: [^)\n]*\))?(?: · [^\n]*)?\Z"
+)
+
+
+def _strip_receipt_text(text: Any) -> Any:
+    """Return *text* without a trailing Switchyard receipt line, or *text* unchanged."""
+    if not isinstance(text, str) or "switchyard: effort " not in text:
+        return text
+    return _RECEIPT_TAIL.sub("", text)
+
+
+def _strip_receipt_content(content: Any) -> Any:
+    """Strip the receipt from one assistant ``content`` value (string or list of text parts)."""
+    if isinstance(content, str):
+        return _strip_receipt_text(content)
+    if not isinstance(content, list):
+        return content
+    changed = False
+    parts: list[Any] = []
+    for part in content:
+        if isinstance(part, Mapping) and isinstance(part.get("text"), str):
+            text = _strip_receipt_text(part["text"])
+            if text != part["text"]:
+                part = {**part, "text": text}
+                changed = True
+        parts.append(part)
+    return parts if changed else content
+
+
+def strip_receipt_lines(request: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Remove Switchyard receipt lines from earlier assistant turns in an outbound request.
+
+    The receipt line is for the user. Hermes stores the ``transform_llm_output`` result in the
+    session, so without this step the next request replays the line to the model. The step
+    covers Chat Completions and Anthropic ``messages`` and Codex/Responses ``input``. It
+    changes only assistant items and only a trailing line with the exact receipt shape.
+    Returns *request* itself when nothing changed.
+    """
+    out: dict[str, Any] | None = None
+    for key in ("messages", "input"):
+        items = request.get(key)
+        if not isinstance(items, list):
+            continue
+        new_items: list[Any] | None = None
+        for index, item in enumerate(items):
+            if not isinstance(item, Mapping) or item.get("role") != "assistant":
+                continue
+            content = _strip_receipt_content(item.get("content"))
+            if content is item.get("content"):
+                continue
+            if new_items is None:
+                new_items = list(items)
+            new_items[index] = {**item, "content": content}
+        if new_items is not None:
+            if out is None:
+                out = dict(request)
+            out[key] = new_items
+    return request if out is None else out
 
 
 def _set_codex_wire_effort(mapping: Mapping[str, Any], level: str) -> dict[str, Any]:
@@ -1333,8 +1395,6 @@ class ReasoningEffortController:
         step_adaptation: Any = True,
         receipt_line: Any = True,
         client_identity: Callable[[], Any] | None = None,
-        status_bar: Any = True,
-        status_publisher: Any = None,
     ) -> None:
         self.enabled = enabled is True
         # Deprecated: the fallback is always the request's own level.
@@ -1358,9 +1418,6 @@ class ReasoningEffortController:
             not isinstance(step_adaptation, bool) and parse_bool_setting(step_adaptation)
         )
         self.receipt_line = parse_bool_setting(receipt_line)
-        # Hermes TUI status bar: show the sent level next to the user's level (``high→low``).
-        self.status_bar = parse_bool_setting(status_bar)
-        self._status = status_publisher if status_publisher is not None else SentEffortStatus()
         self.record_decision = record_decision
         self.session_env = session_env or _session_env
         self._registry_lock = threading.RLock()
@@ -1653,7 +1710,6 @@ class ReasoningEffortController:
         payload = dict(receipt)
         # Host request identity for post_api_request usage; kept out of receipts and records.
         api_request_id = payload.pop("_api_request_id", None)
-        host_session_id = payload.pop("_host_session_id", None)
         _LAST_RECEIPT = dict(payload)
         state.last_choice = dict(payload)
         latency = _finite_or_none(payload.get("jev_latency_ms")) if payload.get("jev_called") else None
@@ -1667,11 +1723,6 @@ class ReasoningEffortController:
         if not state.delegated:
             self._note_turn_receipt(payload, latency)
             self._note_request_usage(payload, api_request_id)
-            if self.status_bar:
-                self._status.note(
-                    host_session_id or payload.get("session_id"), payload.get("requested_effort"),
-                    payload.get("effort"), payload.get("turn_id"),
-                )
         writer = self.record_decision
         if writer is not None:
             try:
@@ -2156,7 +2207,32 @@ class ReasoningEffortController:
         request: Mapping[str, Any] | None = None,
         **context: Any,
     ) -> dict[str, Any] | None:
-        """llm_request middleware: keep the user's level as the cap and lower only when routine."""
+        """llm_request middleware: remove replayed receipt lines, then apply adaptive effort.
+
+        Hermes stores the ``transform_llm_output`` result, so an earlier reply can carry the
+        receipt line. The line is for the user, so the model never gets it back.
+        """
+        raw_request = request if isinstance(request, Mapping) else {}
+        try:
+            cleaned = strip_receipt_lines(raw_request)
+        except Exception:  # noqa: BLE001 -- a display guard never breaks a request
+            cleaned = raw_request
+        result = self._effort_for_request(cleaned, **context)
+        if cleaned is raw_request or result is not None:
+            return result
+        return {
+            "request": dict(cleaned),
+            "source": "hermes-switchyard",
+            "reason": "receipt_line_removed",
+            "name": "receipt_history_guard",
+        }
+
+    def _effort_for_request(
+        self,
+        request: Mapping[str, Any] | None = None,
+        **context: Any,
+    ) -> dict[str, Any] | None:
+        """Keep the user's level as the cap and lower only when routine."""
         raw_request = request if isinstance(request, Mapping) else {}
         session_id = context.get("session_id")
         task_id = context.get("task_id")
@@ -2170,9 +2246,6 @@ class ReasoningEffortController:
             base["turn_id"] = turn_id
         if context.get("api_request_id") is not None:
             base["_api_request_id"] = context.get("api_request_id")
-        if _identifier(session_id) is not None:
-            # The host's own session ID (after any rotation), for the TUI status bar only.
-            base["_host_session_id"] = _identifier(session_id)
 
         with state.lock:
             state.requests += 1
@@ -2871,7 +2944,6 @@ def register_reasoning_effort_adapter(
     step_adaptation: Any = True,
     receipt_line: Any = True,
     client_identity: Callable[[], Any] | None = None,
-    status_bar: Any = True,
 ) -> dict[str, Any]:
     """Register llm_request middleware, turn and tool hooks, and ``/switchyard``."""
     global _LAST_REGISTRATION
@@ -2885,7 +2957,6 @@ def register_reasoning_effort_adapter(
             not isinstance(step_adaptation, bool) and parse_bool_setting(step_adaptation)
         ),
         "receipt_line": parse_bool_setting(receipt_line),
-        "status_bar": parse_bool_setting(status_bar),
     }
     if not enabled:
         receipt = {
@@ -2926,7 +2997,6 @@ def register_reasoning_effort_adapter(
         step_adaptation=settings["step_adaptation"],
         receipt_line=settings["receipt_line"],
         client_identity=client_identity,
-        status_bar=settings["status_bar"],
     )
     register_middleware = getattr(ctx, "register_middleware")
     register_middleware("llm_request", controller.on_llm_request)

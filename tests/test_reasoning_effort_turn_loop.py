@@ -4,8 +4,10 @@ A fake Jev decides only from the outbound ``current_request`` text. With the use
 ``high``, a greeting and a thanks go out at ``low`` on the Anthropic (``output_config.effort``)
 and Codex Responses (``reasoning.effort``) wire shapes, and a consequential request keeps
 ``high``. The receipt line is on by default: it reaches the final response through the Hermes
-``transform_llm_output`` seam for the lowered and the kept turn, and never enters the stored
-conversation history. ``/switchyard effort receipt off`` removes it. A Jev slower than the
+``transform_llm_output`` seam for the lowered and the kept turn. Newer Hermes stores that
+result in the session, so the next request replays it; the plugin's ``llm_request``
+middleware removes the line again, so the model never gets it back on either wire shape.
+``/switchyard effort receipt off`` removes it. A Jev slower than the
 default 0.4 s budget keeps the cap on both wire shapes, and its late answer is discarded.
 
 All values are synthetic. The provider call is replaced at ``_interruptible_api_call``, so
@@ -95,7 +97,7 @@ def _child(plugin_dir: Path) -> None:
             reasoning_config={"enabled": True, "effort": "high"},
         )
 
-    def run(route: str, text: str, output_tokens: int = 1, agent=None) -> dict:
+    def run(route: str, text: str, output_tokens: int = 1, agent=None, history=None) -> dict:
         spec = ROUTES[route]
         agent = agent or make_agent(route)
         agent._cleanup_task_resources = agent._persist_session = lambda *a, **k: None
@@ -116,7 +118,7 @@ def _child(plugin_dir: Path) -> None:
                 status="completed", model=spec["model"])
 
         agent._interruptible_api_call = provider_call
-        result = agent.run_conversation(text, conversation_history=[])
+        result = agent.run_conversation(text, conversation_history=list(history or []))
         assert len(wire) == 1, "unexpected_provider_call_count"
         sent = wire[0]
         if spec["api_mode"] == "anthropic_messages":
@@ -127,11 +129,25 @@ def _child(plugin_dir: Path) -> None:
             effort = sent["reasoning"]["effort"]
         assert "reasoning_effort" not in sent, "flat_reasoning_effort_on_native_wire"
         history = [m.get("content") for m in result["messages"] if m.get("role") == "assistant"]
+        # Everything the model gets back from earlier turns in this request.
+        replayed = [item for item in (sent.get("messages") or sent.get("input") or [])
+                    if isinstance(item, dict) and item.get("role") == "assistant"]
         return {"route": route, "text": text, "sent": effort, "final": result["final_response"],
                 "history": history, "transformed": bool(result.get("response_transformed")),
-                "session": agent.session_id}
+                "session": agent.session_id, "messages": result["messages"],
+                "replayed": json.dumps(replayed, ensure_ascii=False)}
 
     rows = [run(route, text) for route in ROUTES for text in (*ROUTINE, CONSEQUENTIAL)]
+    # Replay: the second turn gets the first turn's stored messages, as the CLI, TUI and
+    # gateway do. The outbound request must not carry the receipt line back to the model.
+    replay_rows = []
+    for route in ROUTES:
+        replay_agent = make_agent(route)
+        first = run(route, "hi", agent=replay_agent)
+        second = run(route, CONSEQUENTIAL, agent=replay_agent, history=first["messages"])
+        replay_rows.append({"route": route, "first_final": first["final"],
+                            "stored": first["history"], "second_replayed": second["replayed"],
+                            "second_sent": second["sent"]})
     # Bypass matrix on both wire shapes: count Jev calls per turn.
     bypass = []
     for route in ROUTES:
@@ -192,7 +208,9 @@ def _child(plugin_dir: Path) -> None:
     os.environ["HERMES_SESSION_ID"] = slow[-1]["session"]
     slow_status = controller.handle_command("effort status")
     os.environ.pop("HERMES_SESSION_ID", None)
-    print(json.dumps({"slow": slow, "slow_status": slow_status, "rows": rows, "bypass": bypass, "pinned": pinned, "measured": measured, "measured_summary": measured_summary, "jev_requests": [s.get("current_request") for s in jev_states],
+    for row in (*rows, *bypass, *pinned, *measured, *slow):
+        row.pop("messages", None)
+    print(json.dumps({"replay": replay_rows, "slow": slow, "slow_status": slow_status, "rows": rows, "bypass": bypass, "pinned": pinned, "measured": measured, "measured_summary": measured_summary, "jev_requests": [s.get("current_request") for s in jev_states],
                       "jev_keys": sorted({key for s in jev_states for key in s}),
                       "default_on": default_on, "off_reply": off_reply, "summary": summary}))
     manager.unload()
@@ -241,10 +259,19 @@ class HermesTurnLoopEffortTests(unittest.TestCase):
             self.assertRegex(
                 kept["final"], r"^Synthetic answer\.\n\nswitchyard: effort high \(kept: consequential\) · Jev \d+ ms$"
             )
-        # The default-on line reaches every foreground reply and never enters stored history.
+        # The default-on line reaches every foreground reply.
         for row in by_case.values():
             self.assertTrue(row["transformed"], row)
-            self.assertEqual(row["history"], ["Synthetic answer."], "receipt line entered model history")
+            self.assertEqual(len(row["history"]), 1, row)
+            self.assertTrue(str(row["history"][0]).startswith("Synthetic answer."), row)
+        # The model never gets the line back: the next turn's outbound request replays the
+        # earlier answer without it, on both wire shapes, whether or not Hermes stored it.
+        self.assertEqual(sorted(row["route"] for row in proof["replay"]), sorted(ROUTES))
+        for row in proof["replay"]:
+            self.assertTrue(row["first_final"].endswith("switchyard: effort high→low · local (no Jev call)"), row)
+            self.assertIn("Synthetic answer.", row["second_replayed"], row)
+            self.assertNotIn("switchyard:", row["second_replayed"], "receipt line reached the model")
+            self.assertEqual(row["second_sent"], "high", row)
         # Jev saw only the consequential request text (greetings stayed local), and only
         # closed-set state fields.
         self.assertEqual(proof["jev_requests"][:2], [CONSEQUENTIAL] * 2)
@@ -283,7 +310,6 @@ class HermesTurnLoopEffortTests(unittest.TestCase):
             measured[-1]["final"],
             r"^Synthetic answer\.\n\nswitchyard: effort high→low · local \(no Jev call\) · ~500 output tokens saved \(est\.\)$",
         )
-        self.assertNotIn("switchyard:", json.dumps(measured[-1]["history"]), "receipt line entered model history")
         self.assertIn("estimated tokens saved: ~500 output (est., 1 of 1 lowered requests measured)",
                       proof["measured_summary"])
         print("E2E measured summary sample:\n" + proof["measured_summary"])
@@ -298,7 +324,6 @@ class HermesTurnLoopEffortTests(unittest.TestCase):
             self.assertEqual(row["sent"], "high", row)
             self.assertLessEqual(row["added_s"], 0.45, row)
             self.assertEqual(row["final"], "Synthetic answer.\n\nswitchyard: effort high (kept: Jev over 400 ms budget)")
-            self.assertEqual(row["history"], ["Synthetic answer."])
             self.assertEqual((row["after_sent"], row["after_jev_calls"]), ("high", 1), row)
         self.assertIn("kept_requested_on_jev_timeout", proof["slow_status"])
         self.assertIn("deadline: 0.4 seconds", proof["slow_status"])
