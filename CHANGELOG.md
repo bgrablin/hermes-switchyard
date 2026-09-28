@@ -20,6 +20,8 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 
 ### Changed
 
+- Optional disposable tool-output filter (`filter_disposable_tool_output`, default **off**; [#151](https://github.com/bgrablin/hermes-switchyard/issues/151)): when on, `transform_tool_result` soft-caps high-volume **exec** tool stdout (terminal/shell/bash and kin) before it re-enters the main model context. Preserves errors, non-zero exit, small outputs, security-relevant text, and user-asked full dumps. Vertical slice — does not filter read/write kinds yet. Capability-first experiment — no measured win claimed; do not enable by default until prove-value A′/B/C evidence.
+
 - Replace repeated JSON serialization with exact byte accounting in skill partition planning, multi-skill batching, and general decision batching. Partition boundaries and wire payloads are preserved, with complete validation before transport. The 600-entry component cases use approximately 94–97% less local planning time; no whole-conversation speedup is claimed. See [measurements and proposal dispositions](https://github.com/bgrablin/hermes-switchyard/blob/main/evaluation/hotpath/README.md).
 
 - Use explicit impact descriptions for the existing record-triage severity Score, enabled whenever the library workflow runs. In a frozen live synthetic workflow comparison, correct rated priorities increased from 18/48 to 42/48; wrong accepted priorities fell from two to zero. Severity indices, priorities, thresholds, and budgets stay unchanged; mean latency rose 18.74% (median nearly unchanged) and reported cost increased. This is a library-workflow improvement, not a new automatic tool. See [scope and evidence](docs/RECORD-TRIAGE.md#severity-rubric).

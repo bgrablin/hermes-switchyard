@@ -106,6 +106,7 @@ RELEASE_FILES = (
     "hermes_switchyard/session_search_rerank.py",
     "hermes_switchyard/skill_lint.py",
     "hermes_switchyard/trivial_turn.py",
+    "hermes_switchyard/tool_output_filter.py",
     "hermes_switchyard/two_stage_routing.py",
     "hermes_switchyard/wow.py",
     "hermes_switchyard/skills/hermes-switchyard-operations/SKILL.md",

@@ -152,7 +152,7 @@ The complete list of what Switchyard adds to Hermes:
 | Surface | Available now | Default |
 | --- | --- | --- |
 | Tools (7) | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, `jev_session_search_rerank`, `jev_computer_use` | Callable when the matching toolset is selected (see [Toolsets](#toolsets-and-session-exposure)) |
-| Hooks (7) | `pre_llm_call` (skill routing and effort capture), `post_llm_call` (clears capture), `post_tool_call` (reconsiders effort), `transform_llm_output` (receipt line), `post_api_request` (token counts); optional `pre_tool_call` (requests approval) and `transform_tool_result` (output handling and stuck advice) | First five on after install; new tool hooks opt-in |
+| Hooks (7) | `pre_llm_call` (skill routing and effort capture), `post_llm_call` (clears capture), `post_tool_call` (reconsiders effort), `transform_llm_output` (receipt line), `post_api_request` (token counts); optional `pre_tool_call` (requests approval) and `transform_tool_result` (output handling, stuck advice, and optional disposable exec soft-cap) | First five on after install; new tool hooks opt-in |
 | Middleware (1) | `llm_request` sets the reasoning effort for each request | On when your Hermes version supports it (0.21.4+) |
 | CLI | `hermes switchyard setup`, `status`, `test`, `receipt`, `stats`, `guide`, `ensure-toolsets` | Run when you want |
 | CLI (offline, 0.6.0 candidates) | `hermes switchyard lint-skills [--json]` flags ambiguous descriptions ([guide](docs/LINT-SKILLS.md)); `hermes switchyard scan-catalog PATH` reviews package/MCP content with hashes and coverage gaps ([guide](docs/FEATURE-EXPANSION.md)) | Explicit only; no network, no edits |
@@ -226,6 +226,7 @@ The defaults work for most people. These are the settings you're most likely to 
 | Stop sending message text for effort decisions | `hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort false` |
 | Never lower my `/reasoning` level | `hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort_mode pinned` |
 | Hide the `Reasoning: …` line | `/switchyard effort receipt off` (saved for future sessions) |
+| Soft-cap noisy exec tool stdout (opt-in) | `hermes config set plugins.entries.hermes-switchyard.settings.filter_disposable_tool_output true` |
 | Choose a provider explicitly | `hermes config set plugins.entries.hermes-switchyard.settings.jev_provider typesafe` (or `openrouter`) |
 
 Start a fresh session after any change. Every setting, grouped by feature and explained: [Configuration reference](docs/CONFIGURATION.md).

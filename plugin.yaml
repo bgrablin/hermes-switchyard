@@ -31,6 +31,7 @@ provides_hooks:
   - post_llm_call
   - post_tool_call
   - transform_llm_output
+  - transform_tool_result
   - post_api_request
 provides_middleware:
   - llm_request
@@ -91,4 +92,5 @@ config_schema:
   session_search_rerank_choice_confidence_threshold: {type: float, default: 0.8, description: "Uncalibrated local policy threshold for jev_session_search_rerank; below this the tool fail-opens to stock FTS order"}
   session_search_rerank_winning_probability_threshold: {type: float, default: 0.8, description: "Uncalibrated winning-probability threshold for jev_session_search_rerank fail-open"}
   session_search_rerank_max_card_chars: {type: int, default: 360, description: "Per-card text cap after redaction for jev_session_search_rerank"}
+  filter_disposable_tool_output: {type: bool, default: false, description: "Opt-in experiment (default off). When true, soft-cap high-volume exec tool stdout (terminal/shell/bash and kin) via transform_tool_result before it re-enters the main model context. Preserves errors, non-zero exit, small outputs, security-relevant text, and user-asked full dumps. This vertical slice does not filter read/write kinds. Do not enable by default until Silver A′/B/C prove-value."}
   public_or_sanitized_data_ack: {type: bool, default: true, description: "Standing consent for Jev tool calls and for adaptive effort, which sends up to 1,200 characters of the clean current user message to Jev. On after install. Callers may omit the field. Set false to refuse Jev calls; adaptive effort then sends no message text."}
