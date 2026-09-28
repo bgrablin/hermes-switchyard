@@ -13,9 +13,17 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+from collections import OrderedDict
 from typing import Any, Mapping
 
 from .reasoning_effort_adapter import classify_tool_kind, derive_tool_failure
+
+# Bounded per-process map: session/task key -> latest user message for this turn.
+# transform_tool_result does not receive the user request; pre_llm_call does.
+_USER_TEXT_LIMIT = 64
+_user_text_lock = threading.Lock()
+_latest_user_text: OrderedDict[str, str] = OrderedDict()
 
 # Soft-cap for successful exec firehose (npm install, test logs, long ls).
 # Head+tail stay under this budget so the model still sees start and end.
@@ -88,9 +96,77 @@ def _args_text(args: Any) -> str:
     return "\n".join(parts)
 
 
-def user_asks_full_dump(*, args: Any = None, result: Any = None) -> bool:
-    """True when tool args (or result cue) request an untruncated dump."""
-    blob = f"{_args_text(args)}\n{_as_text(result)[:500]}"
+def _scope_key(*, session_id: Any = None, task_id: Any = None) -> str:
+    for value in (session_id, task_id):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if value is not None and not isinstance(value, (bytes, bytearray)):
+            text = str(value).strip()
+            if text:
+                return text
+    return "default"
+
+
+def note_user_text(
+    user_message: Any,
+    *,
+    session_id: Any = None,
+    task_id: Any = None,
+) -> None:
+    """Store the turn's user message for later full-dump preserve checks."""
+    if not isinstance(user_message, str):
+        return
+    cleaned = user_message.strip()
+    if not cleaned:
+        return
+    # Bound stored text; full-dump cues appear early in ordinary asks.
+    stored = cleaned[:4_000]
+    key = _scope_key(session_id=session_id, task_id=task_id)
+    with _user_text_lock:
+        _latest_user_text[key] = stored
+        _latest_user_text.move_to_end(key)
+        while len(_latest_user_text) > _USER_TEXT_LIMIT:
+            _latest_user_text.popitem(last=False)
+
+
+def latest_user_text(*, session_id: Any = None, task_id: Any = None) -> str:
+    """Return the latest captured user message for this session/task, if any."""
+    key = _scope_key(session_id=session_id, task_id=task_id)
+    with _user_text_lock:
+        value = _latest_user_text.get(key)
+        if value:
+            return value
+        # Fall back to task-only / session-only when the other id was used at capture.
+        for alt in (session_id, task_id):
+            alt_key = _scope_key(session_id=alt, task_id=None)
+            if alt_key != key and alt_key in _latest_user_text:
+                return _latest_user_text[alt_key]
+    return ""
+
+
+def clear_user_text_for_tests() -> None:
+    """Test helper: drop captured user text."""
+    with _user_text_lock:
+        _latest_user_text.clear()
+
+
+def user_asks_full_dump(
+    *,
+    args: Any = None,
+    result: Any = None,
+    user_text: Any = None,
+    session_id: Any = None,
+    task_id: Any = None,
+) -> bool:
+    """True when the user turn or tool args request an untruncated dump.
+
+    ``transform_tool_result`` does not receive the user message; callers should
+    pass ``user_text`` or rely on ``note_user_text`` from ``pre_llm_call``.
+    """
+    captured = user_text if isinstance(user_text, str) else latest_user_text(
+        session_id=session_id, task_id=task_id
+    )
+    blob = f"{captured}\n{_args_text(args)}\n{_as_text(result)[:500]}"
     return bool(_FULL_DUMP_ASK_RE.search(blob))
 
 
@@ -185,6 +261,9 @@ def should_filter_tool_result(
     error_type: Any = None,
     error_message: Any = None,
     ok: Any = None,
+    user_text: Any = None,
+    session_id: Any = None,
+    task_id: Any = None,
 ) -> bool:
     """Return whether this result is eligible for soft-cap under current preserve rules."""
     if enabled is not True:
@@ -212,7 +291,13 @@ def should_filter_tool_result(
     if returncode is not None and returncode != 0:
         return False
 
-    if user_asks_full_dump(args=args, result=result):
+    if user_asks_full_dump(
+        args=args,
+        result=result,
+        user_text=user_text,
+        session_id=session_id,
+        task_id=task_id,
+    ):
         return False
 
     # Measure the disposable payload (structured output field when present).
@@ -237,6 +322,9 @@ def filter_tool_result_text(
     error_message: Any = None,
     ok: Any = None,
     soft_cap: int | None = None,
+    user_text: Any = None,
+    session_id: Any = None,
+    task_id: Any = None,
 ) -> str | None:
     """Return a replacement result string, or None to leave the original unchanged."""
     if not should_filter_tool_result(
@@ -249,6 +337,9 @@ def filter_tool_result_text(
         error_type=error_type,
         error_message=error_message,
         ok=ok,
+        user_text=user_text,
+        session_id=session_id,
+        task_id=task_id,
     ):
         return None
 
@@ -271,6 +362,24 @@ def filter_tool_result_text(
     return soft_cap_text(text, soft_cap=cap)
 
 
+def build_pre_llm_call_capture_hook():
+    """Build a ``pre_llm_call`` observer that stores the turn's user message."""
+
+    def on_pre_llm_call(
+        user_message: Any = None,
+        session_id: Any = None,
+        task_id: Any = None,
+        **_kwargs: Any,
+    ) -> None:
+        try:
+            note_user_text(user_message, session_id=session_id, task_id=task_id)
+        except Exception:  # noqa: BLE001 -- capture never breaks a turn
+            return None
+        return None
+
+    return on_pre_llm_call
+
+
 def build_transform_tool_result_hook(*, enabled: bool):
     """Build a ``transform_tool_result`` callback (always callable; no-op when off)."""
 
@@ -282,6 +391,8 @@ def build_transform_tool_result_hook(*, enabled: bool):
         error: Any = None,
         error_type: Any = None,
         error_message: Any = None,
+        session_id: Any = None,
+        task_id: Any = None,
         **kwargs: Any,
     ) -> str | None:
         if enabled is not True:
@@ -301,6 +412,8 @@ def build_transform_tool_result_hook(*, enabled: bool):
                     else kwargs.get("error_message")
                 ),
                 ok=kwargs.get("ok"),
+                session_id=session_id if session_id is not None else kwargs.get("session_id"),
+                task_id=task_id if task_id is not None else kwargs.get("task_id"),
             )
         except Exception:  # noqa: BLE001 -- never break tool result delivery
             return None
@@ -309,10 +422,13 @@ def build_transform_tool_result_hook(*, enabled: bool):
 
 
 def register_tool_output_filter(ctx: Any, *, enabled: bool) -> dict[str, Any]:
-    """Register ``transform_tool_result`` when the Hermes hook seam exists.
+    """Register ``transform_tool_result`` (and user-text capture when on).
 
-    The hook is always registered when available so plugin.yaml ``provides_hooks``
-    stays in sync with ``register()``. Behavior is gated by ``enabled`` (default off).
+    ``transform_tool_result`` is always registered when available so plugin.yaml
+    ``provides_hooks`` stays in sync with ``register()``. Behavior is gated by
+    ``enabled`` (default off). When enabled, also register ``pre_llm_call`` to
+    capture the turn's user message for full-dump preserve (plugin-only; no
+    Hermes core changes).
     """
     register_hook = getattr(ctx, "register_hook", None)
     if not callable(register_hook):
@@ -321,13 +437,22 @@ def register_tool_output_filter(ctx: Any, *, enabled: bool) -> dict[str, Any]:
             "reason": "hermes_transform_tool_result_unavailable",
             "enabled": bool(enabled),
             "scope": "exec_soft_cap",
+            "pre_llm_call_capture": False,
         }
     callback = build_transform_tool_result_hook(enabled=enabled is True)
     register_hook("transform_tool_result", callback)
+    capture_registered = False
+    if enabled is True:
+        try:
+            register_hook("pre_llm_call", build_pre_llm_call_capture_hook())
+            capture_registered = True
+        except Exception:  # noqa: BLE001 -- filter still works with args-only cues
+            capture_registered = False
     return {
         "registered": True,
         "reason": "ok",
         "enabled": enabled is True,
         "scope": "exec_soft_cap",
         "soft_cap_chars": soft_cap_chars(),
+        "pre_llm_call_capture": capture_registered,
     }
