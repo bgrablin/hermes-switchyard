@@ -2,9 +2,9 @@
 
 ## 0.5.5 (2026-09-27)
 
-The manifest declares 0.5.5. This is the release candidate, not a published release.
+This release fixes adaptive effort and the public DOM browser, changes egress to redact-not-block, and adds a visible effort receipt. It ships no new #98 feature: both candidates failed their frozen evaluations (see **Not included**).
 
-### Included in the development branch
+### Included
 
 - [#117](https://github.com/bgrablin/hermes-switchyard/issues/117): public DOM browser fills now use stable element identity, confirm field values, and handle same-URL document replacement. This does not add authenticated browsing.
 - [#118](https://github.com/bgrablin/hermes-switchyard/issues/118): adaptive effort isolates delegated task state, re-caps after `/reasoning` changes, and reconsiders routine read-only tool rounds. Foreground replies can show a default-on effort receipt line; `/switchyard effort summary` shows recent choices and local/Jev counts. A saved-token value appears only when usage supports an estimate.

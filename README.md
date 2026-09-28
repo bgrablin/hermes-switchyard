@@ -8,7 +8,7 @@ Switchyard is a [Hermes Agent](https://github.com/NousResearch/hermes-agent) plu
 
 The [Switchyard branding image](docs/assets/hermes-switchyard-branding.png) is also packaged.
 
-**Release state:** the manifest declares version 0.5.5, but this branch is a release candidate, not a published release. It includes local decisions for trivial turns, visible effort receipts, a session summary, and a 0.4 s default decision deadline. Research Navigator (F1) and DOM Progress & Recovery (F2) are **not included**: both failed their frozen release evaluations on closed [PR #132](https://github.com/bgrablin/hermes-switchyard/pull/132) and [PR #135](https://github.com/bgrablin/hermes-switchyard/pull/135). [Issue #139](https://github.com/bgrablin/hermes-switchyard/issues/139) tracks follow-up work. Do not install those PRs as if they were shipped features. The [changelog](CHANGELOG.md) separates included work from the two evaluations. The [benchmark report](docs/BENCHMARKS.md) names the older source and limits of its measurements; it does not prove that Jev improves every task.
+**Release state:** version 0.5.5. It includes local decisions for trivial turns, visible effort receipts, a session summary, and a 0.4 s default decision deadline. Research Navigator (F1) and DOM Progress & Recovery (F2) are **not included**: both failed their frozen release evaluations on closed [PR #132](https://github.com/bgrablin/hermes-switchyard/pull/132) and [PR #135](https://github.com/bgrablin/hermes-switchyard/pull/135). [Issue #139](https://github.com/bgrablin/hermes-switchyard/issues/139) tracks follow-up work. Do not install those PRs as if they were shipped features. The [changelog](CHANGELOG.md) separates included work from the two evaluations. The [benchmark report](docs/BENCHMARKS.md) names the older source and limits of its measurements; it does not prove that Jev improves every task.
 
 ## First-run quickstart
 
@@ -62,6 +62,8 @@ switchyard: effort high (kept: consequential) · Jev 218 ms
 The first line followed `hi`; the second followed `thanks, now deploy`. These are recorded receipt lines, not a latency promise. The image is a rendering of recorded output, not a live terminal capture:
 
 ![Rendering of recorded Switchyard receipt output for a greeting and a consequential request](docs/assets/effort-receipts-recorded.png)
+
+The Hermes status bar keeps showing your `/reasoning` level. That level is Switchyard's cap. The receipt line shows the level each turn actually sent.
 
 Run `/switchyard effort status` for the last decision or `/switchyard effort summary` for recent choices and local/Jev counts. Use `hermes switchyard receipt --json` for stored skill-routing receipts. A receipt reports a decision, not answer correctness or browser-goal completion. See [automatic routing](docs/AUTOMATIC-INTEGRATION.md) and [adaptive effort](docs/ADAPTIVE-REASONING-EFFORT.md).
 
