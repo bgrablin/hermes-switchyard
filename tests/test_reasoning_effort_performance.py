@@ -9,6 +9,8 @@ All values are synthetic. No test reaches the network.
 """
 from __future__ import annotations
 
+from hermes_switchyard import egress_redaction
+
 import json
 import socket
 import threading
@@ -57,6 +59,13 @@ def pick(questions, level):
         },
         "stakes": {"noul": 0.0},
     }
+
+
+def setUpModule():
+    egress_redaction._reset_for_tests(lambda text: text, loaded=True)
+
+def tearDownModule():
+    egress_redaction._reset_for_tests()
 
 
 class _Response:
@@ -311,7 +320,7 @@ class DecisionBudgetTests(unittest.TestCase):
         receipt = last_receipt()
         self.assertEqual(receipt["reason_code"], TIMEOUT)
         self.assertIs(receipt["jev_called"], True)
-        self.assertEqual(finish(controller).splitlines()[-1], "switchyard: effort high (kept: Jev over 400 ms budget)")
+        self.assertEqual(finish(controller).splitlines()[-1], "Reasoning: kept at high — cloud over 400 ms budget")
 
         # The late "low" arrives; it must not change this turn or the next one.
         time.sleep(0.3)
@@ -326,10 +335,10 @@ class DecisionBudgetTests(unittest.TestCase):
 
     def test_client_deadline_errors_are_timeouts_and_other_errors_are_failures(self):
         cases = (
-            (jev_client.DeadlineExceeded("synthetic"), TIMEOUT, "Jev over 400 ms budget"),
-            (jev_client.LateResultDiscarded("synthetic"), TIMEOUT, "Jev over 400 ms budget"),
-            (TimeoutError("synthetic"), TIMEOUT, "Jev over 400 ms budget"),
-            (ConnectionError("synthetic"), FAILURE, "Jev unavailable"),
+            (jev_client.DeadlineExceeded("synthetic"), TIMEOUT, "cloud over 400 ms budget"),
+            (jev_client.LateResultDiscarded("synthetic"), TIMEOUT, "cloud over 400 ms budget"),
+            (TimeoutError("synthetic"), TIMEOUT, "cloud over 400 ms budget"),
+            (ConnectionError("synthetic"), FAILURE, "cloud unavailable"),
         )
         for error, reason, label in cases:
             with self.subTest(error=type(error).__name__):
@@ -338,7 +347,7 @@ class DecisionBudgetTests(unittest.TestCase):
                 controller = make(lambda client=client: client, receipt_line=True)
                 self.assertEqual(decide(controller, WORK[0], "t1"), "high")
                 self.assertEqual(last_receipt()["reason_code"], reason)
-                self.assertIn(f"(kept: {label})", finish(controller))
+                self.assertIn(f"kept at high — {label}", finish(controller))
 
     def test_real_client_under_budget_discards_a_late_transport_answer(self):
         def transport(payload):

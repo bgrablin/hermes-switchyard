@@ -1661,7 +1661,8 @@ def register(ctx):
         allow_raise=ctx_get_config(ctx, "adaptive_reasoning_effort_allow_raise", default=False),
         record_decision=append_effort_record,
         step_adaptation=ctx_get_config(ctx, "adaptive_reasoning_effort_step_adaptation", default=True),
-        receipt_line=ctx_get_config(ctx, "adaptive_reasoning_effort_receipt_line", default=True),
+        receipt_mode=ctx_get_config(ctx, "adaptive_reasoning_effort_receipt_mode", default=None),
+        receipt_line=ctx_get_config(ctx, "adaptive_reasoning_effort_receipt_line", default=None),
     )
 
     def assess_handler(args, **kwargs):

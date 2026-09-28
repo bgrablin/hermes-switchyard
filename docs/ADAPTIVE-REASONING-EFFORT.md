@@ -46,7 +46,7 @@ When Hermes has no egress redactor (`agent.redact.redact_for_egress` is missing,
 - `turn_index`: the count of user turns in this session;
 - the tool statuses and, for step-level asks, the tool kinds and read streak listed above.
 
-Jev receives no excerpt and no part of the message. Two local checks run on the full text and are never sent. A change request (for example `fix`, `edit`, `delete`, or `deploy`) keeps your level with no Jev call (`kept_requested_metadata_change_request`). A high-stakes word (for example `prod`, `delete`, `password`, `token`, `billing`, or `security`) also keeps your level with no Jev call (`kept_requested_metadata_high_stakes`). The decision receipt (`last_receipt()`) shows `scan_reason` `metadata_only`, and the receipt line ends with `metadata only`. Restricted markings and oversized messages still stay local with no Jev call.
+Jev receives no excerpt and no part of the message. Two local checks run on the full text and are never sent. A change request (for example `fix`, `edit`, `delete`, or `deploy`) keeps your level with no Jev call (`kept_requested_metadata_change_request`). A high-stakes word (for example `prod`, `delete`, `password`, `token`, `billing`, or `security`) also keeps your level with no Jev call (`kept_requested_metadata_high_stakes`). The decision receipt (`last_receipt()`) shows `scan_reason` `metadata_only`, and the receipt line ends with `shape only (message text not sent)`. Restricted markings and oversized messages still stay local with no Jev call.
 
 Other text is redacted with the Hermes egress redactor before it is cut and sent, so secret-like values are masked in the text Jev receives. Emails and phone numbers are not treated as sensitive.
 
@@ -61,32 +61,41 @@ Switchyard keeps the captured text only in memory for the current turn and clear
 ## Command
 
 ```text
-/switchyard effort status        show mode, your level, last level sent, why, the last 5 decisions, and the session summary
-/switchyard effort summary       show the session summary only
-/switchyard effort pin           send your /reasoning level unchanged in this session
-/switchyard effort auto          let Switchyard lower effort for routine steps again
-/switchyard effort receipt on    add the receipt line to replies where Switchyard did work (default)
-/switchyard effort receipt off   remove the receipt line
+/switchyard effort status           show cap, last sent, mode, why, recent decisions, and the session summary
+/switchyard effort summary          show the session summary only
+/switchyard effort pin              send your /reasoning level unchanged in this session
+/switchyard effort auto             let Switchyard lower effort for routine steps again
+/switchyard effort receipt auto      show a receipt when effort changed or a decision was made/reused (default)
+/switchyard effort receipt always   also when pinned / pass-through with a known wire level
+/switchyard effort receipt off      show no receipt line
 ```
 
 `auto` uses your current level as the new cap. The command acts on the session it runs in. Before the session's first model request, it applies from the first message.
 
-`receipt on|off` changes the setting for this process until restart. The receipt line uses the Hermes `transform_llm_output` hook and is **on by default**. It is added to each foreground reply where Switchyard did work: it changed the effort, called Jev, or reused a cached decision. Examples:
+### Cap vs sent
+
+- **Status bar / `/reasoning`:** your selected level — Switchyard's **cap**. It does not change per turn when effort is lowered.
+- **Receipt line and `/switchyard effort status`:** the level that was **sent** on the wire for that turn (and a plain-language why).
+
+This release does not claim TUI chip sync with the sent level; the status bar remains the cap.
+
+### Receipt modes
+
+`/switchyard effort receipt always|auto|off` updates the live mode and **persists** it in plugin settings (`adaptive_reasoning_effort_receipt_mode`) so it survives restart. Legacy `receipt work` and `receipt on` mean `auto`. The receipt line uses the Hermes `transform_llm_output` hook. Default **`auto`**: a foreground reply where Switchyard changed effort or made/reused a decision (cloud, local, or cached). **`always`**: also shows the last sent level when pinned or other pass-through with a known wire level (not when the host has no effort field or the route is unsupported). **`off`**: none. Examples:
 
 ```text
-switchyard: effort high→low · Jev 180 ms
-switchyard: effort high→low · local (no Jev call)
-switchyard: effort high→low · Jev 180 ms · ~1.2k reasoning tokens saved (est.)
-switchyard: effort high (kept: consequential) · Jev 210 ms
-switchyard: effort high→low · Jev 190 ms · 2 cached
-switchyard: effort high→low · Jev 170 ms · metadata only
+Reasoning: high→low · 180 ms
+Reasoning: high→low · local decision
+Reasoning: high→low · 180 ms · ~1.2k reasoning tokens saved (est.)
+Reasoning: kept at high — consequential request · 210 ms
+Reasoning: high→low · 190 ms · 2 cached
+Reasoning: high→low · 170 ms · shape only (message text not sent)
+Reasoning: high · pinned
 ```
 
-`kept:` names why your level was kept: `consequential` (high stakes), `tool failed`, `after write`, `change request`, `Jev unavailable`, `invalid Jev answer`, or `Jev choice` (Jev picked your level). A pinned session, an excluded model, or a request with no room below your level gets no line, because Switchyard did no work.
+Kept lines use a plain-language why: consequential request, after a tool failure, after a write, change request, cloud unavailable, invalid cloud answer, cloud over budget, or cloud decision (the cloud picked your level). In `auto` mode a pinned session, excluded model, or no-room request gets no line. In `always` mode those still show `Reasoning: <level> · …` when a wire level is known (no line for `no_host_effort` / `unsupported_route`).
 
-The line is added to the reply you see. Current Hermes stores the reply with the line, so `/resume` shows it. Before each request, Switchyard removes the line from earlier replies, so the model never gets it back. Only a trailing line with the exact receipt shape is removed; other text stays. Delegated and background turns never get the line. If the line fails, the reply is sent unchanged.
-
-The Hermes status bar does not change per turn. It shows your `/reasoning` level, which is the cap. Read the receipt line, `/switchyard effort status`, or the history file for the level that was sent.
+The line is added to the reply you see. Current Hermes stores the reply with the line, so `/resume` shows it. Before each request, Switchyard removes the line from earlier replies, so the model never gets it back. Both the current `Reasoning: …` shape and the older `switchyard: effort …` shape are stripped. Other text stays. Delegated and background turns never get the line. If the line fails, the reply is sent unchanged.
 
 ### Saved-token estimate
 
@@ -104,22 +113,24 @@ With fewer than 3 baseline samples, or no usage from the host, Switchyard shows 
 
 ```text
 Switchyard effort summary (this session)
+  Cap high · last sent low · auto · why: cloud decision
   turns: 4
   requests: lowered 1, kept 3, raised 0, not adapted 0
-  Jev calls: 3, p50 190 ms, p95 240 ms
-  local decisions (no Jev call): 1
+  cloud decisions: 3, p50 190 ms, p95 240 ms
+  local decisions: 1
   cached reuses: 0
   estimated tokens saved: ~500 output (est., 1 of 1 lowered requests measured)
 ```
 
-`local decisions` counts trivial turns decided locally (`local_trivial`); they are not Jev calls and add no latency sample. `not adapted` counts requests Switchyard passed through (pinned, excluded model, no room, no host effort). Without a measured baseline the last line reads `estimated tokens saved: unknown (no measured baseline yet)`.
+`status` and `summary` lead with a human line (`Cap … · last sent … · mode · why: …`). User-facing copy avoids raw reason codes; codes remain in `--json` and the history file. `local decisions` counts trivial turns decided locally (`local_trivial`); they are not cloud calls and add no latency sample. `not adapted` counts pass-through requests (pinned, excluded model, no room, no host effort). Without a measured baseline the last line reads `estimated tokens saved: unknown (no measured baseline yet)`.
 
-Example `status` lines for the last decisions (up to 5 are kept):
+Example `status` detail for recent decisions (up to 5 are kept):
 
 ```text
-  last 2 decisions (cap -> sent, reason, Jev latency):
-    high -> low, jev_selected, 238 ms
-    high -> high, kept_requested_after_write, no call
+  Cap high · last sent low · auto · why: cloud decision
+  last 2 decisions (cap -> sent, why, latency):
+    high -> low, cloud decision, 238 ms
+    high -> high, after a write, no call
 ```
 
 ## Settings
@@ -132,7 +143,8 @@ Example `status` lines for the last decisions (up to 5 are kept):
 | `adaptive_reasoning_effort_allow_raise` | `false` | When `true`, `auto` may go one level above your level while the latest tool call failed. It drops back after the next successful tool call or new turn. |
 | `adaptive_reasoning_effort_deadline_seconds` | `0.4` | Jev budget per choice, configurable from 0.1 to 1.5 s. On timeout your level is sent unchanged. |
 | `adaptive_reasoning_effort_step_adaptation` | `true` | Allow bounded step-level asks after routine read-only tool rounds (at most one level below your level). Set `false` for one decision per turn. |
-| `adaptive_reasoning_effort_receipt_line` | `true` | Add one receipt line to each foreground reply where Switchyard did work. Set `false` to turn it off. |
+| `adaptive_reasoning_effort_receipt_mode` | `auto` | Receipt visibility: `auto` (default), `always`, or `off`. Changed by `/switchyard effort receipt …` and persisted in plugin settings. Legacy `work`/`on` map to `auto`. |
+| `adaptive_reasoning_effort_receipt_line` | `true` | Legacy bool (`true`→`auto`, `false`→`off`). Prefer `adaptive_reasoning_effort_receipt_mode`. |
 | `adaptive_reasoning_effort_default` | `medium` | Deprecated and unused since 0.5.4. |
 
 Example:
@@ -150,7 +162,7 @@ Every decision appends one closed-set record to `effort-history.jsonl` in the pl
 
 `hermes switchyard stats [--since 24h]` includes a `reasoning_effort` section: levels requested and sent, how often effort was lowered, unchanged or raised, reasons, Jev calls per request, and Jev latency p50/p95.
 
-Read the level that was actually sent from these records or a request dump. The TUI reasoning label shows your setting, not the value on the wire.
+Read the level that was actually sent from the receipt line, `/switchyard effort status`, these records, or a request dump. The TUI / status bar shows your `/reasoning` **cap**, not the per-turn sent level (no TUI chip sync claimed here).
 
 ## Hermes seam
 

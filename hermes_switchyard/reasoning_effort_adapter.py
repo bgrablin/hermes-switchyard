@@ -613,15 +613,42 @@ def _set_effort_mapping(mapping: dict[str, Any], level: str) -> dict[str, Any]:
 
 
 # The receipt line that ``transform_llm_output`` appends: a blank line, then one line that
-# ``turn_receipt_line`` builds. Only this exact shape at the end of an assistant turn matches.
+# ``turn_receipt_line`` builds. Only these closed shapes at the end of an assistant turn match.
+# The legacy ``switchyard: effort …`` shape is kept so /resume history still strips old lines.
+# Plain ``Reasoning: …`` is constrained to the exact closed sets ``turn_receipt_line`` emits so
+# ordinary assistant text (for example a sentence that happens to start with Reasoning:) is kept.
+_EFFORT_TOKEN = r"(?:none|minimal|low|medium|high|xhigh|max|ultra)"
+_EFFORT_PATH = rf"{_EFFORT_TOKEN}(?:→{_EFFORT_TOKEN})*"
+_KEPT_WHY = (
+    r"(?:consequential request|after a tool failure|after a write|change request|"
+    r"cloud unavailable|invalid cloud answer|cloud over \d+ ms budget|cloud over budget|"
+    r"cloud decision)"
+)
+_PASS_WHY = (
+    r"(?:pinned|no lower level|model excluded|adaptive off|unsupported route|"
+    r"pass-through|reasoning off)"
+)
+_RECEIPT_SUFFIX = (
+    r"(?:local decision|\d+ ms|\d+ decisions, \d+ ms|\d+ cached|"
+    r"~[\d.]+k? (?:reasoning|output) tokens saved \(est\.\)|"
+    r"no (?:reasoning|output) tokens saved \(est\.\)|"
+    r"shape only \(message text not sent\))"
+)
 _RECEIPT_TAIL = re.compile(
-    r"\n\nswitchyard: effort [a-z]+(?:→[a-z]+)*(?: \(kept: [^)\n]*\))?(?: · [^\n]*)?\Z"
+    rf"\n\n(?:"
+    rf"switchyard: effort {_EFFORT_PATH}(?: \(kept: [^)\n]*\))?(?: · [^\n]*)?"
+    rf"|"
+    rf"Reasoning: (?:{_EFFORT_PATH}|kept at {_EFFORT_TOKEN} — {_KEPT_WHY}|"
+    rf"{_EFFORT_TOKEN} · {_PASS_WHY})(?: · {_RECEIPT_SUFFIX})*"
+    rf")\Z"
 )
 
 
 def _strip_receipt_text(text: Any) -> Any:
     """Return *text* without a trailing Switchyard receipt line, or *text* unchanged."""
-    if not isinstance(text, str) or "switchyard: effort " not in text:
+    if not isinstance(text, str):
+        return text
+    if "switchyard: effort " not in text and "Reasoning: " not in text:
         return text
     return _RECEIPT_TAIL.sub("", text)
 
@@ -842,6 +869,104 @@ def parse_bool_setting(value: Any) -> bool:
     if isinstance(value, (int, float)):
         return value == 1
     return str(value).strip().lower() in _TRUE_STRINGS
+
+
+RECEIPT_MODES = ("auto", "always", "off")
+DEFAULT_RECEIPT_MODE = "auto"
+# Public CLI: always | auto | off. Legacy work/on (and briefly-used changes) → auto.
+_RECEIPT_MODE_ALIASES = {
+    "auto": "auto",
+    "changes": "auto",  # interim name; prefer auto
+    "work": "auto",  # legacy from PR #147; prefer auto
+    "on": "auto",
+    "true": "auto",
+    "yes": "auto",
+    "1": "auto",
+    "always": "always",
+    "off": "off",
+    "false": "off",
+    "no": "off",
+    "0": "off",
+}
+
+
+def parse_receipt_mode(value: Any) -> str:
+    """Return ``auto``, ``always``, or ``off``.
+
+    Bool ``True`` / ``"on"`` / legacy ``"work"`` map to ``auto`` (show when
+    Switchyard changed effort or made/reused a decision). Bool ``False`` maps to
+    ``off``. Unknown values fall back to ``auto``.
+    """
+    if value is True:
+        return "auto"
+    if value is False:
+        return "off"
+    if value is None:
+        return DEFAULT_RECEIPT_MODE
+    text = str(value).strip().lower()
+    return _RECEIPT_MODE_ALIASES.get(text, DEFAULT_RECEIPT_MODE)
+
+
+def persist_plugin_receipt_mode(mode: str) -> bool:
+    """Write receipt mode to Hermes plugin settings so it survives restart.
+
+    Updates ``adaptive_reasoning_effort_receipt_mode`` and keeps the legacy bool
+    ``adaptive_reasoning_effort_receipt_line`` in sync (false only for ``off``).
+    Returns True when the write verified; never raises.
+    """
+    wanted = parse_receipt_mode(mode)
+    try:
+        from hermes_cli.config import load_config, save_config
+    except Exception:
+        return False
+    try:
+        config = load_config()
+        if not isinstance(config, dict):
+            return False
+        plugins = config.get("plugins")
+        if plugins is None:
+            plugins = {}
+            config["plugins"] = plugins
+        if not isinstance(plugins, dict):
+            return False
+        entries = plugins.get("entries")
+        if entries is None:
+            entries = {}
+            plugins["entries"] = entries
+        if not isinstance(entries, dict):
+            return False
+        entry_key = next(
+            (name for name in ("hermes-switchyard", "hermes_switchyard") if name in entries),
+            "hermes-switchyard",
+        )
+        entry = entries.get(entry_key)
+        if entry is None:
+            entry = {}
+            entries[entry_key] = entry
+        if not isinstance(entry, dict):
+            return False
+        settings = entry.get("settings")
+        if not isinstance(settings, dict):
+            settings = dict(entry["config"]) if isinstance(entry.get("config"), dict) else {}
+            entry["settings"] = settings
+        settings["adaptive_reasoning_effort_receipt_mode"] = wanted
+        settings["adaptive_reasoning_effort_receipt_line"] = wanted != "off"
+        save_config(config)
+        reloaded = load_config()
+        if not isinstance(reloaded, dict):
+            return False
+        re_entries = ((reloaded.get("plugins") or {}).get("entries") or {})
+        if not isinstance(re_entries, dict):
+            return False
+        re_entry = re_entries.get(entry_key)
+        re_settings = re_entry.get("settings") if isinstance(re_entry, dict) else None
+        if not isinstance(re_settings, dict):
+            re_settings = re_entry.get("config") if isinstance(re_entry, dict) else None
+        if not isinstance(re_settings, dict):
+            return False
+        return parse_receipt_mode(re_settings.get("adaptive_reasoning_effort_receipt_mode")) == wanted
+    except Exception:
+        return False
 
 
 def parse_exclude_models(value: Any) -> tuple[str, ...]:
@@ -1120,24 +1245,72 @@ _PASS_REASONS = frozenset(
 
 
 def _kept_label(receipt: Mapping[str, Any]) -> str:
-    """Short, closed-set reason a request kept the user's level."""
+    """Short, closed-set reason a request kept the user's level (user-facing)."""
     stakes = _finite_or_none(receipt.get("stakes"))
     reason = receipt.get("reason_code")
     if (stakes is not None and stakes >= STAKES_VETO_THRESHOLD) or reason in {
         _HIGH_STAKES_REASON, _METADATA_STAKES_REASON,
     }:
-        return "consequential"
+        return "consequential request"
     labels = {
-        _TOOL_FAILED_REASON: "tool failed",
-        _AFTER_WRITE_REASON: "after write",
+        _TOOL_FAILED_REASON: "after a tool failure",
+        _AFTER_WRITE_REASON: "after a write",
         _METADATA_CHANGE_REASON: "change request",
-        "kept_requested_on_jev_failure": "Jev unavailable",
-        "invalid_choice": "invalid Jev answer",
+        "kept_requested_on_jev_failure": "cloud unavailable",
+        "invalid_choice": "invalid cloud answer",
     }
     if reason == _TIMEOUT_REASON:
         budget = receipt.get("jev_budget_ms")
-        return f"Jev over {budget} ms budget" if isinstance(budget, int) else "Jev over budget"
-    return labels.get(str(reason), "Jev choice")
+        return f"cloud over {budget} ms budget" if isinstance(budget, int) else "cloud over budget"
+    return labels.get(str(reason), "cloud decision")
+
+
+def _human_reason(reason_code: Any) -> str:
+    """User-facing why text for status/summary; never a raw reason code."""
+    reason = str(reason_code or "").strip()
+    if not reason:
+        return "no decision yet"
+    labels = {
+        "jev_selected": "cloud decision",
+        "jev_step_selected": "cloud step decision",
+        LOCAL_TRIVIAL_REASON: "local decision",
+        "cached": "reused earlier decision",
+        "cached_unchanged": "reused earlier decision",
+        "pinned": "pinned (your level)",
+        "no_room": "no lower level for this route",
+        "excluded_model": "model excluded",
+        "disabled": "adaptive effort off",
+        "unsupported_route": "unsupported route",
+        "no_host_effort": "no host effort field",
+        "reasoning_disabled": "reasoning disabled",
+        _HIGH_STAKES_REASON: "consequential request",
+        _METADATA_STAKES_REASON: "consequential request",
+        _TOOL_FAILED_REASON: "after a tool failure",
+        _AFTER_WRITE_REASON: "after a write",
+        _METADATA_CHANGE_REASON: "change request",
+        _NO_TASK_REASON: "no message text",
+        _RESTRICTED_REASON: "restricted text (local)",
+        "kept_requested_on_jev_failure": "cloud unavailable",
+        "kept_requested_ack_required": "data acknowledgement required",
+        _TIMEOUT_REASON: "cloud over budget",
+        "invalid_choice": "invalid cloud answer",
+    }
+    return labels.get(reason, "kept your level")
+
+
+def _pass_label(reason_code: Any) -> str:
+    """Short pass-through label for ``always`` receipt mode."""
+    reason = str(reason_code or "").strip()
+    labels = {
+        "pinned": "pinned",
+        "no_room": "no lower level",
+        "excluded_model": "model excluded",
+        "disabled": "adaptive off",
+        "unsupported_route": "unsupported route",
+        "no_host_effort": "pass-through",
+        "reasoning_disabled": "reasoning off",
+    }
+    return labels.get(reason, "pass-through")
 
 
 def _nearest_rank(ordered: Sequence[float], fraction: float) -> float | None:
@@ -1392,7 +1565,8 @@ class ReasoningEffortController:
         record_decision: Callable[[dict[str, Any]], Any] | None = None,
         session_env: Callable[[str], str] | None = None,
         step_adaptation: Any = True,
-        receipt_line: Any = True,
+        receipt_mode: Any = None,
+        receipt_line: Any = None,
         client_identity: Callable[[], Any] | None = None,
     ) -> None:
         self.enabled = enabled is True
@@ -1416,7 +1590,12 @@ class ReasoningEffortController:
         self.step_adaptation = step_adaptation is True or (
             not isinstance(step_adaptation, bool) and parse_bool_setting(step_adaptation)
         )
-        self.receipt_line = parse_bool_setting(receipt_line)
+        if receipt_mode is not None:
+            self.receipt_mode = parse_receipt_mode(receipt_mode)
+        elif receipt_line is not None:
+            self.receipt_mode = parse_receipt_mode(receipt_line)
+        else:
+            self.receipt_mode = DEFAULT_RECEIPT_MODE
         self.record_decision = record_decision
         self.session_env = session_env or _session_env
         self._registry_lock = threading.RLock()
@@ -1763,7 +1942,27 @@ class ReasoningEffortController:
         if turn is None or requested not in ALLOWED_EFFORTS or sent not in ALLOWED_EFFORTS:
             return
         if receipt.get("reason_code") in _PASS_REASONS:
-            return  # the plugin did no work on this request
+            if self.receipt_mode != "always":
+                return  # the plugin did no work; quiet unless receipt mode is always
+            with self._turn_receipts_lock:
+                entry = self._turn_receipts.get(turn)
+                if entry is None:
+                    entry = {
+                        "requested": requested, "sent": [], "jev_calls": 0, "jev_ms": 0.0, "cached": 0,
+                        "kept": None, "metadata_only": False, "lowered": 0, "measured": 0,
+                        "metric": None, "saved": 0, "local": 0, "timeouts": 0,
+                        "passed": True, "pass_reason": receipt.get("reason_code"),
+                    }
+                    self._turn_receipts[turn] = entry
+                self._turn_receipts.move_to_end(turn)
+                if not entry["sent"] or entry["sent"][-1] != sent:
+                    entry["sent"].append(sent)
+                entry["requested"] = requested
+                entry["passed"] = True
+                entry["pass_reason"] = receipt.get("reason_code")
+                while len(self._turn_receipts) > _TURN_RECEIPT_LIMIT:
+                    self._turn_receipts.popitem(last=False)
+            return
         with self._turn_receipts_lock:
             entry = self._turn_receipts.get(turn)
             if entry is None:
@@ -1771,12 +1970,14 @@ class ReasoningEffortController:
                     "requested": requested, "sent": [], "jev_calls": 0, "jev_ms": 0.0, "cached": 0,
                     "kept": None, "metadata_only": False, "lowered": 0, "measured": 0,
                     "metric": None, "saved": 0, "local": 0, "timeouts": 0,
+                    "passed": False, "pass_reason": None,
                 }
                 self._turn_receipts[turn] = entry
             self._turn_receipts.move_to_end(turn)
             if not entry["sent"] or entry["sent"][-1] != sent:
                 entry["sent"].append(sent)
             entry["requested"] = requested
+            entry["passed"] = False
             if receipt.get("reason_code") == _TIMEOUT_REASON:
                 entry["timeouts"] += 1  # the label names the budget; no Jev time is shown
             elif latency is not None:
@@ -1793,7 +1994,7 @@ class ReasoningEffortController:
                 entry["lowered"] += 1
             else:
                 label = _kept_label(receipt)
-                if entry["kept"] is None or label != "Jev choice":
+                if entry["kept"] is None or label != "cloud decision":
                     entry["kept"] = label
             while len(self._turn_receipts) > _TURN_RECEIPT_LIMIT:
                 self._turn_receipts.popitem(last=False)
@@ -1801,15 +2002,17 @@ class ReasoningEffortController:
     def turn_receipt_line(self, turn_id: Any) -> str | None:
         """Return and clear the one-line effort receipt for *turn_id*, or None.
 
-        A line is present when the plugin did work in the turn: effort changed, Jev was called,
-        or a cached decision was reused. Examples:
-        ``switchyard: effort high→low · Jev 180 ms · ~1.2k reasoning tokens saved (est.)`` and
-        ``switchyard: effort high (kept: consequential) · Jev 210 ms``. The saved figure is
+        Default ``auto`` mode: a line when Switchyard changed effort or made/reused a
+        decision (cloud, local, or cached). ``always`` also shows pass-through when a wire
+        level is known (pinned, no room, excluded model, …); not when there is no host effort
+        field or the route is unsupported. ``off`` never shows a line. Examples:
+        ``Reasoning: high→low · 180 ms`` and
+        ``Reasoning: kept at high — consequential request · 210 ms``. The saved figure is
         present only when every lowered request in the turn has measured usage and the session
         has a measured baseline at the user's level (see ``build_post_api_request_hook``).
         """
         turn = _turn_key(turn_id)
-        if turn is None:
+        if turn is None or self.receipt_mode == "off":
             return None
         with self._turn_receipts_lock:
             entry = self._turn_receipts.pop(turn, None)
@@ -1818,41 +2021,49 @@ class ReasoningEffortController:
         requested = entry["requested"]
         changed = any(level != requested for level in entry["sent"])
         calls = int(entry["jev_calls"])
+        if entry.get("passed") and not changed and calls == 0 and not entry["cached"] and not entry["local"]:
+            if self.receipt_mode != "always":
+                return None
+            label = _pass_label(entry.get("pass_reason"))
+            return f"Reasoning: {requested} · {label}"
         if not changed and calls == 0 and not entry["cached"] and not entry["local"] and not entry["timeouts"]:
+            if self.receipt_mode == "always" and entry.get("sent"):
+                return f"Reasoning: {entry['sent'][-1]}"
             return None
         if changed:
             levels = [requested, *entry["sent"]]
             path = "→".join(
                 level for index, level in enumerate(levels) if index == 0 or level != levels[index - 1]
             )
-            parts = [f"effort {path}"]
+            parts = [f"Reasoning: {path}"]
         else:
-            parts = [f"effort {requested} (kept: {entry['kept'] or 'Jev choice'})"]
+            kept = entry["kept"] or "cloud decision"
+            parts = [f"Reasoning: kept at {requested} — {kept}"]
         if calls == 0 and entry["local"]:
-            parts.append("local (no Jev call)")
+            parts.append("local decision")
         elif calls == 1:
-            parts.append(f"Jev {round(entry['jev_ms'])} ms")
+            parts.append(f"{round(entry['jev_ms'])} ms")
         elif calls > 1:
-            parts.append(f"Jev {calls} calls, {round(entry['jev_ms'])} ms")
+            parts.append(f"{calls} decisions, {round(entry['jev_ms'])} ms")
         if entry["cached"]:
             parts.append(f"{entry['cached']} cached")
         if entry["lowered"] and entry["measured"] == entry["lowered"] and entry["metric"]:
             parts.append(_saved_text(entry["saved"], entry["metric"]))
         if entry["metadata_only"]:
-            parts.append("metadata only")
-        return "switchyard: " + " · ".join(parts)
+            parts.append("shape only (message text not sent)")
+        return " · ".join(parts)
 
     def build_transform_llm_output_hook(self) -> Callable[..., str | None]:
-        """Return a ``transform_llm_output`` hook that appends the receipt line (on by default).
+        """Return a ``transform_llm_output`` hook that appends the receipt line.
 
-        The hook always clears the turn's summary. It returns None (no change) when the line is
-        off or the plugin did no work in the turn. It never raises.
+        The hook always clears the turn's summary. It returns None (no change) when the mode is
+        ``off`` or there is nothing to show. It never raises.
         """
 
         def on_transform_llm_output(response_text: Any = None, turn_id: Any = None, **_kwargs: Any) -> str | None:
             try:
                 line = self.turn_receipt_line(turn_id)
-                if not self.receipt_line or line is None or not isinstance(response_text, str):
+                if self.receipt_mode == "off" or line is None or not isinstance(response_text, str):
                     return None
                 return response_text.rstrip() + "\n\n" + line
             except Exception:  # noqa: BLE001 -- a display line never breaks a turn
@@ -1993,7 +2204,8 @@ class ReasoningEffortController:
             "allow_raise": self.allow_raise,
             "deadline_seconds": self.deadline_seconds,
             "step_adaptation": self.step_adaptation,
-            "receipt_line": self.receipt_line,
+            "receipt_mode": self.receipt_mode,
+            "receipt_line": self.receipt_mode != "off",
         }
         state = self._sessions.get(session_id) if session_id else None
         if state is None:
@@ -2037,25 +2249,47 @@ class ReasoningEffortController:
             "lowered_unmeasured": state.lowered_unmeasured,
         }
 
-    def set_receipt_line(self, enabled: bool) -> bool:
-        """Turn the per-turn receipt line on or off for this process; return the new value."""
-        self.receipt_line = enabled is True
-        return self.receipt_line
+    @property
+    def receipt_line(self) -> bool:
+        """True when a receipt line may be shown (mode is not ``off``)."""
+        return self.receipt_mode != "off"
+
+    def set_receipt_line(self, enabled: bool, *, persist: bool = True) -> bool:
+        """Legacy on/off toggle; ``True`` maps to ``auto``, ``False`` to ``off``."""
+        mode, _saved = self.set_receipt_mode("auto" if enabled else "off", persist=persist)
+        return mode != "off"
+
+    def set_receipt_mode(self, mode: str, *, persist: bool = True) -> tuple[str, bool]:
+        """Set receipt mode to ``always``, ``auto``, or ``off``.
+
+        When *persist* is True, write the mode to Hermes plugin settings so it survives
+        restart. Returns ``(mode, persisted)``. Never raises.
+        """
+        self.receipt_mode = parse_receipt_mode(mode)
+        saved = False
+        if persist:
+            try:
+                saved = persist_plugin_receipt_mode(self.receipt_mode) is True
+            except Exception:
+                saved = False
+        return self.receipt_mode, saved
 
     def handle_command(self, raw_args: str = "") -> str:
-        """``/switchyard effort auto|pin|status|receipt on|off`` handler; never raises."""
+        """``/switchyard effort auto|pin|status|receipt always|work|off`` handler; never raises."""
         auto_limit = (
             "may go one level higher after a failed tool call"
             if self.allow_raise else "never above your level"
         )
         usage = (
-            "Usage: /switchyard effort status | summary | pin | auto | receipt on|off\n"
-            "  status       show the mode, the last 5 decisions, and the session summary\n"
-            "  summary      show the session summary: turns, lowered/kept/raised, Jev, tokens\n"
-            "  pin          send your selected /reasoning level unchanged\n"
-            "  auto         let Switchyard lower effort for routine steps (" + auto_limit + ")\n"
-            "  receipt on   add one Switchyard line after each reply where it did work (the default)\n"
-            "  receipt off  stop adding that line"
+            "Usage: /switchyard effort status | summary | pin | auto | receipt always|auto|off\n"
+            "  status          show cap, last sent, mode, why, recent decisions, and summary\n"
+            "  summary         show the session summary: turns, lowered/kept/raised, cloud, tokens\n"
+            "  pin             send your selected /reasoning level unchanged\n"
+            "  auto            let Switchyard lower effort for routine steps (" + auto_limit + ")\n"
+            "  receipt auto    show a line when effort changed or a decision was made/reused (default)\n"
+            "  receipt always  also when pinned / pass-through with a known wire level\n"
+            "  receipt off     show no receipt line\n"
+            "  (legacy: receipt work|on → auto)"
         )
         try:
             parts = str(raw_args or "").strip().lower().split()
@@ -2063,21 +2297,42 @@ class ReasoningEffortController:
                 return usage
             action = parts[1] if len(parts) > 1 else "status"
             if action == "receipt":
-                if len(parts) != 3 or parts[2] not in {"on", "off"}:
+                if len(parts) != 3 or parts[2] not in {"always", "auto", "off", "work", "on", "changes"}:
                     return usage
-                if self.set_receipt_line(parts[2] == "on"):
+                requested = parts[2]
+                mode, saved = self.set_receipt_mode(requested)
+                persist_note = (
+                    " Saved in plugin settings."
+                    if saved
+                    else " (could not save to settings; applies until restart.)"
+                )
+                legacy_note = (
+                    " ('" + requested + "' is accepted as an alias of auto; prefer receipt auto.)"
+                    if requested in {"work", "on", "changes"} and mode == "auto"
+                    else ""
+                )
+                if mode == "off":
+                    return "Reasoning receipt: off." + persist_note
+                if mode == "always":
                     return (
-                        "Switchyard effort receipt line: on. A reply where Switchyard did work ends "
-                        "with one line, for example 'switchyard: effort high→low · Jev 180 ms'."
+                        "Reasoning receipt: always. Also shows the last sent level when "
+                        "pinned or other pass-through with a known wire level (for example "
+                        "'Reasoning: high · pinned'). No line when the host has no effort "
+                        "field or the route is unsupported." + persist_note
                     )
-                return "Switchyard effort receipt line: off."
+                return (
+                    "Reasoning receipt: auto. A reply where Switchyard changed effort or "
+                    "made/reused a decision ends with one line, for example "
+                    "'Reasoning: high→low · 180 ms'." + legacy_note + persist_note
+                )
             if len(parts) > 2 or action not in {"status", "summary", "pin", "auto"}:
                 return usage
             if action == "status":
                 status = self.session_status()
                 text = self._format_status(status)
                 if status.get("known") and status.get("enabled"):
-                    text += "\n" + self._format_summary(status)
+                    # Lead already printed by _format_status; omit it from the embedded summary.
+                    text += "\n" + self._format_summary(status, include_lead=False)
                 return text
             if action == "summary":
                 return self._format_summary(self.session_status())
@@ -2110,9 +2365,28 @@ class ReasoningEffortController:
             return f"Switchyard effort command failed: {type(exc).__name__}"
 
     @staticmethod
-    def _format_summary(status: Mapping[str, Any]) -> str:
-        """Format the local session summary; no network call."""
+    def _leading_cap_line(status: Mapping[str, Any]) -> str | None:
+        """One human status line: Cap … · last sent … · mode · why: …"""
+        if not status.get("known") or not status.get("enabled"):
+            return None
+        cap = status.get("user_level") or "?"
+        sent = status.get("last_sent") or "?"
+        mode = status.get("mode") or status.get("default_mode") or "?"
+        why = _human_reason(status.get("last_reason"))
+        return f"Cap {cap} · last sent {sent} · {mode} · why: {why}"
+
+    @staticmethod
+    def _format_summary(status: Mapping[str, Any], *, include_lead: bool = True) -> str:
+        """Format the local session summary; no network call.
+
+        When embedded under ``effort status``, pass ``include_lead=False`` so the Cap line
+        from ``_format_status`` is not repeated.
+        """
         lines = ["Switchyard effort summary (this session)"]
+        if include_lead:
+            lead = ReasoningEffortController._leading_cap_line(status)
+            if lead is not None:
+                lines.append(f"  {lead}")
         summary = status.get("summary") if status.get("known") else None
         if not isinstance(summary, Mapping):
             lines.append("  no model request yet in this session")
@@ -2127,10 +2401,10 @@ class ReasoningEffortController:
             f"raised {summary['raised']}, not adapted {summary['not_adapted']}"
         )
         lines.append(
-            f"  Jev calls: {summary['jev_calls']}, p50 {ms(summary['jev_p50_ms'])}, "
+            f"  cloud decisions: {summary['jev_calls']}, p50 {ms(summary['jev_p50_ms'])}, "
             f"p95 {ms(summary['jev_p95_ms'])}"
         )
-        lines.append(f"  local decisions (no Jev call): {summary['local_decisions']}")
+        lines.append(f"  local decisions: {summary['local_decisions']}")
         lines.append(f"  cached reuses: {summary['cached_reuses']}")
         saved = summary.get("tokens_saved_est")
         if not saved:
@@ -2150,20 +2424,28 @@ class ReasoningEffortController:
         if not status.get("enabled"):
             lines.append("  enabled: no (adaptive_reasoning_effort is false)")
             return "\n".join(lines)
+        lead = ReasoningEffortController._leading_cap_line(status)
+        if lead is not None:
+            lines.append(f"  {lead}")
         if status.get("known"):
             lines.append(f"  mode: {status.get('mode')}")
             lines.append(f"  your level (cap): {status.get('user_level')}")
-            lines.append(f"  last sent: {status.get('last_sent')} ({status.get('last_reason')})")
+            # Human why on the detail line; raw reason codes stay in --json / history.
+            lines.append(
+                f"  last sent: {status.get('last_sent')} "
+                f"({_human_reason(status.get('last_reason'))})"
+            )
             lines.append(f"  model: {status.get('model')}")
-            lines.append(f"  requests: {status.get('requests')}, Jev calls: {status.get('jev_calls')}")
+            lines.append(f"  requests: {status.get('requests')}, cloud decisions: {status.get('jev_calls')}")
             recent = list(status.get("recent") or [])
             if recent:
-                lines.append(f"  last {len(recent)} decisions (cap -> sent, reason, Jev latency):")
+                lines.append(f"  last {len(recent)} decisions (cap -> sent, why, latency):")
                 for item in recent:
                     latency = item.get("latency_ms")
                     shown = f"{round(latency)} ms" if isinstance(latency, (int, float)) else "no call"
                     lines.append(
-                        f"    {item.get('cap')} -> {item.get('sent')}, {item.get('reason')}, {shown}"
+                        f"    {item.get('cap')} -> {item.get('sent')}, "
+                        f"{_human_reason(item.get('reason'))}, {shown}"
                     )
         else:
             lines.append(f"  mode for new sessions: {status.get('default_mode')}")
@@ -2172,7 +2454,8 @@ class ReasoningEffortController:
         lines.append(f"  excluded models: {excluded}")
         lines.append(f"  allow raise: {'yes' if status.get('allow_raise') else 'no'}")
         lines.append(f"  step adaptation: {'on' if status.get('step_adaptation') else 'off'}")
-        lines.append(f"  receipt line: {'on' if status.get('receipt_line') else 'off'}")
+        mode = status.get("receipt_mode") or ("auto" if status.get("receipt_line") else "off")
+        lines.append(f"  receipt mode: {mode}")
         lines.append(f"  deadline: {status.get('deadline_seconds')} seconds")
         return "\n".join(lines)
 
@@ -2941,12 +3224,17 @@ def register_reasoning_effort_adapter(
     allow_raise: Any = False,
     record_decision: Callable[[dict[str, Any]], Any] | None = None,
     step_adaptation: Any = True,
-    receipt_line: Any = True,
+    receipt_mode: Any = None,
+    receipt_line: Any = None,
     client_identity: Callable[[], Any] | None = None,
 ) -> dict[str, Any]:
     """Register llm_request middleware, turn and tool hooks, and ``/switchyard``."""
     global _LAST_REGISTRATION
     seam = probe_llm_request_middleware_seam(ctx)
+    resolved_receipt = parse_receipt_mode(
+        DEFAULT_RECEIPT_MODE if receipt_mode is None and receipt_line is None
+        else receipt_mode if receipt_mode is not None else receipt_line
+    )
     settings = {
         "mode": normalize_mode(mode),
         "exclude_models": list(parse_exclude_models(exclude_models)),
@@ -2955,7 +3243,8 @@ def register_reasoning_effort_adapter(
         "step_adaptation": step_adaptation is True or (
             not isinstance(step_adaptation, bool) and parse_bool_setting(step_adaptation)
         ),
-        "receipt_line": parse_bool_setting(receipt_line),
+        "receipt_mode": resolved_receipt,
+        "receipt_line": resolved_receipt != "off",
     }
     if not enabled:
         receipt = {
@@ -2994,7 +3283,7 @@ def register_reasoning_effort_adapter(
         allow_raise=allow_raise,
         record_decision=record_decision,
         step_adaptation=settings["step_adaptation"],
-        receipt_line=settings["receipt_line"],
+        receipt_mode=settings["receipt_mode"],
         client_identity=client_identity,
     )
     register_middleware = getattr(ctx, "register_middleware")
@@ -3048,8 +3337,8 @@ def register_reasoning_effort_adapter(
             register_command(
                 "switchyard",
                 controller.handle_command,
-                description="Switchyard controls: effort auto | pin | status | summary | receipt on|off",
-                args_hint="effort auto|pin|status|summary|receipt on|off",
+                description="Switchyard controls: effort auto | pin | status | summary | receipt always|auto|off",
+                args_hint="effort auto|pin|status|summary|receipt always|auto|off",
             )
             command_registered = True
         except Exception:  # noqa: BLE001 -- the command is optional

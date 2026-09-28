@@ -253,11 +253,11 @@ class HermesTurnLoopEffortTests(unittest.TestCase):
             for text in ROUTINE:
                 row = by_case[(route, text)]
                 self.assertEqual(row["sent"], "low", (route, text))
-                self.assertEqual(row["final"], "Synthetic answer.\n\nswitchyard: effort high→low · local (no Jev call)")
+                self.assertEqual(row["final"], "Synthetic answer.\n\nReasoning: high→low · local decision")
             kept = by_case[(route, CONSEQUENTIAL)]
             self.assertEqual(kept["sent"], "high", route)
             self.assertRegex(
-                kept["final"], r"^Synthetic answer\.\n\nswitchyard: effort high \(kept: consequential\) · Jev \d+ ms$"
+                kept["final"], r"^Synthetic answer\.\n\nReasoning: kept at high — consequential request · \d+ ms$"
             )
         # The default-on line reaches every foreground reply.
         for row in by_case.values():
@@ -268,7 +268,7 @@ class HermesTurnLoopEffortTests(unittest.TestCase):
         # earlier answer without it, on both wire shapes, whether or not Hermes stored it.
         self.assertEqual(sorted(row["route"] for row in proof["replay"]), sorted(ROUTES))
         for row in proof["replay"]:
-            self.assertTrue(row["first_final"].endswith("switchyard: effort high→low · local (no Jev call)"), row)
+            self.assertTrue(row["first_final"].endswith("Reasoning: high→low · local decision"), row)
             self.assertIn("Synthetic answer.", row["second_replayed"], row)
             self.assertNotIn("switchyard:", row["second_replayed"], "receipt line reached the model")
             self.assertEqual(row["second_sent"], "high", row)
@@ -281,7 +281,7 @@ class HermesTurnLoopEffortTests(unittest.TestCase):
         for row in proof["bypass"]:
             if row["text"] in TRIVIAL:
                 self.assertEqual((row["sent"], row["jev_calls"]), ("low", 0), (row["route"], row["text"]))
-                self.assertTrue(row["final"].endswith("switchyard: effort high→low · local (no Jev call)"), row)
+                self.assertTrue(row["final"].endswith("Reasoning: high→low · local decision"), row)
             else:
                 self.assertEqual(row["jev_calls"], 1, (row["route"], row["text"]))
                 self.assertNotIn("local (no Jev call)", row["final"], row)
@@ -299,16 +299,16 @@ class HermesTurnLoopEffortTests(unittest.TestCase):
 
         summary = proof["summary"]
         self.assertIn("Switchyard effort summary (this session)", summary)
-        # The receipt-off greeting was decided locally: no Jev call, one local decision.
-        self.assertIn("Jev calls: 0, p50 n/a, p95 n/a", summary)
-        self.assertIn("local decisions (no Jev call): 1", summary)
-        self.assertIn("local decisions (no Jev call): 1", proof["measured_summary"])
-        self.assertRegex(proof["measured_summary"], r"Jev calls: 3, p50 \d+ ms, p95 \d+ ms")
+        # The receipt-off greeting was decided locally: no cloud decision, one local decision.
+        self.assertIn("cloud decisions: 0, p50 n/a, p95 n/a", summary)
+        self.assertIn("local decisions: 1", summary)
+        self.assertIn("local decisions: 1", proof["measured_summary"])
+        self.assertRegex(proof["measured_summary"], r"cloud decisions: 3, p50 \d+ ms, p95 \d+ ms")
         measured = proof["measured"]
         self.assertEqual([row["sent"] for row in measured], ["high", "high", "high", "low"])
         self.assertRegex(
             measured[-1]["final"],
-            r"^Synthetic answer\.\n\nswitchyard: effort high→low · local \(no Jev call\) · ~500 output tokens saved \(est\.\)$",
+            r"^Synthetic answer\.\n\nReasoning: high→low · local decision · ~500 output tokens saved \(est\.\)$",
         )
         self.assertIn("estimated tokens saved: ~500 output (est., 1 of 1 lowered requests measured)",
                       proof["measured_summary"])
@@ -323,9 +323,9 @@ class HermesTurnLoopEffortTests(unittest.TestCase):
         for row in proof["slow"]:
             self.assertEqual(row["sent"], "high", row)
             self.assertLessEqual(row["added_s"], 0.45, row)
-            self.assertEqual(row["final"], "Synthetic answer.\n\nswitchyard: effort high (kept: Jev over 400 ms budget)")
+            self.assertEqual(row["final"], "Synthetic answer.\n\nReasoning: kept at high — cloud over 400 ms budget")
             self.assertEqual((row["after_sent"], row["after_jev_calls"]), ("high", 1), row)
-        self.assertIn("kept_requested_on_jev_timeout", proof["slow_status"])
+        self.assertIn("cloud over budget", proof["slow_status"])  # humanized; raw code stays in --json / receipts
         self.assertIn("deadline: 0.4 seconds", proof["slow_status"])
         print("E2E budget samples:", [round(row["added_s"] * 1000) for row in proof["slow"]], "ms added;",
               proof["slow"][0]["final"].splitlines()[-1])
