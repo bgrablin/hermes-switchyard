@@ -851,14 +851,17 @@ def parse_bool_setting(value: Any) -> bool:
     return str(value).strip().lower() in _TRUE_STRINGS
 
 
-RECEIPT_MODES = ("work", "always", "off")
-DEFAULT_RECEIPT_MODE = "work"
+RECEIPT_MODES = ("auto", "always", "off")
+DEFAULT_RECEIPT_MODE = "auto"
+# Public CLI: always | auto | off. Legacy work/on (and briefly-used changes) → auto.
 _RECEIPT_MODE_ALIASES = {
-    "work": "work",
-    "on": "work",
-    "true": "work",
-    "yes": "work",
-    "1": "work",
+    "auto": "auto",
+    "changes": "auto",  # interim name; prefer auto
+    "work": "auto",  # legacy from PR #147; prefer auto
+    "on": "auto",
+    "true": "auto",
+    "yes": "auto",
+    "1": "auto",
     "always": "always",
     "off": "off",
     "false": "off",
@@ -868,13 +871,14 @@ _RECEIPT_MODE_ALIASES = {
 
 
 def parse_receipt_mode(value: Any) -> str:
-    """Return ``work``, ``always``, or ``off``.
+    """Return ``auto``, ``always``, or ``off``.
 
-    Bool ``True`` / ``"on"`` map to ``work`` (show when the plugin did work).
-    Bool ``False`` maps to ``off``. Unknown values fall back to ``work``.
+    Bool ``True`` / ``"on"`` / legacy ``"work"`` map to ``auto`` (show when
+    Switchyard changed effort or made/reused a decision). Bool ``False`` maps to
+    ``off``. Unknown values fall back to ``auto``.
     """
     if value is True:
-        return "work"
+        return "auto"
     if value is False:
         return "off"
     if value is None:
@@ -1978,8 +1982,8 @@ class ReasoningEffortController:
     def turn_receipt_line(self, turn_id: Any) -> str | None:
         """Return and clear the one-line effort receipt for *turn_id*, or None.
 
-        Default ``work`` mode: a line when the plugin did work (effort changed, cloud called,
-        local decision, or cached reuse). ``always`` also shows pass-through (pinned, no room).
+        Default ``auto`` mode: a line when Switchyard changed effort or made/reused a
+        decision (cloud, local, or cached). ``always`` also shows pass-through (pinned, no room).
         ``off`` never shows a line. Examples:
         ``Reasoning: high→low · 180 ms`` and
         ``Reasoning: kept at high — consequential request · 210 ms``. The saved figure is
@@ -2231,11 +2235,11 @@ class ReasoningEffortController:
 
     def set_receipt_line(self, enabled: bool, *, persist: bool = True) -> bool:
         """Legacy on/off toggle; ``True`` maps to ``work``, ``False`` to ``off``."""
-        mode, _saved = self.set_receipt_mode("work" if enabled else "off", persist=persist)
+        mode, _saved = self.set_receipt_mode("auto" if enabled else "off", persist=persist)
         return mode != "off"
 
     def set_receipt_mode(self, mode: str, *, persist: bool = True) -> tuple[str, bool]:
-        """Set receipt mode to ``always``, ``work``, or ``off``.
+        """Set receipt mode to ``always``, ``auto``, or ``off``.
 
         When *persist* is True, write the mode to Hermes plugin settings so it survives
         restart. Returns ``(mode, persisted)``. Never raises.
@@ -2256,14 +2260,15 @@ class ReasoningEffortController:
             if self.allow_raise else "never above your level"
         )
         usage = (
-            "Usage: /switchyard effort status | summary | pin | auto | receipt always|work|off\n"
-            "  status         show cap, last sent, mode, why, recent decisions, and summary\n"
-            "  summary        show the session summary: turns, lowered/kept/raised, cloud, tokens\n"
-            "  pin            send your selected /reasoning level unchanged\n"
-            "  auto           let Switchyard lower effort for routine steps (" + auto_limit + ")\n"
-            "  receipt work   show a line when Switchyard did work (default)\n"
-            "  receipt always show the last sent level even when pinned or pass-through\n"
-            "  receipt off    show no receipt line"
+            "Usage: /switchyard effort status | summary | pin | auto | receipt always|auto|off\n"
+            "  status          show cap, last sent, mode, why, recent decisions, and summary\n"
+            "  summary         show the session summary: turns, lowered/kept/raised, cloud, tokens\n"
+            "  pin             send your selected /reasoning level unchanged\n"
+            "  auto            let Switchyard lower effort for routine steps (" + auto_limit + ")\n"
+            "  receipt auto    show a line when effort changed or a decision was made/reused (default)\n"
+            "  receipt always  show the last sent level even when pinned or pass-through\n"
+            "  receipt off     show no receipt line\n"
+            "  (legacy: receipt work|on → auto)"
         )
         try:
             parts = str(raw_args or "").strip().lower().split()
@@ -2271,13 +2276,19 @@ class ReasoningEffortController:
                 return usage
             action = parts[1] if len(parts) > 1 else "status"
             if action == "receipt":
-                if len(parts) != 3 or parts[2] not in {"always", "work", "off", "on"}:
+                if len(parts) != 3 or parts[2] not in {"always", "auto", "off", "work", "on", "changes"}:
                     return usage
-                mode, saved = self.set_receipt_mode(parts[2])
+                requested = parts[2]
+                mode, saved = self.set_receipt_mode(requested)
                 persist_note = (
                     " Saved in plugin settings."
                     if saved
                     else " (could not save to settings; applies until restart.)"
+                )
+                legacy_note = (
+                    " ('" + requested + "' is accepted as an alias of auto; prefer receipt auto.)"
+                    if requested in {"work", "on", "changes"} and mode == "auto"
+                    else ""
                 )
                 if mode == "off":
                     return "Reasoning receipt: off." + persist_note
@@ -2288,8 +2299,9 @@ class ReasoningEffortController:
                         "'Reasoning: high→low · 180 ms'." + persist_note
                     )
                 return (
-                    "Reasoning receipt: work. A reply where Switchyard did work ends with one "
-                    "line, for example 'Reasoning: high→low · 180 ms'." + persist_note
+                    "Reasoning receipt: auto. A reply where Switchyard changed effort or "
+                    "made/reused a decision ends with one line, for example "
+                    "'Reasoning: high→low · 180 ms'." + legacy_note + persist_note
                 )
             if len(parts) > 2 or action not in {"status", "summary", "pin", "auto"}:
                 return usage
@@ -2414,7 +2426,7 @@ class ReasoningEffortController:
         lines.append(f"  excluded models: {excluded}")
         lines.append(f"  allow raise: {'yes' if status.get('allow_raise') else 'no'}")
         lines.append(f"  step adaptation: {'on' if status.get('step_adaptation') else 'off'}")
-        mode = status.get("receipt_mode") or ("work" if status.get("receipt_line") else "off")
+        mode = status.get("receipt_mode") or ("auto" if status.get("receipt_line") else "off")
         lines.append(f"  receipt mode: {mode}")
         lines.append(f"  deadline: {status.get('deadline_seconds')} seconds")
         return "\n".join(lines)
@@ -3297,8 +3309,8 @@ def register_reasoning_effort_adapter(
             register_command(
                 "switchyard",
                 controller.handle_command,
-                description="Switchyard controls: effort auto | pin | status | summary | receipt always|work|off",
-                args_hint="effort auto|pin|status|summary|receipt always|work|off",
+                description="Switchyard controls: effort auto | pin | status | summary | receipt always|auto|off",
+                args_hint="effort auto|pin|status|summary|receipt always|auto|off",
             )
             command_registered = True
         except Exception:  # noqa: BLE001 -- the command is optional

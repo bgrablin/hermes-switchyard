@@ -104,9 +104,9 @@ class DefaultReceiptTests(unittest.TestCase):
     def test_receipt_line_is_on_by_default_everywhere(self):
         controller = ReasoningEffortController()
         self.assertTrue(controller.receipt_line)
-        self.assertEqual(controller.receipt_mode, "work")
+        self.assertEqual(controller.receipt_mode, "auto")
         manifest = (ROOT / "plugin.yaml").read_text(encoding="utf-8")
-        self.assertRegex(manifest, r'adaptive_reasoning_effort_receipt_mode: \{type: str, default: "work",')
+        self.assertRegex(manifest, r'adaptive_reasoning_effort_receipt_mode: \{type: str, default: "auto",')
         source = (ROOT / "hermes_switchyard" / "__init__.py").read_text(encoding="utf-8")
         self.assertIn('"adaptive_reasoning_effort_receipt_mode", default=None', source)
 
@@ -116,7 +116,7 @@ class DefaultReceiptTests(unittest.TestCase):
 
         receipt = register_reasoning_effort_adapter(Ctx(), client_factory=None)
         self.assertTrue(receipt["settings"]["receipt_line"])
-        self.assertEqual(receipt["settings"]["receipt_mode"], "work")
+        self.assertEqual(receipt["settings"]["receipt_mode"], "auto")
 
     def test_lowered_turn_names_the_change_and_latency_without_a_baseline(self):
         controller, _, _ = make()
@@ -311,9 +311,18 @@ class ReceiptModeAndPlainLanguageTests(unittest.TestCase):
         line = finish(controller)
         self.assertEqual(line.splitlines()[-1], "Reasoning: high · pinned")
 
-    def test_work_mode_stays_quiet_when_pinned(self):
+    def test_legacy_work_alias_maps_to_auto(self):
         controller, _, _ = make()
-        controller.set_receipt_mode("work", persist=False)
+        mode, _ = controller.set_receipt_mode("work", persist=False)
+        self.assertEqual(mode, "auto")
+        reply = controller.handle_command("effort receipt work")
+        self.assertIn("Reasoning receipt: auto", reply)
+        self.assertIn("alias of auto", reply)
+        self.assertEqual(controller.receipt_mode, "auto")
+
+    def test_auto_receipt_mode_stays_quiet_when_pinned(self):
+        controller, _, _ = make()
+        controller.set_receipt_mode("auto", persist=False)
         controller.set_mode("pinned", session_id=SESSION)
         begin(controller, "hi")
         send(controller, "high")

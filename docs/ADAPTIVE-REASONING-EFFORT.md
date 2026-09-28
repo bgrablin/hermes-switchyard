@@ -65,7 +65,7 @@ Switchyard keeps the captured text only in memory for the current turn and clear
 /switchyard effort summary          show the session summary only
 /switchyard effort pin              send your /reasoning level unchanged in this session
 /switchyard effort auto             let Switchyard lower effort for routine steps again
-/switchyard effort receipt work     show a receipt when Switchyard did work (default)
+/switchyard effort receipt auto      show a receipt when effort changed or a decision was made/reused (default)
 /switchyard effort receipt always   show the last sent level even when pinned or pass-through
 /switchyard effort receipt off      show no receipt line
 ```
@@ -81,7 +81,7 @@ This release does not claim TUI chip sync with the sent level; the status bar re
 
 ### Receipt modes
 
-`/switchyard effort receipt always|work|off` updates the live mode and **persists** it in plugin settings (`adaptive_reasoning_effort_receipt_mode`) so it survives restart. Legacy `receipt on` means `work`. The receipt line uses the Hermes `transform_llm_output` hook. Default **`work`**: a foreground reply where Switchyard did work (changed effort, called the cloud, decided locally, or reused a cached choice). **`always`**: also shows the last sent level when pinned or otherwise pass-through. **`off`**: none. Examples:
+`/switchyard effort receipt always|auto|off` updates the live mode and **persists** it in plugin settings (`adaptive_reasoning_effort_receipt_mode`) so it survives restart. Legacy `receipt work` and `receipt on` mean `auto`. The receipt line uses the Hermes `transform_llm_output` hook. Default **`auto`**: a foreground reply where Switchyard changed effort or made/reused a decision (cloud, local, or cached). **`always`**: also shows the last sent level when pinned or otherwise pass-through. **`off`**: none. Examples:
 
 ```text
 Reasoning: high→low · 180 ms
@@ -93,7 +93,7 @@ Reasoning: high→low · 170 ms · shape only (message text not sent)
 Reasoning: high · pinned
 ```
 
-Kept lines use a plain-language why: consequential request, after a tool failure, after a write, change request, cloud unavailable, invalid cloud answer, cloud over budget, or cloud decision (the cloud picked your level). In `work` mode a pinned session, excluded model, or no-room request gets no line. In `always` mode those still show `Reasoning: <level> · …`.
+Kept lines use a plain-language why: consequential request, after a tool failure, after a write, change request, cloud unavailable, invalid cloud answer, cloud over budget, or cloud decision (the cloud picked your level). In `auto` mode a pinned session, excluded model, or no-room request gets no line. In `always` mode those still show `Reasoning: <level> · …`.
 
 The line is added to the reply you see. Current Hermes stores the reply with the line, so `/resume` shows it. Before each request, Switchyard removes the line from earlier replies, so the model never gets it back. Both the current `Reasoning: …` shape and the older `switchyard: effort …` shape are stripped. Other text stays. Delegated and background turns never get the line. If the line fails, the reply is sent unchanged.
 
@@ -143,8 +143,8 @@ Example `status` detail for recent decisions (up to 5 are kept):
 | `adaptive_reasoning_effort_allow_raise` | `false` | When `true`, `auto` may go one level above your level while the latest tool call failed. It drops back after the next successful tool call or new turn. |
 | `adaptive_reasoning_effort_deadline_seconds` | `0.4` | Jev budget per choice, configurable from 0.1 to 1.5 s. On timeout your level is sent unchanged. |
 | `adaptive_reasoning_effort_step_adaptation` | `true` | Allow bounded step-level asks after routine read-only tool rounds (at most one level below your level). Set `false` for one decision per turn. |
-| `adaptive_reasoning_effort_receipt_mode` | `work` | Receipt visibility: `work` (default), `always`, or `off`. Changed by `/switchyard effort receipt …` and persisted in plugin settings. |
-| `adaptive_reasoning_effort_receipt_line` | `true` | Legacy bool (`true`→`work`, `false`→`off`). Prefer `adaptive_reasoning_effort_receipt_mode`. |
+| `adaptive_reasoning_effort_receipt_mode` | `auto` | Receipt visibility: `auto` (default), `always`, or `off`. Changed by `/switchyard effort receipt …` and persisted in plugin settings. Legacy `work`/`on` map to `auto`. |
+| `adaptive_reasoning_effort_receipt_line` | `true` | Legacy bool (`true`→`auto`, `false`→`off`). Prefer `adaptive_reasoning_effort_receipt_mode`. |
 | `adaptive_reasoning_effort_default` | `medium` | Deprecated and unused since 0.5.4. |
 
 Example:

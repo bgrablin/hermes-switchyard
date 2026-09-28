@@ -159,7 +159,7 @@ All current settings live under `plugins.entries.hermes-switchyard.settings`. Th
 | `adaptive_reasoning_effort_exclude_models` | `[]` | Model patterns that the effort adapter does not touch. |
 | `adaptive_reasoning_effort_allow_raise` | `false` | Permit one level above your cap after a failed tool call only when enabled. |
 | `adaptive_reasoning_effort_step_adaptation` | `true` | Reconsider after routine read-only tool rounds; writes and failures keep the cap. |
-| `adaptive_reasoning_effort_receipt_mode` | `work` | Foreground reasoning receipt: `work` / `always` / `off` (legacy bool `adaptive_reasoning_effort_receipt_line` still accepted). |
+| `adaptive_reasoning_effort_receipt_mode` | `auto` | Foreground reasoning receipt: `auto` / `always` / `off` (legacy `work`/`on` → `auto`; bool `adaptive_reasoning_effort_receipt_line` still accepted). |
 | `adaptive_reasoning_effort_default` | `medium` | Deprecated and unused; the request's own effort is the fallback. |
 | `adaptive_reasoning_effort_deadline_seconds` | `0.4` | Wall-clock budget for one adaptive Jev decision; allowed range is 0.1–1.5 s. On timeout your level is sent unchanged. |
 | `session_search_rerank_choice_confidence_threshold` | `0.8` | Minimum Jev Choice confidence to change FTS order. |
@@ -186,7 +186,7 @@ These are code-owned status or receipt reasons. They identify a gate, not necess
 
 The installer can also report `Security scan blocked plugin install`. This occurs before any plugin status command is available. Review the exact scanner findings and source; do not pass `--force` merely to make the quickstart appear complete. [Setup](docs/SETUP.md) covers browser startup, explicit pins, and further status reasons.
 
-**No per-turn effort line?** It appears only on a foreground turn where the plugin changed effort, called the cloud, decided locally, or reused a cached choice (or on every turn in `always` mode). Check `adaptive_reasoning_effort_receipt_mode` (`work`/`always`/`off`), `/switchyard effort receipt`, and whether you started a fresh session after enabling the plugin. A disabled adapter or unsupported Hermes middleware cannot produce it. Use `/switchyard effort status` and `hermes switchyard status --json` to see the current state.
+**No per-turn effort line?** It appears only on a foreground turn where the plugin changed effort, called the cloud, decided locally, or reused a cached choice (or on every turn in `always` mode). Check `adaptive_reasoning_effort_receipt_mode` (`auto`/`always`/`off`), `/switchyard effort receipt`, and whether you started a fresh session after enabling the plugin. A disabled adapter or unsupported Hermes middleware cannot produce it. Use `/switchyard effort status` and `hermes switchyard status --json` to see the current state.
 
 ## Uninstall and rollback
 

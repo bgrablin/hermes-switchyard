@@ -267,7 +267,7 @@ class ReceiptLineTests(unittest.TestCase):
 
     def test_command_turns_the_receipt_line_on_and_off(self):
         controller, _, _ = make(receipt_line=False)
-        self.assertIn("work", controller.handle_command("effort receipt on"))
+        self.assertIn("auto", controller.handle_command("effort receipt on"))
         begin(controller, "hi")
         send(controller, "high")
         self.assertIsNotNone(self.finish(controller))
