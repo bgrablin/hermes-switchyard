@@ -41,6 +41,7 @@ from .reasoning_effort_adapter import (
 )
 from .routing import route_model, select_skill, select_skills
 from .session_search_rerank import rerank_session_search
+from .local_duplicate_gate import register_local_duplicate_gate
 from .two_stage_routing import TWO_STAGE_CONFIG_KEYS, TwoStageConfig, skill_excerpt
 
 from .host_compat import ctx_get_config, register_auxiliary_task as register_host_auxiliary_task
@@ -1663,6 +1664,14 @@ def register(ctx):
         step_adaptation=ctx_get_config(ctx, "adaptive_reasoning_effort_step_adaptation", default=True),
         receipt_mode=ctx_get_config(ctx, "adaptive_reasoning_effort_receipt_mode", default=None),
         receipt_line=ctx_get_config(ctx, "adaptive_reasoning_effort_receipt_line", default=None),
+    )
+
+    # Opt-in local exact-duplicate tool-round gate (C2 / #139). Default off.
+    # Reuses successful read results via tool_execution middleware (skip next_call);
+    # post_tool_call records/invalidates. Plugin-only — no Hermes core changes.
+    _RUNTIME_STATUS["local_duplicate_gate"] = register_local_duplicate_gate(
+        ctx,
+        enabled=setting_bool("local_duplicate_tool_gate", False),
     )
 
     def assess_handler(args, **kwargs):
