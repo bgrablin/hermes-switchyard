@@ -299,11 +299,11 @@ class HermesTurnLoopEffortTests(unittest.TestCase):
 
         summary = proof["summary"]
         self.assertIn("Switchyard effort summary (this session)", summary)
-        # The receipt-off greeting was decided locally: no Jev call, one local decision.
-        self.assertIn("Jev calls: 0, p50 n/a, p95 n/a", summary)
-        self.assertIn("local decisions (no Jev call): 1", summary)
-        self.assertIn("local decisions (no Jev call): 1", proof["measured_summary"])
-        self.assertRegex(proof["measured_summary"], r"Jev calls: 3, p50 \d+ ms, p95 \d+ ms")
+        # The receipt-off greeting was decided locally: no cloud decision, one local decision.
+        self.assertIn("cloud decisions: 0, p50 n/a, p95 n/a", summary)
+        self.assertIn("local decisions: 1", summary)
+        self.assertIn("local decisions: 1", proof["measured_summary"])
+        self.assertRegex(proof["measured_summary"], r"cloud decisions: 3, p50 \d+ ms, p95 \d+ ms")
         measured = proof["measured"]
         self.assertEqual([row["sent"] for row in measured], ["high", "high", "high", "low"])
         self.assertRegex(
