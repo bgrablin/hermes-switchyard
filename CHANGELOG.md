@@ -12,7 +12,7 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 
 ### Changed
 
-_(none yet beyond #147)_
+- Optional disposable tool-output filter (`filter_disposable_tool_output`, default **off**; [#151](https://github.com/bgrablin/hermes-switchyard/issues/151)): when on, `transform_tool_result` soft-caps high-volume **exec** tool stdout (terminal/shell/bash and kin) before it re-enters the main model context. Preserves errors, non-zero exit, small outputs, security-relevant text, and user-asked full dumps. Vertical slice — does not filter read/write kinds yet. Capability-first experiment — do not enable by default until Silver A′/B/C prove-value.
 
 ### Fixed
 

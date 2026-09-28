@@ -89,10 +89,10 @@ You can also set `public_or_sanitized_data_ack` and `automatic_skill_public_or_s
 | Surface | Available now | Default |
 | --- | --- | --- |
 | Tools (7) | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, `jev_session_search_rerank`, `jev_computer_use` | Callable when the corresponding toolset is selected |
-| Hooks (5) | `pre_llm_call` for automatic skill routing and effort capture; `post_llm_call` to clear that capture; `post_tool_call` for reconsideration; `transform_llm_output` for the visible effort line; `post_api_request` for usage counts | On after install |
+| Hooks (6) | `pre_llm_call` for automatic skill routing and effort capture; `post_llm_call` to clear that capture; `post_tool_call` for reconsideration; `transform_llm_output` for the visible effort line; `transform_tool_result` for optional disposable exec soft-cap (off by default); `post_api_request` for usage counts | On after install |
 | Middleware (1) | `llm_request` for request-scoped reasoning effort | On when supported by Hermes |
 
-Doctor reports six hook registrations because two handlers use `pre_llm_call`; the manifest lists five distinct kinds. `jev_skill_select_many` recommends several skills but does not load them. The automatic hook can load one accepted skill per identified turn. The model-routing tools do not apply a model switch. Jev `DONE` alone does not verify a browser goal; Switchyard also needs its local completion condition. An early local stop is a candidate, not verified success. [Browser receipts](docs/DOM-BROWSER-BACKEND.md) show the separate action, effect, and goal fields.
+Doctor reports seven hook registrations because two handlers use `pre_llm_call`; the manifest lists six distinct kinds. `jev_skill_select_many` recommends several skills but does not load them. The automatic hook can load one accepted skill per identified turn. The model-routing tools do not apply a model switch. Jev `DONE` alone does not verify a browser goal; Switchyard also needs its local completion condition. An early local stop is a candidate, not verified success. [Browser receipts](docs/DOM-BROWSER-BACKEND.md) show the separate action, effect, and goal fields.
 
 ## Automatic skill recommendations
 
@@ -165,9 +165,10 @@ All current settings live under `plugins.entries.hermes-switchyard.settings`. Th
 | `session_search_rerank_choice_confidence_threshold` | `0.8` | Minimum Jev Choice confidence to change FTS order. |
 | `session_search_rerank_winning_probability_threshold` | `0.8` | Minimum winning probability to change FTS order. |
 | `session_search_rerank_max_card_chars` | `360` | Maximum text in a redacted FTS candidate card. |
+| `filter_disposable_tool_output` | `false` | Opt-in soft-cap for high-volume exec tool stdout before the main model; preserves errors and full-dump asks. |
 | `public_or_sanitized_data_ack` | `true` | Standing acknowledgement for explicit Jev tools and adaptive effort; callers can refuse one call. |
 
-The 41 setting rows above match the manifest defaults. F1 and F2 settings from their PRs are not in this manifest; do not set them. Both failed their frozen release evaluations. On timeout the 0.4 s guard sends your level unchanged. With the earlier 0.25 s guard, an installed cold one-shot sample had 8 timeouts in 14 non-trivial decisions (57.1%). A fresh TUI yielded one client-reused Jev call at 178.4 ms; n=1 cannot establish a warm p95 for the current default.
+The 42 setting rows above match the manifest defaults (legacy `adaptive_reasoning_effort_receipt_line` stays in the manifest; prefer `adaptive_reasoning_effort_receipt_mode`). F1 and F2 settings from their PRs are not in this manifest; do not set them. Both failed their frozen release evaluations. On timeout the 0.4 s guard sends your level unchanged. With the earlier 0.25 s guard, an installed cold one-shot sample had 8 timeouts in 14 non-trivial decisions (57.1%). A fresh TUI yielded one client-reused Jev call at 178.4 ms; n=1 cannot establish a warm p95 for the current default.
 
 ## Troubleshooting
 

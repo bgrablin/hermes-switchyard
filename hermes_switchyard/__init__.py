@@ -41,6 +41,7 @@ from .reasoning_effort_adapter import (
 )
 from .routing import route_model, select_skill, select_skills
 from .session_search_rerank import rerank_session_search
+from .tool_output_filter import register_tool_output_filter
 from .two_stage_routing import TWO_STAGE_CONFIG_KEYS, TwoStageConfig, skill_excerpt
 
 from .host_compat import ctx_get_config, register_auxiliary_task as register_host_auxiliary_task
@@ -1663,6 +1664,14 @@ def register(ctx):
         step_adaptation=ctx_get_config(ctx, "adaptive_reasoning_effort_step_adaptation", default=True),
         receipt_mode=ctx_get_config(ctx, "adaptive_reasoning_effort_receipt_mode", default=None),
         receipt_line=ctx_get_config(ctx, "adaptive_reasoning_effort_receipt_line", default=None),
+    )
+
+    # Opt-in disposable exec soft-cap (#151). Hook always registered when the
+    # Hermes transform_tool_result seam exists; behavior gated by the flag
+    # (default off). Plugin-only — no Hermes core changes.
+    _RUNTIME_STATUS["tool_output_filter"] = register_tool_output_filter(
+        ctx,
+        enabled=setting_bool("filter_disposable_tool_output", False),
     )
 
     def assess_handler(args, **kwargs):
