@@ -117,5 +117,31 @@ class SkillDiscoveryCacheTests(HermesHomeTestCase):
         self.assertNotIn("home", fp)
 
 
+    def test_fingerprint_keys_off_get_hermes_home_active_profile(self):
+        """Process env alone must not cross-cache multiplexed Hermes homes."""
+        import os
+        import tempfile
+
+        env_home = Path(tempfile.mkdtemp(prefix="sy-env-home-"))
+        active_home = Path(tempfile.mkdtemp(prefix="sy-active-home-"))
+        self.addCleanup(lambda: __import__("shutil").rmtree(env_home, ignore_errors=True))
+        self.addCleanup(lambda: __import__("shutil").rmtree(active_home, ignore_errors=True))
+        (env_home / "skills").mkdir()
+        (active_home / "skills").mkdir()
+        (env_home / "skills" / "env-only").mkdir()
+        (active_home / "skills" / "active-only").mkdir()
+
+        os.environ["HERMES_HOME"] = str(env_home)
+        fake = types.ModuleType("hermes_constants")
+        fake.get_hermes_home = lambda: active_home
+        with mock.patch.dict(sys.modules, {"hermes_constants": fake}):
+            roots = automatic._skills_registry_roots()
+            self.assertEqual(roots[0], active_home / "skills")
+            fp_active = automatic._discovery_fingerprint()
+            fake.get_hermes_home = lambda: env_home
+            fp_env = automatic._discovery_fingerprint()
+        self.assertNotEqual(fp_active, fp_env)
+
+
 if __name__ == "__main__":
     unittest.main()
