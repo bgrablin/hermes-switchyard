@@ -325,7 +325,7 @@ class HermesTurnLoopEffortTests(unittest.TestCase):
             self.assertLessEqual(row["added_s"], 0.45, row)
             self.assertEqual(row["final"], "Synthetic answer.\n\nReasoning: kept at high — cloud over 400 ms budget")
             self.assertEqual((row["after_sent"], row["after_jev_calls"]), ("high", 1), row)
-        self.assertIn("kept_requested_on_jev_timeout", proof["slow_status"])
+        self.assertIn("cloud over budget", proof["slow_status"])  # humanized; raw code stays in --json / receipts
         self.assertIn("deadline: 0.4 seconds", proof["slow_status"])
         print("E2E budget samples:", [round(row["added_s"] * 1000) for row in proof["slow"]], "ms added;",
               proof["slow"][0]["final"].splitlines()[-1])
