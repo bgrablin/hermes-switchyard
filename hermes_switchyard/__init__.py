@@ -41,6 +41,7 @@ from .reasoning_effort_adapter import (
 )
 from .routing import route_model, select_skill, select_skills
 from .session_search_rerank import rerank_session_search
+from .defer_tool_schemas import register_defer_tool_schemas_middleware
 from .two_stage_routing import TWO_STAGE_CONFIG_KEYS, TwoStageConfig, skill_excerpt
 
 from .host_compat import ctx_get_config, register_auxiliary_task as register_host_auxiliary_task
@@ -1666,6 +1667,11 @@ def register(ctx):
         step_adaptation=ctx_get_config(ctx, "adaptive_reasoning_effort_step_adaptation", default=True),
         receipt_mode=ctx_get_config(ctx, "adaptive_reasoning_effort_receipt_mode", default=None),
         receipt_line=ctx_get_config(ctx, "adaptive_reasoning_effort_receipt_line", default=None),
+    )
+
+    _RUNTIME_STATUS["defer_tool_schemas"] = register_defer_tool_schemas_middleware(
+        ctx,
+        enabled=setting_bool("defer_switchyard_tool_schemas", False),
     )
 
     def assess_handler(args, **kwargs):
