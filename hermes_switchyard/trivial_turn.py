@@ -4,9 +4,10 @@ A greeting, thanks, or acknowledgement never names a specialist skill and needs 
 reasoning, so a hosted call only adds latency. The rule is a closed word list, not a length
 rule, so short task requests (``fix ci``) are not trivial.
 
-Light-turn predicates (greeting-class instructions, pure read-only listings, short
-no-action explanations) skip hosted skill routing when a specialist skill cannot help.
-Adaptive effort still uses only ``is_trivial_turn`` / greeting-class for local bypass.
+Light-turn predicates (greeting-class instructions, pure read-only cwd listings, short
+no-action explanations without domain-skill cues) skip hosted skill routing when a
+specialist skill cannot help. Adaptive effort still uses only ``is_trivial_turn`` /
+greeting-class for local bypass.
 """
 from __future__ import annotations
 
@@ -44,17 +45,32 @@ _GREETING_CLASS_NEGATIVE_RE = re.compile(
     r"\b(?:"
     r"skill|debug|deploy|fix|patch|install|delete|browse|docker|printer|"
     r"error|plan|rollback|compose|maintenance|unreachable|logs?|"
-    r"world|program|script|code|python|rust|implement|function|"
-    r"then\b|after\s+that|followed\s+by"
+    r"world|program|script|code|python|rust|implement|function|email|onboard|"
+    r"summarize|prs?\b|pull\s+requests?|rest\s+api|api\b|issue\b|review\b"
+    r")\b",
+    re.IGNORECASE,
+)
+# Structural second deliverable: a later clause that is not a "do not …" constraint.
+_SECOND_DELIVERABLE_RE = re.compile(
+    r"(?:[.!?]\s+|;\s+|\n\s*|,?\s*\bthen\b\s+|,\s*\bafter\s+that\b\s+|,\s*\balso\b\s+|,\s*\bnext\b\s+)"
+    r"(?!do\s+not\b|don't\b|keep\b|prefer\b|using\s+only\b|after\s+listing\b|"
+    r"reply\s+with\b|finish\s+with\b)"
+    r"(?:\w+\s+){0,3}"
+    r"(?:"
+    r"create|open|run|build|write|implement|review|list|fix|deploy|debug|"
+    r"summarize|browse|patch|install|delete|edit|refactor|migrate|configure|"
+    r"set\s+up|add|remove|update|fix|check|inspect|analyze|investigate"
     r")\b",
     re.IGNORECASE,
 )
 
 # Pure cwd / directory listing with an explicit no-mutation constraint.
-_LIST_DIR_RE = re.compile(
+# ``ls -la`` accepts only a missing operand or literal ``.`` / ``./`` — never a path.
+_LS_LA_RE = re.compile(r"\bls\s+-la(?P<operand>\s+\S+)?", re.IGNORECASE)
+_LIST_CWD_RE = re.compile(
     r"\b(?:"
-    r"ls\s+-la\b"
-    r"|list\s+(?:the\s+)?(?:names?\s+of\s+)?(?:entries|files|directories|contents)\b"
+    r"list\s+(?:the\s+)?(?:names?\s+of\s+)?(?:entries|files|directories|contents)"
+    r"\s+(?:in\s+)?(?:the\s+)?(?:cwd|current\s+(?:working\s+)?directory)\b"
     r"|list\s+(?:the\s+)?(?:cwd|current\s+(?:working\s+)?directory)\b"
     r"|names?\s+of\s+entries\s+in\s+the\s+current\s+working\s+directory\b"
     r")",
@@ -67,9 +83,15 @@ _NO_MUTATE_RE = re.compile(
 )
 _LIST_NEGATIVE_RE = re.compile(
     r"\b(?:"
-    r"skill|debug|deploy|printer|error\s+logs?|compose\s+health|"
-    r"docker\s+update|rollback|unreachable"
+    r"skill|debug|deploy|printer|error\s+logs?|compose(?:\s+health)?|"
+    r"docker(?:\s+update)?|rollback|unreachable|"
+    r"nginx|spool|hermes|catalog|skills?"
     r")\b",
+    re.IGNORECASE,
+)
+# Any path-like token outside cwd markers rejects listing bypass.
+_LIST_PATH_OPERAND_RE = re.compile(
+    r"(?:^|[\s\"'`])(?:\.\./|\./[^\s\"'`]+|/[^\s\"'`]+|~/[^\s\"'`]+|[A-Za-z]:\\)",
     re.IGNORECASE,
 )
 
@@ -92,10 +114,23 @@ _EXPLAIN_SKILL_CUE_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+# Domain / consequential cues: if a specialist skill might improve the answer, host.
+# Capability-first: wall-time savings must not skip printer/docker/debug/logs/k8s routing.
+# A fixed list cannot prove "no skill helps"; unexplained infra/product nouns fail closed.
 _EXPLAIN_CONSEQUENTIAL_RE = re.compile(
     r"\b(?:"
     r"plan\s+a|prioritize\s+risk|rollback|production|maintenance\s+window|"
-    r"home-lab|unreachable|ERROR\s+lines"
+    r"home-lab|unreachable|ERROR\s+lines|"
+    r"debug\w*|diagnos\w*|printer|docker|compose|deploy|ci\b|logs?|network|"
+    r"fix|patch|install|error|healthcheck|pytest|flaky|nginx|spool|"
+    r"systemd|redeploy|failure\s+mode|"
+    # Platforms / infra nouns Copilot called out (and close neighbors).
+    r"k8s|kubernetes|ingress|egress|helm|istio|terraform|ansible|puppet|"
+    r"aws|gcp|azure|lambda|kafka|redis|postgres(?:ql)?|mysql|mongodb|mongo|"
+    r"prometheus|grafana|vault|okta|oauth|sso|cidr|vpc|subnet|firewall|dns|"
+    r"tls|ssl|certbot|letsencrypt|cloudflare|traefik|haproxy|envoy|"
+    r"pod\b|nodes?|cluster|namespace|sidecar|mesh\b|ci/?cd|devops|"
+    r"jenkins|github\s+actions|gitlab|circleci|argocd|flux\b"
     r")\b",
     re.IGNORECASE,
 )
@@ -122,6 +157,7 @@ def is_greeting_class_prompt(text: str) -> bool:
 
     Covers instructional battery-style prompts such as ``Reply with exactly one
     short greeting sentence…`` that the closed acknowledgement list alone misses.
+    A second deliverable (``Then create a REST API``) fails closed structurally.
     """
     stripped = text.strip()
     if not stripped or len(stripped) > _LIGHT_TURN_MAX_CHARS:
@@ -130,19 +166,41 @@ def is_greeting_class_prompt(text: str) -> bool:
         return True
     if not _GREETING_ASK_RE.search(stripped):
         return False
-    return _GREETING_CLASS_NEGATIVE_RE.search(stripped) is None
+    if _GREETING_CLASS_NEGATIVE_RE.search(stripped):
+        return False
+    if _SECOND_DELIVERABLE_RE.search(stripped):
+        return False
+    return True
+
+
+def _ls_la_is_cwd_only(text: str) -> bool:
+    """True when every ``ls -la`` occurrence has no operand or only ``.`` / ``./``."""
+    found = False
+    for match in _LS_LA_RE.finditer(text):
+        found = True
+        operand = (match.group("operand") or "").strip()
+        if operand and operand not in {".", "./"}:
+            return False
+    return found
 
 
 def is_readonly_listing_prompt(text: str) -> bool:
-    """True for a pure directory-listing request with an explicit no-mutation rule.
+    """True for a pure cwd listing request with an explicit no-mutation rule.
 
     Specialist skills cannot help ``ls -la .`` / list-cwd turns; hosted skill
-    selection only adds latency.
+    selection only adds latency. Path-scoped listings (``ls -la /etc``, compose
+    dirs, log trees) stay hosted so domain skills can still route.
     """
     stripped = text.strip()
     if not stripped or len(stripped) > _LIGHT_TURN_MAX_CHARS:
         return False
-    if not _LIST_DIR_RE.search(stripped):
+    has_ls = _ls_la_is_cwd_only(stripped)
+    has_list = _LIST_CWD_RE.search(stripped) is not None
+    if not (has_ls or has_list):
+        return False
+    # ``ls -la /etc`` yields has_ls False; also reject leakage of path operands
+    # next to an otherwise cwd-shaped list request.
+    if _LIST_PATH_OPERAND_RE.search(stripped):
         return False
     if not _NO_MUTATE_RE.search(stripped):
         return False
@@ -152,8 +210,9 @@ def is_readonly_listing_prompt(text: str) -> bool:
 def is_light_explanation_prompt(text: str) -> bool:
     """True for a short no-action explanation that does not ask to load a skill.
 
-    Covers light multi-step Q&A (``In three short numbered steps… Do not run
-    commands``). Consequential planning and skill-eval prompts stay hosted.
+    Covers light multi-step Q&A without domain-skill nouns. Domain explanations
+    (docker/printer/debug/logs/deploy/k8s/…) stay hosted — capability over wall-time.
+    A fixed denylist cannot prove no skill helps; unexplained infra nouns fail closed.
     """
     stripped = text.strip()
     if not stripped or len(stripped) > _LIGHT_TURN_MAX_CHARS:
@@ -171,8 +230,9 @@ def hosted_skill_bypass_reason(text: str) -> str | None:
     """Return a hosted skill-routing bypass reason, or None when hosting may help.
 
     ``trivial_turn`` covers closed-list acknowledgements. ``light_no_skill`` covers
-    greeting-class instructions, pure read-only listings, and short no-action
-    explanations where a specialist skill cannot earn its keep.
+    greeting-class instructions, pure read-only cwd listings, and short no-action
+    explanations without domain-skill cues where a specialist skill cannot earn
+    its keep.
     """
     stripped = text.strip()
     if not stripped:

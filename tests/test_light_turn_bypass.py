@@ -1,7 +1,8 @@
 """Light-turn skill-routing bypass: skip hosted Jev when a skill cannot help.
 
 Covers closed-list acknowledgements, greeting-class instructions, pure read-only
-listings, and short no-action explanations. Synthetic DecisionClient only.
+cwd listings, and short no-action explanations without domain-skill cues.
+Synthetic DecisionClient only. Capability guards assert domain prompts still host.
 """
 from __future__ import annotations
 
@@ -32,11 +33,18 @@ LISTDIR = (
     "directory. Prefer running exactly: ls -la . Do not write, patch, delete, install, or "
     "change any system state. After listing, reply with a short bullet summary of what you saw."
 )
-MULTISTEP = (
+# Domain-shaped multistep: docker/compose/healthcheck/redeploy — must still host.
+MULTISTEP_DOMAIN = (
     "In three short numbered steps: (1) explain what a docker compose healthcheck does, "
     "(2) give one example of a failure mode it catches, (3) say what metric you would glance "
     "at first after a redeploy. Do not run commands or change anything. Keep the whole answer "
     "under 120 words."
+)
+# Generic no-domain explanation may still bypass.
+MULTISTEP_GENERIC = (
+    "In three short numbered steps: (1) explain what a mutex is, "
+    "(2) give one example of a race it prevents, (3) say what you would check first in a "
+    "code review. Do not run commands or change anything. Keep the whole answer under 120 words."
 )
 PRINTER = (
     "This is a public synthetic evaluation task. A network printer is unreachable. "
@@ -54,14 +62,19 @@ def forbidden_factory(calls):
 
 
 class DetectorTests(unittest.TestCase):
-    def test_frozen_battery_light_turns(self):
+    def test_frozen_battery_safe_light_turns(self):
         self.assertEqual(hosted_skill_bypass_reason(GREETING_INSTRUCTION), LIGHT_NO_SKILL_REASON)
         self.assertTrue(is_greeting_class_prompt(GREETING_INSTRUCTION))
         self.assertFalse(is_trivial_turn(GREETING_INSTRUCTION))
         self.assertEqual(hosted_skill_bypass_reason(LISTDIR), LIGHT_NO_SKILL_REASON)
         self.assertTrue(is_readonly_listing_prompt(LISTDIR))
-        self.assertEqual(hosted_skill_bypass_reason(MULTISTEP), LIGHT_NO_SKILL_REASON)
-        self.assertTrue(is_light_explanation_prompt(MULTISTEP))
+        self.assertEqual(hosted_skill_bypass_reason(MULTISTEP_GENERIC), LIGHT_NO_SKILL_REASON)
+        self.assertTrue(is_light_explanation_prompt(MULTISTEP_GENERIC))
+
+    def test_domain_multistep_still_routes(self):
+        # Capability-first: docker/compose/healthcheck explanations may benefit from a skill.
+        self.assertIsNone(hosted_skill_bypass_reason(MULTISTEP_DOMAIN))
+        self.assertFalse(is_light_explanation_prompt(MULTISTEP_DOMAIN))
 
     def test_skill_and_task_prompts_still_route(self):
         self.assertIsNone(hosted_skill_bypass_reason(PRINTER))
@@ -71,13 +84,75 @@ class DetectorTests(unittest.TestCase):
                 "Plan a careful weekend home-lab maintenance window with rollback steps."
             )
         )
-        # Greeting-only grammar: coding tasks that merely contain "hello" must route.
-        self.assertFalse(is_greeting_class_prompt("Write a hello world program in Python."))
-        self.assertIsNone(hosted_skill_bypass_reason("Write a hello world program in Python."))
 
     def test_closed_list_acks_remain_trivial_turn(self):
         self.assertEqual(hosted_skill_bypass_reason("hi"), "trivial_turn")
         self.assertEqual(hosted_skill_bypass_reason("thanks!"), "trivial_turn")
+
+
+class CapabilityGuardTests(unittest.TestCase):
+    """Adversarial cases that must NOT bypass hosted skill selection."""
+
+    def test_greeting_class_does_not_swallow_code_or_follow_on_tasks(self):
+        for prompt in (
+            "Respond with a hello world Python script. Do not use tools.",
+            "Reply with hello. Then list open PRs.",
+            "Reply with hello. Then create a REST API.",
+            "Say hi, then open issue 123 and review it.",
+            "Write a greeting email to onboard a new hire about our CI and deploy process.",
+            "Give me a hello world in Rust.",
+            "Write a hello world program in Python.",
+        ):
+            with self.subTest(prompt=prompt[:50]):
+                self.assertIsNone(hosted_skill_bypass_reason(prompt))
+                self.assertFalse(is_greeting_class_prompt(prompt))
+
+    def test_listing_is_cwd_scoped_not_path_scoped(self):
+        for prompt in (
+            "Using only safe read-only actions, list the nginx-related files under the "
+            "system log directory. Do not write or delete anything.",
+            "Using safe read-only actions, list the contents of the docker compose project "
+            "directory. Do not modify anything.",
+            "list directories under ~/.hermes using read-only actions only",
+            "Run ls -la /etc using read-only actions; do not modify anything.",
+            "Run ls -la .. using read-only actions; do not modify anything.",
+            "Prefer running exactly: ls -la /var using safe read-only actions. Do not write.",
+        ):
+            with self.subTest(prompt=prompt[:50]):
+                self.assertIsNone(hosted_skill_bypass_reason(prompt))
+                self.assertFalse(is_readonly_listing_prompt(prompt))
+
+    def test_domain_explanations_still_route(self):
+        for prompt in (
+            "Explain how to systematically debug a flaky pytest failure in CI. Do not run commands.",
+            "In three short numbered steps explain how to diagnose a network printer that is "
+            "offline. Do not run commands or change anything.",
+            "Explain docker compose networking and give one example of a common misconfiguration. "
+            "Do not run commands.",
+            "Explain how a blue-green deploy works. Do not run commands.",
+            "Explain what the systematic-debugging approach recommends for intermittent failures. "
+            "Do not execute anything.",
+            "In three short numbered steps: (1) explain printer spool paths, (2) give one example "
+            "of a jam cause, (3) say what to check first. Do not run commands.",
+            "Explain how Kubernetes ingress works. Do not run commands.",
+            "Explain what a Helm chart does for a deployment. Do not run commands.",
+        ):
+            with self.subTest(prompt=prompt[:50]):
+                self.assertIsNone(hosted_skill_bypass_reason(prompt))
+                self.assertFalse(is_light_explanation_prompt(prompt))
+
+    def test_printer_and_logs_style_without_explicit_skill_cue_still_route(self):
+        self.assertIsNone(
+            hosted_skill_bypass_reason(
+                "A network printer is unreachable. Identify likely causes and list safe "
+                "read-only checks."
+            )
+        )
+        self.assertIsNone(
+            hosted_skill_bypass_reason(
+                "Scan these ERROR lines from app logs and prioritize the root cause."
+            )
+        )
 
 
 class RecommendBypassTests(HermesHomeTestCase):
@@ -86,7 +161,7 @@ class RecommendBypassTests(HermesHomeTestCase):
             ("hi", "trivial_turn"),
             (GREETING_INSTRUCTION, LIGHT_NO_SKILL_REASON),
             (LISTDIR, LIGHT_NO_SKILL_REASON),
-            (MULTISTEP, LIGHT_NO_SKILL_REASON),
+            (MULTISTEP_GENERIC, LIGHT_NO_SKILL_REASON),
         ):
             with self.subTest(task=task[:40]):
                 calls: list[bool] = []
@@ -104,6 +179,24 @@ class RecommendBypassTests(HermesHomeTestCase):
                 self.assertEqual(result["bypass_reason"], reason)
                 self.assertEqual(result["hosted_skipped"], reason)
                 self.assertEqual(rec.last_receipt["bypass_reason"], reason)
+
+    def test_domain_multistep_does_not_light_bypass(self):
+        calls: list[bool] = []
+        rec = AutomaticSkillRecommender(
+            configured_candidates=CATALOG,
+            routing_mode="hosted_sanitized",
+            hosted_mode="always",
+            public_or_sanitized_data_ack=True,
+            client_factory=forbidden_factory(calls),
+            cache_seconds=0.0,
+            # Force prefilter/honor path so we only assert light bypass is not used;
+            # domain multistep may still skip via local_no_skill_gate under honor.
+            light_turn_bypass=True,
+            honor_no_skill_gate=True,
+        )
+        result = rec.recommend(MULTISTEP_DOMAIN)
+        self.assertNotEqual(result.get("bypass_reason"), LIGHT_NO_SKILL_REASON)
+        self.assertNotEqual(result.get("hosted_skipped"), LIGHT_NO_SKILL_REASON)
 
     def test_light_turn_bypass_flag_can_disable(self):
         # With bypass off, a greeting instruction still constructs a client path;
@@ -196,6 +289,9 @@ class AdaptiveGreetingClassTests(unittest.TestCase):
         self.assertFalse(local_trivial_request(PRINTER))
         self.assertFalse(local_trivial_request(LISTDIR))
         self.assertFalse(local_trivial_request("Write a hello world program in Python."))
+        self.assertFalse(
+            local_trivial_request("Respond with a hello world Python script. Do not use tools.")
+        )
 
 
 
