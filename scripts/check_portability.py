@@ -82,6 +82,11 @@ KNOWN_BENIGN_HISTORY = {
     ("tests/test_browser_startup.py", "9ec7d92dae3a6376afaf5ca25bb575d82674c4b6592aabaf8d01b507c2ab77d1"): frozenset({
         "host-specific absolute path in tests/test_browser_startup.py",
     }),
+    # Offline effort-evaluation client key "offline-eval" (example.invalid
+    # endpoints). Replaced by the synthetic fixture key in the next commit.
+    ("evaluation/adaptive_effort_eval.py", "5b74119bae48fb97b8a3fd130d171a7b741449a19649794560d1c3a6d157f517"): frozenset({
+        "credential-shaped assignment in evaluation/adaptive_effort_eval.py",
+    }),
 }
 CREDENTIAL_FILE_NAMES = frozenset({
     ".env",

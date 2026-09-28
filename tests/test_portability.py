@@ -239,6 +239,8 @@ class PortabilityTests(unittest.TestCase):
                 "credential-shaped assignment in tests/test_two_stage_wiring.py",
             ("tests/test_browser_startup.py", "9ec7d92dae3a6376afaf5ca25bb575d82674c4b6592aabaf8d01b507c2ab77d1"):
                 "host-specific absolute path in tests/test_browser_startup.py",
+            ("evaluation/adaptive_effort_eval.py", "5b74119bae48fb97b8a3fd130d171a7b741449a19649794560d1c3a6d157f517"):
+                "credential-shaped assignment in evaluation/adaptive_effort_eval.py",
         }
         for key, finding in cases.items():
             with self.subTest(path=key[0]):
