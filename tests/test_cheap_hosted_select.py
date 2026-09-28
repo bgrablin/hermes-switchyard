@@ -20,7 +20,6 @@ from hermes_switchyard.automatic import (
     SHORTLIST_POLICY_PREFILTER,
     build_routing_receipt,
     plan_cheap_hosted_shortlist,
-    plan_hosted_prefilter,
     _rank_candidates,
 )
 
