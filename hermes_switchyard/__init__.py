@@ -1645,6 +1645,11 @@ def register(ctx):
 
     # Hermes 0.21 exposes llm_request middleware + reasoning_effort. Adaptive
     # effort is the apply-able win; model route stays advisory (applied: false).
+    defer_schemas_enabled = setting_bool("defer_switchyard_tool_schemas", False)
+    # When both adaptive effort and schema deferral are on, register one composed
+    # llm_request callback. Hermes keeps the last returned request from callbacks
+    # that each see the original payload; a second shallow rewrite would drop the
+    # effort change.
     _RUNTIME_STATUS["reasoning_effort_adapter"] = register_reasoning_effort_adapter(
         ctx,
         enabled=setting_bool("adaptive_reasoning_effort", True),
@@ -1667,11 +1672,14 @@ def register(ctx):
         step_adaptation=ctx_get_config(ctx, "adaptive_reasoning_effort_step_adaptation", default=True),
         receipt_mode=ctx_get_config(ctx, "adaptive_reasoning_effort_receipt_mode", default=None),
         receipt_line=ctx_get_config(ctx, "adaptive_reasoning_effort_receipt_line", default=None),
+        register_llm_request=(not defer_schemas_enabled),
     )
 
+    effort_cb = (_RUNTIME_STATUS.get("reasoning_effort_adapter") or {}).get("llm_request_callback")
     _RUNTIME_STATUS["defer_tool_schemas"] = register_defer_tool_schemas_middleware(
         ctx,
-        enabled=setting_bool("defer_switchyard_tool_schemas", False),
+        enabled=defer_schemas_enabled,
+        chain_with=effort_cb if defer_schemas_enabled else None,
     )
 
     def assess_handler(args, **kwargs):

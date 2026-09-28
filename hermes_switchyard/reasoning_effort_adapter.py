@@ -3230,6 +3230,7 @@ def register_reasoning_effort_adapter(
     receipt_mode: Any = None,
     receipt_line: Any = None,
     client_identity: Callable[[], Any] | None = None,
+    register_llm_request: bool = True,
 ) -> dict[str, Any]:
     """Register llm_request middleware, turn and tool hooks, and ``/switchyard``."""
     global _LAST_REGISTRATION
@@ -3289,8 +3290,24 @@ def register_reasoning_effort_adapter(
         receipt_mode=settings["receipt_mode"],
         client_identity=client_identity,
     )
-    register_middleware = getattr(ctx, "register_middleware")
-    register_middleware("llm_request", controller.on_llm_request)
+    register_middleware = getattr(ctx, "register_middleware", None)
+    middleware_registered = False
+    if register_llm_request is True:
+        if not callable(register_middleware):
+            receipt = {
+                "registered": True,
+                "mode": "noop_seam_unavailable",
+                "hermes_seam": seam,
+                "reason": "hermes_llm_request_middleware_unavailable",
+                "enabled": True,
+                "can_apply": False,
+                "settings": settings,
+                "llm_request_callback": controller.on_llm_request,
+            }
+            _LAST_REGISTRATION = dict(receipt)
+            return receipt
+        register_middleware("llm_request", controller.on_llm_request)
+        middleware_registered = True
 
     register_hook = getattr(ctx, "register_hook", None)
     post_tool_registered = False
@@ -3361,6 +3378,8 @@ def register_reasoning_effort_adapter(
         "post_api_request_registered": usage_registered,
         "command_registered": command_registered,
         "client_pool_close_registered": pool_close_registered,
+        "llm_request_callback": controller.on_llm_request,
+        "llm_request_registered": middleware_registered,
         "integration_point": (
             "hermes_switchyard.reasoning_effort_adapter.register_reasoning_effort_adapter"
         ),

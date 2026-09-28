@@ -13,8 +13,10 @@ from types import SimpleNamespace
 from hermes_switchyard.defer_tool_schemas import (
     DEFERRED_SWITCHYARD_TOOL_NAMES,
     build_defer_tool_schemas_middleware,
+    compose_llm_request_middleware,
     filter_switchyard_tool_schemas,
     history_has_switchyard_tool_call,
+    latest_user_text,
     register_defer_tool_schemas_middleware,
     should_omit_switchyard_tool_schemas,
     tool_definition_name,
@@ -203,6 +205,74 @@ class MiddlewareTests(unittest.TestCase):
         self.assertEqual(len(seen), 1)
         self.assertEqual(seen[0][0], "llm_request")
         self.assertTrue(callable(seen[0][1]))
+
+
+class ScalarResponsesInputTests(unittest.TestCase):
+    def test_scalar_input_string_is_visible_to_cue_detection(self):
+        request = {
+            "model": "fixture-model",
+            "input": "Use jev_model_route to pick a cheaper model for this turn.",
+            "tools": [
+                _openai_tool("terminal"),
+                *[_openai_tool(name) for name in sorted(DEFERRED_SWITCHYARD_TOOL_NAMES)],
+            ],
+        }
+        self.assertIn("jev_model_route", latest_user_text(request))
+        # Explicit cue => fail-open keep schemas.
+        self.assertFalse(
+            should_omit_switchyard_tool_schemas(enabled=True, request=request)
+        )
+
+    def test_scalar_input_without_cue_may_omit(self):
+        request = {
+            "model": "fixture-model",
+            "input": "Fix the network printer that is unreachable.",
+            "tools": [
+                _openai_tool("terminal"),
+                *[_openai_tool(name) for name in sorted(DEFERRED_SWITCHYARD_TOOL_NAMES)],
+            ],
+        }
+        self.assertTrue(should_omit_switchyard_tool_schemas(enabled=True, request=request))
+
+
+class ComposeMiddlewareTests(unittest.TestCase):
+    def test_compose_applies_effort_then_schema_filter(self):
+        def effort_mw(request=None, **_):
+            out = dict(request or {})
+            out["reasoning_effort"] = "low"
+            out["effort_receipt"] = "adapted"
+            return {"request": out, "source": "adaptive_effort"}
+
+        defer_mw = build_defer_tool_schemas_middleware(enabled=True)
+        composed = compose_llm_request_middleware(effort_mw, defer_mw)
+        request = _skill_route_request()
+        request["reasoning_effort"] = "high"
+        result = composed(request=request)
+        self.assertIsNotNone(result)
+        updated = result["request"]
+        # Both transforms must land: effort rewrite kept, schemas omitted.
+        self.assertEqual(updated.get("reasoning_effort"), "low")
+        self.assertEqual(updated.get("effort_receipt"), "adapted")
+        names = [tool_definition_name(t) for t in updated.get("tools") or []]
+        self.assertNotIn("jev_assess", names)
+        self.assertIn("terminal", names)
+
+    def test_hermes_last_wins_without_compose_drops_effort(self):
+        """Document why composition is required under last-callback-wins."""
+        def effort_mw(request=None, **_):
+            out = dict(request or {})
+            out["reasoning_effort"] = "low"
+            return {"request": out}
+
+        defer_mw = build_defer_tool_schemas_middleware(enabled=True)
+        original = _skill_route_request()
+        original["reasoning_effort"] = "high"
+        # Simulate Hermes: each callback sees the original payload.
+        first = effort_mw(request=original)
+        second = defer_mw(request=original)
+        last = second or first
+        # Defer returns a shallow copy of the original → effort rewrite lost.
+        self.assertEqual(last["request"].get("reasoning_effort"), "high")
 
 
 if __name__ == "__main__":

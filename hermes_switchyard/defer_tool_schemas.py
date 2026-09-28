@@ -63,13 +63,21 @@ def tool_definition_name(definition: Any) -> str | None:
 
 
 def iter_request_items(request: Mapping[str, Any] | None) -> list[Any]:
-    """Return conversation items from ``messages`` or Responses ``input``."""
+    """Return conversation items from ``messages`` or Responses ``input``.
+
+    Responses requests may legally carry a scalar ``input`` string; normalize that
+    into a single user message item so cue detection still sees the prompt.
+    """
     if not isinstance(request, Mapping):
         return []
-    for key in ("messages", "input"):
-        items = request.get(key)
-        if isinstance(items, list):
-            return items
+    messages = request.get("messages")
+    if isinstance(messages, list):
+        return messages
+    items = request.get("input")
+    if isinstance(items, list):
+        return items
+    if isinstance(items, str) and items.strip():
+        return [{"role": "user", "content": items}]
     return []
 
 
@@ -223,6 +231,49 @@ def omit_switchyard_tools_from_request(
     return out
 
 
+def compose_llm_request_middleware(*callbacks: Any):
+    """Chain ``llm_request`` callbacks so each sees the prior rewrite.
+
+    Hermes may invoke registered callbacks with the original payload and keep
+    only the last returned ``request``. Composing into one callback ensures
+    adaptive-effort and schema-deferral both land on the wire.
+    """
+    active = [cb for cb in callbacks if callable(cb)]
+    if not active:
+        return None
+    if len(active) == 1:
+        return active[0]
+
+    def on_llm_request(
+        request: Mapping[str, Any] | None = None,
+        **context: Any,
+    ) -> dict[str, Any] | None:
+        current: Mapping[str, Any] = request if isinstance(request, Mapping) else {}
+        last: dict[str, Any] | None = None
+        for callback in active:
+            try:
+                out = callback(request=current, **context)
+            except TypeError:
+                # Some callbacks accept a positional request only.
+                try:
+                    out = callback(current, **context)
+                except Exception:  # noqa: BLE001 -- never break the provider call
+                    continue
+            except Exception:  # noqa: BLE001 -- never break the provider call
+                continue
+            if not isinstance(out, Mapping):
+                continue
+            next_request = out.get("request")
+            if isinstance(next_request, Mapping):
+                current = next_request
+            merged = dict(out)
+            merged["request"] = dict(current)
+            last = merged
+        return last
+
+    return on_llm_request
+
+
 def build_defer_tool_schemas_middleware(*, enabled: bool):
     """Build an ``llm_request`` middleware callback (or None when disabled)."""
     if enabled is not True:
@@ -251,19 +302,46 @@ def build_defer_tool_schemas_middleware(*, enabled: bool):
     return on_llm_request
 
 
-def register_defer_tool_schemas_middleware(ctx: Any, *, enabled: bool) -> dict[str, Any]:
-    """Register llm_request middleware when the flag is on and the seam exists."""
-    if enabled is not True:
+def register_defer_tool_schemas_middleware(
+    ctx: Any,
+    *,
+    enabled: bool,
+    chain_with: Any = None,
+    register: bool = True,
+) -> dict[str, Any]:
+    """Register llm_request middleware when the flag is on and the seam exists.
+
+    When ``chain_with`` is a prior ``llm_request`` callback (for example adaptive
+    effort), compose schema filtering after it and register the single composed
+    callback so last-callback-wins hosts cannot drop the prior rewrite.
+    """
+    if enabled is not True and not callable(chain_with):
         return {"registered": False, "reason": "flag_off", "enabled": False}
     register_middleware = getattr(ctx, "register_middleware", None)
-    if not callable(register_middleware):
+    if register and not callable(register_middleware):
         return {
             "registered": False,
             "reason": "hermes_llm_request_middleware_unavailable",
-            "enabled": True,
+            "enabled": bool(enabled),
         }
-    callback = build_defer_tool_schemas_middleware(enabled=True)
-    if callback is None:
+    defer_cb = build_defer_tool_schemas_middleware(enabled=enabled is True)
+    if callable(chain_with) and defer_cb is not None:
+        callback = compose_llm_request_middleware(chain_with, defer_cb)
+        composed = True
+    elif defer_cb is not None:
+        callback = defer_cb
+        composed = False
+    elif callable(chain_with):
+        callback = chain_with
+        composed = False
+    else:
         return {"registered": False, "reason": "flag_off", "enabled": False}
-    register_middleware("llm_request", callback)
-    return {"registered": True, "reason": "ok", "enabled": True}
+    if register:
+        register_middleware("llm_request", callback)
+    return {
+        "registered": bool(register),
+        "reason": "ok",
+        "enabled": bool(enabled),
+        "composed_with_prior": composed,
+        "callback": callback,
+    }
