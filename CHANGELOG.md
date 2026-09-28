@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.6.0 (unreleased)
+
+Working draft for the next release. No version bump, tag, or catalog pin until this section is frozen for a drop.
+
+There is no fixed feature-count gate for 0.6.0: land work that earns its keep, and keep **Not included** honest when candidates fail.
+
+### Added
+
+- [#147](https://github.com/bgrablin/hermes-switchyard/pull/147): Phase 1 reasoning visibility UX. Receipt modes are `always` | `auto` | `off` (default **`auto`**; setting `adaptive_reasoning_effort_receipt_mode`). Legacy aliases `work` / `on` / interim `changes` map to `auto`. User-facing receipts use plain language (for example `Reasoning: high→low · 180 ms`). Status leads with `Cap … · last sent … · why: …`; raw reason codes stay in `--json` / history. Summary labels say `cloud decisions` / `local decisions` instead of `Jev calls`.
+
+### Changed
+
+_(none yet beyond #147)_
+
+### Fixed
+
+_(none yet)_
+
+### Not included
+
+- No Hermes TUI chip sync claim for wire effort (status bar / `/reasoning` remain the cap; the receipt shows what was sent).
+- [#139](https://github.com/bgrablin/hermes-switchyard/issues/139) Jev-feature redesign (replace main-model work) remains open exploration, not a release commitment.
+
 ## 0.5.6 (2026-09-28)
 
 This release changes content only. It has no new features and no behavior change for ordinary tasks.
