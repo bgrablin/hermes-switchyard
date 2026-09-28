@@ -154,7 +154,7 @@ Read the level that was actually sent from these records or a request dump. The 
 
 ## Hermes seam
 
-Requires Hermes 0.21.4 or later: `PluginContext.register_middleware("llm_request", ...)` plus `hermes_cli.middleware.apply_llm_request_middleware`. Hosts without that API record `noop_seam_unavailable` and do not change requests. The `/switchyard` command is registered only when the host exposes `register_command`.
+Requires Hermes 0.21.3 or later: `PluginContext.register_middleware("llm_request", ...)` plus `hermes_cli.middleware.apply_llm_request_middleware`. Hosts without that API record `noop_seam_unavailable` and do not change requests. The `/switchyard` command is registered only when the host exposes `register_command`.
 
 Model routing (`jev_model_route`) stays advisory (`applied: false`).
 
