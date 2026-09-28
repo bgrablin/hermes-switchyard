@@ -55,8 +55,8 @@ The live test is optional. A status of `ready` checks key presence and tool expo
 Automatic skill routing uses `hosted_sanitized` and `load` by default. On an eligible turn, it can send a bounded task and candidate names to Jev, then load one accepted skill. Adaptive effort keeps your `/reasoning` level as the cap. A greeting or thanks can go to `low` locally, with **no Jev call**. A consequential request such as `thanks, now deploy` did call Jev in the installed-candidate trace. The trace recorded these visible lines:
 
 ```text
-switchyard: effort high→low · local (no Jev call)
-switchyard: effort high (kept: consequential) · Jev 218 ms
+Reasoning: high→low · local decision
+Reasoning: kept at high — consequential request · 218 ms
 ```
 
 The first line followed `hi`; the second followed `thanks, now deploy`. These are recorded receipt lines, not a latency promise. The image is a rendering of recorded output, not a live terminal capture:
@@ -159,7 +159,7 @@ All current settings live under `plugins.entries.hermes-switchyard.settings`. Th
 | `adaptive_reasoning_effort_exclude_models` | `[]` | Model patterns that the effort adapter does not touch. |
 | `adaptive_reasoning_effort_allow_raise` | `false` | Permit one level above your cap after a failed tool call only when enabled. |
 | `adaptive_reasoning_effort_step_adaptation` | `true` | Reconsider after routine read-only tool rounds; writes and failures keep the cap. |
-| `adaptive_reasoning_effort_receipt_line` | `true` | Show one foreground effort line after a turn where the plugin worked. |
+| `adaptive_reasoning_effort_receipt_mode` | `work` | Foreground reasoning receipt: `work` / `always` / `off` (legacy bool `adaptive_reasoning_effort_receipt_line` still accepted). |
 | `adaptive_reasoning_effort_default` | `medium` | Deprecated and unused; the request's own effort is the fallback. |
 | `adaptive_reasoning_effort_deadline_seconds` | `0.4` | Wall-clock budget for one adaptive Jev decision; allowed range is 0.1–1.5 s. On timeout your level is sent unchanged. |
 | `session_search_rerank_choice_confidence_threshold` | `0.8` | Minimum Jev Choice confidence to change FTS order. |
@@ -186,7 +186,7 @@ These are code-owned status or receipt reasons. They identify a gate, not necess
 
 The installer can also report `Security scan blocked plugin install`. This occurs before any plugin status command is available. Review the exact scanner findings and source; do not pass `--force` merely to make the quickstart appear complete. [Setup](docs/SETUP.md) covers browser startup, explicit pins, and further status reasons.
 
-**No per-turn effort line?** It appears only on a foreground turn where the plugin changed effort, called Jev, or reused a cached choice. Check `adaptive_reasoning_effort_receipt_line`, `/switchyard effort receipt`, the selected mode, and whether you started a fresh session after enabling the plugin. A disabled adapter or unsupported Hermes middleware cannot produce it. Use `/switchyard effort status` and `hermes switchyard status --json` to see the current state.
+**No per-turn effort line?** It appears only on a foreground turn where the plugin changed effort, called the cloud, decided locally, or reused a cached choice (or on every turn in `always` mode). Check `adaptive_reasoning_effort_receipt_mode` (`work`/`always`/`off`), `/switchyard effort receipt`, and whether you started a fresh session after enabling the plugin. A disabled adapter or unsupported Hermes middleware cannot produce it. Use `/switchyard effort status` and `hermes switchyard status --json` to see the current state.
 
 ## Uninstall and rollback
 

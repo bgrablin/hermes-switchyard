@@ -45,6 +45,13 @@ def no_network():
     )
 
 
+def setUpModule():
+    egress_redaction._reset_for_tests(lambda text: text, loaded=True)
+
+def tearDownModule():
+    egress_redaction._reset_for_tests()
+
+
 class SharedDetectorTests(unittest.TestCase):
     def test_detector_is_shared_not_copied(self):
         from hermes_switchyard import reasoning_effort_adapter, trivial_turn
@@ -144,7 +151,7 @@ class LocalTrivialBypassTests(unittest.TestCase):
             self.assertEqual(jev.calls, [])
             self.assertEqual(last_receipt()["reason_code"], LOCAL)
         finally:
-            egress_redaction._reset_for_tests()
+            egress_redaction._reset_for_tests(lambda text: text, loaded=True)
 
     def test_next_turn_decides_again(self):
         controller, jev, _ = make()
@@ -160,7 +167,7 @@ class LocalTrivialVisibilityTests(unittest.TestCase):
         controller, _, _ = make(receipt_line=True)
         begin(controller, "thanks")
         send(controller, "high")
-        self.assertEqual(finish(controller).splitlines()[-1], "switchyard: effort high→low · local (no Jev call)")
+        self.assertEqual(finish(controller).splitlines()[-1], "Reasoning: high→low · local decision")
 
     def test_summary_counts_local_decisions_separately(self):
         controller, jev, _ = make()
@@ -171,8 +178,8 @@ class LocalTrivialVisibilityTests(unittest.TestCase):
         summary = controller.session_status()["summary"]
         self.assertEqual((summary["local_decisions"], summary["jev_calls"]), (1, 1))
         text = controller.handle_command("effort summary")
-        self.assertIn("local decisions (no Jev call): 1", text)
-        self.assertIn("Jev calls: 1,", text)
+        self.assertIn("local decisions: 1", text)
+        self.assertIn("cloud decisions: 1,", text)
 
     def test_history_record_is_local_and_text_free(self):
         records = []

@@ -24,6 +24,13 @@ from tests.test_reasoning_effort_v055 import SESSION, begin, make, send, tool
 
 ROOT = Path(__file__).resolve().parent.parent
 
+def setUpModule():
+    egress_redaction._reset_for_tests(lambda text: text, loaded=True)
+
+def tearDownModule():
+    egress_redaction._reset_for_tests()
+
+
 
 def finish(controller, text="Synthetic answer.", turn="t1", session=SESSION):
     hook = controller.build_transform_llm_output_hook()
@@ -95,11 +102,13 @@ def _substrings(text: str, size: int = 4):
 
 class DefaultReceiptTests(unittest.TestCase):
     def test_receipt_line_is_on_by_default_everywhere(self):
-        self.assertTrue(ReasoningEffortController().receipt_line)
+        controller = ReasoningEffortController()
+        self.assertTrue(controller.receipt_line)
+        self.assertEqual(controller.receipt_mode, "work")
         manifest = (ROOT / "plugin.yaml").read_text(encoding="utf-8")
-        self.assertRegex(manifest, r"adaptive_reasoning_effort_receipt_line: \{type: bool, default: true,")
+        self.assertRegex(manifest, r'adaptive_reasoning_effort_receipt_mode: \{type: str, default: "work",')
         source = (ROOT / "hermes_switchyard" / "__init__.py").read_text(encoding="utf-8")
-        self.assertIn('"adaptive_reasoning_effort_receipt_line", default=True', source)
+        self.assertIn('"adaptive_reasoning_effort_receipt_mode", default=None', source)
 
         class Ctx:
             def register_middleware(self, *_a, **_k):
@@ -107,26 +116,27 @@ class DefaultReceiptTests(unittest.TestCase):
 
         receipt = register_reasoning_effort_adapter(Ctx(), client_factory=None)
         self.assertTrue(receipt["settings"]["receipt_line"])
+        self.assertEqual(receipt["settings"]["receipt_mode"], "work")
 
     def test_lowered_turn_names_the_change_and_latency_without_a_baseline(self):
         controller, _, _ = make()
         begin(controller, "status ping")
         self.assertEqual(send(controller, "high"), "low")
         line = receipt_line(controller)
-        self.assertRegex(line, r"^switchyard: effort high→low · Jev \d+ ms$")
+        self.assertRegex(line, r"^Reasoning: high→low · \d+ ms$")
         self.assertNotIn("saved", line, "no measured baseline yet: no saved figure")
 
     def test_kept_consequential_turn_says_kept(self):
         controller, _, _ = make()
         begin(controller, "delete the prod database backups")
         self.assertEqual(send(controller, "high"), "high")
-        self.assertRegex(receipt_line(controller), r"^switchyard: effort high \(kept: consequential\) · Jev \d+ ms$")
+        self.assertRegex(receipt_line(controller), r"^Reasoning: kept at high — consequential request · \d+ ms$")
 
     def test_kept_routine_level_turn_says_kept(self):
         controller, _, _ = make()
         begin(controller, "refactor the parser module")
         self.assertEqual(send(controller, "high"), "high")
-        self.assertRegex(receipt_line(controller), r"^switchyard: effort high \(kept: Jev choice\) · Jev \d+ ms$")
+        self.assertRegex(receipt_line(controller), r"^Reasoning: kept at high — cloud decision · \d+ ms$")
 
     def test_pinned_turn_did_no_work_and_stays_quiet(self):
         controller, jev, _ = make()
@@ -143,7 +153,7 @@ class DefaultReceiptTests(unittest.TestCase):
         tool(controller, "terminal")  # a non-routine round: no step ask, the turn choice is reused
         send(controller, "high")
         self.assertEqual(len(jev.calls), 1)
-        self.assertRegex(receipt_line(controller), r"^switchyard: effort high→low · Jev \d+ ms · 1 cached$")
+        self.assertRegex(receipt_line(controller), r"^Reasoning: high→low · \d+ ms · 1 cached$")
 
     def test_off_switches_still_work(self):
         controller, _, _ = make(receipt_line=False)
@@ -174,7 +184,7 @@ class DefaultReceiptTests(unittest.TestCase):
 class ReceiptReplayGuardTests(unittest.TestCase):
     """Hermes stores the transformed reply; the model must never get the receipt line back."""
 
-    LINE = "switchyard: effort high→low · local (no Jev call)"
+    LINE = "Reasoning: high→low · local decision"
 
     def _replay_request(self, earlier: object, *, key: str = "messages") -> dict:
         request = opus_request("high")
@@ -192,10 +202,10 @@ class ReceiptReplayGuardTests(unittest.TestCase):
     def test_every_receipt_shape_the_hook_makes_is_removed(self):
         for line in (
             self.LINE,
-            "switchyard: effort high→low · Jev 180 ms · ~1.2k reasoning tokens saved (est.)",
-            "switchyard: effort high (kept: consequential) · Jev 210 ms",
-            "switchyard: effort high (kept: Jev over 400 ms budget)",
-            "switchyard: effort high→low→medium · Jev 2 calls, 390 ms · 1 cached · metadata only",
+            "Reasoning: high→low · 180 ms · ~1.2k reasoning tokens saved (est.)",
+            "Reasoning: kept at high — consequential request · 210 ms",
+            "Reasoning: kept at high — cloud over 400 ms budget",
+            "Reasoning: high→low→medium · 2 decisions, 390 ms · 1 cached · shape only (message text not sent)",
         ):
             with self.subTest(line=line):
                 controller, _, _ = make()
@@ -229,10 +239,10 @@ class ReceiptReplayGuardTests(unittest.TestCase):
 
     def test_other_text_is_never_changed(self):
         for text in (
-            "switchyard: effort high→low · local (no Jev call)",  # no blank line before it
+            "Reasoning: high→low · local decision",  # no blank line before it
             f"Quote:\n\n{self.LINE}\n\nThen more text.",  # not at the end
-            "The switchyard: effort high setting is described here.",
-            "Synthetic answer.\n\nswitchyard: effort HIGH",  # not the receipt shape
+            "The Reasoning: high setting is described here.",
+            "Synthetic answer.\n\nReasoning: HIGH",  # not the receipt shape
         ):
             with self.subTest(text=text):
                 controller, _, _ = make()
@@ -273,7 +283,67 @@ class ReceiptReplayGuardTests(unittest.TestCase):
         self.assertEqual(sent_effort(request, result), "high")
 
 
+
+class ReceiptModeAndPlainLanguageTests(unittest.TestCase):
+    def test_legacy_switchyard_receipt_shape_is_still_stripped(self):
+        legacy = "switchyard: effort high→low · local (no Jev call)"
+        controller, _, _ = make()
+        begin(controller, "refactor the parser module", turn="t2")
+        request = opus_request("high")
+        request["messages"] = [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": f"Synthetic answer.\n\n{legacy}"},
+            {"role": "user", "content": "refactor the parser module"},
+        ]
+        result = controller.on_llm_request(request, session_id=SESSION, task_id=SESSION, turn_id="t2", **OPUS)
+        final = result["request"] if result else request
+        assistant = [item["content"] for item in final["messages"] if item.get("role") == "assistant"]
+        self.assertEqual(assistant, ["Synthetic answer."])
+
+    def test_always_mode_shows_pinned_pass_through(self):
+        controller, jev, _ = make()
+        mode, _saved = controller.set_receipt_mode("always", persist=False)
+        self.assertEqual(mode, "always")
+        controller.set_mode("pinned", session_id=SESSION)
+        begin(controller, "hi")
+        send(controller, "high")
+        self.assertEqual(jev.calls, [])
+        line = finish(controller)
+        self.assertEqual(line.splitlines()[-1], "Reasoning: high · pinned")
+
+    def test_work_mode_stays_quiet_when_pinned(self):
+        controller, _, _ = make()
+        controller.set_receipt_mode("work", persist=False)
+        controller.set_mode("pinned", session_id=SESSION)
+        begin(controller, "hi")
+        send(controller, "high")
+        self.assertIsNone(finish(controller))
+
+    def test_command_persists_receipt_mode_when_config_available(self):
+        controller, _, _ = make()
+        with patch(
+            "hermes_switchyard.reasoning_effort_adapter.persist_plugin_receipt_mode",
+            return_value=True,
+        ) as persist:
+            reply = controller.handle_command("effort receipt always")
+        persist.assert_called_once_with("always")
+        self.assertIn("always", reply)
+        self.assertIn("Saved in plugin settings", reply)
+        self.assertEqual(controller.receipt_mode, "always")
+
+    def test_status_leading_line_is_plain_language(self):
+        controller, _, _ = make()
+        begin(controller, "status ping")
+        send(controller, "high")
+        text = controller.handle_command("effort status")
+        self.assertIn("Cap high · last sent low · auto · why: cloud decision", text)
+        self.assertNotIn("jev_selected", text)
+        summary = controller.handle_command("effort summary")
+        self.assertIn("Cap high · last sent low · auto · why: cloud decision", summary)
+
+
 class SavedEstimateTests(unittest.TestCase):
+
     """The saved figure uses only measured usage: baseline requests at the user's level."""
 
     def _baseline(self, controller, values, *, metric="reasoning"):
@@ -295,7 +365,7 @@ class SavedEstimateTests(unittest.TestCase):
         usage(controller, "t9:api:1", reasoning=200, output=20, turn="t9")
         self.assertRegex(
             receipt_line(controller, turn="t9"),
-            r"^switchyard: effort high→low · Jev \d+ ms · ~1\.2k reasoning tokens saved \(est\.\)$",
+            r"^Reasoning: high→low · \d+ ms · ~1\.2k reasoning tokens saved \(est\.\)$",
         )
 
     def test_output_tokens_basis_when_the_provider_reports_no_reasoning_tokens(self):
@@ -358,7 +428,7 @@ class SessionSummaryTests(unittest.TestCase):
         self.assertIn("Switchyard effort summary (this session)", text)
         self.assertIn("turns: 3", text)
         self.assertIn("requests: lowered 2, kept 2, raised 0", text)
-        self.assertRegex(text, r"Jev calls: 3, p50 \d+ ms, p95 \d+ ms")
+        self.assertRegex(text, r"cloud decisions: 3, p50 \d+ ms, p95 \d+ ms")
         self.assertIn("cached reuses: 1", text)
         self.assertIn("estimated tokens saved: unknown", text)
         self.assertIn("Switchyard effort summary (this session)", controller.handle_command("effort status"))
@@ -405,7 +475,7 @@ class MetadataOnlyTests(unittest.TestCase):
 
     def setUp(self):
         egress_redaction._reset_for_tests(None, loaded=True)
-        self.addCleanup(egress_redaction._reset_for_tests)
+        self.addCleanup(lambda: egress_redaction._reset_for_tests(lambda text: text, loaded=True))
 
     def _make(self, jev=None, **kwargs):
         jev = jev or ShapeJev()
@@ -558,7 +628,7 @@ class MetadataOnlyTests(unittest.TestCase):
         controller, _ = self._make()
         begin(controller, "hello there")
         send(controller, "high")
-        self.assertRegex(receipt_line(controller), r"^switchyard: effort high→low · Jev \d+ ms · metadata only$")
+        self.assertRegex(receipt_line(controller), r"^Reasoning: high→low · \d+ ms · shape only \(message text not sent\)$")
 
 
 class TextPathUnchangedTests(unittest.TestCase):

@@ -1,6 +1,8 @@
 """Replay tests for #108: the user's /reasoning level is the cap for adaptive effort."""
 from __future__ import annotations
 
+from hermes_switchyard import egress_redaction
+
 import tempfile
 import unittest
 import io
@@ -53,6 +55,13 @@ def sent_effort(request: dict, result: dict | None) -> str | None:
     if "output_config" in final:
         return final["output_config"]["effort"]
     return final.get("reasoning_effort")
+
+
+def setUpModule():
+    egress_redaction._reset_for_tests(lambda text: text, loaded=True)
+
+def tearDownModule():
+    egress_redaction._reset_for_tests()
 
 
 class Env:

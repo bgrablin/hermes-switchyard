@@ -10,12 +10,20 @@ import json
 import re
 import unittest
 
-from hermes_switchyard import reasoning_effort_adapter as adapter
+from hermes_switchyard import egress_redaction, reasoning_effort_adapter as adapter
 from hermes_switchyard.reasoning_effort_adapter import ReasoningEffortController, last_receipt
 
 from tests.test_reasoning_effort_user_cap import OPUS, Env, opus_request, sent_effort
 
 SESSION = "synthetic-session"
+
+def setUpModule():
+    # Text-path tests need a Hermes-like egress redactor; CI has Hermes, this box may not.
+    egress_redaction._reset_for_tests(lambda text: text, loaded=True)
+
+def tearDownModule():
+    egress_redaction._reset_for_tests()
+
 ROTATED = "synthetic-session-rotated"
 CHILD = "subagent-0-synthetic"
 # "status ping" is routine but not trivial: it reaches Jev, unlike the closed-list greetings.
@@ -242,14 +250,14 @@ class ReceiptLineTests(unittest.TestCase):
         text = self.finish(controller)
         self.assertTrue(text.startswith("Synthetic answer."))
         line = text.splitlines()[-1]
-        self.assertRegex(line, r"^switchyard: effort high→low · Jev \d+ ms$")
+        self.assertRegex(line, r"^Reasoning: high→low · \d+ ms$")
 
     def test_receipt_line_says_kept_when_jev_kept_the_level(self):
         controller, _, _ = make(receipt_line=True)
         begin(controller, "refactor the parser module")
         send(controller, "high")
         self.assertRegex(self.finish(controller).splitlines()[-1],
-                         r"^switchyard: effort high \(kept: Jev choice\) · Jev \d+ ms$")
+                         r"^Reasoning: kept at high — cloud decision · \d+ ms$")
 
     def test_child_turn_gets_no_receipt_line(self):
         controller, _, _ = make(receipt_line=True)
@@ -259,7 +267,7 @@ class ReceiptLineTests(unittest.TestCase):
 
     def test_command_turns_the_receipt_line_on_and_off(self):
         controller, _, _ = make(receipt_line=False)
-        self.assertIn("on", controller.handle_command("effort receipt on"))
+        self.assertIn("work", controller.handle_command("effort receipt on"))
         begin(controller, "hi")
         send(controller, "high")
         self.assertIsNotNone(self.finish(controller))
@@ -267,6 +275,7 @@ class ReceiptLineTests(unittest.TestCase):
         begin(controller, "hi", turn="t2")
         send(controller, "high", turn="t2")
         self.assertIsNone(self.finish(controller, turn="t2"))
+        self.assertIn("always", controller.handle_command("effort receipt always"))
         self.assertTrue(controller.handle_command("effort receipt maybe").startswith("Usage:"))
 
 
@@ -280,10 +289,12 @@ class StatusHistoryTests(unittest.TestCase):
         self.assertEqual(len(status["recent"]), 5)
         self.assertEqual(set(status["recent"][0]), {"cap", "sent", "reason", "latency_ms"})
         text = controller.handle_command("effort status")
-        self.assertIn("last 5 decisions (cap -> sent, reason, Jev latency):", text)
+        self.assertIn("last 5 decisions (cap -> sent, why, latency):", text)
+        self.assertIn("Cap high · last sent", text)
+        self.assertNotIn("jev_selected", text)
         rows = [line for line in text.splitlines() if line.startswith("    ")]
         self.assertEqual(len(rows), 5)
-        self.assertRegex(rows[-1], r"^    high -> (low|high), jev_selected, \d+ ms$")
+        self.assertRegex(rows[-1], r"^    high -> (low|high), (cloud decision|local decision \(greeting\)), (\d+ ms|no call)$")
 
 
 if __name__ == "__main__":
