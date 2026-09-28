@@ -108,7 +108,7 @@ _CATALOG_FEATURE_LOCK = threading.Lock()
 
 # In-process skill registry discovery cache. skills_list() is fail-open and can
 # be expensive on large profiles; automatic routing may also call discovery twice
-# in one turn (catalog + explicit-override pool). Invalidate when HERMES_HOME
+# in one turn (catalog + explicit-override pool). Invalidate when the active Hermes home
 # skills roots change (path + mtime fingerprint) or when the entry exceeds the
 # max age. Behavior is identical to uncached discovery aside from avoiding
 # repeat registry scans.
@@ -357,16 +357,44 @@ def _validate_candidates(raw: Any, *, limit: int | None) -> tuple[dict[str, str]
     return tuple(result)
 
 
+def _active_hermes_home() -> Path | None:
+    """Resolve the active Hermes home the same way ``skills_list`` does.
+
+    Prefer ``hermes_constants.get_hermes_home()`` so context-local / multiplexed
+    profile overrides are honored. Fall back to ``HERMES_HOME`` only when the
+    helper is unavailable. Never logs or serializes the path into receipts.
+    """
+    try:
+        from hermes_constants import get_hermes_home
+    except (ImportError, AttributeError):
+        get_hermes_home = None  # type: ignore[assignment]
+    if callable(get_hermes_home):
+        try:
+            resolved = get_hermes_home()
+        except Exception:  # noqa: BLE001 -- fingerprint must stay fail-open
+            resolved = None
+        if resolved is not None:
+            try:
+                return Path(resolved).expanduser()
+            except (TypeError, ValueError):
+                pass
+    configured = os.environ.get("HERMES_HOME")
+    if isinstance(configured, str) and configured.strip():
+        return Path(configured.strip()).expanduser()
+    return None
+
+
 def _skills_registry_roots() -> tuple[Path, ...]:
     """Return profile skill roots used only for discovery-cache invalidation.
 
     Paths are never logged or written into receipts. Missing roots are fine:
     the fingerprint records absence so a later create invalidates the cache.
+    Roots are keyed off the *active* Hermes home (``get_hermes_home()``), not
+    process env alone, so multiplexed profiles do not cross-cache catalogs.
     """
     roots: list[Path] = []
-    home = os.environ.get("HERMES_HOME")
-    if isinstance(home, str) and home.strip():
-        base = Path(home.strip())
+    base = _active_hermes_home()
+    if base is not None:
         roots.append(base / "skills")
         # Profile-scoped skills (when HERMES_PROFILE is set) live beside the
         # shared tree; include both so an install under either root refreshes.
