@@ -294,7 +294,7 @@ class StatusHistoryTests(unittest.TestCase):
         self.assertNotIn("jev_selected", text)
         rows = [line for line in text.splitlines() if line.startswith("    ")]
         self.assertEqual(len(rows), 5)
-        self.assertRegex(rows[-1], r"^    high -> (low|high), (cloud decision|local decision \(greeting\)), (\d+ ms|no call)$")
+        self.assertRegex(rows[-1], r"^    high -> (low|high), (cloud decision|local decision), (\d+ ms|no call)$")
 
 
 if __name__ == "__main__":

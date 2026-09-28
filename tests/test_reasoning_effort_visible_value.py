@@ -5,10 +5,13 @@ the tests can prove what would leave the process. Nothing here opens a network c
 """
 from __future__ import annotations
 
+import copy
 import json
 import socket
+import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from hermes_switchyard import egress_redaction
@@ -16,6 +19,8 @@ from hermes_switchyard.reasoning_effort_adapter import (
     ReasoningEffortController,
     clamp_effort_for_provider,
     last_receipt,
+    parse_receipt_mode,
+    persist_plugin_receipt_mode,
     register_reasoning_effort_adapter,
 )
 
@@ -243,6 +248,10 @@ class ReceiptReplayGuardTests(unittest.TestCase):
             f"Quote:\n\n{self.LINE}\n\nThen more text.",  # not at the end
             "The Reasoning: high setting is described here.",
             "Synthetic answer.\n\nReasoning: HIGH",  # not the receipt shape
+            # Closed-set strip must not delete ordinary assistant prose that happens to
+            # start with Reasoning: after a blank line.
+            "Synthetic answer.\n\nReasoning: high→low · therefore use the lower-cost implementation",
+            "Synthetic answer.\n\nReasoning: kept at high — use a cheaper plan next",
         ):
             with self.subTest(text=text):
                 controller, _, _ = make()
@@ -345,10 +354,155 @@ class ReceiptModeAndPlainLanguageTests(unittest.TestCase):
         begin(controller, "status ping")
         send(controller, "high")
         text = controller.handle_command("effort status")
-        self.assertIn("Cap high · last sent low · auto · why: cloud decision", text)
+        lead = "Cap high · last sent low · auto · why: cloud decision"
+        self.assertIn(lead, text)
+        self.assertEqual(text.count(lead), 1, "status must not duplicate the Cap lead via summary")
         self.assertNotIn("jev_selected", text)
         summary = controller.handle_command("effort summary")
-        self.assertIn("Cap high · last sent low · auto · why: cloud decision", summary)
+        self.assertIn(lead, summary)
+        self.assertEqual(summary.count(lead), 1)
+
+    def test_always_mode_stays_quiet_without_a_known_wire_level(self):
+        """always covers pinned/pass-through with a level; not no_host_effort / unsupported_route."""
+        controller, _, _ = make()
+        controller.set_receipt_mode("always", persist=False)
+        begin(controller, "hi")
+        request = {"model": OPUS["model"], "messages": [{"role": "user", "content": "hi"}]}
+        result = controller.on_llm_request(
+            request, session_id=SESSION, task_id=SESSION, turn_id="t1", **OPUS
+        )
+        self.assertIsNone(result)  # no effort field → no_host_effort, request unchanged
+        self.assertEqual(last_receipt()["reason_code"], "no_host_effort")
+        self.assertIsNone(finish(controller))
+        begin(controller, "hi", turn="t2")
+        result = controller.on_llm_request(
+            {"modelId": "model", "messages": []},
+            session_id=SESSION,
+            task_id=SESSION,
+            turn_id="t2",
+            provider="bedrock",
+            api_mode="bedrock_converse",
+            model="model",
+        )
+        self.assertIsNone(result)
+        self.assertEqual(last_receipt()["reason_code"], "unsupported_route")
+        self.assertIsNone(finish(controller, turn="t2"))
+
+
+class PersistReceiptModeTests(unittest.TestCase):
+    """Direct coverage for persist_plugin_receipt_mode (settings / legacy config / failures)."""
+
+    def _install(self, holder):
+        def load_config():
+            return copy.deepcopy(holder["config"])
+
+        def save_config(config):
+            holder["config"] = copy.deepcopy(config)
+            holder["saves"].append(copy.deepcopy(config))
+
+        fake = SimpleNamespace(load_config=load_config, save_config=save_config)
+        return patch.dict(sys.modules, {"hermes_cli.config": fake, "hermes_cli": SimpleNamespace(config=fake)})
+
+    def test_writes_settings_and_syncs_legacy_bool(self):
+        holder = {
+            "config": {"plugins": {"entries": {"hermes-switchyard": {"settings": {}}}}},
+            "saves": [],
+        }
+        with self._install(holder):
+            self.assertTrue(persist_plugin_receipt_mode("always"))
+        settings = holder["config"]["plugins"]["entries"]["hermes-switchyard"]["settings"]
+        self.assertEqual(settings["adaptive_reasoning_effort_receipt_mode"], "always")
+        self.assertIs(settings["adaptive_reasoning_effort_receipt_line"], True)
+        with self._install(holder):
+            self.assertTrue(persist_plugin_receipt_mode("off"))
+        settings = holder["config"]["plugins"]["entries"]["hermes-switchyard"]["settings"]
+        self.assertEqual(settings["adaptive_reasoning_effort_receipt_mode"], "off")
+        self.assertIs(settings["adaptive_reasoning_effort_receipt_line"], False)
+
+    def test_seeds_settings_from_legacy_config_key(self):
+        holder = {
+            "config": {
+                "plugins": {
+                    "entries": {
+                        "hermes_switchyard": {
+                            "config": {"adaptive_reasoning_effort_receipt_line": True},
+                        }
+                    }
+                }
+            },
+            "saves": [],
+        }
+        with self._install(holder):
+            self.assertTrue(persist_plugin_receipt_mode("auto"))
+        entry = holder["config"]["plugins"]["entries"]["hermes_switchyard"]
+        self.assertIn("settings", entry)
+        self.assertEqual(entry["settings"]["adaptive_reasoning_effort_receipt_mode"], "auto")
+        self.assertIs(entry["settings"]["adaptive_reasoning_effort_receipt_line"], True)
+
+    def test_creates_missing_plugin_entry(self):
+        holder = {"config": {}, "saves": []}
+        with self._install(holder):
+            self.assertTrue(persist_plugin_receipt_mode("always"))
+        entry = holder["config"]["plugins"]["entries"]["hermes-switchyard"]
+        self.assertEqual(entry["settings"]["adaptive_reasoning_effort_receipt_mode"], "always")
+
+    def test_malformed_config_or_entry_returns_false(self):
+        for bad in (None, [], {"plugins": "nope"}, {"plugins": {"entries": "nope"}},
+                    {"plugins": {"entries": {"hermes-switchyard": "nope"}}}):
+            with self.subTest(bad=bad):
+                holder = {"config": bad, "saves": []}
+                with self._install(holder):
+                    self.assertFalse(persist_plugin_receipt_mode("always"))
+
+    def test_save_failure_returns_false(self):
+        def load_config():
+            return {"plugins": {"entries": {"hermes-switchyard": {"settings": {}}}}}
+
+        def save_config(_config):
+            raise OSError("disk full")
+
+        fake = SimpleNamespace(load_config=load_config, save_config=save_config)
+        with patch.dict(sys.modules, {"hermes_cli.config": fake, "hermes_cli": SimpleNamespace(config=fake)}):
+            self.assertFalse(persist_plugin_receipt_mode("always"))
+
+    def test_reload_mismatch_returns_false(self):
+        calls = {"n": 0}
+
+        def load_config():
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return {"plugins": {"entries": {"hermes-switchyard": {"settings": {}}}}}
+            # Reload returns a stale mode so verification fails.
+            return {
+                "plugins": {
+                    "entries": {
+                        "hermes-switchyard": {
+                            "settings": {"adaptive_reasoning_effort_receipt_mode": "off"}
+                        }
+                    }
+                }
+            }
+
+        def save_config(_config):
+            return None
+
+        fake = SimpleNamespace(load_config=load_config, save_config=save_config)
+        with patch.dict(sys.modules, {"hermes_cli.config": fake, "hermes_cli": SimpleNamespace(config=fake)}):
+            self.assertFalse(persist_plugin_receipt_mode("always"))
+
+    def test_missing_hermes_cli_returns_false(self):
+        # None in sys.modules makes "import hermes_cli.config" raise ImportError.
+        with patch.dict(sys.modules, {"hermes_cli": None, "hermes_cli.config": None}):
+            self.assertFalse(persist_plugin_receipt_mode("always"))
+
+    def test_parse_receipt_mode_aliases(self):
+        self.assertEqual(parse_receipt_mode("work"), "auto")
+        self.assertEqual(parse_receipt_mode("on"), "auto")
+        self.assertEqual(parse_receipt_mode("changes"), "auto")
+        self.assertEqual(parse_receipt_mode(True), "auto")
+        self.assertEqual(parse_receipt_mode(False), "off")
+        self.assertEqual(parse_receipt_mode(None), "auto")
+        self.assertEqual(parse_receipt_mode("ALWAYS"), "always")
 
 
 class SavedEstimateTests(unittest.TestCase):

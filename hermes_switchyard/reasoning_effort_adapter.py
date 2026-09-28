@@ -613,14 +613,34 @@ def _set_effort_mapping(mapping: dict[str, Any], level: str) -> dict[str, Any]:
 
 
 # The receipt line that ``transform_llm_output`` appends: a blank line, then one line that
-# ``turn_receipt_line`` builds. Only these exact shapes at the end of an assistant turn match.
+# ``turn_receipt_line`` builds. Only these closed shapes at the end of an assistant turn match.
 # The legacy ``switchyard: effort …`` shape is kept so /resume history still strips old lines.
+# Plain ``Reasoning: …`` is constrained to the exact closed sets ``turn_receipt_line`` emits so
+# ordinary assistant text (for example a sentence that happens to start with Reasoning:) is kept.
+_EFFORT_TOKEN = r"(?:none|minimal|low|medium|high|xhigh|max|ultra)"
+_EFFORT_PATH = rf"{_EFFORT_TOKEN}(?:→{_EFFORT_TOKEN})*"
+_KEPT_WHY = (
+    r"(?:consequential request|after a tool failure|after a write|change request|"
+    r"cloud unavailable|invalid cloud answer|cloud over \d+ ms budget|cloud over budget|"
+    r"cloud decision)"
+)
+_PASS_WHY = (
+    r"(?:pinned|no lower level|model excluded|adaptive off|unsupported route|"
+    r"pass-through|reasoning off)"
+)
+_RECEIPT_SUFFIX = (
+    r"(?:local decision|\d+ ms|\d+ decisions, \d+ ms|\d+ cached|"
+    r"~[\d.]+k? (?:reasoning|output) tokens saved \(est\.\)|"
+    r"no (?:reasoning|output) tokens saved \(est\.\)|"
+    r"shape only \(message text not sent\))"
+)
 _RECEIPT_TAIL = re.compile(
-    r"\n\n(?:"
-    r"switchyard: effort [a-z]+(?:→[a-z]+)*(?: \(kept: [^)\n]*\))?(?: · [^\n]*)?"
-    r"|"
-    r"Reasoning: (?:kept at [a-z]+ — [^\n·]+|[a-z]+(?:→[a-z]+)*)(?: · [^\n]*)?"
-    r")\Z"
+    rf"\n\n(?:"
+    rf"switchyard: effort {_EFFORT_PATH}(?: \(kept: [^)\n]*\))?(?: · [^\n]*)?"
+    rf"|"
+    rf"Reasoning: (?:{_EFFORT_PATH}|kept at {_EFFORT_TOKEN} — {_KEPT_WHY}|"
+    rf"{_EFFORT_TOKEN} · {_PASS_WHY})(?: · {_RECEIPT_SUFFIX})*"
+    rf")\Z"
 )
 
 
@@ -1253,7 +1273,7 @@ def _human_reason(reason_code: Any) -> str:
     labels = {
         "jev_selected": "cloud decision",
         "jev_step_selected": "cloud step decision",
-        LOCAL_TRIVIAL_REASON: "local decision (greeting)",
+        LOCAL_TRIVIAL_REASON: "local decision",
         "cached": "reused earlier decision",
         "cached_unchanged": "reused earlier decision",
         "pinned": "pinned (your level)",
@@ -1983,8 +2003,9 @@ class ReasoningEffortController:
         """Return and clear the one-line effort receipt for *turn_id*, or None.
 
         Default ``auto`` mode: a line when Switchyard changed effort or made/reused a
-        decision (cloud, local, or cached). ``always`` also shows pass-through (pinned, no room).
-        ``off`` never shows a line. Examples:
+        decision (cloud, local, or cached). ``always`` also shows pass-through when a wire
+        level is known (pinned, no room, excluded model, …); not when there is no host effort
+        field or the route is unsupported. ``off`` never shows a line. Examples:
         ``Reasoning: high→low · 180 ms`` and
         ``Reasoning: kept at high — consequential request · 210 ms``. The saved figure is
         present only when every lowered request in the turn has measured usage and the session
@@ -2234,7 +2255,7 @@ class ReasoningEffortController:
         return self.receipt_mode != "off"
 
     def set_receipt_line(self, enabled: bool, *, persist: bool = True) -> bool:
-        """Legacy on/off toggle; ``True`` maps to ``work``, ``False`` to ``off``."""
+        """Legacy on/off toggle; ``True`` maps to ``auto``, ``False`` to ``off``."""
         mode, _saved = self.set_receipt_mode("auto" if enabled else "off", persist=persist)
         return mode != "off"
 
@@ -2266,7 +2287,7 @@ class ReasoningEffortController:
             "  pin             send your selected /reasoning level unchanged\n"
             "  auto            let Switchyard lower effort for routine steps (" + auto_limit + ")\n"
             "  receipt auto    show a line when effort changed or a decision was made/reused (default)\n"
-            "  receipt always  show the last sent level even when pinned or pass-through\n"
+            "  receipt always  also when pinned / pass-through with a known wire level\n"
             "  receipt off     show no receipt line\n"
             "  (legacy: receipt work|on → auto)"
         )
@@ -2294,9 +2315,10 @@ class ReasoningEffortController:
                     return "Reasoning receipt: off." + persist_note
                 if mode == "always":
                     return (
-                        "Reasoning receipt: always. Each foreground reply ends with the last "
-                        "sent level, for example 'Reasoning: high · pinned' or "
-                        "'Reasoning: high→low · 180 ms'." + persist_note
+                        "Reasoning receipt: always. Also shows the last sent level when "
+                        "pinned or other pass-through with a known wire level (for example "
+                        "'Reasoning: high · pinned'). No line when the host has no effort "
+                        "field or the route is unsupported." + persist_note
                     )
                 return (
                     "Reasoning receipt: auto. A reply where Switchyard changed effort or "
@@ -2309,7 +2331,8 @@ class ReasoningEffortController:
                 status = self.session_status()
                 text = self._format_status(status)
                 if status.get("known") and status.get("enabled"):
-                    text += "\n" + self._format_summary(status)
+                    # Lead already printed by _format_status; omit it from the embedded summary.
+                    text += "\n" + self._format_summary(status, include_lead=False)
                 return text
             if action == "summary":
                 return self._format_summary(self.session_status())
@@ -2353,12 +2376,17 @@ class ReasoningEffortController:
         return f"Cap {cap} · last sent {sent} · {mode} · why: {why}"
 
     @staticmethod
-    def _format_summary(status: Mapping[str, Any]) -> str:
-        """Format the local session summary; no network call."""
+    def _format_summary(status: Mapping[str, Any], *, include_lead: bool = True) -> str:
+        """Format the local session summary; no network call.
+
+        When embedded under ``effort status``, pass ``include_lead=False`` so the Cap line
+        from ``_format_status`` is not repeated.
+        """
         lines = ["Switchyard effort summary (this session)"]
-        lead = ReasoningEffortController._leading_cap_line(status)
-        if lead is not None:
-            lines.append(f"  {lead}")
+        if include_lead:
+            lead = ReasoningEffortController._leading_cap_line(status)
+            if lead is not None:
+                lines.append(f"  {lead}")
         summary = status.get("summary") if status.get("known") else None
         if not isinstance(summary, Mapping):
             lines.append("  no model request yet in this session")
