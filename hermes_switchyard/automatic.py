@@ -18,7 +18,7 @@ descriptions, and full skill bodies stay local. Before hosted partition
 fan-out, a confidence-bounded shortlist may reduce the candidate set, and
 ``uncertain_only`` may apply a cheap local no-skill gate; insufficient margin
 fails closed to the full catalog. Receipts record whether
-``local_no_skill_gate``, ``local_prefilter_shortlist``, or full recall ran.
+``local_no_skill_gate``, ``local_prefilter_shortlist``, ``cheap_hosted_shortlist``, ``cheap_hosted_fail_open``, or full recall ran.
 
 Every automatic turn records delivery, adoption, and outcome separately.
 Outcome stays ``unverified`` at the plugin boundary so delivery is never claimed
@@ -98,6 +98,10 @@ _CATALOG_FEATURE_CACHE_SIZE = 16
 SHORTLIST_POLICY_NO_SKILL_GATE = "local_no_skill_gate"
 SHORTLIST_POLICY_PREFILTER = "local_prefilter_shortlist"
 SHORTLIST_POLICY_FULL_FAN_OUT = "full_partition_fan_out"
+# Opt-in cheap hosted select (automatic_skill_cheap_hosted_select): receipts
+# distinguish a decisive shortlist accept from a fail-open full-catalog expand.
+SHORTLIST_POLICY_CHEAP_HOSTED = "cheap_hosted_shortlist"
+SHORTLIST_POLICY_CHEAP_FAIL_OPEN = "cheap_hosted_fail_open"
 # Re-export for callers; kept below the typical Hermes ~30s callback budget.
 DEFAULT_AUTOMATIC_DEADLINE_SECONDS = DEFAULT_AUTOMATIC_ROUTING_DEADLINE_SECONDS
 
@@ -503,6 +507,47 @@ def plan_hosted_prefilter(
     return SHORTLIST_POLICY_PREFILTER, shortlist
 
 
+def plan_cheap_hosted_shortlist(
+    ranked: list[tuple[float, int, dict[str, str]]],
+    *,
+    catalog_size: int,
+    no_skill_threshold: float = DEFAULT_PREFILTER_NO_SKILL_THRESHOLD,
+    shortlist_size: int = DEFAULT_PREFILTER_SHORTLIST_SIZE,
+    min_score: float = DEFAULT_PREFILTER_MIN_SCORE,
+) -> tuple[str, tuple[dict[str, str], ...] | None]:
+    """Plan an opt-in cheap hosted shortlist (fail-open when not decisive).
+
+    Decisiveness (documented thresholds):
+
+    - Same no-skill gate as ``plan_hosted_prefilter`` (top score below
+      ``no_skill_threshold`` → ``local_no_skill_gate``).
+    - Catalog already ≤ ``shortlist_size`` → not a cheap rewrite; callers keep
+      full recall (``full_partition_fan_out``).
+    - Top score must be ≥ ``min_score`` (default 0.15).
+    - Eligible band = ranked rows with score ≥ ``min_score``, capped at
+      ``shortlist_size`` (default 32). Must be non-empty.
+    - Cutoff margin is **not** required: a thin margin between the last
+      eligible and the next row still shortlists. This raises shortlist
+      hit-rate versus the default prefilter; capability is preserved by the
+      caller's fail-open to full catalog when the hosted shortlist abstains
+      or returns a winner outside the offered set.
+
+    Returns ``(policy, subset)`` with ``local_prefilter_shortlist`` + subset
+    when decisive, otherwise ``full_partition_fan_out`` / ``local_no_skill_gate``.
+    """
+    # Reuse the default planner with cutoff_margin=0 so any non-increasing
+    # eligible band is accepted; a zero margin never trips the
+    # floor - next_score < margin check for descending scores.
+    return plan_hosted_prefilter(
+        ranked,
+        catalog_size=catalog_size,
+        no_skill_threshold=no_skill_threshold,
+        shortlist_size=shortlist_size,
+        min_score=min_score,
+        cutoff_margin=0.0,
+    )
+
+
 class AutomaticSkillRecommender:
     """Bounded recommender with explicit local/hosted routing and safe caching."""
 
@@ -529,6 +574,7 @@ class AutomaticSkillRecommender:
         prefilter_cutoff_margin: float = DEFAULT_PREFILTER_CUTOFF_MARGIN,
         honor_no_skill_gate: bool = False,
         light_turn_bypass: bool = True,
+        cheap_hosted_select: bool = False,
         two_stage: TwoStageConfig | None = None,
         excerpt_loader: Callable[[str], Any] | None = None,
     ) -> None:
@@ -579,6 +625,10 @@ class AutomaticSkillRecommender:
         # (short opaque tasks such as ``fix ci``). Opt in to cut needless tax.
         self.honor_no_skill_gate = honor_no_skill_gate is True
         self.light_turn_bypass = light_turn_bypass is True
+        # Opt-in: when local shortlist is decisive, host only that shortlist;
+        # abstention / winner outside the shortlist fail-opens to full catalog.
+        # Default false preserves today's full-catalog fail-closed prefilter.
+        self.cheap_hosted_select = cheap_hosted_select is True
         self._cache: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
         self._lock = threading.RLock()
         self._client: Any | None = None
@@ -907,17 +957,30 @@ class AutomaticSkillRecommender:
             result.update(evaluation.metadata)
 
         should_host = self.hosted_mode == "always" or local_selected is None
-        hosted_candidates = [{"name": item["name"]} for item in candidate_set]
+        full_hosted_candidates = [{"name": item["name"]} for item in candidate_set]
+        hosted_candidates = list(full_hosted_candidates)
         prefilter_policy = SHORTLIST_POLICY_FULL_FAN_OUT
+        cheap_shortlist_attempt = False
         if should_host and self.routing_mode == "hosted_sanitized":
-            prefilter_policy, prefilter_subset = plan_hosted_prefilter(
-                ranked,
-                catalog_size=len(candidate_set),
-                no_skill_threshold=self.prefilter_no_skill_threshold,
-                shortlist_size=self.prefilter_shortlist_size,
-                min_score=self.prefilter_min_score,
-                cutoff_margin=self.prefilter_cutoff_margin,
-            )
+            if self.cheap_hosted_select:
+                # Opt-in: raise shortlist hit-rate (no cutoff margin) and later
+                # fail-open to full catalog when the shortlist look is uncertain.
+                prefilter_policy, prefilter_subset = plan_cheap_hosted_shortlist(
+                    ranked,
+                    catalog_size=len(candidate_set),
+                    no_skill_threshold=self.prefilter_no_skill_threshold,
+                    shortlist_size=self.prefilter_shortlist_size,
+                    min_score=self.prefilter_min_score,
+                )
+            else:
+                prefilter_policy, prefilter_subset = plan_hosted_prefilter(
+                    ranked,
+                    catalog_size=len(candidate_set),
+                    no_skill_threshold=self.prefilter_no_skill_threshold,
+                    shortlist_size=self.prefilter_shortlist_size,
+                    min_score=self.prefilter_min_score,
+                    cutoff_margin=self.prefilter_cutoff_margin,
+                )
             # ``always`` historically forced full fan-out even on near-zero local
             # overlap (opaque identifiers). Default honor_no_skill_gate=False keeps
             # that always override; set true to skip needless zero-overlap tax.
@@ -930,6 +993,7 @@ class AutomaticSkillRecommender:
                 prefilter_subset = None
             if prefilter_policy == SHORTLIST_POLICY_PREFILTER and prefilter_subset is not None:
                 hosted_candidates = [{"name": item["name"]} for item in prefilter_subset]
+                cheap_shortlist_attempt = self.cheap_hosted_select is True
         outbound_scan_reason = (
             _hosted_payload_scan_reason(
                 evaluation.allowed_payload if evaluation is not None and evaluation.allowed_payload is not None else "",
@@ -1002,60 +1066,128 @@ class AutomaticSkillRecommender:
             # Intervention timeout is separate from the 60s explicit-tool /
             # computer-use deadline and from the per-request provider I/O timeout.
             result["intervention_deadline_seconds"] = self.deadline_seconds
-            try:
-                with host_cancel_scope(self.cancel_check), _defer_hosted_warning():
-                    if self.two_stage is not None and self.two_stage.enabled:
-                        # Stage 1 sends names only. Local descriptions reach
-                        # stage 2 only when hosted_detail opts in, and only
-                        # for the top-K finalists after a local scan.
-                        by_name = {item["name"]: item for item in candidate_set}
-                        hosted = run_two_stage(
-                            task=outbound_task,
-                            candidates=[by_name[item["name"]] for item in hosted_candidates],
-                            client=self._pooled_client(),
-                            client_pool=self._extra_pooled_clients(
-                                self.two_stage.parallel_requests - 1
-                            ),
-                            config=self.two_stage,
-                            excerpt_loader=self.excerpt_loader,
-                            deadline_seconds=self.deadline_seconds,
-                        )
-                    else:
-                        hosted = select_skill(
-                            task=outbound_task,
-                            candidates=hosted_candidates,
-                            client=self._pooled_client(),
-                            public_or_sanitized_data_ack=True,
-                            deadline_seconds=self.deadline_seconds,
-                        )
-            except PartialAccountingError as exc:
-                logger.debug("automatic Jev skill recommendation unavailable: %s", type(exc).__name__)
-                result["hosted_error"] = _hosted_error_code(exc)
-                result["hosted_error_code"] = result["hosted_error"]
-                result["hosted_error_detail"] = classify_hosted_error(exc)
-                _copy_redacted_jev_metadata(result, _partial_accounting_metadata(exc.partial))
-                _warn_hosted_failure(result["hosted_error_detail"])
-                hosted = None
-            except Exception as exc:  # noqa: BLE001 -- automatic hook must fail open
-                logger.debug("automatic Jev skill recommendation unavailable: %s", type(exc).__name__)
-                result["hosted_error"] = _hosted_error_code(exc)
-                result["hosted_error_code"] = result["hosted_error"]
-                result["hosted_error_detail"] = classify_hosted_error(exc)
-                _warn_hosted_failure(result["hosted_error_detail"])
-                hosted = None
+
+            def _run_hosted(candidates_for_host: list[dict[str, str]]) -> Any:
+                if self.two_stage is not None and self.two_stage.enabled:
+                    # Stage 1 sends names only. Local descriptions reach
+                    # stage 2 only when hosted_detail opts in, and only
+                    # for the top-K finalists after a local scan.
+                    by_name = {item["name"]: item for item in candidate_set}
+                    return run_two_stage(
+                        task=outbound_task,
+                        candidates=[by_name[item["name"]] for item in candidates_for_host],
+                        client=self._pooled_client(),
+                        client_pool=self._extra_pooled_clients(
+                            self.two_stage.parallel_requests - 1
+                        ),
+                        config=self.two_stage,
+                        excerpt_loader=self.excerpt_loader,
+                        deadline_seconds=self.deadline_seconds,
+                    )
+                return select_skill(
+                    task=outbound_task,
+                    candidates=candidates_for_host,
+                    client=self._pooled_client(),
+                    public_or_sanitized_data_ack=True,
+                    deadline_seconds=self.deadline_seconds,
+                )
+
+            def _invoke(candidates_for_host: list[dict[str, str]]) -> Any:
+                try:
+                    with host_cancel_scope(self.cancel_check), _defer_hosted_warning():
+                        return _run_hosted(candidates_for_host)
+                except PartialAccountingError as exc:
+                    logger.debug(
+                        "automatic Jev skill recommendation unavailable: %s",
+                        type(exc).__name__,
+                    )
+                    result["hosted_error"] = _hosted_error_code(exc)
+                    result["hosted_error_code"] = result["hosted_error"]
+                    result["hosted_error_detail"] = classify_hosted_error(exc)
+                    _copy_redacted_jev_metadata(
+                        result, _partial_accounting_metadata(exc.partial)
+                    )
+                    _warn_hosted_failure(result["hosted_error_detail"])
+                    return None
+                except Exception as exc:  # noqa: BLE001 -- automatic hook must fail open
+                    logger.debug(
+                        "automatic Jev skill recommendation unavailable: %s",
+                        type(exc).__name__,
+                    )
+                    result["hosted_error"] = _hosted_error_code(exc)
+                    result["hosted_error_code"] = result["hosted_error"]
+                    result["hosted_error_detail"] = classify_hosted_error(exc)
+                    _warn_hosted_failure(result["hosted_error_detail"])
+                    return None
+
+            hosted = _invoke(hosted_candidates)
+            receipt_policy = prefilter_policy
             if isinstance(hosted, dict):
                 _copy_redacted_jev_metadata(result, hosted)
-            if prefilter_policy == SHORTLIST_POLICY_PREFILTER:
+
+            offered_names = {item["name"] for item in hosted_candidates}
+            shortlist_selected = (
+                isinstance(hosted, dict) and hosted.get("selected") in offered_names
+            )
+
+            # Opt-in cheap path: shortlist look that does not validate a winner
+            # (abstention / miss / transport failure) fail-opens to full catalog.
+            if (
+                cheap_shortlist_attempt
+                and not shortlist_selected
+                and len(full_hosted_candidates) > len(hosted_candidates)
+            ):
+                # Clear shortlist-only error so a successful expand is not
+                # stamped with the prior failure; expand still fail-opens.
+                for key_name in (
+                    "hosted_error",
+                    "hosted_error_code",
+                    "hosted_error_detail",
+                ):
+                    result.pop(key_name, None)
+                hosted_candidates = list(full_hosted_candidates)
+                hosted = _invoke(hosted_candidates)
+                if isinstance(hosted, dict):
+                    _copy_redacted_jev_metadata(result, hosted)
+                offered_names = {item["name"] for item in hosted_candidates}
+                shortlist_selected = (
+                    isinstance(hosted, dict) and hosted.get("selected") in offered_names
+                )
+                receipt_policy = SHORTLIST_POLICY_CHEAP_FAIL_OPEN
+            elif cheap_shortlist_attempt and shortlist_selected:
+                receipt_policy = SHORTLIST_POLICY_CHEAP_HOSTED
+            elif prefilter_policy == SHORTLIST_POLICY_PREFILTER:
+                receipt_policy = SHORTLIST_POLICY_PREFILTER
+
+            if receipt_policy in {
+                SHORTLIST_POLICY_CHEAP_HOSTED,
+                SHORTLIST_POLICY_CHEAP_FAIL_OPEN,
+            }:
                 offered = len(hosted_candidates)
-                excluded = len(candidate_set) - offered
+                excluded = max(0, len(candidate_set) - offered)
+                result["shortlist_policy"] = receipt_policy
+                result["jev_shortlist_policy"] = receipt_policy
+                result["offered_count"] = offered
+                result["excluded_count"] = excluded
+                result["jev_offered_count"] = offered
+                result["jev_excluded_count"] = excluded
+            elif prefilter_policy == SHORTLIST_POLICY_PREFILTER:
+                # Default (flag off) prefilter path — preserve historical policy name.
+                offered = len(hosted_candidates)
+                excluded = max(0, len(candidate_set) - offered)
                 result["shortlist_policy"] = SHORTLIST_POLICY_PREFILTER
                 result["jev_shortlist_policy"] = SHORTLIST_POLICY_PREFILTER
                 result["offered_count"] = offered
                 result["excluded_count"] = excluded
                 result["jev_offered_count"] = offered
                 result["jev_excluded_count"] = excluded
-            offered_names = {item["name"] for item in hosted_candidates}
-            if isinstance(hosted, dict) and hosted.get("selected") in offered_names:
+            elif self.cheap_hosted_select and receipt_policy == SHORTLIST_POLICY_FULL_FAN_OUT:
+                # Flag on but shortlist was not decisive: record full path for
+                # prove-value without inventing a shortlist rewrite.
+                result["shortlist_policy"] = SHORTLIST_POLICY_FULL_FAN_OUT
+                result["jev_shortlist_policy"] = SHORTLIST_POLICY_FULL_FAN_OUT
+
+            if shortlist_selected:
                 result.update(
                     {
                         "status": "selected",
@@ -1074,8 +1206,14 @@ class AutomaticSkillRecommender:
                     error_code = "transport_or_execution_failure"
                 result["hosted_error"] = error_code
                 result["hosted_error_code"] = error_code
-                result["routing_status"] = "hosted_failure_local_fallback" if local_selected else "hosted_failure"
-                if error_code in {"deadline_exceeded", "host_cancelled", "late_result_discarded"}:
+                result["routing_status"] = (
+                    "hosted_failure_local_fallback" if local_selected else "hosted_failure"
+                )
+                if error_code in {
+                    "deadline_exceeded",
+                    "host_cancelled",
+                    "late_result_discarded",
+                }:
                     result["routing_reason"] = error_code
                 else:
                     result["routing_reason"] = "hosted_request_failed"
@@ -1574,6 +1712,7 @@ def build_pre_llm_call_hook(
     mandatory_skills: Any = (),
     honor_no_skill_gate: bool = False,
     light_turn_bypass: bool = True,
+    cheap_hosted_select: bool = False,
     two_stage: TwoStageConfig | None = None,
     excerpt_loader: Callable[[str], Any] | None = None,
     environ: Mapping[str, str] | None = None,
@@ -1603,6 +1742,7 @@ def build_pre_llm_call_hook(
             adoption_capable=(consumer_mode == "load"),
             honor_no_skill_gate=honor_no_skill_gate,
             light_turn_bypass=light_turn_bypass,
+            cheap_hosted_select=cheap_hosted_select,
             two_stage=two_stage,
             excerpt_loader=excerpt_loader,
         )
