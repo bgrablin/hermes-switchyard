@@ -1615,6 +1615,9 @@ def register(ctx):
         ),
         honor_no_skill_gate=setting_bool("automatic_skill_honor_no_skill_gate", False),
         light_turn_bypass=setting_bool("automatic_skill_light_turn_bypass", True),
+        early_light_bypass_before_discover=setting_bool(
+            "automatic_skill_early_light_bypass_before_discover", False
+        ),
         two_stage=TwoStageConfig.from_mapping(
             {
                 key: ctx_get_config(ctx, key, default=None)

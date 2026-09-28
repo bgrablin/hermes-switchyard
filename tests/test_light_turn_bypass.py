@@ -341,5 +341,152 @@ class PrecedenceTests(HermesHomeTestCase):
         self.assertEqual(hook.last_result.get("hosted_skipped"), "explicit_override")
 
 
+
+class EarlyLightBypassBeforeDiscoverTests(HermesHomeTestCase):
+    """Flag-gated discover skip: default OFF preserves order; ON skips for light turns."""
+
+    def _hook(self, *, early: bool, light_turn_bypass: bool = True):
+        from hermes_switchyard.automatic import build_pre_llm_call_hook
+
+        calls: list[bool] = []
+        hook = build_pre_llm_call_hook(
+            enabled=True,
+            configured_candidates=None,
+            routing_mode="hosted_sanitized",
+            hosted_mode="always",
+            public_or_sanitized_data_ack=True,
+            client_factory=forbidden_factory(calls),
+            cache_seconds=0.0,
+            consumer_mode="advisory",
+            light_turn_bypass=light_turn_bypass,
+            early_light_bypass_before_discover=early,
+        )
+        assert hook is not None
+        return hook, calls
+
+    def test_flag_off_greeting_still_discovers(self):
+        from unittest import mock
+
+        hook, calls = self._hook(early=False)
+        discover_calls: list[int] = []
+
+        def fake_discover():
+            discover_calls.append(1)
+            return tuple(CATALOG)
+
+        with mock.patch(
+            "hermes_switchyard.automatic.discover_available_skill_candidates",
+            side_effect=fake_discover,
+        ):
+            response = hook(
+                user_message=GREETING_INSTRUCTION,
+                session_id="early-off",
+                turn_id="t1",
+                platform="cli",
+            )
+        self.assertEqual(calls, [])
+        self.assertGreaterEqual(len(discover_calls), 1)
+        self.assertEqual(hook.last_result.get("bypass_reason"), LIGHT_NO_SKILL_REASON)
+        self.assertEqual(hook.last_receipt.get("bypass_reason"), LIGHT_NO_SKILL_REASON)
+        self.assertTrue(isinstance(hook.last_receipt.get("source_sha"), str))
+        self.assertIn("metadata", response or {})
+
+    def test_flag_on_greeting_skips_discover(self):
+        from unittest import mock
+
+        hook, calls = self._hook(early=True)
+        discover_calls: list[int] = []
+
+        def fake_discover():
+            discover_calls.append(1)
+            raise AssertionError("early light bypass must skip catalog discover")
+
+        with mock.patch(
+            "hermes_switchyard.automatic.discover_available_skill_candidates",
+            side_effect=fake_discover,
+        ):
+            response = hook(
+                user_message=GREETING_INSTRUCTION,
+                session_id="early-on-greet",
+                turn_id="t1",
+                platform="cli",
+            )
+        self.assertEqual(calls, [])
+        self.assertEqual(discover_calls, [])
+        self.assertEqual(hook.last_result.get("bypass_reason"), LIGHT_NO_SKILL_REASON)
+        self.assertEqual(hook.last_receipt.get("bypass_reason"), LIGHT_NO_SKILL_REASON)
+        self.assertFalse(hook.last_result.get("hosted_attempted"))
+        self.assertEqual(hook.last_result.get("routing_status"), "hosted_skipped")
+        self.assertTrue(isinstance(hook.last_receipt.get("source_sha"), str))
+        meta = (response or {}).get("metadata", {}).get("skill_recommendation", {})
+        self.assertEqual(meta.get("status"), "abstained")
+
+    def test_flag_on_consequential_still_discovers(self):
+        from unittest import mock
+
+        hook, calls = self._hook(early=True)
+        discover_calls: list[int] = []
+
+        def fake_discover():
+            discover_calls.append(1)
+            return tuple(CATALOG)
+
+        with mock.patch(
+            "hermes_switchyard.automatic.discover_available_skill_candidates",
+            side_effect=fake_discover,
+        ):
+            response = hook(
+                user_message=PRINTER,
+                session_id="early-on-printer",
+                turn_id="t1",
+                platform="cli",
+            )
+        self.assertGreaterEqual(len(discover_calls), 1)
+        self.assertNotEqual(hook.last_result.get("bypass_reason"), LIGHT_NO_SKILL_REASON)
+        self.assertNotEqual(hook.last_result.get("bypass_reason"), "trivial_turn")
+        self.assertIsNotNone(response)
+
+    def test_flag_on_explicit_override_still_discovers(self):
+        from unittest import mock
+        from hermes_switchyard.automatic import build_pre_llm_call_hook
+
+        calls: list[bool] = []
+        hook = build_pre_llm_call_hook(
+            enabled=True,
+            configured_candidates=CATALOG,
+            routing_mode="hosted_sanitized",
+            hosted_mode="always",
+            public_or_sanitized_data_ack=True,
+            client_factory=forbidden_factory(calls),
+            cache_seconds=0.0,
+            consumer_mode="advisory",
+            light_turn_bypass=True,
+            early_light_bypass_before_discover=True,
+        )
+        assert hook is not None
+        discover_calls: list[int] = []
+
+        def fake_discover():
+            discover_calls.append(1)
+            return tuple(CATALOG)
+
+        task = (
+            "Use systematic-debugging to explain what a stack trace is. "
+            "Do not run commands."
+        )
+        with mock.patch(
+            "hermes_switchyard.automatic.discover_available_skill_candidates",
+            side_effect=fake_discover,
+        ):
+            response = hook(
+                user_message=task, session_id="s-ov", turn_id="t1", platform="cli"
+            )
+        self.assertEqual(calls, [])
+        self.assertGreaterEqual(len(discover_calls), 1)
+        meta = (response or {}).get("metadata", {}).get("skill_recommendation", {})
+        self.assertEqual(meta.get("status"), "explicit_override")
+        self.assertEqual(meta.get("explicit_skill"), "systematic-debugging")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -143,6 +143,9 @@ All current settings live under `plugins.entries.hermes-switchyard.settings`. Th
 | `automatic_skill_routing_mode` | `hosted_sanitized` | Use `off`, `local_only`, or eligible hosted routing. |
 | `automatic_skill_jev` | `true` | Deprecated compatibility setting; does not authorize hosted egress alone. |
 | `automatic_skill_jev_mode` | `always` | Try hosted routing on eligible turns; `uncertain_only` opts in to a local-first latency policy. |
+| `automatic_skill_honor_no_skill_gate` | `false` | When true, skip hosted fan-out under `always` mode on near-zero local overlap. |
+| `automatic_skill_light_turn_bypass` | `true` | Skip hosted skill routing for closed-list acks, greeting-class, cwd `ls -la`, and short no-action explanations without domain cues. |
+| `automatic_skill_early_light_bypass_before_discover` | `false` | Opt-in: run the light-turn bypass probe before catalog discover; default keeps discover-then-recommend. |
 | `automatic_skill_public_or_sanitized_data_ack` | `true` | Standing acknowledgement for hosted automatic skill routing; not a data classifier. |
 | `automatic_skill_mandatory_skills` | `[]` | Exact skill IDs that must not be displaced by an automatic load. |
 | `automatic_skill_two_stage` | `true` | Use the bounded two-stage hosted selector. |
@@ -167,7 +170,7 @@ All current settings live under `plugins.entries.hermes-switchyard.settings`. Th
 | `session_search_rerank_max_card_chars` | `360` | Maximum text in a redacted FTS candidate card. |
 | `public_or_sanitized_data_ack` | `true` | Standing acknowledgement for explicit Jev tools and adaptive effort; callers can refuse one call. |
 
-The 41 setting rows above match the manifest defaults. F1 and F2 settings from their PRs are not in this manifest; do not set them. Both failed their frozen release evaluations. On timeout the 0.4 s guard sends your level unchanged. With the earlier 0.25 s guard, an installed cold one-shot sample had 8 timeouts in 14 non-trivial decisions (57.1%). A fresh TUI yielded one client-reused Jev call at 178.4 ms; n=1 cannot establish a warm p95 for the current default.
+The 44 setting rows above match the manifest defaults. F1 and F2 settings from their PRs are not in this manifest; do not set them. Both failed their frozen release evaluations. On timeout the 0.4 s guard sends your level unchanged. With the earlier 0.25 s guard, an installed cold one-shot sample had 8 timeouts in 14 non-trivial decisions (57.1%). A fresh TUI yielded one client-reused Jev call at 178.4 ms; n=1 cannot establish a warm p95 for the current default.
 
 ## Troubleshooting
 

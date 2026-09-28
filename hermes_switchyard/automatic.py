@@ -1574,6 +1574,7 @@ def build_pre_llm_call_hook(
     mandatory_skills: Any = (),
     honor_no_skill_gate: bool = False,
     light_turn_bypass: bool = True,
+    early_light_bypass_before_discover: bool = False,
     two_stage: TwoStageConfig | None = None,
     excerpt_loader: Callable[[str], Any] | None = None,
     environ: Mapping[str, str] | None = None,
@@ -1610,6 +1611,9 @@ def build_pre_llm_call_hook(
         logger.warning("automatic skill recommendation disabled by invalid configuration: %s", type(exc).__name__)
         return None
 
+    # Default OFF: preserve discover-then-recommend. When ON with light_turn_bypass,
+    # a text-only probe may skip catalog discover for light turns (fail-open).
+    early_before_discover = early_light_bypass_before_discover is True
     configured = bool(recommender.configured_candidates)
     consumed_turns: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
 
@@ -1693,7 +1697,68 @@ def build_pre_llm_call_hook(
         # Light-turn bypass runs inside recommend() *after* routing_mode==off and
         # *after* the explicit-skill override below, so disabled-mode and
         # explicit-override receipts keep their established precedence.
+        # Optional early probe (flag default OFF) may skip discover when the same
+        # text-only light predicate already fires; fail-open on probe errors.
         del conversation_history  # local-only input; never part of an egress payload
+        if (
+            early_before_discover
+            and recommender.light_turn_bypass
+            and recommender.routing_mode != "off"
+        ):
+            early_reason = None
+            try:
+                task_text = _coerce_text(user_message)
+                if task_text:
+                    early_reason = _hosted_skill_bypass_reason(task_text)
+            except Exception:  # noqa: BLE001 -- fail open to discover path
+                early_reason = None
+            if early_reason is not None:
+                # Same light path as recommend(); empty candidates never reached.
+                result = recommender.recommend(
+                    user_message,
+                    candidates=(),
+                    candidates_from_prompt=False,
+                    turn_egress_policy=turn_egress_policy,
+                    egress_policy=egress_policy,
+                )
+                setattr(on_pre_llm_call, "last_result", dict(result))
+                setattr(
+                    on_pre_llm_call, "last_receipt", dict(recommender.last_receipt or {})
+                )
+                metadata = redacted_routing_metadata(result)
+                setattr(on_pre_llm_call, "last_metadata", dict(metadata))
+                setattr(on_pre_llm_call, "last_routing_metadata", dict(metadata))
+                contract = build_consumption_contract(
+                    delivery_status="not_delivered",
+                    adoption_status="not_applicable",
+                )
+                receipt = _attach_consumption_contract(
+                    dict(recommender.last_receipt or {}), contract
+                )
+                recommender.last_receipt = receipt
+                persist_failed = not _persist_receipt(receipt)
+                record_history(receipt)
+                _mark_persist_failure(metadata, persist_failed)
+                setattr(on_pre_llm_call, "last_receipt", dict(receipt))
+                metadata["skill_recommendation"] = {
+                    "status": "abstained",
+                    "selected": None,
+                    "source": result.get("source", "none"),
+                    "loaded_once": False,
+                    **contract,
+                }
+                for name in ("last_metadata", "last_routing_metadata"):
+                    snapshot = dict(getattr(on_pre_llm_call, name, None) or {})
+                    _mark_persist_failure(
+                        snapshot, bool(metadata.get(RECEIPT_PERSIST_FAILED_KEY))
+                    )
+                    setattr(on_pre_llm_call, name, snapshot)
+                response = {"metadata": metadata}
+                if turn_key is not None:
+                    consumed_turns[turn_key] = dict(response)
+                    while len(consumed_turns) > DEFAULT_CACHE_SIZE:
+                        consumed_turns.popitem(last=False)
+                return response
         catalog_candidates = (
             ()
             if configured or recommender.routing_mode == "off"

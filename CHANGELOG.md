@@ -12,6 +12,7 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 
 ### Changed
 
+- Optional early light-turn bypass before catalog discover (`automatic_skill_early_light_bypass_before_discover`, default **off**): when enabled with light-turn bypass, a text-only probe may skip `skills_list` / discover on greeting-class and other light turns while still emitting auditable `bypass_reason` / `source_sha` receipts. Fail-open; consequential and explicit-override turns still discover. Refs #160.
 - Light-turn routing tax cut (optimization-first for 0.6.0): skip hosted skill selection for closed-list acknowledgements, greeting-class instructions, pure read-only **cwd** listings, and short no-action explanations **without domain-skill cues** (`automatic_skill_light_turn_bypass`, default on). Optional `automatic_skill_honor_no_skill_gate` (default off) also skips hosted fan-out under `automatic_skill_jev_mode=always` when local lexical overlap is near zero. Greeting-class prompts also take the adaptive `local_trivial` path. Capability guards keep printer/docker/debug/logs/deploy domain explanations and path-scoped listings hosted; frozen-6 greeting/listdir still bypass. Prove-value battery (A′ vs B, pin bb94541) showed B +21% wall dominated by needless tax on greeting / listdir / multistep.
 
 ### Fixed
