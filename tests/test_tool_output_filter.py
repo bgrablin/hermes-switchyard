@@ -8,9 +8,12 @@ from types import SimpleNamespace
 from hermes_switchyard.tool_output_filter import (
     DEFAULT_SOFT_CAP_CHARS,
     FILTERABLE_KINDS,
+    build_pre_llm_call_capture_hook,
     build_transform_tool_result_hook,
+    clear_user_text_for_tests,
     filter_tool_result_text,
     looks_security_or_failure_relevant,
+    note_user_text,
     register_tool_output_filter,
     should_filter_tool_result,
     soft_cap_text,
@@ -158,6 +161,34 @@ class PredicateTests(unittest.TestCase):
             )
         )
 
+    def test_preserves_user_full_dump_from_turn_message(self):
+        clear_user_text_for_tests()
+        # Ordinary ask lives in the user turn, not in the shell command.
+        note_user_text(
+            "Run npm test and show the full output please.",
+            session_id="sess-1",
+            task_id="task-1",
+        )
+        self.assertTrue(
+            user_asks_full_dump(
+                args={"command": "npm test"},
+                session_id="sess-1",
+                task_id="task-1",
+            )
+        )
+        self.assertFalse(
+            should_filter_tool_result(
+                enabled=True,
+                tool_name="terminal",
+                result=_noisy_stdout(),
+                args={"command": "npm test"},
+                status="ok",
+                session_id="sess-1",
+                task_id="task-1",
+            )
+        )
+        clear_user_text_for_tests()
+
     def test_preserves_small_output(self):
         self.assertFalse(
             should_filter_tool_result(
@@ -213,6 +244,42 @@ class HookRegistrationTests(unittest.TestCase):
 
         # Should fail open (None), never raise.
         self.assertIsNone(hook(tool_name="terminal", result=Boom(), status="ok"))
+
+    def test_pre_llm_call_capture_feeds_transform(self):
+        clear_user_text_for_tests()
+        capture = build_pre_llm_call_capture_hook()
+        capture(
+            user_message="please keep the full dump of this build",
+            session_id="s2",
+            task_id="t2",
+        )
+        hook = build_transform_tool_result_hook(enabled=True)
+        self.assertIsNone(
+            hook(
+                tool_name="terminal",
+                args={"command": "npm install"},
+                result=_noisy_stdout(),
+                status="ok",
+                session_id="s2",
+                task_id="t2",
+            )
+        )
+        clear_user_text_for_tests()
+
+    def test_register_flag_on_registers_capture(self):
+        seen: list[str] = []
+
+        def register_hook(name, callback):
+            seen.append(name)
+
+        receipt = register_tool_output_filter(
+            SimpleNamespace(register_hook=register_hook),
+            enabled=True,
+        )
+        self.assertTrue(receipt["registered"])
+        self.assertTrue(receipt["enabled"])
+        self.assertTrue(receipt["pre_llm_call_capture"])
+        self.assertEqual(seen, ["transform_tool_result", "pre_llm_call"])
 
     def test_register_flag_off_still_registers_hook(self):
         seen: list[tuple[str, object]] = []
