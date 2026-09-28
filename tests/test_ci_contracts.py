@@ -265,7 +265,7 @@ class CiContractTests(unittest.TestCase):
         for job in (ubuntu, windows):
             self.assertIn('-e "$hermes_root[all,dev,anthropic]"', job)
         self.assertIn("--source-sha \"$SWITCHYARD_SOURCE_SHA\"", workflow)
-        self.assertIn("--version 0.5.5", workflow)
+        self.assertIn("--version 0.5.6", workflow)
         self.assertIn("archive-sha256.json", workflow)
         self.assertIn("\n  windows-installed-archive:\n", workflow)
         windows = workflow.split("\n  windows-installed-archive:\n", 1)[1]

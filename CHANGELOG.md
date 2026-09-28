@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.6 (2026-09-28)
+
+This release changes content only. It has no new features and no behavior change for ordinary tasks.
+
+### Changed
+
+- The local marking scan now keeps a message local only for `proprietary` text, a standalone `Confidential` banner, and `company`, `employer`, or `client confidential` markings. Other marking words are ordinary text: Hermes egress redaction still masks secret values before any hosted Jev request.
+- The fail-closed routing reason codes have new names: `local_scan_no_envelope` (was the clean-scan, no-envelope code) and `local_scan_unreadable` (was the non-text code). The history view skips older history records that contain the old codes.
+- Tests, documentation, and repository history use only civilian example text. Tags from v0.4.2 to v0.5.5 point to rewritten, signed commits, and their release archives were rebuilt from those commits.
+
 ## 0.5.5 (2026-09-27)
 
 This release fixes adaptive effort and the public DOM browser, changes egress to redact-not-block, and adds a visible effort receipt. It ships no new #98 feature: both candidates failed their frozen evaluations (see **Not included**).

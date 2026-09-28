@@ -69,7 +69,7 @@ class WindowsInstalledArchiveTests(unittest.TestCase):
         path, data, digest = verify_downloaded_artifact(
             self.folder / "download", ROOT, self.source_sha
         )
-        self.assertEqual(path.name, "hermes-switchyard-0.5.5.zip")
+        self.assertEqual(path.name, "hermes-switchyard-0.5.6.zip")
         self.assertEqual(digest, self.digest)
         return data
 
@@ -132,7 +132,7 @@ class WindowsInstalledArchiveTests(unittest.TestCase):
         loaded = SimpleNamespace(
             enabled=True, error=None, manifest=SimpleNamespace(
                 source="user", path=str(installed), name="hermes-switchyard",
-                version="0.5.5", provides_tools=["jev_assess"],
+                version="0.5.6", provides_tools=["jev_assess"],
             ), module=SimpleNamespace(__file__=str(installed / "__init__.py"), __name__=module_name),
             tools_registered=["jev_assess"],
         )

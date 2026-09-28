@@ -1,7 +1,7 @@
 ---
 name: hermes-switchyard-operations
 description: Use when evaluating bounded Jev decisions or integrating this plugin safely.
-version: 0.5.5
+version: 0.5.6
 author: bgrablin
 license: MIT
 platforms: [linux, macos, windows]

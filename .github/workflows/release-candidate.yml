@@ -90,7 +90,7 @@ jobs:
           rm -rf dist
           "$HERMES_PYTHON" scripts/build_release.py \
             --source-sha "$SWITCHYARD_SOURCE_SHA" \
-            --version 0.5.5 \
+            --version 0.5.6 \
             --output-dir dist
 
       - name: Verify extracted links and the actual native Hermes loader
@@ -99,7 +99,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/switchyard-release-receipts"
           "$HERMES_PYTHON" scripts/ci/verify_release_candidate.py \
-            --archive dist/hermes-switchyard-0.5.5.zip \
+            --archive dist/hermes-switchyard-0.5.6.zip \
             --source-root "$GITHUB_WORKSPACE" \
             --source-sha "$SWITCHYARD_SOURCE_SHA" \
             --upstream-root "$RUNNER_TEMP/hermes-agent" \
@@ -111,7 +111,7 @@ jobs:
         run: |
           set -euo pipefail
           "$HERMES_PYTHON" scripts/ci/record_archive_sha256.py \
-            --archive dist/hermes-switchyard-0.5.5.zip \
+            --archive dist/hermes-switchyard-0.5.6.zip \
             --out "$RUNNER_TEMP/switchyard-release-receipts/archive-sha256.json"
 
       - name: Write release candidate summary
@@ -163,7 +163,7 @@ jobs:
             archive_sha256 = $null
             installed_sha256 = $null
             plugin = 'hermes-switchyard'
-            version = '0.5.5'
+            version = '0.5.6'
             hermes_source_sha = $env:HERMES_UPSTREAM_SHA
             hermes_version = $null
             windows_version = @{ major = $identity.Major; minor = $identity.Minor; build = $identity.Build }
