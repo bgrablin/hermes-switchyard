@@ -11,7 +11,7 @@ the turn might need Switchyard decision tools.
 from __future__ import annotations
 
 import re
-from typing import Any, Mapping, MutableMapping, Sequence
+from typing import Any, Mapping, Sequence
 
 # Plugin toolset only — jev_computer_use rides Hermes' computer_use toolset and
 # is never deferred by this module.
