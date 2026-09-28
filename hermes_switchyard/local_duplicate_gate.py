@@ -29,15 +29,13 @@ from .reasoning_effort_adapter import classify_tool_kind, derive_tool_failure
 # Observation identity is derived as args_stable:<digest>, never empty.
 ARGS_STABLE_READ_TOOLS = frozenset(
     {
+        # Catalog / schema reads named entirely by args. Live-state integrations
+        # (HA entity lists, Kanban boards) are intentionally excluded — they need
+        # an explicit observation identity so a later mutation cannot stale-reuse.
         "skill_view",
         "skills_list",
         "tool_search",
         "tool_describe",
-        "ha_list_entities",
-        "ha_list_services",
-        "kanban_list",
-        "kanban_show",
-        "kanban_attachments",
     }
 )
 

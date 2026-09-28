@@ -52,6 +52,13 @@ class FingerprintHelpersTests(unittest.TestCase):
     def test_args_stable_set_includes_skill_view(self):
         self.assertIn("skill_view", ARGS_STABLE_READ_TOOLS)
 
+    def test_live_state_integrations_not_args_stable(self):
+        # HA / Kanban reads can change without a write tool Hermes classifies as write.
+        for name in ("ha_list_entities", "ha_list_services", "kanban_list", "kanban_show"):
+            self.assertNotIn(name, ARGS_STABLE_READ_TOOLS)
+            self.assertIsNone(observation_identity(name, {}))
+            self.assertIsNone(fingerprint_for(name, {}))
+
 
 class DecideAndRecordTests(unittest.TestCase):
     def setUp(self):

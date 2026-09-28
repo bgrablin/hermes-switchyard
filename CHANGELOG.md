@@ -12,7 +12,7 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 
 ### Changed
 
-- Optional local exact-duplicate tool-round gate (`local_duplicate_tool_gate`, default **off**; [#139](https://github.com/bgrablin/hermes-switchyard/issues/139) C2): when on, successful **read** tool outcomes are fingerprinted per session; an exact repeat (tool + canonical args + observation identity) reuses the prior result via `tool_execution` middleware without re-dispatch (**0 Jev**). Args-stable reads (`skill_view` and kin) derive observation identity from args; other reads require an explicit observation id field. Writes/exec clear the session store; failed reads invalidate. Fail-open when unsure. Capability-first experiment — do not enable by default until Silver A′/B/C prove-value.
+- Optional local exact-duplicate tool-round gate (`local_duplicate_tool_gate`, default **off**; [#139](https://github.com/bgrablin/hermes-switchyard/issues/139) C2): when on, successful **read** tool outcomes are fingerprinted per session; an exact repeat (tool + canonical args + observation identity) reuses the prior result via `tool_execution` middleware without re-dispatch (**0 Jev**). Args-stable catalog reads (`skill_view`, `skills_list`, `tool_search`, `tool_describe`) derive observation identity from args; live-state HA/Kanban reads require an explicit observation id; other reads require an explicit observation id field. Writes/exec clear the session store; failed reads invalidate. Fail-open when unsure. Capability-first experiment — do not enable by default until Silver A′/B/C prove-value.
 
 ### Fixed
 
