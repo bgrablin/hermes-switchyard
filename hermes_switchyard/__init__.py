@@ -1675,12 +1675,18 @@ def register(ctx):
         register_llm_request=(not defer_schemas_enabled),
     )
 
-    effort_cb = (_RUNTIME_STATUS.get("reasoning_effort_adapter") or {}).get("llm_request_callback")
-    _RUNTIME_STATUS["defer_tool_schemas"] = register_defer_tool_schemas_middleware(
+    from . import reasoning_effort_adapter as _effort_mod
+
+    effort_cb = getattr(_effort_mod, "_ACTIVE_LLM_REQUEST_CALLBACK", None)
+    defer_status = register_defer_tool_schemas_middleware(
         ctx,
         enabled=defer_schemas_enabled,
         chain_with=effort_cb if defer_schemas_enabled else None,
     )
+    # Never leave callables in runtime status (JSON probe / status dumps).
+    if isinstance(defer_status, dict):
+        defer_status = {k: v for k, v in defer_status.items() if k != "callback"}
+    _RUNTIME_STATUS["defer_tool_schemas"] = defer_status
 
     def assess_handler(args, **kwargs):
         try:

@@ -343,5 +343,4 @@ def register_defer_tool_schemas_middleware(
         "reason": "ok",
         "enabled": bool(enabled),
         "composed_with_prior": composed,
-        "callback": callback,
     }

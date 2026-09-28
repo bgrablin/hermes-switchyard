@@ -146,6 +146,8 @@ _FAILURE_STATUSES = frozenset(
     {"error", "failed", "blocked", "cancelled", "canceled", "timeout", "timed_out"}
 )
 
+_ACTIVE_LLM_REQUEST_CALLBACK: Any = None
+
 _LAST_REGISTRATION: dict[str, Any] = {
     "registered": False,
     "mode": "uninitialized",
@@ -3233,7 +3235,8 @@ def register_reasoning_effort_adapter(
     register_llm_request: bool = True,
 ) -> dict[str, Any]:
     """Register llm_request middleware, turn and tool hooks, and ``/switchyard``."""
-    global _LAST_REGISTRATION
+    global _LAST_REGISTRATION, _ACTIVE_LLM_REQUEST_CALLBACK
+    _ACTIVE_LLM_REQUEST_CALLBACK = None
     seam = probe_llm_request_middleware_seam(ctx)
     resolved_receipt = parse_receipt_mode(
         DEFAULT_RECEIPT_MODE if receipt_mode is None and receipt_line is None
@@ -3290,6 +3293,7 @@ def register_reasoning_effort_adapter(
         receipt_mode=settings["receipt_mode"],
         client_identity=client_identity,
     )
+    _ACTIVE_LLM_REQUEST_CALLBACK = controller.on_llm_request
     register_middleware = getattr(ctx, "register_middleware", None)
     middleware_registered = False
     if register_llm_request is True:
@@ -3302,7 +3306,6 @@ def register_reasoning_effort_adapter(
                 "enabled": True,
                 "can_apply": False,
                 "settings": settings,
-                "llm_request_callback": controller.on_llm_request,
             }
             _LAST_REGISTRATION = dict(receipt)
             return receipt
@@ -3378,7 +3381,6 @@ def register_reasoning_effort_adapter(
         "post_api_request_registered": usage_registered,
         "command_registered": command_registered,
         "client_pool_close_registered": pool_close_registered,
-        "llm_request_callback": controller.on_llm_request,
         "llm_request_registered": middleware_registered,
         "integration_point": (
             "hermes_switchyard.reasoning_effort_adapter.register_reasoning_effort_adapter"
