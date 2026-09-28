@@ -86,6 +86,8 @@ switchyard: effort high→low · Jev 170 ms · metadata only
 
 The line is added to the reply you see. Current Hermes stores the reply with the line, so `/resume` shows it. Before each request, Switchyard removes the line from earlier replies, so the model never gets it back. Only a trailing line with the exact receipt shape is removed; other text stays. Delegated and background turns never get the line. If the line fails, the reply is sent unchanged.
 
+The Hermes status bar does not change per turn. It shows your `/reasoning` level, which is the cap. Read the receipt line, `/switchyard effort status`, or the history file for the level that was sent.
+
 ### Saved-token estimate
 
 The `saved` figure is an estimate from **measured** token counts only. Switchyard reads `usage` from the Hermes `post_api_request` hook (no text, only token counts) for each foreground request it saw:
