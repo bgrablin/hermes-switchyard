@@ -37,6 +37,7 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any
 
 from . import egress_redaction, receipt_history, receipt_state
@@ -102,6 +103,16 @@ DEFAULT_AUTOMATIC_DEADLINE_SECONDS = DEFAULT_AUTOMATIC_ROUTING_DEADLINE_SECONDS
 # Catalog token-feature cache keyed by catalog hash (names + descriptions).
 _CATALOG_FEATURE_CACHE: OrderedDict[str, tuple[frozenset[str], ...]] = OrderedDict()
 _CATALOG_FEATURE_LOCK = threading.Lock()
+
+# In-process skill registry discovery cache. skills_list() is fail-open and can
+# be expensive on large profiles; automatic routing may also call discovery twice
+# in one turn (catalog + explicit-override pool). Invalidate when HERMES_HOME
+# skills roots change (path + mtime fingerprint) or when the entry exceeds the
+# max age. Behavior is identical to uncached discovery aside from avoiding
+# repeat registry scans.
+_DISCOVERY_CACHE_LOCK = threading.Lock()
+_DISCOVERY_CACHE: tuple[str, float, tuple[dict[str, str], ...]] | None = None
+_DISCOVERY_CACHE_MAX_AGE_SECONDS = 30.0
 
 # Stable, privacy-safe terminal states for the routing-receipt surface. These
 # names identify every automatic-routing outcome without carrying task text,
@@ -342,7 +353,62 @@ def _validate_candidates(raw: Any, *, limit: int | None) -> tuple[dict[str, str]
     return tuple(result)
 
 
-def discover_available_skill_candidates() -> tuple[dict[str, str], ...]:
+def _skills_registry_roots() -> tuple[Path, ...]:
+    """Return profile skill roots used only for discovery-cache invalidation.
+
+    Paths are never logged or written into receipts. Missing roots are fine:
+    the fingerprint records absence so a later create invalidates the cache.
+    """
+    roots: list[Path] = []
+    home = os.environ.get("HERMES_HOME")
+    if isinstance(home, str) and home.strip():
+        base = Path(home.strip())
+        roots.append(base / "skills")
+        # Profile-scoped skills (when HERMES_PROFILE is set) live beside the
+        # shared tree; include both so an install under either root refreshes.
+        profile = os.environ.get("HERMES_PROFILE")
+        if isinstance(profile, str) and profile.strip():
+            roots.append(base / "profiles" / profile.strip() / "skills")
+    return tuple(roots)
+
+
+def _discovery_fingerprint() -> str:
+    """Cheap fingerprint of skill registry roots (paths + mtimes + children)."""
+    parts: list[str] = []
+    for root in _skills_registry_roots():
+        try:
+            st = root.stat()
+            parts.append(f"{root.resolve()}:{st.st_mtime_ns}:{st.st_ino}")
+            if not root.is_dir():
+                continue
+            try:
+                children = sorted(root.iterdir(), key=lambda p: p.name)
+            except OSError:
+                continue
+            # Cap directory walk so a huge skills tree cannot dominate the turn.
+            for child in children[:512]:
+                try:
+                    cst = child.stat()
+                    parts.append(f"{child.name}:{cst.st_mtime_ns}:{cst.st_ino}")
+                except OSError:
+                    parts.append(f"{child.name}:unreadable")
+        except OSError:
+            parts.append(f"{root}:missing")
+    if not parts:
+        parts.append("no_hermes_home")
+    return hashlib.sha256("\n".join(parts).encode("utf-8", "backslashreplace")).hexdigest()
+
+
+def clear_skill_discovery_cache() -> None:
+    """Drop the in-process skills_list discovery cache (tests / forced refresh)."""
+    global _DISCOVERY_CACHE
+    with _DISCOVERY_CACHE_LOCK:
+        _DISCOVERY_CACHE = None
+
+
+def discover_available_skill_candidates(
+    *, force_refresh: bool = False
+) -> tuple[dict[str, str], ...]:
     """Discover the active profile's skills through Hermes' public skills API.
 
     ``pre_llm_call`` receives the conversation messages before Hermes prepends
@@ -350,7 +416,23 @@ def discover_available_skill_candidates() -> tuple[dict[str, str], ...]:
     ``tools.skills_tool.skills_list()`` is the supported profile-scoped registry
     surface and already filters disabled/platform-ineligible skills. Descriptions
     remain local ranking metadata and are bounded before use.
+
+    Results are cached in-process and invalidated when skill-root mtimes change
+    or after ``_DISCOVERY_CACHE_MAX_AGE_SECONDS``. Pass ``force_refresh=True`` to
+    bypass the cache. Failures are not cached.
     """
+    global _DISCOVERY_CACHE
+    fingerprint = _discovery_fingerprint()
+    now = time.monotonic()
+    with _DISCOVERY_CACHE_LOCK:
+        cached = _DISCOVERY_CACHE
+        if (
+            not force_refresh
+            and cached is not None
+            and cached[0] == fingerprint
+            and (now - cached[1]) <= _DISCOVERY_CACHE_MAX_AGE_SECONDS
+        ):
+            return cached[2]
     try:
         from tools.skills_tool import skills_list
 
@@ -374,10 +456,13 @@ def discover_available_skill_candidates() -> tuple[dict[str, str], ...]:
             except ValueError:
                 continue
             candidates.append(candidate)
-        return tuple(candidates)
+        result = tuple(candidates)
     except Exception as exc:  # noqa: BLE001 -- catalog discovery is fail-open
         logger.debug("skill registry discovery failed: %s", type(exc).__name__)
         return ()
+    with _DISCOVERY_CACHE_LOCK:
+        _DISCOVERY_CACHE = (fingerprint, time.monotonic(), result)
+    return result
 
 
 def _catalog_identity(candidates: tuple[dict[str, str], ...]) -> str:

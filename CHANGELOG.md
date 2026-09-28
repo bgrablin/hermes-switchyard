@@ -12,7 +12,7 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 
 ### Changed
 
-_(none yet beyond #147)_
+- Cache Hermes skill-registry discovery (`skills_list`) in-process for automatic routing. Invalidate when skill-root mtimes change or after 30 seconds. Failures are not cached. Same candidate set as an uncached scan — cuts repeat catalog work across turns and the same-turn double discover (catalog + explicit-override pool).
 
 ### Fixed
 
