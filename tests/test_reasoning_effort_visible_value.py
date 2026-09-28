@@ -171,6 +171,108 @@ class DefaultReceiptTests(unittest.TestCase):
         self.assertIsNone(controller.build_transform_llm_output_hook()(response_text=None, turn_id="t1"))
 
 
+class ReceiptReplayGuardTests(unittest.TestCase):
+    """Hermes stores the transformed reply; the model must never get the receipt line back."""
+
+    LINE = "switchyard: effort high→low · local (no Jev call)"
+
+    def _replay_request(self, earlier: object, *, key: str = "messages") -> dict:
+        request = opus_request("high")
+        request[key] = [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": earlier},
+            {"role": "user", "content": "refactor the parser module"},
+        ]
+        return request
+
+    def _assistant(self, request: dict, result: dict | None, key: str = "messages"):
+        final = result["request"] if result else request
+        return [item["content"] for item in final[key] if item.get("role") == "assistant"]
+
+    def test_every_receipt_shape_the_hook_makes_is_removed(self):
+        for line in (
+            self.LINE,
+            "switchyard: effort high→low · Jev 180 ms · ~1.2k reasoning tokens saved (est.)",
+            "switchyard: effort high (kept: consequential) · Jev 210 ms",
+            "switchyard: effort high (kept: Jev over 400 ms budget)",
+            "switchyard: effort high→low→medium · Jev 2 calls, 390 ms · 1 cached · metadata only",
+        ):
+            with self.subTest(line=line):
+                controller, _, _ = make()
+                begin(controller, "refactor the parser module", turn="t2")
+                request = self._replay_request(f"Synthetic answer.\n\n{line}")
+                result = controller.on_llm_request(request, session_id=SESSION, task_id=SESSION, turn_id="t2", **OPUS)
+                self.assertEqual(self._assistant(request, result), ["Synthetic answer."])
+                # The caller's request object is not changed in place.
+                self.assertIn(line, request["messages"][1]["content"])
+
+    def test_the_hook_output_round_trips_to_the_clean_answer(self):
+        controller, _, _ = make()
+        begin(controller, "hi")
+        send(controller, "high")
+        shown = finish(controller)
+        self.assertTrue(shown.endswith(self.LINE), shown)
+        begin(controller, "refactor the parser module", turn="t2")
+        request = self._replay_request(shown)
+        result = controller.on_llm_request(request, session_id=SESSION, task_id=SESSION, turn_id="t2", **OPUS)
+        self.assertEqual(self._assistant(request, result), ["Synthetic answer."])
+
+    def test_list_content_and_responses_input_are_cleaned(self):
+        controller, _, _ = make()
+        begin(controller, "refactor the parser module", turn="t2")
+        parts = [{"type": "output_text", "text": f"Synthetic answer.\n\n{self.LINE}"}]
+        request = self._replay_request(parts, key="input")
+        request.pop("messages", None)
+        result = controller.on_llm_request(request, session_id=SESSION, task_id=SESSION, turn_id="t2", **OPUS)
+        self.assertEqual(self._assistant(request, result, key="input"),
+                         [[{"type": "output_text", "text": "Synthetic answer."}]])
+
+    def test_other_text_is_never_changed(self):
+        for text in (
+            "switchyard: effort high→low · local (no Jev call)",  # no blank line before it
+            f"Quote:\n\n{self.LINE}\n\nThen more text.",  # not at the end
+            "The switchyard: effort high setting is described here.",
+            "Synthetic answer.\n\nswitchyard: effort HIGH",  # not the receipt shape
+        ):
+            with self.subTest(text=text):
+                controller, _, _ = make()
+                begin(controller, "refactor the parser module", turn="t2")
+                request = self._replay_request(text)
+                result = controller.on_llm_request(request, session_id=SESSION, task_id=SESSION, turn_id="t2", **OPUS)
+                self.assertEqual(self._assistant(request, result), [text])
+
+    def test_user_turns_are_never_changed(self):
+        controller, _, _ = make()
+        begin(controller, "refactor the parser module", turn="t2")
+        request = self._replay_request("Synthetic answer.")
+        request["messages"][0]["content"] = f"hi\n\n{self.LINE}"
+        result = controller.on_llm_request(request, session_id=SESSION, task_id=SESSION, turn_id="t2", **OPUS)
+        final = result["request"] if result else request
+        self.assertEqual(final["messages"][0]["content"], f"hi\n\n{self.LINE}")
+
+    def test_cleaning_also_runs_when_effort_is_off_or_pinned(self):
+        for kwargs in ({"enabled": False}, {}):
+            with self.subTest(kwargs=kwargs):
+                controller, _, env = make(**kwargs)
+                if not kwargs:
+                    controller.handle_command("effort pin")
+                begin(controller, "refactor the parser module", turn="t2")
+                request = self._replay_request(f"Synthetic answer.\n\n{self.LINE}")
+                result = controller.on_llm_request(request, session_id=SESSION, task_id=SESSION, turn_id="t2", **OPUS)
+                self.assertIsNotNone(result)
+                self.assertEqual(result["reason"], "receipt_line_removed")
+                self.assertEqual(self._assistant(request, result), ["Synthetic answer."])
+                self.assertEqual(sent_effort(request, result), "high")
+
+    def test_a_guard_error_sends_the_request_unchanged(self):
+        controller, _, _ = make()
+        begin(controller, "refactor the parser module", turn="t2")
+        request = self._replay_request(f"Synthetic answer.\n\n{self.LINE}")
+        with patch("hermes_switchyard.reasoning_effort_adapter.strip_receipt_lines", side_effect=RuntimeError("x")):
+            result = controller.on_llm_request(request, session_id=SESSION, task_id=SESSION, turn_id="t2", **OPUS)
+        self.assertEqual(sent_effort(request, result), "high")
+
+
 class SavedEstimateTests(unittest.TestCase):
     """The saved figure uses only measured usage: baseline requests at the user's level."""
 

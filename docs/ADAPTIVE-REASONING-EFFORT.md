@@ -84,7 +84,7 @@ switchyard: effort high→low · Jev 170 ms · metadata only
 
 `kept:` names why your level was kept: `consequential` (high stakes), `tool failed`, `after write`, `change request`, `Jev unavailable`, `invalid Jev answer`, or `Jev choice` (Jev picked your level). A pinned session, an excluded model, or a request with no room below your level gets no line, because Switchyard did no work.
 
-The line is added to the reply you see. It is not stored in the conversation history, so the model does not see it on later turns. Delegated and background turns never get the line. If the line fails, the reply is sent unchanged.
+The line is added to the reply you see. Current Hermes stores the reply with the line, so `/resume` shows it. Before each request, Switchyard removes the line from earlier replies, so the model never gets it back. Only a trailing line with the exact receipt shape is removed; other text stays. Delegated and background turns never get the line. If the line fails, the reply is sent unchanged.
 
 ### Saved-token estimate
 
@@ -131,7 +131,6 @@ Example `status` lines for the last decisions (up to 5 are kept):
 | `adaptive_reasoning_effort_deadline_seconds` | `0.4` | Jev budget per choice, configurable from 0.1 to 1.5 s. On timeout your level is sent unchanged. |
 | `adaptive_reasoning_effort_step_adaptation` | `true` | Allow bounded step-level asks after routine read-only tool rounds (at most one level below your level). Set `false` for one decision per turn. |
 | `adaptive_reasoning_effort_receipt_line` | `true` | Add one receipt line to each foreground reply where Switchyard did work. Set `false` to turn it off. |
-| `adaptive_reasoning_effort_status_bar` | `true` | In the Hermes TUI, show the level sent next to your level in the status bar (`high→low`). Set `false` to turn it off. |
 | `adaptive_reasoning_effort_default` | `medium` | Deprecated and unused since 0.5.4. |
 
 Example:
@@ -156,24 +155,6 @@ Read the level that was actually sent from these records or a request dump. The 
 Requires Hermes 0.21.4 or later: `PluginContext.register_middleware("llm_request", ...)` plus `hermes_cli.middleware.apply_llm_request_middleware`. Hosts without that API record `noop_seam_unavailable` and do not change requests. The `/switchyard` command is registered only when the host exposes `register_command`.
 
 Model routing (`jev_model_route`) stays advisory (`applied: false`).
-
-## TUI status bar
-
-The Hermes TUI status bar shows the model and a reasoning label. Hermes builds the label from two session fields: `reasoning_effort` (your `/reasoning` level) and `reasoning_effort_wire` (the level sent). When they differ, the label reads `high→low`.
-
-Switchyard changes only the level in each request, so Hermes alone would always show your level. With `adaptive_reasoning_effort_status_bar` on (default), Switchyard re-emits the TUI session information with `reasoning_effort_wire` set to the level it sent:
-
-- `hi` or `thanks` at `/reasoning high`: the label reads `high→low`.
-- A consequential request: the label reads `high`.
-- The label changes at the first model request of a turn and stays until the next change.
-
-Rules:
-
-- Foreground session only. A delegated child never changes the label.
-- Your `/reasoning` setting and `agent.reasoning_config` never change (#118).
-- It acts only when the Hermes TUI or Desktop gateway module is already loaded, and never imports it. The CLI and messaging platforms show only the receipt line.
-- It uses private Hermes gateway names (`_sessions`, `_session_info`, `_emit`). If a future Hermes renames them, the label shows your level again and requests are not affected.
-- It runs off the request thread and ignores every error.
 
 ## Receipts
 
