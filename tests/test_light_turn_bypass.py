@@ -71,6 +71,9 @@ class DetectorTests(unittest.TestCase):
                 "Plan a careful weekend home-lab maintenance window with rollback steps."
             )
         )
+        # Greeting-only grammar: coding tasks that merely contain "hello" must route.
+        self.assertFalse(is_greeting_class_prompt("Write a hello world program in Python."))
+        self.assertIsNone(hosted_skill_bypass_reason("Write a hello world program in Python."))
 
     def test_closed_list_acks_remain_trivial_turn(self):
         self.assertEqual(hosted_skill_bypass_reason("hi"), "trivial_turn")
@@ -192,6 +195,54 @@ class AdaptiveGreetingClassTests(unittest.TestCase):
         self.assertTrue(local_trivial_request("hi"))
         self.assertFalse(local_trivial_request(PRINTER))
         self.assertFalse(local_trivial_request(LISTDIR))
+        self.assertFalse(local_trivial_request("Write a hello world program in Python."))
+
+
+
+class PrecedenceTests(HermesHomeTestCase):
+    """routing_mode=off and explicit override must beat light-turn bypass."""
+
+    def test_off_mode_greeting_reports_routing_mode_off(self):
+        calls: list[bool] = []
+        rec = AutomaticSkillRecommender(
+            configured_candidates=CATALOG,
+            routing_mode="off",
+            hosted_mode="always",
+            public_or_sanitized_data_ack=True,
+            client_factory=forbidden_factory(calls),
+            cache_seconds=0.0,
+        )
+        result = rec.recommend("hi")
+        self.assertEqual(calls, [])
+        self.assertEqual(result["routing_reason"], "routing_mode_off")
+        self.assertEqual(result["routing_status"], "disabled")
+        self.assertNotEqual(result.get("bypass_reason"), LIGHT_NO_SKILL_REASON)
+
+    def test_hook_explicit_override_beats_light_explanation(self):
+        from hermes_switchyard.automatic import build_pre_llm_call_hook
+
+        calls: list[bool] = []
+        hook = build_pre_llm_call_hook(
+            enabled=True,
+            configured_candidates=CATALOG,
+            routing_mode="hosted_sanitized",
+            hosted_mode="always",
+            public_or_sanitized_data_ack=True,
+            client_factory=forbidden_factory(calls),
+            cache_seconds=0.0,
+            consumer_mode="advisory",
+        )
+        assert hook is not None
+        task = (
+            "Use systematic-debugging to explain what a stack trace is. "
+            "Do not run commands."
+        )
+        response = hook(user_message=task, session_id="s1", turn_id="t1", platform="cli")
+        self.assertEqual(calls, [])
+        meta = (response or {}).get("metadata", {}).get("skill_recommendation", {})
+        self.assertEqual(meta.get("status"), "explicit_override")
+        self.assertEqual(meta.get("explicit_skill"), "systematic-debugging")
+        self.assertEqual(hook.last_result.get("hosted_skipped"), "explicit_override")
 
 
 if __name__ == "__main__":

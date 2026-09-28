@@ -29,16 +29,23 @@ TRIVIAL_ACK_WORDS = frozenset(
 LIGHT_NO_SKILL_REASON = "light_no_skill"
 
 # Instructional prompts whose only deliverable is a greeting sentence/reply.
+# Greeting-only grammar: the ask must name a greeting/hello/hi *as the reply*,
+# not merely contain those words (``Write a hello world program…`` must not match).
 _GREETING_ASK_RE = re.compile(
-    r"\b(?:reply|respond|say|write|give|send)\b.{0,48}\b(?:greeting|hello|hi)\b"
-    r"|\b(?:one|a|short)\s+(?:\w+\s+){0,3}(?:greeting|hello)\b"
+    r"\b(?:reply|respond|say|write|give|send)\b"
+    r".{0,48}"
+    r"\b(?:greeting(?:\s+sentence)?|hello(?!\s+world\b)|(?<![\w-])hi)\b"
+    r"|\b(?:one|a|short)\s+(?:\w+\s+){0,3}greeting(?:\s+sentence)?\b"
     r"|\bgreeting\s+sentence\b",
     re.IGNORECASE | re.DOTALL,
 )
+# Task / second-deliverable cues that make a greeting-shaped ask non-greeting-only.
 _GREETING_CLASS_NEGATIVE_RE = re.compile(
     r"\b(?:"
     r"skill|debug|deploy|fix|patch|install|delete|browse|docker|printer|"
-    r"error|plan|rollback|compose|maintenance|unreachable|logs?"
+    r"error|plan|rollback|compose|maintenance|unreachable|logs?|"
+    r"world|program|script|code|python|rust|implement|function|"
+    r"then\b|after\s+that|followed\s+by"
     r")\b",
     re.IGNORECASE,
 )

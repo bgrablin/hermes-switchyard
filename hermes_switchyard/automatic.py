@@ -1690,61 +1690,10 @@ def build_pre_llm_call_hook(
             return response
         # Hermes' conversation_history does not include the cached system prompt
         # that advertises skills. Discover the active profile registry directly.
+        # Light-turn bypass runs inside recommend() *after* routing_mode==off and
+        # *after* the explicit-skill override below, so disabled-mode and
+        # explicit-override receipts keep their established precedence.
         del conversation_history  # local-only input; never part of an egress payload
-        # Light-turn bypass before catalog discovery: greetings, greeting-class
-        # instructions, pure listings, and short no-action explanations never
-        # pay for skill registry scans or hosted Jev.
-        light_bypass = (
-            _hosted_skill_bypass_reason(_coerce_text(user_message))
-            if recommender.light_turn_bypass
-            else None
-        )
-        if light_bypass is not None:
-            result = {
-                "status": "abstained",
-                "selected": None,
-                "source": "none",
-                "abstention_reason": light_bypass,
-                "routing_mode": recommender.routing_mode,
-                "routing_status": "hosted_skipped",
-                "routing_reason": light_bypass,
-                "hosted_attempted": False,
-                "hosted_skipped": light_bypass,
-                "bypass_reason": light_bypass,
-                "candidate_count": 0,
-                "candidates_considered": [],
-                "cache_hit": False,
-                "request_count": 0,
-                "offered_count": 0,
-                "input_chars": 0,
-            }
-            contract = build_consumption_contract(
-                delivery_status="not_delivered",
-                adoption_status="not_applicable",
-            )
-            receipt = _attach_consumption_contract(build_routing_receipt(result), contract)
-            recommender.last_receipt = receipt
-            persist_failed = not _persist_receipt(receipt)
-            record_history(receipt)
-            metadata = redacted_routing_metadata(result)
-            _mark_persist_failure(metadata, persist_failed)
-            metadata["skill_recommendation"] = {
-                "status": "abstained",
-                "selected": None,
-                "source": "none",
-                "loaded_once": False,
-                **contract,
-            }
-            setattr(on_pre_llm_call, "last_result", dict(result))
-            setattr(on_pre_llm_call, "last_receipt", dict(receipt))
-            setattr(on_pre_llm_call, "last_metadata", dict(metadata))
-            setattr(on_pre_llm_call, "last_routing_metadata", dict(metadata))
-            response = {"metadata": metadata}
-            if turn_key is not None:
-                consumed_turns[turn_key] = dict(response)
-                while len(consumed_turns) > DEFAULT_CACHE_SIZE:
-                    consumed_turns.popitem(last=False)
-            return response
         catalog_candidates = (
             ()
             if configured or recommender.routing_mode == "off"
