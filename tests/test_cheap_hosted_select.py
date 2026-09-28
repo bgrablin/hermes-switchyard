@@ -326,5 +326,62 @@ class CheapHostedSelectIntegrationTests(unittest.TestCase):
         self.assertEqual(result["selected"], "systematic-debugging")
 
 
+    def test_fail_open_aggregates_shortlist_and_expand_metadata(self):
+        candidates = _catalog_with_printer_logs(size=100)
+        result, client = self._recommend(
+            task="Diagnose an unreachable network printer queue jam",
+            candidates=candidates,
+            prefer="systematic-debugging",
+            cheap=True,
+        )
+        self.assertEqual(result["shortlist_policy"], SHORTLIST_POLICY_CHEAP_FAIL_OPEN)
+        self.assertGreaterEqual(len(client.calls), 2)
+        # Both attempts must appear in accounting (not expand-only overwrite).
+        self.assertGreaterEqual(result["jev_request_count"], 2)
+        self.assertGreater(result["jev_total_latency_ms"], 0)
+        usage = result.get("jev_total_usage") or {}
+        self.assertGreaterEqual(usage.get("completion_tokens", 0), 64)
+
+    def test_fail_open_rescans_full_catalog_names_before_expand(self):
+        # Shortlist is clean (printer/debug names), but a padded catalog name is
+        # secret-like. Expand must refuse rather than send the unsafe name.
+        pad = [
+            {"name": f"skill-{index}", "description": f"generic helper utility {index}"}
+            for index in range(90)
+        ]
+        candidates = [
+            *pad,
+            {
+                "name": "network-printer-operations",
+                "description": "Operate network printers and scanners.",
+            },
+            {
+                "name": "systematic-debugging",
+                "description": "Debug application errors and logs.",
+            },
+            {
+                "name": "api_key=sk-test-leak-name",
+                "description": "Should never cross the hosted boundary.",
+            },
+        ]
+        # Prefer a name outside the printer shortlist so expand would be needed.
+        result, client = self._recommend(
+            task="Diagnose an unreachable network printer queue jam",
+            candidates=candidates,
+            prefer="systematic-debugging",
+            cheap=True,
+        )
+        # Expand scan must block; no full-catalog offer of the secret-like name.
+        all_offered = set().union(*client.offered_per_call) if client.offered_per_call else set()
+        self.assertNotIn("api_key=sk-test-leak-name", all_offered)
+        self.assertIn(result.get("routing_reason"), {
+            "local_scan_secret_like_value",
+            "local_scan_restricted_data",
+            "local_scan_payment_data",
+        })
+        self.assertEqual(result.get("routing_status"), "hosted_skipped")
+        self.assertNotEqual(result.get("shortlist_policy"), SHORTLIST_POLICY_CHEAP_FAIL_OPEN)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -51,6 +51,8 @@ from .client import (
     _validate_deadline_seconds,
     hosted_error_detail as classify_hosted_error,
     host_cancel_scope,
+    operation_deadline_scope,
+    operation_remaining_deadline,
 )
 from .egress import (
     DEFAULT_CONSUMER_MODE,
@@ -1067,7 +1069,19 @@ class AutomaticSkillRecommender:
             # computer-use deadline and from the per-request provider I/O timeout.
             result["intervention_deadline_seconds"] = self.deadline_seconds
 
+            def _hosted_deadline_seconds() -> float:
+                # Prefer remaining outer budget so shortlist + expand share one
+                # end-to-end automatic deadline (never a fresh 20s on expand).
+                try:
+                    remaining = operation_remaining_deadline()
+                except (DeadlineExceeded, HostCancelled):
+                    raise
+                if remaining is not None and remaining > 0:
+                    return float(remaining)
+                return float(self.deadline_seconds)
+
             def _run_hosted(candidates_for_host: list[dict[str, str]]) -> Any:
+                deadline = _hosted_deadline_seconds()
                 if self.two_stage is not None and self.two_stage.enabled:
                     # Stage 1 sends names only. Local descriptions reach
                     # stage 2 only when hosted_detail opts in, and only
@@ -1082,17 +1096,17 @@ class AutomaticSkillRecommender:
                         ),
                         config=self.two_stage,
                         excerpt_loader=self.excerpt_loader,
-                        deadline_seconds=self.deadline_seconds,
+                        deadline_seconds=deadline,
                     )
                 return select_skill(
                     task=outbound_task,
                     candidates=candidates_for_host,
                     client=self._pooled_client(),
                     public_or_sanitized_data_ack=True,
-                    deadline_seconds=self.deadline_seconds,
+                    deadline_seconds=deadline,
                 )
 
-            def _invoke(candidates_for_host: list[dict[str, str]]) -> Any:
+            def _invoke(candidates_for_host: list[dict[str, str]], *, aggregate: bool = False) -> Any:
                 try:
                     with host_cancel_scope(self.cancel_check), _defer_hosted_warning():
                         return _run_hosted(candidates_for_host)
@@ -1104,9 +1118,11 @@ class AutomaticSkillRecommender:
                     result["hosted_error"] = _hosted_error_code(exc)
                     result["hosted_error_code"] = result["hosted_error"]
                     result["hosted_error_detail"] = classify_hosted_error(exc)
-                    _copy_redacted_jev_metadata(
-                        result, _partial_accounting_metadata(exc.partial)
-                    )
+                    meta = _partial_accounting_metadata(exc.partial)
+                    if aggregate:
+                        _aggregate_redacted_jev_metadata(result, meta)
+                    else:
+                        _copy_redacted_jev_metadata(result, meta)
                     _warn_hosted_failure(result["hosted_error_detail"])
                     return None
                 except Exception as exc:  # noqa: BLE001 -- automatic hook must fail open
@@ -1120,120 +1136,139 @@ class AutomaticSkillRecommender:
                     _warn_hosted_failure(result["hosted_error_detail"])
                     return None
 
-            hosted = _invoke(hosted_candidates)
-            receipt_policy = prefilter_policy
-            if isinstance(hosted, dict):
-                _copy_redacted_jev_metadata(result, hosted)
-
-            offered_names = {item["name"] for item in hosted_candidates}
-            shortlist_selected = (
-                isinstance(hosted, dict) and hosted.get("selected") in offered_names
-            )
-
-            # Opt-in cheap path: shortlist look that does not validate a winner
-            # (abstention / miss / transport failure) fail-opens to full catalog.
-            if (
-                cheap_shortlist_attempt
-                and not shortlist_selected
-                and len(full_hosted_candidates) > len(hosted_candidates)
-            ):
-                # Clear shortlist-only error so a successful expand is not
-                # stamped with the prior failure; expand still fail-opens.
-                for key_name in (
-                    "hosted_error",
-                    "hosted_error_code",
-                    "hosted_error_detail",
-                ):
-                    result.pop(key_name, None)
-                hosted_candidates = list(full_hosted_candidates)
+            # One shared outer deadline for shortlist + optional fail-open expand.
+            with operation_deadline_scope(self.deadline_seconds):
                 hosted = _invoke(hosted_candidates)
+                receipt_policy = prefilter_policy
                 if isinstance(hosted, dict):
                     _copy_redacted_jev_metadata(result, hosted)
+
                 offered_names = {item["name"] for item in hosted_candidates}
                 shortlist_selected = (
                     isinstance(hosted, dict) and hosted.get("selected") in offered_names
                 )
-                receipt_policy = SHORTLIST_POLICY_CHEAP_FAIL_OPEN
-            elif cheap_shortlist_attempt and shortlist_selected:
-                receipt_policy = SHORTLIST_POLICY_CHEAP_HOSTED
-            elif prefilter_policy == SHORTLIST_POLICY_PREFILTER:
-                receipt_policy = SHORTLIST_POLICY_PREFILTER
 
-            if receipt_policy in {
-                SHORTLIST_POLICY_CHEAP_HOSTED,
-                SHORTLIST_POLICY_CHEAP_FAIL_OPEN,
-            }:
-                offered = len(hosted_candidates)
-                excluded = max(0, len(candidate_set) - offered)
-                result["shortlist_policy"] = receipt_policy
-                result["jev_shortlist_policy"] = receipt_policy
-                result["offered_count"] = offered
-                result["excluded_count"] = excluded
-                result["jev_offered_count"] = offered
-                result["jev_excluded_count"] = excluded
-            elif prefilter_policy == SHORTLIST_POLICY_PREFILTER:
-                # Default (flag off) prefilter path — preserve historical policy name.
-                offered = len(hosted_candidates)
-                excluded = max(0, len(candidate_set) - offered)
-                result["shortlist_policy"] = SHORTLIST_POLICY_PREFILTER
-                result["jev_shortlist_policy"] = SHORTLIST_POLICY_PREFILTER
-                result["offered_count"] = offered
-                result["excluded_count"] = excluded
-                result["jev_offered_count"] = offered
-                result["jev_excluded_count"] = excluded
-            elif self.cheap_hosted_select and receipt_policy == SHORTLIST_POLICY_FULL_FAN_OUT:
-                # Flag on but shortlist was not decisive: record full path for
-                # prove-value without inventing a shortlist rewrite.
-                result["shortlist_policy"] = SHORTLIST_POLICY_FULL_FAN_OUT
-                result["jev_shortlist_policy"] = SHORTLIST_POLICY_FULL_FAN_OUT
+                # Opt-in cheap path: shortlist look that does not validate a winner
+                # (abstention / miss / transport failure) fail-opens to full catalog.
+                expand_blocked_by_scan = False
+                if (
+                    cheap_shortlist_attempt
+                    and not shortlist_selected
+                    and len(full_hosted_candidates) > len(hosted_candidates)
+                ):
+                    expand_scan = _hosted_payload_scan_reason(
+                        outbound_task, full_hosted_candidates
+                    )
+                    if expand_scan is not None:
+                        # Do not send newly added catalog names the shortlist
+                        # outbound scan never covered (restricted/contact/…).
+                        result["hosted_skipped"] = expand_scan
+                        result["routing_status"] = "hosted_skipped"
+                        result["routing_reason"] = expand_scan
+                        receipt_policy = SHORTLIST_POLICY_CHEAP_HOSTED
+                        expand_blocked_by_scan = True
+                    else:
+                        # Clear shortlist-only error so a successful expand is not
+                        # stamped with the prior failure; expand still fail-opens.
+                        for key_name in (
+                            "hosted_error",
+                            "hosted_error_code",
+                            "hosted_error_detail",
+                        ):
+                            result.pop(key_name, None)
+                        hosted_candidates = list(full_hosted_candidates)
+                        hosted = _invoke(hosted_candidates, aggregate=True)
+                        if isinstance(hosted, dict):
+                            _aggregate_redacted_jev_metadata(result, hosted)
+                        offered_names = {item["name"] for item in hosted_candidates}
+                        shortlist_selected = (
+                            isinstance(hosted, dict)
+                            and hosted.get("selected") in offered_names
+                        )
+                        receipt_policy = SHORTLIST_POLICY_CHEAP_FAIL_OPEN
+                elif cheap_shortlist_attempt and shortlist_selected:
+                    receipt_policy = SHORTLIST_POLICY_CHEAP_HOSTED
+                elif prefilter_policy == SHORTLIST_POLICY_PREFILTER:
+                    receipt_policy = SHORTLIST_POLICY_PREFILTER
 
-            if shortlist_selected:
-                result.update(
-                    {
-                        "status": "selected",
-                        "selected": hosted["selected"],
-                        "source": "jev",
-                        "abstention_reason": None,
-                        "routing_status": "hosted_selection",
-                        "routing_reason": "hosted_selection",
-                    }
-                )
-            elif hosted is None:
-                # Preserve the categorized failure code (deadline / cancel / late
-                # discard / transport). A local winner may still be kept.
-                error_code = result.get("hosted_error")
-                if error_code not in HOSTED_ERROR_CODES:
-                    error_code = "transport_or_execution_failure"
-                result["hosted_error"] = error_code
-                result["hosted_error_code"] = error_code
-                result["routing_status"] = (
-                    "hosted_failure_local_fallback" if local_selected else "hosted_failure"
-                )
-                if error_code in {
-                    "deadline_exceeded",
-                    "host_cancelled",
-                    "late_result_discarded",
+                if receipt_policy in {
+                    SHORTLIST_POLICY_CHEAP_HOSTED,
+                    SHORTLIST_POLICY_CHEAP_FAIL_OPEN,
                 }:
-                    result["routing_reason"] = error_code
+                    offered = len(hosted_candidates)
+                    excluded = max(0, len(candidate_set) - offered)
+                    result["shortlist_policy"] = receipt_policy
+                    result["jev_shortlist_policy"] = receipt_policy
+                    result["offered_count"] = offered
+                    result["excluded_count"] = excluded
+                    result["jev_offered_count"] = offered
+                    result["jev_excluded_count"] = excluded
+                elif prefilter_policy == SHORTLIST_POLICY_PREFILTER:
+                    # Default (flag off) prefilter path — preserve historical policy name.
+                    offered = len(hosted_candidates)
+                    excluded = max(0, len(candidate_set) - offered)
+                    result["shortlist_policy"] = SHORTLIST_POLICY_PREFILTER
+                    result["jev_shortlist_policy"] = SHORTLIST_POLICY_PREFILTER
+                    result["offered_count"] = offered
+                    result["excluded_count"] = excluded
+                    result["jev_offered_count"] = offered
+                    result["jev_excluded_count"] = excluded
+                elif self.cheap_hosted_select and receipt_policy == SHORTLIST_POLICY_FULL_FAN_OUT:
+                    # Flag on but shortlist was not decisive: record full path for
+                    # prove-value without inventing a shortlist rewrite.
+                    result["shortlist_policy"] = SHORTLIST_POLICY_FULL_FAN_OUT
+                    result["jev_shortlist_policy"] = SHORTLIST_POLICY_FULL_FAN_OUT
+
+                if expand_blocked_by_scan:
+                    # Keep scan-skip receipt; do not rewrite to abstention/failure.
+                    pass
+                elif shortlist_selected:
+                    result.update(
+                        {
+                            "status": "selected",
+                            "selected": hosted["selected"],
+                            "source": "jev",
+                            "abstention_reason": None,
+                            "routing_status": "hosted_selection",
+                            "routing_reason": "hosted_selection",
+                        }
+                    )
+                elif hosted is None:
+                    # Preserve the categorized failure code (deadline / cancel / late
+                    # discard / transport). A local winner may still be kept.
+                    error_code = result.get("hosted_error")
+                    if error_code not in HOSTED_ERROR_CODES:
+                        error_code = "transport_or_execution_failure"
+                    result["hosted_error"] = error_code
+                    result["hosted_error_code"] = error_code
+                    result["routing_status"] = (
+                        "hosted_failure_local_fallback" if local_selected else "hosted_failure"
+                    )
+                    if error_code in {
+                        "deadline_exceeded",
+                        "host_cancelled",
+                        "late_result_discarded",
+                    }:
+                        result["routing_reason"] = error_code
+                    else:
+                        result["routing_reason"] = "hosted_request_failed"
+                    if local_selected:
+                        result["status"] = "selected"
+                        result["source"] = "local"
+                        result["abstention_reason"] = None
                 else:
-                    result["routing_reason"] = "hosted_request_failed"
-                if local_selected:
-                    result["status"] = "selected"
-                    result["source"] = "local"
-                    result["abstention_reason"] = None
-            else:
-                # Any structurally valid hosted response without an offered
-                # selection is a deliberate hosted abstention.
-                result.update(
-                    {
-                        "status": "abstained",
-                        "selected": None,
-                        "source": "none",
-                        "abstention_reason": "hosted_abstention",
-                        "routing_status": "hosted_abstention",
-                        "routing_reason": "hosted_abstention",
-                    }
-                )
+                    # Any structurally valid hosted response without an offered
+                    # selection is a deliberate hosted abstention.
+                    result.update(
+                        {
+                            "status": "abstained",
+                            "selected": None,
+                            "source": "none",
+                            "abstention_reason": "hosted_abstention",
+                            "routing_status": "hosted_abstention",
+                            "routing_reason": "hosted_abstention",
+                        }
+                    )
 
         if result["selected"] is not None:
             result["status"] = "selected"
@@ -1260,6 +1295,58 @@ def _copy_redacted_jev_metadata(result: dict[str, Any], hosted: Mapping[str, Any
             bounded_usage = receipt_state.safe_usage(usage)
             if bounded_usage:
                 result[f"jev_{field}"] = bounded_usage
+
+
+def _aggregate_redacted_jev_metadata(result: dict[str, Any], hosted: Mapping[str, Any]) -> None:
+    """Merge a second hosted attempt into existing jev_* counters (fail-open expand).
+
+    Shortlist + expand both incur requests/latency/cost; receipts must sum them
+    rather than overwrite the shortlist attempt.
+    """
+    if "jev_request_count" not in result and "jev_total_latency_ms" not in result:
+        _copy_redacted_jev_metadata(result, hosted)
+        return
+    add_requests = hosted.get("request_count")
+    if isinstance(add_requests, int) and not isinstance(add_requests, bool) and add_requests > 0:
+        prior = result.get("jev_request_count")
+        prior_n = prior if isinstance(prior, int) and not isinstance(prior, bool) and prior > 0 else 0
+        result["jev_request_count"] = prior_n + add_requests
+    add_latency = hosted.get("total_latency_ms", hosted.get("latency_ms"))
+    if (
+        isinstance(add_latency, (int, float))
+        and not isinstance(add_latency, bool)
+        and math.isfinite(add_latency)
+        and add_latency >= 0
+    ):
+        prior = result.get("jev_total_latency_ms")
+        prior_n = (
+            float(prior)
+            if isinstance(prior, (int, float)) and not isinstance(prior, bool) and math.isfinite(prior)
+            else 0.0
+        )
+        result["jev_total_latency_ms"] = prior_n + float(add_latency)
+    latency = hosted.get("latency_ms")
+    if (
+        isinstance(latency, (int, float))
+        and not isinstance(latency, bool)
+        and math.isfinite(latency)
+        and latency >= 0
+    ):
+        result["jev_latency_ms"] = latency
+    for field in ("model", "request_id"):
+        value = hosted.get(field)
+        if isinstance(value, str) and 0 < len(value) <= 128 and value.isprintable():
+            result[f"jev_{field}"] = value
+    for field in ("usage", "total_usage"):
+        usage = hosted.get(field)
+        if not isinstance(usage, Mapping):
+            continue
+        key = f"jev_{field}"
+        bucket = result.get(key)
+        if not isinstance(bucket, dict):
+            bucket = {}
+            result[key] = bucket
+        receipt_state.merge_usage(bucket, usage)
 
 
 def _partial_accounting_metadata(partial: Any) -> dict[str, Any]:
