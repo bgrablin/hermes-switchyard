@@ -164,6 +164,7 @@ class CiContractTests(unittest.TestCase):
             "live-jev.yml": [expected_pin],
             "release-candidate.yml": [expected_pin, expected_pin],
             "switchyard-compatibility.yml": [expected_pin],
+            "upstream-head-compatibility.yml": [expected_pin],
         }
         actual = {}
         for path in sorted(workflows.iterdir()):
@@ -182,6 +183,24 @@ class CiContractTests(unittest.TestCase):
     def test_setup_uv_is_pinned_consistently_in_all_workflows(self):
         workflows = Path(__file__).resolve().parent.parent / ".github" / "workflows"
         self._assert_setup_uv_pins(workflows)
+
+    def test_upstream_head_report_runs_only_weekly_and_manually(self):
+        from ruamel.yaml import YAML
+
+        path = Path(__file__).resolve().parents[1] / ".github/workflows/upstream-head-compatibility.yml"
+        workflow = YAML(typ="safe", pure=True).load(path.read_text(encoding="utf-8"))
+        self.assertEqual(set(workflow["on"]), {"schedule", "workflow_dispatch"})
+        self.assertEqual(workflow["permissions"], {"contents": "read"})
+        self.assertEqual(set(workflow["jobs"]), {"upstream-head"})
+        job = workflow["jobs"]["upstream-head"]
+        self.assertEqual(job["runs-on"], "ubuntu-latest")
+        self.assertEqual(job["strategy"]["matrix"]["python-version"], ["3.11", "3.14"])
+        self.assertIs(job["continue-on-error"], True)
+        uses = [step["uses"] for step in job["steps"] if "uses" in step]
+        self.assertTrue(uses)
+        self.assertTrue(all(re.fullmatch(r"[\w-]+/[\w-]+@[0-9a-f]{40}", use) for use in uses))
+        self.assertTrue(any(use.startswith("actions/upload-artifact@") for use in uses))
+        self.assertNotIn("secrets.", path.read_text(encoding="utf-8"))
 
     def test_setup_uv_guard_covers_quoted_new_jobs_and_yaml_files(self):
         source = Path(__file__).resolve().parent.parent / ".github" / "workflows"

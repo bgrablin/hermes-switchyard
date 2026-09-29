@@ -15,7 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-import yaml
+from ruamel.yaml import YAML
 
 from scripts.build_release import (
     CHECKSUMS_NAME,
@@ -254,10 +254,12 @@ class WindowsInstalledArchiveTests(unittest.TestCase):
             run_gate(args, report)
 
         self.assertTrue(report["ok"])
-        settings = yaml.safe_load((home / "config.yaml").read_text(encoding="utf-8"))[
+        yaml = YAML(typ="safe", pure=True)
+        yaml.version = (1, 1)
+        settings = yaml.load((home / "config.yaml").read_text(encoding="utf-8"))[
             "plugins"
         ]["entries"]["hermes-switchyard"]["settings"]
-        manifest = yaml.safe_load(
+        manifest = yaml.load(
             (home / "plugins" / "hermes-switchyard" / "plugin.yaml").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["config_schema"]["automatic_skill_routing_mode"]["type"], "str")

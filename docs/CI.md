@@ -1,6 +1,6 @@
 # CI and release verification
 
-This repository has three separate CI boundaries. Offline checks never call OpenRouter. Native compatibility uses the pinned Hermes checkout and the real loader. Live Jev checks are manual, source-allowlisted, and require a protected GitHub environment. A separate report-only workflow, `Upstream pin drift`, watches the pinned upstream commit and never gates a change.
+This repository has three separate CI boundaries. Offline checks never call OpenRouter. Native compatibility uses the pinned Hermes checkout and the real loader. Live Jev checks are manual, source-allowlisted, and require a protected GitHub environment. Two report-only workflows watch upstream compatibility and pin drift; neither gates a change.
 
 ## Offline compatibility
 
@@ -14,11 +14,13 @@ This repository has three separate CI boundaries. Offline checks never call Open
 
 Superseded runs for the same pull request or branch are cancelled. Maintainers can still use `workflow_dispatch` for an explicit full-matrix rerun on any branch.
 
+`Upstream HEAD compatibility` runs weekly (Monday 06:47 UTC) and on manual dispatch, never on a pull request. It fetches the public Hermes default-branch HEAD, records its exact SHA, and runs the native loader, seven-handler dispatch, hygiene checks, unit suite, and evaluation validation in separate Ubuntu/Python 3.11 and 3.14 jobs. Each job uploads per-step logs and receipts and writes the upstream SHA, exit codes, and unit-test count to its summary. Both cells have `continue-on-error`; a failure is a report to investigate, not permission to move the pin or weaken the required Ubuntu/Python 3.11 check. The current upstream's Python range and working dependency set can differ from the pinned checkout, so read the setup and gate results separately.
+
 Each matrix job:
 
 1. Fetches Hermes Agent at `8503ee4459316ce092b5d69b7d396c27aa03d0be` into the runner's temporary directory outside the candidate workspace.
 2. Creates a venv outside the Hermes checkout with `uv venv`.
-3. Installs the pinned checkout with the upstream contributor setup, `uv pip install -e ".[all,dev]"`.
+3. Installs the pinned checkout with the upstream contributor setup, `uv pip install -e ".[all,dev,anthropic]"`.
 4. Runs `hermes plugins validate --json` and `hermes plugins doctor --ci` against this candidate.
 5. Runs `scripts/ci/check_native_hermes.py`, which uses Hermes' real manifest parser, directory loader, registration path, registry entries, and tool schemas. This proves every declared tool is registered with a well-formed schema; it does not call a handler.
 6. Runs `scripts/ci/check_native_tool_invocation.py`, which loads the same real registry entries and calls all seven registered handlers (`jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_assess`, `jev_model_route_approved`, `jev_session_search_rerank`, and `jev_computer_use`). Jev decisions use a synthetic HTTPS transport; computer-use actions use an in-memory synthetic native dispatcher that rejects every unexpected target instead of forwarding it to the host. No live network call, GUI action, credential, or cost; it exercises the real handler closures and validates meaningful terminal outcomes. A synthetic fixture does not prove live Jev or desktop behavior; those remain separate manual contracts.
@@ -33,7 +35,7 @@ SWITCHYARD_ROOT="$(pwd)"
 HERMES_SOURCE_ROOT="/path/to/hermes-agent"
 HERMES_VENV="$(mktemp -d)/hermes-switchyard-ci-venv"
 uv venv "$HERMES_VENV" --python 3.11
-uv pip install --python "$HERMES_VENV/bin/python" -e "$HERMES_SOURCE_ROOT[all,dev]"
+uv pip install --python "$HERMES_VENV/bin/python" -e "$HERMES_SOURCE_ROOT[all,dev,anthropic]"
 HERMES_HOME="$(mktemp -d)" "$HERMES_VENV/bin/hermes" plugins validate --json "$SWITCHYARD_ROOT"
 HERMES_HOME="$(mktemp -d)" "$HERMES_VENV/bin/hermes" plugins doctor --ci "$SWITCHYARD_ROOT"
 REPORT="$(mktemp)"
