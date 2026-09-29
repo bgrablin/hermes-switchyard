@@ -77,7 +77,7 @@ def _valid_effort_record(record: dict[str, Any]) -> bool:
 def build_report(*, days: int = 7, data_dir: Path | None = None, plugin_registered: bool = False,
                  now: datetime | None = None) -> dict[str, Any]:
     """Build a local report without changing receipt files or consulting a provider."""
-    moment = now or datetime.now(timezone.utc)
+    moment = (now or datetime.now(timezone.utc)).replace(microsecond=0)
     routing = receipt_history.history_path(data_dir)
     effort = effort_history_path(data_dir)
     window = timedelta(days=days)
@@ -134,7 +134,7 @@ def build_report(*, days: int = 7, data_dir: Path | None = None, plugin_register
     return {
         "schema_version": SCHEMA_VERSION,
         "plugin_state": "registered_here" if plugin_registered else "not_registered_here",
-        "window": {"days": days, "from": receipt_history.format_timestamp(moment - window),
+        "window": {"days": days, "from": receipt_history.format_timestamp(cutoff),
                    "to": receipt_history.format_timestamp(moment)},
         "coverage": COVERAGE,
         "sources": {"routing": {"state": routing_status}, "effort": {"state": effort_status}},
