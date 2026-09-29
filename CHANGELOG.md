@@ -7,6 +7,8 @@ Working draft for the next release. No version bump, tag, or catalog pin until t
 There is no fixed feature-count gate for 0.6.0: land work that earns its keep, and keep **Not included** honest when candidates fail.
 
 ### Added
+
+- Synthetic routing-value fixtures for paired plugin-off comparisons: deterministic 25-, 150-, and 600-skill catalogs, hidden-fact answer checks, and offline validation (refs #130). No comparative result has been measured.
 - [#167](https://github.com/bgrablin/hermes-switchyard/issues/167): Local-only offline outcome-label generator over retained routing receipts. Four evidence-censored boolean/unknown fields, explicit per-field coverage, and a stable 20% hash split for already-retained data; no runtime holdout, routing change, or benefit claim. See [the frozen evaluation and limits](docs/OUTCOME-LABELS.md).
 - [#147](https://github.com/bgrablin/hermes-switchyard/pull/147): Phase 1 reasoning visibility UX. Receipt modes are `always` | `auto` | `off` (default **`auto`**; setting `adaptive_reasoning_effort_receipt_mode`). Legacy aliases `work` / `on` / interim `changes` map to `auto`. User-facing receipts use plain language (for example `Reasoning: high→low · 180 ms`). Status leads with `Cap … · last sent … · why: …`; raw reason codes stay in `--json` / history. Summary labels say `cloud decisions` / `local decisions` instead of `Jev calls`.
 
