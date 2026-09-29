@@ -9,7 +9,7 @@ from typing import Any
 SCHEMA = "switchyard.lint_skills.v1"
 _STOPWORDS = frozenset("a an and for in of on or the to use when with".split())
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9:_-]{0,127}\Z")
-_TRIGGER = re.compile(r"Use when\b", re.IGNORECASE)
+_TRIGGER = re.compile(r"Use when\b", re.IGNORECASE | re.ASCII)
 MAX_SKILLS = 1024
 MAX_DESCRIPTION_CHARS = 4096
 MAX_TOKENS = 128
@@ -33,7 +33,12 @@ def lint_catalog(rows: Any) -> dict[str, Any]:
         raise CatalogError("catalog_too_large")
     candidates: list[tuple[str, frozenset[str]]] = []
     findings: dict[str, dict[str, Any]] = {}
-    seen: set[str] = set()
+    name_counts: dict[str, int] = {}
+    for row in rows:
+        if isinstance(row, Mapping):
+            name = row.get("name")
+            if type(name) is str and _NAME.fullmatch(name) is not None:
+                name_counts[name] = name_counts.get(name, 0) + 1
     invalid = 0
     for row in rows:
         if not isinstance(row, Mapping):
@@ -41,7 +46,7 @@ def lint_catalog(rows: Any) -> dict[str, Any]:
             continue
         name, description = row.get("name"), row.get("description")
         if (
-            type(name) is not str or _NAME.fullmatch(name) is None or name in seen
+            type(name) is not str or _NAME.fullmatch(name) is None or name_counts[name] > 1
             or type(description) is not str or len(description) > MAX_DESCRIPTION_CHARS
         ):
             invalid += 1
@@ -50,7 +55,6 @@ def lint_catalog(rows: Any) -> dict[str, Any]:
         if len(words) > MAX_TOKENS:
             invalid += 1
             continue
-        seen.add(name)
         candidates.append((name, words))
         issues = []
         if len(description) < 40:

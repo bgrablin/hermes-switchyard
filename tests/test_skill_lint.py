@@ -107,6 +107,38 @@ class SkillLintTests(unittest.TestCase):
             self.assertNotIn(canary, exported)
         self.assertNotIn("description", report)
 
+    def test_use_when_trigger_rejects_unicode_lookalikes(self):
+        description = "Uſe when checking synthetic entries before preparing a local report."
+        report = skill_lint.lint_catalog([{"name": "lookalike", "description": description}])
+        self.assertEqual(report["counts"]["missing_use_when"], 1)
+        self.assertEqual(report["findings"][0]["issues"], ["missing_use_when"])
+        mixed_case = skill_lint.lint_catalog([{
+            "name": "ascii", "description": "uSe WhEn checking synthetic entries before preparing a local report.",
+        }])
+        self.assertEqual(mixed_case["counts"]["missing_use_when"], 0)
+
+    def test_duplicate_names_are_all_invalid_regardless_of_input_order(self):
+        shared = "Use when checking synthetic library entries and validating revisions."
+        rows = [
+            {"name": "shared", "description": shared},
+            {"name": "shared", "description": "Use when planning public exhibits and cataloging star maps."},
+            {"name": "peer", "description": shared},
+        ]
+        forward = skill_lint.lint_catalog(rows)
+        backward = skill_lint.lint_catalog(list(reversed(rows)))
+        self.assertEqual(forward, backward)
+        self.assertEqual(forward["counts"]["skills"], 1)
+        self.assertEqual(forward["counts"]["invalid_rows"], 2)
+        self.assertEqual(forward["pairs"], [])
+        self.assertEqual(forward["clusters"], [])
+        self.assertEqual(forward["findings"], [])
+        malformed = skill_lint.lint_catalog([
+            rows[0], {"name": "shared", "description": {"content": "never export"}}, rows[2],
+        ])
+        self.assertEqual(malformed["counts"]["invalid_rows"], 2)
+        self.assertEqual(malformed["counts"]["skills"], 1)
+        self.assertNotIn("shared", json.dumps(malformed))
+
     def test_frozen_fixture_precision_recall_and_distinct_guard(self):
         fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
         report = skill_lint.lint_catalog(fixture["catalog"])
