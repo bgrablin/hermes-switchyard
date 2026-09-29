@@ -14,7 +14,10 @@ This repository has three separate CI boundaries. Offline checks never call Open
 
 Superseded runs for the same pull request or branch are cancelled. Maintainers can still use `workflow_dispatch` for an explicit full-matrix rerun on any branch.
 
-The `upstream-head` job in the same compatibility workflow runs only on the weekly schedule or manual dispatch, never on a pull request or push. It fetches the public Hermes default-branch HEAD, records its exact SHA, and runs the native loader, seven-handler dispatch, hygiene checks, unit suite, and evaluation validation in separate Ubuntu/Python 3.11 and 3.14 cells. Each cell uploads per-step logs and receipts and writes the upstream SHA, exit codes, and unit-test count to its summary. Both cells have `continue-on-error`; a failure is a report to investigate, not permission to move the pin or weaken the required Ubuntu/Python 3.11 check. Dispatch `Switchyard compatibility` on the candidate ref to inspect this job before merge. The current upstream's Python range and working dependency set can differ from the pinned checkout, so read the setup and gate results separately.
+The `upstream-head` job in the same compatibility workflow runs only on the weekly schedule or manual dispatch, never on a pull request or push. It fetches the public Hermes default-branch HEAD, records its exact SHA, and runs the native loader, seven-handler dispatch, hygiene checks, unit suite, and evaluation validation in one Ubuntu/Python 3.14 cell. The cell uploads per-step logs and receipts and writes the upstream SHA, exit codes, and unit-test count to its summary. It has `continue-on-error`; a failure is a report to investigate, not permission to move the pin or weaken the required Ubuntu/Python 3.11 check. Dispatch `Switchyard compatibility` on the candidate ref to inspect this job before merge.
+
+- Current upstream Hermes supports only Python 3.14; its broader `requires-python` range permits legacy upgrades, while core dependencies use `python_version >= '3.14'` markers.
+- The retained pin is the last upstream revision that installs on Python 3.11–3.13; the report-only job does not test current upstream on those interpreters.
 
 Each pinned compatibility matrix job:
 
