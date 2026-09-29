@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the Switchyard native compatibility contract against pinned Hermes."""
+"""Run the Switchyard native compatibility contract against an exact Hermes checkout."""
 from __future__ import annotations
 
 import argparse
@@ -11,7 +11,10 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-EXPECTED_HERMES_PYTHON = ">=3.11,<3.14"
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
+
+PINNED_HERMES_SHA = "8503ee4459316ce092b5d69b7d396c27aa03d0be"
+PINNED_HERMES_PYTHON = ">=3.11,<3.14"
 EXPECTED_PLUGIN = "hermes-switchyard"
 EXPECTED_MANIFEST_VERSION = 1
 EXPECTED_TOOLS = frozenset({
@@ -55,18 +58,25 @@ def _git_head(repository: Path) -> str:
     return head
 
 
-def _supported_python_range(upstream_root: Path) -> str:
+def _supported_python_range(upstream_root: Path, upstream_sha: str) -> tuple[str, bool]:
     pyproject = upstream_root / "pyproject.toml"
     try:
         data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
         value = str(data["project"]["requires-python"])
     except (OSError, KeyError, TypeError, tomllib.TOMLDecodeError) as exc:
-        raise NativeCompatibilityError("pinned Hermes pyproject could not be read") from exc
-    if value != EXPECTED_HERMES_PYTHON:
+        raise NativeCompatibilityError("Hermes pyproject could not be read") from exc
+    if upstream_sha == PINNED_HERMES_SHA and value != PINNED_HERMES_PYTHON:
         raise NativeCompatibilityError(
-            f"pinned Hermes requires-python changed from {EXPECTED_HERMES_PYTHON!r}"
+            f"pinned Hermes requires-python changed from {PINNED_HERMES_PYTHON!r}"
         )
-    return value
+    try:
+        declared = SpecifierSet(value)
+    except InvalidSpecifier as exc:
+        raise NativeCompatibilityError("Hermes requires-python is not a valid version range") from exc
+    # An exploratory interpreter can be outside the old pin's advertised range.
+    # Report that fact, but still exercise its real loader and registry.
+    version = ".".join(str(part) for part in sys.version_info[:2])
+    return value, version in declared
 
 
 def _schema_summary(name: str, schema: Any) -> dict[str, Any]:
@@ -110,31 +120,29 @@ def inspect_native_plugin(
     upstream_sha: str,
     source_sha: str | None = None,
 ) -> dict[str, Any]:
-    """Use the pinned Hermes parser, loader, registry, and real tool entries."""
+    """Use the requested Hermes parser, loader, registry, and real tool entries."""
     plugin_root = Path(plugin_root).resolve()
     upstream_root = Path(upstream_root).resolve()
     actual_upstream_sha = _git_head(upstream_root)
     if actual_upstream_sha != upstream_sha:
         raise NativeCompatibilityError("Hermes checkout is not the requested exact upstream commit")
-    python_range = _supported_python_range(upstream_root)
-    if not (3, 11) <= sys.version_info[:2] < (3, 14):
-        raise NativeCompatibilityError("native compatibility ran outside Hermes' supported Python range")
+    python_range, python_in_declared_range = _supported_python_range(upstream_root, actual_upstream_sha)
 
     try:
         from hermes_cli.plugin_dev import _doctor_runtime
         from hermes_cli.plugins_manifest import parse_manifest_file
         from tools.registry import registry
     except Exception as exc:
-        raise NativeCompatibilityError("pinned Hermes native compatibility modules are unavailable") from exc
+        raise NativeCompatibilityError("Hermes native compatibility modules are unavailable") from exc
 
     manifest_file = plugin_root / "plugin.yaml"
     if not manifest_file.is_file():
         raise NativeCompatibilityError("candidate plugin has no root plugin.yaml")
     parsed_manifest = parse_manifest_file(manifest_file, plugin_root, source="project", prefix="")
     if parsed_manifest is None:
-        raise NativeCompatibilityError("Hermes' pinned manifest parser rejected plugin.yaml")
+        raise NativeCompatibilityError("Hermes' manifest parser rejected plugin.yaml")
     if parsed_manifest.name != EXPECTED_PLUGIN or parsed_manifest.manifest_version != EXPECTED_MANIFEST_VERSION:
-        raise NativeCompatibilityError("Hermes' pinned manifest parser returned an unexpected plugin identity")
+        raise NativeCompatibilityError("Hermes' manifest parser returned an unexpected plugin identity")
 
     try:
         with _doctor_runtime(plugin_root) as host:
@@ -165,6 +173,7 @@ def inspect_native_plugin(
         "registered_tools": sorted(EXPECTED_TOOLS),
         "tool_schemas": schemas,
         "hermes_python": python_range,
+        "python_in_declared_range": python_in_declared_range,
         "hermes_version": importlib.metadata.version("hermes-agent"),
         "hermes_source_sha": actual_upstream_sha,
         "python": ".".join(str(part) for part in sys.version_info[:3]),

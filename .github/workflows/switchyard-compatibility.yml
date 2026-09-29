@@ -8,7 +8,8 @@ name: Switchyard compatibility
 # - The full 2 OS x 3 Python matrix runs after code lands on main, plus a weekly
 #   schedule and manual dispatch, to still catch real OS/version-specific drift without
 #   paying the 6x multiplier on every PR iteration. Weekly and manual runs add one
-#   non-required Ubuntu / Python 3.14 pre-qualification cell; it is outside the PR gate.
+#   non-required Ubuntu / Python 3.14 pre-qualification cell and a report-only
+#   upstream HEAD job; both are outside the PR gate.
 # - `compatibility` defines the step sequence exactly once. `plan` only decides how many
 #   matrix cells that one sequence expands into for the current event, so a future
 #   dependency/security/test-command change updates one lane, never two that can drift
@@ -227,6 +228,143 @@ jobs:
         with:
           name: switchyard-compatibility-${{ matrix.os }}-python-${{ matrix.python-version }}
           path: ${{ runner.temp }}/switchyard-receipts/
+          if-no-files-found: warn
+          include-hidden-files: false
+          retention-days: 14
+          compression-level: 9
+
+  upstream-head:
+    name: Upstream HEAD / Python ${{ matrix.python-version }} / report only
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.14']
+    steps:
+      - name: Check out candidate source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+
+      - name: Run isolated compatibility gates against exact upstream HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset OPENROUTER_API_KEY TYPESAFE_API_KEY GH_TOKEN GITHUB_TOKEN GITHUB_PAT PYTHONPATH PYTHONHOME VIRTUAL_ENV
+          export UV_NO_CONFIG=1
+          export UV_CACHE_DIR="$RUNNER_TEMP/upstream-head-uv-cache"
+          export PYTHONPYCACHEPREFIX="$RUNNER_TEMP/upstream-head-pycache"
+          export HERMES_HOME="$RUNNER_TEMP/upstream-head-hermes-home"
+          receipts="$RUNNER_TEMP/upstream-head-receipts"
+          hermes_root="$RUNNER_TEMP/hermes-agent"
+          hermes_venv="$RUNNER_TEMP/hermes-venv"
+          mkdir -p "$receipts" "$HERMES_HOME" "$hermes_root"
+          : > "$receipts/steps.tsv"
+          source_sha="$(git rev-parse --verify HEAD)"
+          test "$source_sha" = "$GITHUB_SHA"
+          printf '%s\n' "$source_sha" > "$receipts/switchyard-sha.txt"
+          last_rc=0
+          failures=0
+          run_gate() {
+            local label="$1"
+            shift
+            local rc=0
+            "$@" > "$receipts/$label.log" 2>&1 || rc=$?
+            printf '%s\t%s\n' "$label" "$rc" >> "$receipts/steps.tsv"
+            printf '%s: rc=%s\n' "$label" "$rc"
+            last_rc="$rc"
+            if [ "$rc" -ne 0 ]; then failures=1; fi
+          }
+          not_run() {
+            printf '%s\tnot-run\n' "$1" >> "$receipts/steps.tsv"
+          }
+          fetch_head() {
+            local sha
+            sha="$(git ls-remote https://github.com/NousResearch/hermes-agent.git HEAD | cut -f1)"
+            [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+            git -C "$hermes_root" init --quiet
+            git -C "$hermes_root" remote add origin https://github.com/NousResearch/hermes-agent.git
+            git -C "$hermes_root" fetch --no-tags --depth=1 origin "$sha"
+            git -C "$hermes_root" -c core.autocrlf=false checkout --quiet --detach "$sha"
+            test "$(git -C "$hermes_root" rev-parse --verify HEAD)" = "$sha"
+            printf '%s\n' "$sha" > "$receipts/upstream-sha.txt"
+          }
+          run_gate fetch fetch_head
+          if [ "$last_rc" -eq 0 ]; then
+            run_gate venv uv venv "$hermes_venv" --python "${{ matrix.python-version }}"
+          else
+            not_run venv
+          fi
+          if [ "$last_rc" -eq 0 ] && [ -x "$hermes_venv/bin/python" ]; then
+            hermes_python="$hermes_venv/bin/python"
+            export PATH="$hermes_venv/bin:$PATH"
+            run_gate install uv pip install --python "$hermes_python" -e "$hermes_root[all,dev,anthropic]"
+          else
+            not_run install
+            last_rc=1
+          fi
+          if [ "$last_rc" -eq 0 ]; then
+            run_gate validate hermes plugins validate --json "$GITHUB_WORKSPACE"
+            run_gate doctor hermes plugins doctor --ci "$GITHUB_WORKSPACE"
+            run_gate install_scan "$hermes_python" scripts/ci/check_install_scan.py --plugin-root "$GITHUB_WORKSPACE" --upstream-root "$hermes_root" --report "$receipts/install-scan.json"
+            run_gate native_registration "$hermes_python" scripts/ci/check_native_hermes.py --plugin-root "$GITHUB_WORKSPACE" --upstream-root "$hermes_root" --upstream-sha "$(cat "$receipts/upstream-sha.txt")" --source-sha "$source_sha" --report "$receipts/native-compatibility.json"
+            run_gate seven_handler_dispatch "$hermes_python" scripts/ci/check_native_tool_invocation.py --plugin-root "$GITHUB_WORKSPACE" --report "$receipts/native-tool-invocation.json"
+            run_gate ruff uvx --from ruff==0.11.13 ruff check .
+            run_gate compileall "$hermes_python" -m compileall -q hermes_switchyard evaluation tests scripts
+            run_gate portability "$hermes_python" scripts/check_portability.py
+            run_gate unit_suite "$hermes_python" -m unittest discover -s tests -v
+            run_gate eval_validate "$hermes_python" evaluation/evaluate.py --validate --output "$receipts/synthetic-results.json"
+          else
+            for gate in validate doctor install_scan native_registration seven_handler_dispatch ruff compileall portability unit_suite eval_validate; do
+              not_run "$gate"
+            done
+          fi
+          exit "$failures"
+
+      - name: Summarize upstream SHA and every gate result
+        if: always()
+        shell: bash
+        run: |
+          receipts="$RUNNER_TEMP/upstream-head-receipts"
+          {
+            echo '## Upstream HEAD compatibility (report only)'
+            echo '- Python: ${{ matrix.python-version }}'
+            echo "- Switchyard SHA: $(cat "$receipts/switchyard-sha.txt" 2>/dev/null || echo unavailable)"
+            echo "- Hermes SHA: $(cat "$receipts/upstream-sha.txt" 2>/dev/null || echo unavailable)"
+            echo '- No live Jev calls are made.'
+            echo '| Step | Exit code |'
+            echo '| --- | --- |'
+            if [ -s "$receipts/steps.tsv" ]; then
+              while IFS=$'\t' read -r gate code; do
+                echo "| $gate | $code |"
+              done < "$receipts/steps.tsv"
+            else
+              echo '| Setup | not-run |'
+            fi
+            if [ -f "$receipts/unit_suite.log" ]; then
+              python3 -c 'import pathlib,re,sys; text=pathlib.Path(sys.argv[1]).read_text(errors="replace"); counts=re.findall(r"^Ran [0-9]+ tests? in [^\n]+|^FAILED \([^\n]+\)|^OK(?: \([^\n]+\))?$",text,re.M); print("- Unit suite: " + "; ".join(counts or ["no completion line"]))' "$receipts/unit_suite.log"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload upstream HEAD compatibility receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: upstream-head-python-${{ matrix.python-version }}
+          path: ${{ runner.temp }}/upstream-head-receipts/
           if-no-files-found: warn
           include-hidden-files: false
           retention-days: 14

@@ -8,6 +8,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
+from scripts.ci import check_native_hermes
 from scripts.ci.live_jev_contract import LiveContractError, _usage_receipt
 from scripts.ci.validate_live_source import (
     TrustedSourceError,
@@ -163,7 +164,7 @@ class CiContractTests(unittest.TestCase):
         expected = {
             "live-jev.yml": [expected_pin],
             "release-candidate.yml": [expected_pin, expected_pin],
-            "switchyard-compatibility.yml": [expected_pin],
+            "switchyard-compatibility.yml": [expected_pin, expected_pin],
         }
         actual = {}
         for path in sorted(workflows.iterdir()):
@@ -182,6 +183,46 @@ class CiContractTests(unittest.TestCase):
     def test_setup_uv_is_pinned_consistently_in_all_workflows(self):
         workflows = Path(__file__).resolve().parent.parent / ".github" / "workflows"
         self._assert_setup_uv_pins(workflows)
+
+    def test_upstream_head_report_runs_only_weekly_and_manually(self):
+        from ruamel.yaml import YAML
+
+        path = Path(__file__).resolve().parents[1] / ".github/workflows/switchyard-compatibility.yml"
+        workflow = YAML(typ="safe", pure=True).load(path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            set(workflow["on"]),
+            {"push", "pull_request", "schedule", "workflow_dispatch"},
+        )
+        self.assertEqual(workflow["permissions"], {"contents": "read"})
+        self.assertEqual(set(workflow["jobs"]), {"plan", "compatibility", "upstream-head"})
+        job = workflow["jobs"]["upstream-head"]
+        self.assertEqual(
+            job["if"],
+            "${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}",
+        )
+        self.assertEqual(job["runs-on"], "ubuntu-latest")
+        self.assertEqual(job["strategy"]["matrix"]["python-version"], ["3.11", "3.14"])
+        self.assertIs(job["strategy"]["fail-fast"], False)
+        self.assertIs(job["continue-on-error"], True)
+        self.assertNotIn("needs", job)
+        uses = [step["uses"] for step in job["steps"] if "uses" in step]
+        self.assertTrue(uses)
+        self.assertTrue(all(re.fullmatch(r"[\w-]+/[\w-]+@[0-9a-f]{40}", use) for use in uses))
+        self.assertTrue(any(use.startswith("actions/upload-artifact@") for use in uses))
+        self.assertEqual(
+            [step["if"] for step in job["steps"] if "if" in step],
+            ["always()", "always()"],
+        )
+        gate = next(step for step in job["steps"] if step["name"].startswith("Run isolated"))
+        for check in (
+            "check_native_hermes.py",
+            "check_native_tool_invocation.py",
+            "-m unittest discover -s tests -v",
+            '"$receipts/steps.tsv"',
+        ):
+            self.assertIn(check, gate["run"])
+        self.assertIn("$GITHUB_STEP_SUMMARY", job["steps"][-2]["run"])
+        self.assertNotIn("secrets.", path.read_text(encoding="utf-8"))
 
     def test_setup_uv_guard_covers_quoted_new_jobs_and_yaml_files(self):
         source = Path(__file__).resolve().parent.parent / ".github" / "workflows"
@@ -252,9 +293,9 @@ class CiContractTests(unittest.TestCase):
         job_names = re.findall(r"(?m)^  ([a-zA-Z0-9_-]+):\n", jobs_section)
         self.assertEqual(
             job_names,
-            ["plan", "compatibility"],
-            "expected exactly two jobs (plan, compatibility); a new job "
-            "means the single-source-of-truth step sequence was split",
+            ["plan", "compatibility", "upstream-head"],
+            "the pinned compatibility sequence must remain one job; the "
+            "upstream report is a separate non-gating job",
         )
 
     def test_release_candidate_windows_job_consumes_the_ubuntu_artifact(self):
@@ -316,6 +357,25 @@ class CiContractTests(unittest.TestCase):
         pins = self._workflow_pins()
         unique = sorted(set(pins.values()))
         self.assertEqual(len(unique), 1, f"pinned workflows disagree: {pins}")
+
+    def test_native_checker_pin_and_range_match_the_pinned_contract(self):
+        pin = self._workflow_pins()[self.PINNED_WORKFLOWS[0]]
+        self.assertEqual(
+            check_native_hermes.PINNED_HERMES_SHA,
+            pin,
+            "the native checker must recognize the workflow pin to enforce requires-python",
+        )
+        ci_docs = (Path(__file__).resolve().parents[1] / "docs/CI.md").read_text(
+            encoding="utf-8"
+        )
+        documented_range = re.search(r"pinned Hermes range `([^`]+)`", ci_docs)
+        if documented_range is None:
+            self.fail("docs/CI.md must state the pinned Hermes Python range")
+        self.assertEqual(
+            check_native_hermes.PINNED_HERMES_PYTHON,
+            documented_range.group(1),
+            "the native checker's requires-python range must match the documented pin",
+        )
 
     def test_documented_hermes_upstream_references_match_the_pin(self):
         """Documented references must name the pinned commit and nothing else."""
