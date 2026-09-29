@@ -993,7 +993,11 @@ def _cli_handler(args):
         try:
             report = discover_report()
         except Exception as exc:  # noqa: BLE001 -- registry/provider text must not reach output
-            reason = str(exc) if isinstance(exc, CatalogError) else "catalog_unavailable"
+            reason = "catalog_unavailable"
+            if isinstance(exc, CatalogError) and str(exc) in {
+                "invalid_catalog", "catalog_too_large", "catalog_too_confusable",
+            }:
+                reason = str(exc)
             failure = {"schema": SCHEMA, "status": "unavailable", "reason": reason}
             if getattr(args, "json_output", False):
                 print(json.dumps(failure, sort_keys=True))

@@ -161,6 +161,19 @@ class SkillLintTests(unittest.TestCase):
         self.assertEqual(json.loads(buffer.getvalue())["reason"], "catalog_unavailable")
         self.assertNotIn(marker, buffer.getvalue())
 
+    def test_catalog_error_from_registry_cannot_inject_a_reason(self):
+        marker = "REGISTRY_REASON_CANARY_NOT_FOR_EXPORT"
+        parser = argparse.ArgumentParser()
+        plugin._setup_cli(parser)
+        args = parser.parse_args(["lint-skills", "--json"])
+        output = io.StringIO()
+        with mock.patch.object(skill_lint, "discover_report", side_effect=skill_lint.CatalogError(marker)):
+            with contextlib.redirect_stdout(output):
+                code = args.func(args)
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(output.getvalue())["reason"], "catalog_unavailable")
+        self.assertNotIn(marker, output.getvalue())
+
     def test_lint_path_reads_only_registry_names_and_descriptions_offline(self):
         class RestrictedRow(dict):
             def get(self, key, default=None):
