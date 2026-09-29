@@ -163,8 +163,7 @@ class CiContractTests(unittest.TestCase):
         expected = {
             "live-jev.yml": [expected_pin],
             "release-candidate.yml": [expected_pin, expected_pin],
-            "switchyard-compatibility.yml": [expected_pin],
-            "upstream-head-compatibility.yml": [expected_pin],
+            "switchyard-compatibility.yml": [expected_pin, expected_pin],
         }
         actual = {}
         for path in sorted(workflows.iterdir()):
@@ -187,19 +186,41 @@ class CiContractTests(unittest.TestCase):
     def test_upstream_head_report_runs_only_weekly_and_manually(self):
         from ruamel.yaml import YAML
 
-        path = Path(__file__).resolve().parents[1] / ".github/workflows/upstream-head-compatibility.yml"
+        path = Path(__file__).resolve().parents[1] / ".github/workflows/switchyard-compatibility.yml"
         workflow = YAML(typ="safe", pure=True).load(path.read_text(encoding="utf-8"))
-        self.assertEqual(set(workflow["on"]), {"schedule", "workflow_dispatch"})
+        self.assertEqual(
+            set(workflow["on"]),
+            {"push", "pull_request", "schedule", "workflow_dispatch"},
+        )
         self.assertEqual(workflow["permissions"], {"contents": "read"})
-        self.assertEqual(set(workflow["jobs"]), {"upstream-head"})
+        self.assertEqual(set(workflow["jobs"]), {"plan", "compatibility", "upstream-head"})
         job = workflow["jobs"]["upstream-head"]
+        self.assertEqual(
+            job["if"],
+            "${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}",
+        )
         self.assertEqual(job["runs-on"], "ubuntu-latest")
         self.assertEqual(job["strategy"]["matrix"]["python-version"], ["3.11", "3.14"])
+        self.assertIs(job["strategy"]["fail-fast"], False)
         self.assertIs(job["continue-on-error"], True)
+        self.assertNotIn("needs", job)
         uses = [step["uses"] for step in job["steps"] if "uses" in step]
         self.assertTrue(uses)
         self.assertTrue(all(re.fullmatch(r"[\w-]+/[\w-]+@[0-9a-f]{40}", use) for use in uses))
         self.assertTrue(any(use.startswith("actions/upload-artifact@") for use in uses))
+        self.assertEqual(
+            [step["if"] for step in job["steps"] if "if" in step],
+            ["always()", "always()"],
+        )
+        gate = next(step for step in job["steps"] if step["name"].startswith("Run isolated"))
+        for check in (
+            "check_native_hermes.py",
+            "check_native_tool_invocation.py",
+            "-m unittest discover -s tests -v",
+            '"$receipts/steps.tsv"',
+        ):
+            self.assertIn(check, gate["run"])
+        self.assertIn("$GITHUB_STEP_SUMMARY", job["steps"][-2]["run"])
         self.assertNotIn("secrets.", path.read_text(encoding="utf-8"))
 
     def test_setup_uv_guard_covers_quoted_new_jobs_and_yaml_files(self):
@@ -271,9 +292,9 @@ class CiContractTests(unittest.TestCase):
         job_names = re.findall(r"(?m)^  ([a-zA-Z0-9_-]+):\n", jobs_section)
         self.assertEqual(
             job_names,
-            ["plan", "compatibility"],
-            "expected exactly two jobs (plan, compatibility); a new job "
-            "means the single-source-of-truth step sequence was split",
+            ["plan", "compatibility", "upstream-head"],
+            "the pinned compatibility sequence must remain one job; the "
+            "upstream report is a separate non-gating job",
         )
 
     def test_release_candidate_windows_job_consumes_the_ubuntu_artifact(self):
