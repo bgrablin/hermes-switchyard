@@ -295,29 +295,42 @@ class WowCommandTests(unittest.TestCase):
                 self.assertEqual(report["sources"]["effort"]["state"], "partial")
                 self.assertEqual(report["metrics"]["jev_calls"]["status"], "partial")
 
-    def test_displayed_lower_bound_includes_second_precision_receipts(self):
+    def test_displayed_bounds_include_second_precision_receipts(self):
         clock = datetime(2026, 9, 29, 17, 0, 0, 987654, tzinfo=timezone.utc)
-        lower = clock.replace(microsecond=0) - timedelta(days=7)
-        receipt = build_routing_receipt({"selected": "boundary-skill", "source": "local"})
-        for turn, stamp in (("before", lower - timedelta(seconds=1)), ("at-bound", lower)):
+        upper = clock.replace(microsecond=0)
+        lower = upper - timedelta(days=7)
+        for turn, stamp, result in (
+            ("before", lower - timedelta(seconds=1), {
+                "hosted_attempted": True, "hosted_error": "transport_or_execution_failure",
+            }),
+            ("at-lower", lower, {"bypass_reason": "light_no_skill"}),
+            ("at-upper", upper, {"selected": "boundary-skill", "source": "local"}),
+        ):
+            receipt = build_routing_receipt(result)
+            if turn == "at-upper":
+                receipt.update(consumer_status="loaded", loaded_skill="boundary-skill",
+                               loaded_source="local", skill_load_verified=True)
             self.assertTrue(receipt_history.append_receipt_history(
                 receipt, session_id="s1", turn_id=turn, now=stamp, data_dir=self.data))
             self.assertTrue(append_effort_record({
                 "session_id": "s1", "turn_id": turn, "mode": "auto",
-                "cap": "high", "effort": "low", "jev_called": False,
+                "cap": "high", "effort": "high" if turn == "before" else "low",
+                "jev_called": False,
             }, now=stamp, data_dir=self.data))
         self.assertEqual(receipt_history.read_history(data_dir=self.data)[1]["recorded_at"],
                          "2026-09-22T17:00:00Z")
+        self.assertEqual(receipt_history.read_history(data_dir=self.data)[2]["recorded_at"],
+                         "2026-09-29T17:00:00Z")
         report = wow.build_report(data_dir=self.data, now=clock)
         self.assertEqual(report["window"], {"days": 7, "from": "2026-09-22T17:00:00Z",
                                             "to": "2026-09-29T17:00:00Z"})
         self.assertEqual(report["sources"], {"routing": {"state": "available"},
                                              "effort": {"state": "available"}})
         self.assert_metric_pairs(report, {
-            "observed_turns": (1, 1), "skills_selected": (1, 1), "skills_loaded": (0, 1),
-            "below_cap_turns": (1, 1), "light_turn_bypasses": (0, 1),
-            "jev_calls": (0, 2), "median_latency_ms": (None, 0),
-            "hosted_failures": (0, 1), "hosted_abstentions": (0, 1),
+            "observed_turns": (2, 2), "skills_selected": (1, 2), "skills_loaded": (1, 2),
+            "below_cap_turns": (2, 2), "light_turn_bypasses": (1, 2),
+            "jev_calls": (0, 4), "median_latency_ms": (None, 0),
+            "hosted_failures": (0, 2), "hosted_abstentions": (0, 2),
         })
 
     def test_rotated_history_counts_only_the_current_retained_file(self):
