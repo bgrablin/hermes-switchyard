@@ -9,6 +9,7 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 ### Added
 
 - [#152](https://github.com/bgrablin/hermes-switchyard/issues/152): `hermes switchyard wow` and `/switchyard wow` show read-only, offline aggregates from retained routing and effort receipts. The default is 7 days; `--days N` and versioned `--json` are available. Every metric shows its observed denominator and window. Partial or unavailable sources remain explicit; the report makes no savings, outcome, or complete-coverage claim.
+- Synthetic routing-value fixtures for paired plugin-off comparisons: deterministic 25-, 150-, and 600-skill catalogs, hidden-fact answer checks, and offline validation (refs #130). No comparative result has been measured.
 - [#147](https://github.com/bgrablin/hermes-switchyard/pull/147): Phase 1 reasoning visibility UX. Receipt modes are `always` | `auto` | `off` (default **`auto`**; setting `adaptive_reasoning_effort_receipt_mode`). Legacy aliases `work` / `on` / interim `changes` map to `auto`. User-facing receipts use plain language (for example `Reasoning: high→low · 180 ms`). Status leads with `Cap … · last sent … · why: …`; raw reason codes stay in `--json` / history. Summary labels say `cloud decisions` / `local decisions` instead of `Jev calls`.
 
 ### Changed

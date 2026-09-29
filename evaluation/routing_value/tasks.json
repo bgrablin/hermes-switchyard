@@ -1,0 +1,2114 @@
+[
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-001",
+    "category": "hidden_fact",
+    "prompt": "For the fictional seed swap inventory workshop, give the invented label for scenario 1. Reply with the label only.",
+    "expected_skill": "seed-swap-inventory",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-6ceb3add85102adc"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-002",
+    "category": "hidden_fact",
+    "prompt": "For the fictional reading circle seating workshop, give the invented label for scenario 2. Reply with the label only.",
+    "expected_skill": "reading-circle-seating",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-c8d611ab45f868ea"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-003",
+    "category": "hidden_fact",
+    "prompt": "For the fictional picnic menu cards workshop, give the invented label for scenario 3. Reply with the label only.",
+    "expected_skill": "picnic-menu-cards",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-a902b8dabda4fb60"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-004",
+    "category": "hidden_fact",
+    "prompt": "For the fictional mural workshop layout workshop, give the invented label for scenario 4. Reply with the label only.",
+    "expected_skill": "mural-workshop-layout",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-70ada6b4cc37aad3"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-005",
+    "category": "hidden_fact",
+    "prompt": "For the fictional choir practice order workshop, give the invented label for scenario 5. Reply with the label only.",
+    "expected_skill": "choir-practice-order",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-757903e1a5b1d8ef"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-006",
+    "category": "hidden_fact",
+    "prompt": "For the fictional field trip stations workshop, give the invented label for scenario 6. Reply with the label only.",
+    "expected_skill": "field-trip-stations",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-5bbd9a94059da57b"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-007",
+    "category": "hidden_fact",
+    "prompt": "For the fictional board game pairings workshop, give the invented label for scenario 7. Reply with the label only.",
+    "expected_skill": "board-game-pairings",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-94c681373d717e3c"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-008",
+    "category": "hidden_fact",
+    "prompt": "For the fictional story circle prompts workshop, give the invented label for scenario 8. Reply with the label only.",
+    "expected_skill": "story-circle-prompts",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-38cf6a0f56a0f537"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-009",
+    "category": "hidden_fact",
+    "prompt": "For the fictional paper folding lesson workshop, give the invented label for scenario 9. Reply with the label only.",
+    "expected_skill": "paper-folding-lesson",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-56f367cdf9f30384"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-010",
+    "category": "hidden_fact",
+    "prompt": "For the fictional family ride stops workshop, give the invented label for scenario 10. Reply with the label only.",
+    "expected_skill": "family-ride-stops",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-f19479b2a886a720"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-011",
+    "category": "hidden_fact",
+    "prompt": "For the fictional nature walk notes workshop, give the invented label for scenario 11. Reply with the label only.",
+    "expected_skill": "nature-walk-notes",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-e23d63aa87625223"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-012",
+    "category": "hidden_fact",
+    "prompt": "For the fictional photo walk themes workshop, give the invented label for scenario 12. Reply with the label only.",
+    "expected_skill": "photo-walk-themes",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-b80866bcab96323b"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-013",
+    "category": "hidden_fact",
+    "prompt": "For the fictional shared chores rota workshop, give the invented label for scenario 13. Reply with the label only.",
+    "expected_skill": "shared-chores-rota",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-8ef01cdf1b015d7e"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-014",
+    "category": "hidden_fact",
+    "prompt": "For the fictional block party seating workshop, give the invented label for scenario 14. Reply with the label only.",
+    "expected_skill": "block-party-seating",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-f370e247aef2691a"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-015",
+    "category": "hidden_fact",
+    "prompt": "For the fictional stretch class sequence workshop, give the invented label for scenario 15. Reply with the label only.",
+    "expected_skill": "stretch-class-sequence",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-fca0118ca742a22a"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-016",
+    "category": "hidden_fact",
+    "prompt": "For the fictional day trip packing workshop, give the invented label for scenario 16. Reply with the label only.",
+    "expected_skill": "day-trip-packing",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-d23952a9359da810"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-017",
+    "category": "hidden_fact",
+    "prompt": "For the fictional fabric scrap sorting workshop, give the invented label for scenario 17. Reply with the label only.",
+    "expected_skill": "fabric-scrap-sorting",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-0561626d5be6b03e"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-018",
+    "category": "hidden_fact",
+    "prompt": "For the fictional seed swap inventory workshop, give the invented label for scenario 18. Reply with the label only.",
+    "expected_skill": "seed-swap-inventory",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-07119a906a048309"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-019",
+    "category": "hidden_fact",
+    "prompt": "For the fictional reading circle seating workshop, give the invented label for scenario 19. Reply with the label only.",
+    "expected_skill": "reading-circle-seating",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-c0aec7b4f4c63dae"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-020",
+    "category": "hidden_fact",
+    "prompt": "For the fictional picnic menu cards workshop, give the invented label for scenario 20. Reply with the label only.",
+    "expected_skill": "picnic-menu-cards",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-256cf2b55efa5318"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-021",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 1 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 1 is blue.",
+      "forbid_terms": [
+        "qx-6ceb3add85102adc"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-022",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 2 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 2 is blue.",
+      "forbid_terms": [
+        "qx-c8d611ab45f868ea"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-023",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 3 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 3 is blue.",
+      "forbid_terms": [
+        "qx-a902b8dabda4fb60"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-024",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 4 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 4 is blue.",
+      "forbid_terms": [
+        "qx-70ada6b4cc37aad3"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-025",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 5 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 5 is blue.",
+      "forbid_terms": [
+        "qx-757903e1a5b1d8ef"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-026",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 6 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 6 is blue.",
+      "forbid_terms": [
+        "qx-5bbd9a94059da57b"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-027",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 7 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 7 is blue.",
+      "forbid_terms": [
+        "qx-94c681373d717e3c"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-028",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 8 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 8 is blue.",
+      "forbid_terms": [
+        "qx-38cf6a0f56a0f537"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-029",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for shaded rest stops? Reply with the label only.",
+    "expected_skill": "garden-walk-shade",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-a7985b23070fd333"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-030",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for visitor parking? Reply with the label only.",
+    "expected_skill": "garden-walk-parking",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-7fd23cbbd068beb8"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-031",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for direction signs? Reply with the label only.",
+    "expected_skill": "garden-walk-signage",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-6c98f8c2dd4057e9"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-032",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for rain plan? Reply with the label only.",
+    "expected_skill": "garden-walk-weather",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-7d15385a57225a92"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-033",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for step-free access? Reply with the label only.",
+    "expected_skill": "garden-walk-access",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-6014b54ab9c8828a"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-034",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for volunteer check-in? Reply with the label only.",
+    "expected_skill": "garden-walk-volunteers",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-ce4a244afac8aa28"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-035",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for water stations? Reply with the label only.",
+    "expected_skill": "garden-walk-refreshments",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-14ad8cc064bbf3b2"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-036",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for walk start times? Reply with the label only.",
+    "expected_skill": "garden-walk-timing",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-0bc9cc5ca9e08ddb"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-037",
+    "category": "multi_skill",
+    "prompt": "For the fictional workshop, give the invented coordination labels for seed swap inventory and paper folding lesson for coordination case 1, in that order. Reply with both labels only.",
+    "expected_skill": [
+      "seed-swap-inventory",
+      "paper-folding-lesson"
+    ],
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-c85468a18c2af2d4",
+        "qx-862b63a58c4f58d8"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-038",
+    "category": "multi_skill",
+    "prompt": "For the fictional workshop, give the invented coordination labels for reading circle seating and family ride stops for coordination case 2, in that order. Reply with both labels only.",
+    "expected_skill": [
+      "reading-circle-seating",
+      "family-ride-stops"
+    ],
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-a2eef70089b127af",
+        "qx-222bc598d8252f26"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-039",
+    "category": "multi_skill",
+    "prompt": "For the fictional workshop, give the invented coordination labels for picnic menu cards and nature walk notes for coordination case 3, in that order. Reply with both labels only.",
+    "expected_skill": [
+      "picnic-menu-cards",
+      "nature-walk-notes"
+    ],
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-82540474eba5af92",
+        "qx-b441d3a8ee4dfe0d"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-040",
+    "category": "multi_skill",
+    "prompt": "For the fictional workshop, give the invented coordination labels for mural workshop layout and photo walk themes for coordination case 4, in that order. Reply with both labels only.",
+    "expected_skill": [
+      "mural-workshop-layout",
+      "photo-walk-themes"
+    ],
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-9ec9e3ae212a9c1b",
+        "qx-4c1f9bb0dadca64e"
+      ]
+    },
+    "skills_dir": "catalogs/c25",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-001",
+    "category": "hidden_fact",
+    "prompt": "For the fictional seed swap inventory workshop, give the invented label for scenario 1. Reply with the label only.",
+    "expected_skill": "seed-swap-inventory",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-6ceb3add85102adc"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-002",
+    "category": "hidden_fact",
+    "prompt": "For the fictional reading circle seating workshop, give the invented label for scenario 2. Reply with the label only.",
+    "expected_skill": "reading-circle-seating",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-c8d611ab45f868ea"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-003",
+    "category": "hidden_fact",
+    "prompt": "For the fictional picnic menu cards workshop, give the invented label for scenario 3. Reply with the label only.",
+    "expected_skill": "picnic-menu-cards",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-a902b8dabda4fb60"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-004",
+    "category": "hidden_fact",
+    "prompt": "For the fictional mural workshop layout workshop, give the invented label for scenario 4. Reply with the label only.",
+    "expected_skill": "mural-workshop-layout",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-70ada6b4cc37aad3"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-005",
+    "category": "hidden_fact",
+    "prompt": "For the fictional choir practice order workshop, give the invented label for scenario 5. Reply with the label only.",
+    "expected_skill": "choir-practice-order",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-757903e1a5b1d8ef"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-006",
+    "category": "hidden_fact",
+    "prompt": "For the fictional field trip stations workshop, give the invented label for scenario 6. Reply with the label only.",
+    "expected_skill": "field-trip-stations",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-5bbd9a94059da57b"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-007",
+    "category": "hidden_fact",
+    "prompt": "For the fictional board game pairings workshop, give the invented label for scenario 7. Reply with the label only.",
+    "expected_skill": "board-game-pairings",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-94c681373d717e3c"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-008",
+    "category": "hidden_fact",
+    "prompt": "For the fictional story circle prompts workshop, give the invented label for scenario 8. Reply with the label only.",
+    "expected_skill": "story-circle-prompts",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-38cf6a0f56a0f537"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-009",
+    "category": "hidden_fact",
+    "prompt": "For the fictional paper folding lesson workshop, give the invented label for scenario 9. Reply with the label only.",
+    "expected_skill": "paper-folding-lesson",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-56f367cdf9f30384"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-010",
+    "category": "hidden_fact",
+    "prompt": "For the fictional family ride stops workshop, give the invented label for scenario 10. Reply with the label only.",
+    "expected_skill": "family-ride-stops",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-f19479b2a886a720"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-011",
+    "category": "hidden_fact",
+    "prompt": "For the fictional nature walk notes workshop, give the invented label for scenario 11. Reply with the label only.",
+    "expected_skill": "nature-walk-notes",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-e23d63aa87625223"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-012",
+    "category": "hidden_fact",
+    "prompt": "For the fictional photo walk themes workshop, give the invented label for scenario 12. Reply with the label only.",
+    "expected_skill": "photo-walk-themes",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-b80866bcab96323b"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-013",
+    "category": "hidden_fact",
+    "prompt": "For the fictional shared chores rota workshop, give the invented label for scenario 13. Reply with the label only.",
+    "expected_skill": "shared-chores-rota",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-8ef01cdf1b015d7e"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-014",
+    "category": "hidden_fact",
+    "prompt": "For the fictional block party seating workshop, give the invented label for scenario 14. Reply with the label only.",
+    "expected_skill": "block-party-seating",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-f370e247aef2691a"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-015",
+    "category": "hidden_fact",
+    "prompt": "For the fictional stretch class sequence workshop, give the invented label for scenario 15. Reply with the label only.",
+    "expected_skill": "stretch-class-sequence",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-fca0118ca742a22a"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-016",
+    "category": "hidden_fact",
+    "prompt": "For the fictional day trip packing workshop, give the invented label for scenario 16. Reply with the label only.",
+    "expected_skill": "day-trip-packing",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-d23952a9359da810"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-017",
+    "category": "hidden_fact",
+    "prompt": "For the fictional fabric scrap sorting workshop, give the invented label for scenario 17. Reply with the label only.",
+    "expected_skill": "fabric-scrap-sorting",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-0561626d5be6b03e"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-018",
+    "category": "hidden_fact",
+    "prompt": "For the fictional seed swap inventory workshop, give the invented label for scenario 18. Reply with the label only.",
+    "expected_skill": "seed-swap-inventory",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-07119a906a048309"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-019",
+    "category": "hidden_fact",
+    "prompt": "For the fictional reading circle seating workshop, give the invented label for scenario 19. Reply with the label only.",
+    "expected_skill": "reading-circle-seating",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-c0aec7b4f4c63dae"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-020",
+    "category": "hidden_fact",
+    "prompt": "For the fictional picnic menu cards workshop, give the invented label for scenario 20. Reply with the label only.",
+    "expected_skill": "picnic-menu-cards",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-256cf2b55efa5318"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-021",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 1 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 1 is blue.",
+      "forbid_terms": [
+        "qx-6ceb3add85102adc"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-022",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 2 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 2 is blue.",
+      "forbid_terms": [
+        "qx-c8d611ab45f868ea"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-023",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 3 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 3 is blue.",
+      "forbid_terms": [
+        "qx-a902b8dabda4fb60"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-024",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 4 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 4 is blue.",
+      "forbid_terms": [
+        "qx-70ada6b4cc37aad3"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-025",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 5 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 5 is blue.",
+      "forbid_terms": [
+        "qx-757903e1a5b1d8ef"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-026",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 6 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 6 is blue.",
+      "forbid_terms": [
+        "qx-5bbd9a94059da57b"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-027",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 7 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 7 is blue.",
+      "forbid_terms": [
+        "qx-94c681373d717e3c"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-028",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 8 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 8 is blue.",
+      "forbid_terms": [
+        "qx-38cf6a0f56a0f537"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-029",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for shaded rest stops? Reply with the label only.",
+    "expected_skill": "garden-walk-shade",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-a7985b23070fd333"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-030",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for visitor parking? Reply with the label only.",
+    "expected_skill": "garden-walk-parking",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-7fd23cbbd068beb8"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-031",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for direction signs? Reply with the label only.",
+    "expected_skill": "garden-walk-signage",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-6c98f8c2dd4057e9"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-032",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for rain plan? Reply with the label only.",
+    "expected_skill": "garden-walk-weather",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-7d15385a57225a92"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-033",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for step-free access? Reply with the label only.",
+    "expected_skill": "garden-walk-access",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-6014b54ab9c8828a"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-034",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for volunteer check-in? Reply with the label only.",
+    "expected_skill": "garden-walk-volunteers",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-ce4a244afac8aa28"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-035",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for water stations? Reply with the label only.",
+    "expected_skill": "garden-walk-refreshments",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-14ad8cc064bbf3b2"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-036",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for walk start times? Reply with the label only.",
+    "expected_skill": "garden-walk-timing",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-0bc9cc5ca9e08ddb"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-037",
+    "category": "multi_skill",
+    "prompt": "For the fictional workshop, give the invented coordination labels for seed swap inventory and paper folding lesson for coordination case 1, in that order. Reply with both labels only.",
+    "expected_skill": [
+      "seed-swap-inventory",
+      "paper-folding-lesson"
+    ],
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-c85468a18c2af2d4",
+        "qx-862b63a58c4f58d8"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-038",
+    "category": "multi_skill",
+    "prompt": "For the fictional workshop, give the invented coordination labels for reading circle seating and family ride stops for coordination case 2, in that order. Reply with both labels only.",
+    "expected_skill": [
+      "reading-circle-seating",
+      "family-ride-stops"
+    ],
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-a2eef70089b127af",
+        "qx-222bc598d8252f26"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-039",
+    "category": "multi_skill",
+    "prompt": "For the fictional workshop, give the invented coordination labels for picnic menu cards and nature walk notes for coordination case 3, in that order. Reply with both labels only.",
+    "expected_skill": [
+      "picnic-menu-cards",
+      "nature-walk-notes"
+    ],
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-82540474eba5af92",
+        "qx-b441d3a8ee4dfe0d"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-040",
+    "category": "multi_skill",
+    "prompt": "For the fictional workshop, give the invented coordination labels for mural workshop layout and photo walk themes for coordination case 4, in that order. Reply with both labels only.",
+    "expected_skill": [
+      "mural-workshop-layout",
+      "photo-walk-themes"
+    ],
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-9ec9e3ae212a9c1b",
+        "qx-4c1f9bb0dadca64e"
+      ]
+    },
+    "skills_dir": "catalogs/c150",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-001",
+    "category": "hidden_fact",
+    "prompt": "For the fictional seed swap inventory workshop, give the invented label for scenario 1. Reply with the label only.",
+    "expected_skill": "seed-swap-inventory",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-6ceb3add85102adc"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-002",
+    "category": "hidden_fact",
+    "prompt": "For the fictional reading circle seating workshop, give the invented label for scenario 2. Reply with the label only.",
+    "expected_skill": "reading-circle-seating",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-c8d611ab45f868ea"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-003",
+    "category": "hidden_fact",
+    "prompt": "For the fictional picnic menu cards workshop, give the invented label for scenario 3. Reply with the label only.",
+    "expected_skill": "picnic-menu-cards",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-a902b8dabda4fb60"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-004",
+    "category": "hidden_fact",
+    "prompt": "For the fictional mural workshop layout workshop, give the invented label for scenario 4. Reply with the label only.",
+    "expected_skill": "mural-workshop-layout",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-70ada6b4cc37aad3"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-005",
+    "category": "hidden_fact",
+    "prompt": "For the fictional choir practice order workshop, give the invented label for scenario 5. Reply with the label only.",
+    "expected_skill": "choir-practice-order",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-757903e1a5b1d8ef"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-006",
+    "category": "hidden_fact",
+    "prompt": "For the fictional field trip stations workshop, give the invented label for scenario 6. Reply with the label only.",
+    "expected_skill": "field-trip-stations",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-5bbd9a94059da57b"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-007",
+    "category": "hidden_fact",
+    "prompt": "For the fictional board game pairings workshop, give the invented label for scenario 7. Reply with the label only.",
+    "expected_skill": "board-game-pairings",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-94c681373d717e3c"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-008",
+    "category": "hidden_fact",
+    "prompt": "For the fictional story circle prompts workshop, give the invented label for scenario 8. Reply with the label only.",
+    "expected_skill": "story-circle-prompts",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-38cf6a0f56a0f537"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-009",
+    "category": "hidden_fact",
+    "prompt": "For the fictional paper folding lesson workshop, give the invented label for scenario 9. Reply with the label only.",
+    "expected_skill": "paper-folding-lesson",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-56f367cdf9f30384"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-010",
+    "category": "hidden_fact",
+    "prompt": "For the fictional family ride stops workshop, give the invented label for scenario 10. Reply with the label only.",
+    "expected_skill": "family-ride-stops",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-f19479b2a886a720"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-011",
+    "category": "hidden_fact",
+    "prompt": "For the fictional nature walk notes workshop, give the invented label for scenario 11. Reply with the label only.",
+    "expected_skill": "nature-walk-notes",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-e23d63aa87625223"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-012",
+    "category": "hidden_fact",
+    "prompt": "For the fictional photo walk themes workshop, give the invented label for scenario 12. Reply with the label only.",
+    "expected_skill": "photo-walk-themes",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-b80866bcab96323b"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-013",
+    "category": "hidden_fact",
+    "prompt": "For the fictional shared chores rota workshop, give the invented label for scenario 13. Reply with the label only.",
+    "expected_skill": "shared-chores-rota",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-8ef01cdf1b015d7e"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-014",
+    "category": "hidden_fact",
+    "prompt": "For the fictional block party seating workshop, give the invented label for scenario 14. Reply with the label only.",
+    "expected_skill": "block-party-seating",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-f370e247aef2691a"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-015",
+    "category": "hidden_fact",
+    "prompt": "For the fictional stretch class sequence workshop, give the invented label for scenario 15. Reply with the label only.",
+    "expected_skill": "stretch-class-sequence",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-fca0118ca742a22a"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-016",
+    "category": "hidden_fact",
+    "prompt": "For the fictional day trip packing workshop, give the invented label for scenario 16. Reply with the label only.",
+    "expected_skill": "day-trip-packing",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-d23952a9359da810"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-017",
+    "category": "hidden_fact",
+    "prompt": "For the fictional fabric scrap sorting workshop, give the invented label for scenario 17. Reply with the label only.",
+    "expected_skill": "fabric-scrap-sorting",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-0561626d5be6b03e"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-018",
+    "category": "hidden_fact",
+    "prompt": "For the fictional seed swap inventory workshop, give the invented label for scenario 18. Reply with the label only.",
+    "expected_skill": "seed-swap-inventory",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-07119a906a048309"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-019",
+    "category": "hidden_fact",
+    "prompt": "For the fictional reading circle seating workshop, give the invented label for scenario 19. Reply with the label only.",
+    "expected_skill": "reading-circle-seating",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-c0aec7b4f4c63dae"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-020",
+    "category": "hidden_fact",
+    "prompt": "For the fictional picnic menu cards workshop, give the invented label for scenario 20. Reply with the label only.",
+    "expected_skill": "picnic-menu-cards",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-256cf2b55efa5318"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-021",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 1 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 1 is blue.",
+      "forbid_terms": [
+        "qx-6ceb3add85102adc"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-022",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 2 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 2 is blue.",
+      "forbid_terms": [
+        "qx-c8d611ab45f868ea"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-023",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 3 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 3 is blue.",
+      "forbid_terms": [
+        "qx-a902b8dabda4fb60"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-024",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 4 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 4 is blue.",
+      "forbid_terms": [
+        "qx-70ada6b4cc37aad3"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-025",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 5 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 5 is blue.",
+      "forbid_terms": [
+        "qx-757903e1a5b1d8ef"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-026",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 6 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 6 is blue.",
+      "forbid_terms": [
+        "qx-5bbd9a94059da57b"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-027",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 7 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 7 is blue.",
+      "forbid_terms": [
+        "qx-94c681373d717e3c"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-028",
+    "category": "no_skill_needed",
+    "prompt": "Copy this complete sentence exactly, with no extra text: The paper kite number 8 is blue.",
+    "expected_skill": null,
+    "checker": {
+      "kind": "exact",
+      "value": "The paper kite number 8 is blue.",
+      "forbid_terms": [
+        "qx-38cf6a0f56a0f537"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-029",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for shaded rest stops? Reply with the label only.",
+    "expected_skill": "garden-walk-shade",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-a7985b23070fd333"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-030",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for visitor parking? Reply with the label only.",
+    "expected_skill": "garden-walk-parking",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-7fd23cbbd068beb8"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-031",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for direction signs? Reply with the label only.",
+    "expected_skill": "garden-walk-signage",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-6c98f8c2dd4057e9"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-032",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for rain plan? Reply with the label only.",
+    "expected_skill": "garden-walk-weather",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-7d15385a57225a92"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-033",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for step-free access? Reply with the label only.",
+    "expected_skill": "garden-walk-access",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-6014b54ab9c8828a"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-034",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for volunteer check-in? Reply with the label only.",
+    "expected_skill": "garden-walk-volunteers",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-ce4a244afac8aa28"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-035",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for water stations? Reply with the label only.",
+    "expected_skill": "garden-walk-refreshments",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-14ad8cc064bbf3b2"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-036",
+    "category": "ambiguous",
+    "prompt": "For the fictional Garden Walk, what is the invented label for walk start times? Reply with the label only.",
+    "expected_skill": "garden-walk-timing",
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-0bc9cc5ca9e08ddb"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-037",
+    "category": "multi_skill",
+    "prompt": "For the fictional workshop, give the invented coordination labels for seed swap inventory and paper folding lesson for coordination case 1, in that order. Reply with both labels only.",
+    "expected_skill": [
+      "seed-swap-inventory",
+      "paper-folding-lesson"
+    ],
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-c85468a18c2af2d4",
+        "qx-862b63a58c4f58d8"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-038",
+    "category": "multi_skill",
+    "prompt": "For the fictional workshop, give the invented coordination labels for reading circle seating and family ride stops for coordination case 2, in that order. Reply with both labels only.",
+    "expected_skill": [
+      "reading-circle-seating",
+      "family-ride-stops"
+    ],
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-a2eef70089b127af",
+        "qx-222bc598d8252f26"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-039",
+    "category": "multi_skill",
+    "prompt": "For the fictional workshop, give the invented coordination labels for picnic menu cards and nature walk notes for coordination case 3, in that order. Reply with both labels only.",
+    "expected_skill": [
+      "picnic-menu-cards",
+      "nature-walk-notes"
+    ],
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-82540474eba5af92",
+        "qx-b441d3a8ee4dfe0d"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  },
+  {
+    "schema": "switchyard-eval-task/1",
+    "id": "rv-040",
+    "category": "multi_skill",
+    "prompt": "For the fictional workshop, give the invented coordination labels for mural workshop layout and photo walk themes for coordination case 4, in that order. Reply with both labels only.",
+    "expected_skill": [
+      "mural-workshop-layout",
+      "photo-walk-themes"
+    ],
+    "checker": {
+      "kind": "all_terms",
+      "terms": [
+        "qx-9ec9e3ae212a9c1b",
+        "qx-4c1f9bb0dadca64e"
+      ]
+    },
+    "skills_dir": "catalogs/c600",
+    "toolsets": [
+      "skills"
+    ]
+  }
+]
