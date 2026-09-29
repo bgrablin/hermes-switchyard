@@ -1181,6 +1181,16 @@ def _cli_handler(args):
         indent = None if getattr(args, "json_output", False) else 2
         print(json.dumps(stats, ensure_ascii=False, sort_keys=True, indent=indent, allow_nan=False))
         return 0
+    if command == "wow":
+        from .wow import build_report, format_text
+
+        days = args.days
+        if days <= 0 or days > 3650:
+            print("--days requires an integer between 1 and 3650.")
+            return 2
+        report = build_report(days=days, plugin_registered=_RUNTIME_STATUS["plugin_loaded"])
+        print(json.dumps(report, sort_keys=True, allow_nan=False) if args.json_output else format_text(report))
+        return 0
     if command == "ensure-toolsets":
         result = ensure_platform_toolsets()
         if getattr(args, "json_output", False):
@@ -1231,7 +1241,7 @@ def _cli_handler(args):
     if command != "setup":
 
         print(
-            "Usage: hermes switchyard <status|cleanup|guide|setup|ensure-toolsets|receipt|stats|test> "
+            "Usage: hermes switchyard <status|cleanup|guide|setup|ensure-toolsets|receipt|stats|wow|test> "
             "[--provider ...|--json]"
         )
         return 2
@@ -1302,6 +1312,9 @@ def _setup_cli(parser):
         help="Only count records newer than this window, e.g. 30m, 24h, 7d, or 2w",
     )
     stats.add_argument("--json", action="store_true", dest="json_output", help="Emit compact JSON")
+    wow = commands.add_parser("wow", help="Summarize retained local observations only")
+    wow.add_argument("--days", type=int, default=7, metavar="N", help="Trailing whole days (default: 7)")
+    wow.add_argument("--json", action="store_true", dest="json_output", help="Emit schema-versioned JSON")
     status = commands.add_parser("status", help="Show local readiness without network access")
     status.add_argument("--json", action="store_true", dest="json_output")
     status.add_argument(

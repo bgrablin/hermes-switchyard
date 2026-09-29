@@ -2279,12 +2279,19 @@ class ReasoningEffortController:
 
     def handle_command(self, raw_args: str = "") -> str:
         """``/switchyard effort auto|pin|status|receipt always|work|off`` handler; never raises."""
+        if str(raw_args or "").strip().split()[:1] == ["wow"]:
+            try:
+                from .wow import handle_slash
+
+                return handle_slash(str(raw_args))
+            except Exception:  # noqa: BLE001 -- a diagnostic command must not crash Hermes
+                return "Switchyard wow: report unavailable."
         auto_limit = (
             "may go one level higher after a failed tool call"
             if self.allow_raise else "never above your level"
         )
         usage = (
-            "Usage: /switchyard effort status | summary | pin | auto | receipt always|auto|off\n"
+            "Usage: /switchyard wow [--days N] [--json] | effort status | summary | pin | auto | receipt always|auto|off\n"
             "  status          show cap, last sent, mode, why, recent decisions, and summary\n"
             "  summary         show the session summary: turns, lowered/kept/raised, cloud, tokens\n"
             "  pin             send your selected /reasoning level unchanged\n"
@@ -3213,6 +3220,29 @@ def effort_stats(*, since: Any = None, data_dir: Any = None, now: Any = None) ->
 # Registration
 # ---------------------------------------------------------------------------
 
+def _register_report_only_command(ctx: Any, reason: str) -> bool:
+    """Keep /switchyard wow available when effort middleware is inactive."""
+    register_command = getattr(ctx, "register_command", None)
+    if not callable(register_command):
+        return False
+
+    def handle(raw_args: str = "") -> str:
+        if str(raw_args or "").strip().split()[:1] == ["wow"]:
+            try:
+                from .wow import handle_slash
+
+                return handle_slash(str(raw_args))
+            except Exception:  # noqa: BLE001 -- a report must not crash Hermes
+                return "Switchyard wow: report unavailable."
+        return f"Adaptive reasoning effort is {reason}. Use /switchyard wow for retained observations."
+
+    try:
+        register_command("switchyard", handle, description="Switchyard retained observations",
+                         args_hint="wow [--days N] [--json]")
+        return True
+    except Exception:  # noqa: BLE001 -- optional slash registration
+        return False
+
 
 def register_reasoning_effort_adapter(
     ctx: Any,
@@ -3250,6 +3280,7 @@ def register_reasoning_effort_adapter(
         "receipt_line": resolved_receipt != "off",
     }
     if not enabled:
+        command_registered = _register_report_only_command(ctx, "disabled")
         receipt = {
             "registered": True,
             "mode": "disabled",
@@ -3257,12 +3288,14 @@ def register_reasoning_effort_adapter(
             "reason": "adaptive_reasoning_effort_disabled",
             "enabled": False,
             "can_apply": False,
+            "command_registered": command_registered,
             "settings": settings,
         }
         _LAST_REGISTRATION = dict(receipt)
         return receipt
 
     if not seam.get("available") or not seam.get("can_apply"):
+        command_registered = _register_report_only_command(ctx, "unavailable")
         receipt = {
             "registered": True,
             "mode": "noop_seam_unavailable",
@@ -3270,6 +3303,7 @@ def register_reasoning_effort_adapter(
             "reason": "hermes_llm_request_middleware_unavailable",
             "enabled": True,
             "can_apply": False,
+            "command_registered": command_registered,
             "settings": settings,
         }
         _LAST_REGISTRATION = dict(receipt)
@@ -3340,8 +3374,8 @@ def register_reasoning_effort_adapter(
             register_command(
                 "switchyard",
                 controller.handle_command,
-                description="Switchyard controls: effort auto | pin | status | summary | receipt always|auto|off",
-                args_hint="effort auto|pin|status|summary|receipt always|auto|off",
+                description="Switchyard: wow report or effort controls",
+                args_hint="wow [--days N] [--json] | effort auto|pin|status|summary|receipt always|auto|off",
             )
             command_registered = True
         except Exception:  # noqa: BLE001 -- the command is optional

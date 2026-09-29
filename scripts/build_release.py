@@ -52,6 +52,7 @@ RELEASE_FILES = (
     "docs/MODEL-ROUTING.md",
     "docs/TEST-MATRIX.md",
     "docs/FIRST-RUN.md",
+    "docs/WOW-LOCAL-REPORT.md",
     "docs/benchmarks/live-selector-c6d9b28.json",
     "docs/benchmarks/live-selector-c8e6008.json",
     "docs/benchmarks/live-selector-7dc77c8.json",
@@ -84,6 +85,7 @@ RELEASE_FILES = (
     "hermes_switchyard/skill_lint.py",
     "hermes_switchyard/trivial_turn.py",
     "hermes_switchyard/two_stage_routing.py",
+    "hermes_switchyard/wow.py",
     "hermes_switchyard/skills/hermes-switchyard-operations/SKILL.md",
     "plugin.yaml",
 )
