@@ -144,7 +144,7 @@ All current settings live under `plugins.entries.hermes-switchyard.settings`. Th
 | `automatic_skill_jev` | `true` | Deprecated compatibility setting; does not authorize hosted egress alone. |
 | `automatic_skill_jev_mode` | `always` | Try hosted routing on eligible turns; `uncertain_only` opts in to a local-first latency policy. |
 | `automatic_skill_honor_no_skill_gate` | `false` | When true, skip hosted fan-out under `always` mode on near-zero local overlap. |
-| `automatic_skill_light_turn_bypass` | `true` | Skip hosted skill routing for closed-list acks, greeting-class, cwd `ls -la`, and short no-action explanations without domain cues. |
+| `automatic_skill_light_turn_bypass` | `true` | Skip hosted skill routing for closed-list acknowledgements and full-request greeting/cwd-listing forms. Unknown wording and open-ended explanations keep normal routing. |
 | `automatic_skill_early_light_bypass_before_discover` | `false` | Opt-in: run the light-turn bypass probe before catalog discover; default keeps discover-then-recommend. |
 | `automatic_skill_public_or_sanitized_data_ack` | `true` | Standing acknowledgement for hosted automatic skill routing; not a data classifier. |
 | `automatic_skill_mandatory_skills` | `[]` | Exact skill IDs that must not be displaced by an automatic load. |

@@ -34,34 +34,10 @@ LIGHT_NO_SKILL_REASON = "light_no_skill"
 # Greeting-only grammar: the ask must name a greeting/hello/hi *as the reply*,
 # not merely contain those words (``Write a hello world program…`` must not match).
 _GREETING_ASK_RE = re.compile(
-    r"\b(?:reply|respond|say|write|give|send)\b"
-    r".{0,48}"
-    r"\b(?:greeting(?:\s+sentence)?|hello(?!\s+world\b)|(?<![\w-])hi)\b"
-    r"|\b(?:one|a|short)\s+(?:\w+\s+){0,3}greeting(?:\s+sentence)?\b"
-    r"|\bgreeting\s+sentence\b",
-    re.IGNORECASE | re.DOTALL,
-)
-# Task / second-deliverable cues that make a greeting-shaped ask non-greeting-only.
-_GREETING_CLASS_NEGATIVE_RE = re.compile(
-    r"\b(?:"
-    r"skill|debug|deploy|fix|patch|install|delete|browse|docker|printer|"
-    r"error|plan|rollback|compose|maintenance|unreachable|logs?|"
-    r"world|program|script|code|python|rust|implement|function|email|onboard|"
-    r"summarize|prs?\b|pull\s+requests?|rest\s+api|api\b|issue\b|review\b"
-    r")\b",
-    re.IGNORECASE,
-)
-# Structural second deliverable: a later clause that is not a "do not …" constraint.
-_SECOND_DELIVERABLE_RE = re.compile(
-    r"(?:[.!?]\s+|;\s+|\n\s*|,?\s*\bthen\b\s+|,\s*\bafter\s+that\b\s+|,\s*\balso\b\s+|,\s*\bnext\b\s+)"
-    r"(?!do\s+not\b|don't\b|keep\b|prefer\b|using\s+only\b|after\s+listing\b|"
-    r"reply\s+with\b|finish\s+with\b)"
-    r"(?:\w+\s+){0,3}"
-    r"(?:"
-    r"create|open|run|build|write|implement|review|list|fix|deploy|debug|"
-    r"summarize|browse|patch|install|delete|edit|refactor|migrate|configure|"
-    r"set\s+up|add|remove|update|fix|check|inspect|analyze|investigate"
-    r")\b",
+    r"(?:please\s+)?(?:reply\s+with|respond\s+with|say|write|give\s+me)\s+"
+    r"(?:exactly\s+)?(?:(?:one|a)\s+)?(?:short\s+)?"
+    r"(?:greeting(?:\s+sentence)?|hello|hi)[.!]?"
+    r"(?:\s+(?:do\s+not|don't)\s+(?:use\s+tools|ask\s+questions)[.!]?)*",
     re.IGNORECASE,
 )
 
@@ -95,6 +71,21 @@ _LIST_NEGATIVE_RE = re.compile(
 # Any path-like token outside cwd markers rejects listing bypass.
 _LIST_PATH_OPERAND_RE = re.compile(
     r"(?:^|[\s\"'`])(?:\.\./|\./[^\s\"'`]+|/[^\s\"'`]+|~/[^\s\"'`]+|[A-Za-z]:\\)",
+    re.IGNORECASE,
+)
+
+_PURE_LISTING_RE = re.compile(
+    r"(?:please\s+)?"
+    r"(?:(?:using\s+(?:only\s+)?(?:safe\s+)?read[- ]only\s+actions|read[- ]only)[:,]?\s+)?"
+    rf"(?:{_LIST_CWD_RE.pattern}|(?:run\s+)?ls\s+-la(?:\s+\./?)?)"
+    r"(?:[,;.]?\s+(?:"
+    r"(?:using\s+)?(?:safe\s+)?read[- ]only(?:\s+actions)?(?:\s+only)?"
+    r"|prefer\s+running\s+exactly:\s+ls\s+-la(?:\s+\./?)?"
+    r"|(?:do\s+not|don't)\s+(?:write|patch|delete|install|change|modify|edit)"
+    r"(?:(?:,\s*|\s+(?:or|and)\s+)(?:or\s+)?(?:write|patch|delete|install|change|modify|edit))*"
+    r"(?:\s+(?:anything|any\s+system\s+state))?"
+    r"|after\s+listing,\s+reply\s+with\s+a\s+short\s+bullet\s+summary\s+of\s+what\s+you\s+saw"
+    r"))*[.!]?",
     re.IGNORECASE,
 )
 
@@ -167,13 +158,9 @@ def is_greeting_class_prompt(text: str) -> bool:
         return False
     if is_trivial_turn(stripped):
         return True
-    if not _GREETING_ASK_RE.search(stripped):
-        return False
-    if _GREETING_CLASS_NEGATIVE_RE.search(stripped):
-        return False
-    if _SECOND_DELIVERABLE_RE.search(stripped):
-        return False
-    return True
+    # Match the complete request, not an opening clause plus a verb denylist.
+    # Unknown wording takes the normal routing path instead of losing capability.
+    return _GREETING_ASK_RE.fullmatch(stripped) is not None
 
 
 def _ls_la_is_cwd_only(text: str) -> bool:
@@ -207,10 +194,11 @@ def is_readonly_listing_prompt(text: str) -> bool:
         return False
     if not _NO_MUTATE_RE.search(stripped):
         return False
-    # Listing must be the only deliverable — follow-on analyze/debug tasks stay hosted.
-    if _SECOND_DELIVERABLE_RE.search(stripped):
+    if _LIST_NEGATIVE_RE.search(stripped):
         return False
-    return _LIST_NEGATIVE_RE.search(stripped) is None
+    # Account for every character with a closed grammar. A domain/verb denylist
+    # cannot establish that a free-form second clause is merely a listing summary.
+    return _PURE_LISTING_RE.fullmatch(stripped) is not None
 
 
 def is_light_explanation_prompt(text: str) -> bool:

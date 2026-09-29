@@ -48,6 +48,36 @@ class SkillDiscoveryCacheTests(HermesHomeTestCase):
         self.assertEqual(first, second)
         self.assertEqual(skills_list.call_count, 1)
 
+    def test_cached_candidates_are_not_shared_with_callers(self):
+        skills_list = mock.Mock(return_value=_payload("docker-management"))
+        with self._patch_skills_list(skills_list), mock.patch.object(
+            automatic, "_discovery_fingerprint", return_value="stable"
+        ):
+            first = discover_available_skill_candidates()
+            first[0]["description"] = "mutated by caller"
+            second = discover_available_skill_candidates()
+            self.assertEqual(second[0]["description"], "docker-management description")
+            second[0]["description"] = "mutated cache hit"
+            third = discover_available_skill_candidates()
+            self.assertEqual(third[0]["description"], "docker-management description")
+        self.assertEqual(skills_list.call_count, 1)
+
+    def test_plugin_registry_change_invalidates_cache(self):
+        plugins = types.ModuleType("hermes_cli.plugins")
+        manager = mock.Mock()
+        manager.list_plugin_skill_metadata.return_value = [{"name": "example:first"}]
+        plugins.get_plugin_manager = lambda: manager
+        skills_list = mock.Mock(side_effect=[_payload("first"), _payload("second")])
+        with self._patch_skills_list(skills_list), mock.patch.dict(
+            sys.modules, {"hermes_cli.plugins": plugins}
+        ):
+            first = discover_available_skill_candidates()
+            manager.list_plugin_skill_metadata.return_value = [{"name": "example:second"}]
+            second = discover_available_skill_candidates()
+        self.assertEqual(first[0]["name"], "first")
+        self.assertEqual(second[0]["name"], "second")
+        self.assertEqual(skills_list.call_count, 2)
+
     def test_force_refresh_bypasses_cache(self):
         skills_list = mock.Mock(
             side_effect=[

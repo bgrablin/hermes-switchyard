@@ -479,6 +479,16 @@ def _discovery_policy_parts() -> list[str]:
         parts.append("disabled:" + ",".join(disabled))
     except Exception:  # noqa: BLE001
         parts.append("disabled:unavailable")
+    # Plugin skills are merged by skills_list outside Hermes' filesystem cache.
+    # Registration/removal need not touch any skill root or config file.
+    try:
+        from hermes_cli.plugins import get_plugin_manager
+
+        metadata = get_plugin_manager().list_plugin_skill_metadata()
+        encoded = json.dumps(metadata, sort_keys=True, default=str).encode("utf-8")
+        parts.append("plugins:" + hashlib.sha256(encoded).hexdigest())
+    except Exception:  # noqa: BLE001 -- no plugin registry on standalone hosts
+        parts.append("plugins:unavailable")
     # Config mtime so disabled / external_dirs edits without skills-dir churn refresh.
     try:
         from hermes_cli.config import get_config_path  # type: ignore[import-not-found]
@@ -573,7 +583,7 @@ def discover_available_skill_candidates(
             and cached[0] == fingerprint
             and (now - cached[1]) <= _DISCOVERY_CACHE_MAX_AGE_SECONDS
         ):
-            return cached[2]
+            return tuple(dict(candidate) for candidate in cached[2])
     try:
         from tools.skills_tool import skills_list
 
@@ -602,7 +612,9 @@ def discover_available_skill_candidates(
         logger.debug("skill registry discovery failed: %s", type(exc).__name__)
         return ()
     with _DISCOVERY_CACHE_LOCK:
-        _DISCOVERY_CACHE = (fingerprint, time.monotonic(), result)
+        _DISCOVERY_CACHE = (
+            fingerprint, time.monotonic(), tuple(dict(candidate) for candidate in result)
+        )
     return result
 
 
@@ -1669,14 +1681,12 @@ def _format_recommendation(name: str) -> str:
 
 
 # Text-only explicit-skill intent (no catalog). Used to refuse early light bypass
-# when the turn looks like "Use foo-bar …" / "/foo-bar" so discover still runs and
+# when the turn looks like "Use greeter …" / "/greeter" so discover still runs and
 # `_explicit_skill_override` can honor a matching registry skill.
 _EXPLICIT_SKILL_INTENT_RE = re.compile(
     r"(?:^|\s)/[a-z][\w.-]{1,63}(?:\s|$|[.,!?])"
     r"|"
-    r"\b(?:use|load)\s+(?:the\s+)?skill\b"
-    r"|"
-    r"\b(?:use|load)\s+(?:the\s+)?[`'\"]?[a-z][\w]*[-_][\w.-]{0,62}",
+    r"\b(?:use|load)\s+(?:the\s+)?[`'\"]?[a-z][\w:.-]*",
     re.IGNORECASE,
 )
 
@@ -1684,15 +1694,16 @@ _EXPLICIT_SKILL_INTENT_RE = re.compile(
 def _looks_like_explicit_skill_request(task: Any) -> bool:
     """True when the turn text looks like an explicit skill use/load/slash request.
 
-    Catalog-free: hyphenated / underscored names and the word ``skill`` after
-    use/load count; bare ``use tools`` does not. Fail-open (False) on coerce errors.
+    Catalog-free and conservative: any use/load target may be a skill name.
+    The closed no-tools constraint is not an override. Errors force discovery.
     """
     try:
         text = _coerce_bounded_text(task, MAX_TASK_CHARS)
     except Exception:  # noqa: BLE001
-        return False
+        return True
     if not text:
         return False
+    text = re.sub(r"\b(?:do\s+not|don't)\s+use\s+tools\b", "", text, flags=re.IGNORECASE)
     return _EXPLICIT_SKILL_INTENT_RE.search(text) is not None
 
 
