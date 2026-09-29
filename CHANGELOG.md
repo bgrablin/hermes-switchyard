@@ -13,12 +13,14 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 
 ### Changed
 
+- Check current Hermes HEAD on Python 3.11 and 3.14 every week and on manual dispatch, with report-only per-step receipts. The pinned required check remains unchanged; native receipts distinguish the upstream Python declaration from the interpreter that ran the check.
 - Optional early light-turn bypass before catalog discover (`automatic_skill_early_light_bypass_before_discover`, default **off**): when enabled with light-turn bypass, a text-only probe may skip `skills_list` / discover on greeting-class and other light turns while still emitting auditable `bypass_reason` / `source_sha` receipts. Fail-open; consequential and explicit-override turns still discover. Refs #160.
 - Cache validated skill candidates in-process for automatic routing. Observed root, policy, config, and plugin-metadata changes invalidate the cache; a 30-second TTL bounds other changes. Return independent candidate dictionaries. Hermes also caches filesystem discovery; this wrapper avoids repeated public-list serialization and candidate validation, not all cold-start work.
 - Light-turn routing tax cut (optimization-first for 0.6.0): skip hosted skill selection for closed-list acknowledgements and complete greeting/read-only **cwd** listing forms (`automatic_skill_light_turn_bypass`, default on). Unknown wording, compound tasks, and open-ended explanations keep normal routing. Optional `automatic_skill_honor_no_skill_gate` (default off) also skips hosted fan-out under `automatic_skill_jev_mode=always` when local lexical overlap is near zero. Full-request greeting forms also take the adaptive `local_trivial` path. The frozen greeting/listdir fixtures still bypass; domain tasks and path-scoped listings do not.
 
 ### Fixed
 
+- Use the installed Hermes YAML parser dependency in compatibility tests instead of assuming PyYAML is installed on current Hermes.
 - Reject substantive follow-on work in light-turn detection, preserve single-word explicit skill overrides before early bypass, and prevent callers from mutating cached candidates.
 
 ### Not included
