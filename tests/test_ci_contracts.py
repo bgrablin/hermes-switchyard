@@ -8,6 +8,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
+from scripts.ci import check_native_hermes
 from scripts.ci.live_jev_contract import LiveContractError, _usage_receipt
 from scripts.ci.validate_live_source import (
     TrustedSourceError,
@@ -356,6 +357,25 @@ class CiContractTests(unittest.TestCase):
         pins = self._workflow_pins()
         unique = sorted(set(pins.values()))
         self.assertEqual(len(unique), 1, f"pinned workflows disagree: {pins}")
+
+    def test_native_checker_pin_and_range_match_the_pinned_contract(self):
+        pin = self._workflow_pins()[self.PINNED_WORKFLOWS[0]]
+        self.assertEqual(
+            check_native_hermes.PINNED_HERMES_SHA,
+            pin,
+            "the native checker must recognize the workflow pin to enforce requires-python",
+        )
+        ci_docs = (Path(__file__).resolve().parents[1] / "docs/CI.md").read_text(
+            encoding="utf-8"
+        )
+        documented_range = re.search(r"pinned Hermes range `([^`]+)`", ci_docs)
+        if documented_range is None:
+            self.fail("docs/CI.md must state the pinned Hermes Python range")
+        self.assertEqual(
+            check_native_hermes.PINNED_HERMES_PYTHON,
+            documented_range.group(1),
+            "the native checker's requires-python range must match the documented pin",
+        )
 
     def test_documented_hermes_upstream_references_match_the_pin(self):
         """Documented references must name the pinned commit and nothing else."""

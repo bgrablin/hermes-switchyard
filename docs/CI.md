@@ -93,14 +93,15 @@ The workflow uploads the candidate ZIP and verification receipt as short-lived a
 
 ## Hermes upstream pin
 
-One full commit SHA pins the Hermes upstream source for every workflow that uses it: `switchyard-compatibility.yml`, `live-jev.yml`, `release-candidate.yml`, and `upstream-pin-drift.yml`. The value is the `HERMES_UPSTREAM_SHA` environment entry in each file, and the documented references in `docs/CI.md`, `docs/TEST-MATRIX.md`, and `THIRD_PARTY.md` must name the same commit. `tests/test_ci_contracts.py` fails when any copy diverges.
+One full commit SHA pins the Hermes upstream source for every workflow that uses it: `switchyard-compatibility.yml`, `live-jev.yml`, `release-candidate.yml`, and `upstream-pin-drift.yml`. The value is the `HERMES_UPSTREAM_SHA` environment entry in each file, and the documented references in `docs/CI.md`, `docs/TEST-MATRIX.md`, and `THIRD_PARTY.md` must name the same commit. The native checker also holds `PINNED_HERMES_SHA` and `PINNED_HERMES_PYTHON`; the SHA must match the workflows so the pinned `requires-python` check cannot be skipped. `tests/test_ci_contracts.py` fails if these pins or the documented Python range diverge.
 
 To re-pin:
 
 1. Select the reviewed upstream commit.
 2. Update `HERMES_UPSTREAM_SHA` in every pinned workflow in one change.
-3. Update the SHA text in `docs/CI.md`, `docs/TEST-MATRIX.md`, and `THIRD_PARTY.md`.
-4. Run `python -m unittest tests.test_ci_contracts -v`.
+3. Update both `PINNED_HERMES_SHA` and `PINNED_HERMES_PYTHON` in `scripts/ci/check_native_hermes.py`. Read the new commit's `pyproject.toml` for its exact `project.requires-python` value; do not infer it from the matrix.
+4. Update the SHA text in `docs/CI.md`, `docs/TEST-MATRIX.md`, and `THIRD_PARTY.md`, and the pinned Python range in `docs/CI.md` if it changed.
+5. Run `python -m unittest tests.test_ci_contracts -v` and the native compatibility check against the selected upstream commit.
 
 `upstream-pin-drift.yml` runs monthly and on manual dispatch. It compares the pin with the current `NousResearch/hermes-agent` default-branch head through `git ls-remote`, records the status and a compare link in the run summary, and never writes to the repository. Read a drift report as a prompt to re-pin deliberately; it is not a release gate.
 
