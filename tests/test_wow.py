@@ -42,6 +42,11 @@ class WowCommandTests(unittest.TestCase):
             code = hermes_switchyard._cli_handler(parsed)
         return code, output.getvalue()
 
+    def assert_metric_pairs(self, report, expected):
+        actual = {name: (metric.get("count", metric.get("value")), metric["n"])
+                  for name, metric in report["metrics"].items()}
+        self.assertEqual(actual, expected)
+
     def test_empty_valid_sources_report_observed_zero_without_population_claim(self):
         (self.data / "receipt-history.jsonl").write_text("")
         (self.data / "effort-history.jsonl").write_text("")
@@ -55,6 +60,12 @@ class WowCommandTests(unittest.TestCase):
         self.assertEqual(report["metrics"]["observed_turns"], {"count": 0, "n": 0, "status": "observed"})
         self.assertEqual(report["metrics"]["jev_calls"], {"count": 0, "n": 0, "status": "observed"})
         self.assertEqual(report["metrics"]["median_latency_ms"], {"value": None, "n": 0, "status": "unknown"})
+        self.assert_metric_pairs(report, {
+            "observed_turns": (0, 0), "skills_selected": (0, 0), "skills_loaded": (0, 0),
+            "below_cap_turns": (0, 0), "light_turn_bypasses": (0, 0),
+            "jev_calls": (0, 0), "median_latency_ms": (None, 0),
+            "hosted_failures": (0, 0), "hosted_abstentions": (0, 0),
+        })
         self.assertIn("retained", report["coverage"])
 
     def test_mixed_receipts_have_exact_counts_denominators_and_one_call_median(self):
@@ -154,6 +165,12 @@ class WowCommandTests(unittest.TestCase):
         self.assertEqual(report["metrics"]["observed_turns"]["status"], "partial")
         self.assertEqual(report["metrics"]["below_cap_turns"]["count"], None)
         self.assertEqual(report["metrics"]["below_cap_turns"]["status"], "unknown")
+        self.assert_metric_pairs(report, {
+            "observed_turns": (0, 0), "skills_selected": (0, 0), "skills_loaded": (0, 0),
+            "below_cap_turns": (None, 0), "light_turn_bypasses": (0, 0),
+            "jev_calls": (0, 0), "median_latency_ms": (None, 0),
+            "hosted_failures": (0, 0), "hosted_abstentions": (0, 0),
+        })
 
     def test_symlink_history_is_not_followed(self):
         source = self.data / "synthetic-target.jsonl"
@@ -175,6 +192,13 @@ class WowCommandTests(unittest.TestCase):
         self.assertEqual(report["sources"]["routing"]["state"], "partial")
         self.assertEqual(report["metrics"]["observed_turns"],
                          {"count": 500, "n": 500, "status": "partial"})
+        self.assert_metric_pairs(report, {
+            "observed_turns": (500, 500), "skills_selected": (500, 500),
+            "skills_loaded": (0, 500), "below_cap_turns": (None, 0),
+            "light_turn_bypasses": (0, 500), "jev_calls": (None, 500),
+            "median_latency_ms": (None, 0), "hosted_failures": (0, 500),
+            "hosted_abstentions": (0, 500),
+        })
         self.assertIn("retained", report["coverage"])
 
     def test_slash_and_cli_share_schema_without_provider_or_session_store(self):
@@ -285,6 +309,12 @@ class WowCommandTests(unittest.TestCase):
                                             "to": "2026-09-29T17:00:00Z"})
         self.assertEqual(report["metrics"]["observed_turns"],
                          {"count": 1, "n": 1, "status": "observed"})
+        self.assert_metric_pairs(report, {
+            "observed_turns": (1, 1), "skills_selected": (1, 1), "skills_loaded": (0, 1),
+            "below_cap_turns": (0, 0), "light_turn_bypasses": (0, 1),
+            "jev_calls": (0, 1), "median_latency_ms": (None, 0),
+            "hosted_failures": (0, 1), "hosted_abstentions": (0, 1),
+        })
         self.assertIn("not all Hermes turns", report["coverage"])
 
     def test_small_byte_bound_keeps_only_retained_turns(self):
