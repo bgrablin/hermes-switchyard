@@ -987,6 +987,24 @@ def _exposure_lines(exposure: dict[str, Any]) -> list[str]:
 
 def _cli_handler(args):
     command = getattr(args, "switchyard_command", None) or getattr(args, "jev_command", None)
+    if command == "lint-skills":
+        from .skill_lint import CatalogError, SCHEMA, discover_report, format_report
+
+        try:
+            report = discover_report()
+        except Exception as exc:  # noqa: BLE001 -- registry/provider text must not reach output
+            reason = str(exc) if isinstance(exc, CatalogError) else "catalog_unavailable"
+            failure = {"schema": SCHEMA, "status": "unavailable", "reason": reason}
+            if getattr(args, "json_output", False):
+                print(json.dumps(failure, sort_keys=True))
+            else:
+                print(f"Skill catalog unavailable ({reason}).")
+            return 1
+        if getattr(args, "json_output", False):
+            print(json.dumps(report, sort_keys=True))
+        else:
+            print(format_report(report))
+        return 0
     if command == "status":
         credential_presence = {}
         for provider in ("typesafe", "openrouter"):
@@ -1253,6 +1271,8 @@ def _cli_handler(args):
 
 def _setup_cli(parser):
     commands = parser.add_subparsers(dest="switchyard_command")
+    lint = commands.add_parser("lint-skills", help="Report local skill-description routability hints")
+    lint.add_argument("--json", action="store_true", dest="json_output", help="Emit versioned JSON")
     setup = commands.add_parser("setup", help="Save one Jev provider key through a masked prompt")
     setup.add_argument("--provider", required=True, choices=("typesafe", "openrouter"))
     receipt = commands.add_parser("receipt", help="Show the latest automatic-routing receipt")
