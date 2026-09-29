@@ -1,6 +1,6 @@
 ---
 name: cycling-rest-stops-reference
-description: "Use for a rest stops reference in a fictional cycling exercise."
+description: "Use for a reference about rest stops in a fictional cycling exercise."
 ---
 
 # Cycling Rest Stops Reference

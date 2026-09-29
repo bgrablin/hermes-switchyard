@@ -1,6 +1,6 @@
 ---
 name: libraries-shelves-brief
-description: "Use for a shelves brief in a fictional libraries exercise."
+description: "Use for a brief about shelves in a fictional libraries exercise."
 ---
 
 # Libraries Shelves Brief

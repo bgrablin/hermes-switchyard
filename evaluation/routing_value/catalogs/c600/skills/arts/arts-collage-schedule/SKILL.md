@@ -1,6 +1,6 @@
 ---
 name: arts-collage-schedule
-description: "Use for a collage schedule in a fictional arts exercise."
+description: "Use for a schedule about collage in a fictional arts exercise."
 ---
 
 # Arts Collage Schedule

@@ -1,6 +1,6 @@
 ---
 name: arts-sketches-log
-description: "Use for a sketches log in a fictional arts exercise."
+description: "Use for a log about sketches in a fictional arts exercise."
 ---
 
 # Arts Sketches Log

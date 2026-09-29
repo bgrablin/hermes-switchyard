@@ -1,6 +1,6 @@
 ---
 name: theater-readings-brief
-description: "Use for a readings brief in a fictional theater exercise."
+description: "Use for a brief about readings in a fictional theater exercise."
 ---
 
 # Theater Readings Brief

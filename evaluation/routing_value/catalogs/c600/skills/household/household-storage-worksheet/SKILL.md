@@ -1,6 +1,6 @@
 ---
 name: household-storage-worksheet
-description: "Use for a storage worksheet in a fictional household exercise."
+description: "Use for a worksheet about storage in a fictional household exercise."
 ---
 
 # Household Storage Worksheet

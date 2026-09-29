@@ -1,6 +1,6 @@
 ---
 name: gardening-seedlings-worksheet
-description: "Use for a seedlings worksheet in a fictional gardening exercise."
+description: "Use for a worksheet about seedlings in a fictional gardening exercise."
 ---
 
 # Gardening Seedlings Worksheet

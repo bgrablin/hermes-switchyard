@@ -1,6 +1,6 @@
 ---
 name: crafts-clay-worksheet
-description: "Use for a clay worksheet in a fictional crafts exercise."
+description: "Use for a worksheet about clay in a fictional crafts exercise."
 ---
 
 # Crafts Clay Worksheet

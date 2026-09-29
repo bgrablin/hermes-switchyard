@@ -1,6 +1,6 @@
 ---
 name: cycling-bike-checks-plan
-description: "Use for a bike checks plan in a fictional cycling exercise."
+description: "Use for a plan about bike checks in a fictional cycling exercise."
 ---
 
 # Cycling Bike Checks Plan

@@ -1,6 +1,6 @@
 ---
 name: writing-letters-map
-description: "Use for a letters map in a fictional writing exercise."
+description: "Use for a map about letters in a fictional writing exercise."
 ---
 
 # Writing Letters Map

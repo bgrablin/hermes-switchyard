@@ -1,6 +1,6 @@
 ---
 name: writing-letters-brief
-description: "Use for a letters brief in a fictional writing exercise."
+description: "Use for a brief about letters in a fictional writing exercise."
 ---
 
 # Writing Letters Brief

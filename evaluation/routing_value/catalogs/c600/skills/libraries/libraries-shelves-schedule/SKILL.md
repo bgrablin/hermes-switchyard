@@ -1,6 +1,6 @@
 ---
 name: libraries-shelves-schedule
-description: "Use for a shelves schedule in a fictional libraries exercise."
+description: "Use for a schedule about shelves in a fictional libraries exercise."
 ---
 
 # Libraries Shelves Schedule

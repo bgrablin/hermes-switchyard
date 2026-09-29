@@ -1,6 +1,6 @@
 ---
 name: recreation-puzzles-reference
-description: "Use for a puzzles reference in a fictional recreation exercise."
+description: "Use for a reference about puzzles in a fictional recreation exercise."
 ---
 
 # Recreation Puzzles Reference

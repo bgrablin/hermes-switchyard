@@ -1,6 +1,6 @@
 ---
 name: history-exhibits-plan
-description: "Use for a exhibits plan in a fictional history exercise."
+description: "Use for a plan about exhibits in a fictional history exercise."
 ---
 
 # History Exhibits Plan

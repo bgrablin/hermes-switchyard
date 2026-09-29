@@ -1,6 +1,6 @@
 ---
 name: community-volunteers-log
-description: "Use for a volunteers log in a fictional community exercise."
+description: "Use for a log about volunteers in a fictional community exercise."
 ---
 
 # Community Volunteers Log

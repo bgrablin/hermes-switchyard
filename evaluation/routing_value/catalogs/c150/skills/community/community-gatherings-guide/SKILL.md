@@ -1,6 +1,6 @@
 ---
 name: community-gatherings-guide
-description: "Use for a gatherings guide in a fictional community exercise."
+description: "Use for a guide about gatherings in a fictional community exercise."
 ---
 
 # Community Gatherings Guide

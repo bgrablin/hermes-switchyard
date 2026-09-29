@@ -1,6 +1,6 @@
 ---
 name: fitness-stretches-checklist
-description: "Use for a stretches checklist in a fictional fitness exercise."
+description: "Use for a checklist about stretches in a fictional fitness exercise."
 ---
 
 # Fitness Stretches Checklist

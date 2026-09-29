@@ -1,6 +1,6 @@
 ---
 name: theater-rehearsals-schedule
-description: "Use for a rehearsals schedule in a fictional theater exercise."
+description: "Use for a schedule about rehearsals in a fictional theater exercise."
 ---
 
 # Theater Rehearsals Schedule

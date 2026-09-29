@@ -1,6 +1,6 @@
 ---
 name: sewing-patterns-brief
-description: "Use for a patterns brief in a fictional sewing exercise."
+description: "Use for a brief about patterns in a fictional sewing exercise."
 ---
 
 # Sewing Patterns Brief

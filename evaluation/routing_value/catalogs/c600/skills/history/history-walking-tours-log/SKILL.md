@@ -1,6 +1,6 @@
 ---
 name: history-walking-tours-log
-description: "Use for a walking tours log in a fictional history exercise."
+description: "Use for a log about walking tours in a fictional history exercise."
 ---
 
 # History Walking Tours Log

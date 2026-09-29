@@ -1,6 +1,6 @@
 ---
 name: fitness-cooldowns-log
-description: "Use for a cooldowns log in a fictional fitness exercise."
+description: "Use for a log about cooldowns in a fictional fitness exercise."
 ---
 
 # Fitness Cooldowns Log

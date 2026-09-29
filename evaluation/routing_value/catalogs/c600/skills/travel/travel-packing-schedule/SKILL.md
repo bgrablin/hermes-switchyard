@@ -1,6 +1,6 @@
 ---
 name: travel-packing-schedule
-description: "Use for a packing schedule in a fictional travel exercise."
+description: "Use for a schedule about packing in a fictional travel exercise."
 ---
 
 # Travel Packing Schedule

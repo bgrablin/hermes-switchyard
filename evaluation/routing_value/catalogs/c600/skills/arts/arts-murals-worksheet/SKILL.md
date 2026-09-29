@@ -1,6 +1,6 @@
 ---
 name: arts-murals-worksheet
-description: "Use for a murals worksheet in a fictional arts exercise."
+description: "Use for a worksheet about murals in a fictional arts exercise."
 ---
 
 # Arts Murals Worksheet

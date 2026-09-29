@@ -1,6 +1,6 @@
 ---
 name: nature-wildflowers-plan
-description: "Use for a wildflowers plan in a fictional nature exercise."
+description: "Use for a plan about wildflowers in a fictional nature exercise."
 ---
 
 # Nature Wildflowers Plan

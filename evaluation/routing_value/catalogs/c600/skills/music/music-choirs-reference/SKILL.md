@@ -1,6 +1,6 @@
 ---
 name: music-choirs-reference
-description: "Use for a choirs reference in a fictional music exercise."
+description: "Use for a reference about choirs in a fictional music exercise."
 ---
 
 # Music Choirs Reference

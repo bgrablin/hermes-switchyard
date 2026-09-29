@@ -1,6 +1,6 @@
 ---
 name: recreation-puzzles-checklist
-description: "Use for a puzzles checklist in a fictional recreation exercise."
+description: "Use for a checklist about puzzles in a fictional recreation exercise."
 ---
 
 # Recreation Puzzles Checklist

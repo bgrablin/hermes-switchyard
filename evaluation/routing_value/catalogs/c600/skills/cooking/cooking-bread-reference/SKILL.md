@@ -1,6 +1,6 @@
 ---
 name: cooking-bread-reference
-description: "Use for a bread reference in a fictional cooking exercise."
+description: "Use for a reference about bread in a fictional cooking exercise."
 ---
 
 # Cooking Bread Reference

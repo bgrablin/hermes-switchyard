@@ -1,6 +1,6 @@
 ---
 name: theater-rehearsals-worksheet
-description: "Use for a rehearsals worksheet in a fictional theater exercise."
+description: "Use for a worksheet about rehearsals in a fictional theater exercise."
 ---
 
 # Theater Rehearsals Worksheet

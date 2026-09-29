@@ -1,6 +1,6 @@
 ---
 name: cycling-rides-guide
-description: "Use for a rides guide in a fictional cycling exercise."
+description: "Use for a guide about rides in a fictional cycling exercise."
 ---
 
 # Cycling Rides Guide

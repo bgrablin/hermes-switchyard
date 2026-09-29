@@ -1,6 +1,6 @@
 ---
 name: arts-murals-plan
-description: "Use for a murals plan in a fictional arts exercise."
+description: "Use for a plan about murals in a fictional arts exercise."
 ---
 
 # Arts Murals Plan

@@ -1,6 +1,6 @@
 ---
 name: sewing-patterns-reference
-description: "Use for a patterns reference in a fictional sewing exercise."
+description: "Use for a reference about patterns in a fictional sewing exercise."
 ---
 
 # Sewing Patterns Reference

@@ -1,6 +1,6 @@
 ---
 name: nature-wildflowers-map
-description: "Use for a wildflowers map in a fictional nature exercise."
+description: "Use for a map about wildflowers in a fictional nature exercise."
 ---
 
 # Nature Wildflowers Map

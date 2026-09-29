@@ -1,6 +1,6 @@
 ---
 name: history-oral-stories-map
-description: "Use for a oral stories map in a fictional history exercise."
+description: "Use for a map about oral stories in a fictional history exercise."
 ---
 
 # History Oral Stories Map

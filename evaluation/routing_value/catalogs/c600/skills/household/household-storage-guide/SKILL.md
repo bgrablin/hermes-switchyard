@@ -1,6 +1,6 @@
 ---
 name: household-storage-guide
-description: "Use for a storage guide in a fictional household exercise."
+description: "Use for a guide about storage in a fictional household exercise."
 ---
 
 # Household Storage Guide

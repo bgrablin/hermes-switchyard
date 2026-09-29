@@ -1,6 +1,6 @@
 ---
 name: cooking-soups-plan
-description: "Use for a soups plan in a fictional cooking exercise."
+description: "Use for a plan about soups in a fictional cooking exercise."
 ---
 
 # Cooking Soups Plan

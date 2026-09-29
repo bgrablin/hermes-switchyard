@@ -1,6 +1,6 @@
 ---
 name: libraries-shelves-checklist
-description: "Use for a shelves checklist in a fictional libraries exercise."
+description: "Use for a checklist about shelves in a fictional libraries exercise."
 ---
 
 # Libraries Shelves Checklist

@@ -1,6 +1,6 @@
 ---
 name: community-volunteers-map
-description: "Use for a volunteers map in a fictional community exercise."
+description: "Use for a map about volunteers in a fictional community exercise."
 ---
 
 # Community Volunteers Map

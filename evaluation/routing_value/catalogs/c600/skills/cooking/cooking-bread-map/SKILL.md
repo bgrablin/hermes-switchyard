@@ -1,6 +1,6 @@
 ---
 name: cooking-bread-map
-description: "Use for a bread map in a fictional cooking exercise."
+description: "Use for a map about bread in a fictional cooking exercise."
 ---
 
 # Cooking Bread Map

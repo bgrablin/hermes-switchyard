@@ -1,6 +1,6 @@
 ---
 name: libraries-book-clubs-plan
-description: "Use for a book clubs plan in a fictional libraries exercise."
+description: "Use for a plan about book clubs in a fictional libraries exercise."
 ---
 
 # Libraries Book Clubs Plan

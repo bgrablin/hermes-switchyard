@@ -1,6 +1,6 @@
 ---
 name: community-gatherings-checklist
-description: "Use for a gatherings checklist in a fictional community exercise."
+description: "Use for a checklist about gatherings in a fictional community exercise."
 ---
 
 # Community Gatherings Checklist

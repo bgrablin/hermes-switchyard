@@ -1,6 +1,6 @@
 ---
 name: community-gatherings-calendar
-description: "Use for a gatherings calendar in a fictional community exercise."
+description: "Use for a calendar about gatherings in a fictional community exercise."
 ---
 
 # Community Gatherings Calendar

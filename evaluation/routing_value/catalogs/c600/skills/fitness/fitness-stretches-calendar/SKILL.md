@@ -1,6 +1,6 @@
 ---
 name: fitness-stretches-calendar
-description: "Use for a stretches calendar in a fictional fitness exercise."
+description: "Use for a calendar about stretches in a fictional fitness exercise."
 ---
 
 # Fitness Stretches Calendar

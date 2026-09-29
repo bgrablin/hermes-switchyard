@@ -1,6 +1,6 @@
 ---
 name: community-neighbors-worksheet
-description: "Use for a neighbors worksheet in a fictional community exercise."
+description: "Use for a worksheet about neighbors in a fictional community exercise."
 ---
 
 # Community Neighbors Worksheet

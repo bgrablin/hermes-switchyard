@@ -1,6 +1,6 @@
 ---
 name: community-gatherings-worksheet
-description: "Use for a gatherings worksheet in a fictional community exercise."
+description: "Use for a worksheet about gatherings in a fictional community exercise."
 ---
 
 # Community Gatherings Worksheet

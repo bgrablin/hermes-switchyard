@@ -1,6 +1,6 @@
 ---
 name: gardening-compost-guide
-description: "Use for a compost guide in a fictional gardening exercise."
+description: "Use for a guide about compost in a fictional gardening exercise."
 ---
 
 # Gardening Compost Guide

@@ -1,6 +1,6 @@
 ---
 name: nature-birdwatching-guide
-description: "Use for a birdwatching guide in a fictional nature exercise."
+description: "Use for a guide about birdwatching in a fictional nature exercise."
 ---
 
 # Nature Birdwatching Guide

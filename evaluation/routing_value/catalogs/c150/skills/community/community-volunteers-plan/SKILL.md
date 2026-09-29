@@ -1,6 +1,6 @@
 ---
 name: community-volunteers-plan
-description: "Use for a volunteers plan in a fictional community exercise."
+description: "Use for a plan about volunteers in a fictional community exercise."
 ---
 
 # Community Volunteers Plan

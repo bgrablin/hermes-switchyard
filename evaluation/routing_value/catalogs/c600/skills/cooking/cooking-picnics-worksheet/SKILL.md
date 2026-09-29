@@ -1,6 +1,6 @@
 ---
 name: cooking-picnics-worksheet
-description: "Use for a picnics worksheet in a fictional cooking exercise."
+description: "Use for a worksheet about picnics in a fictional cooking exercise."
 ---
 
 # Cooking Picnics Worksheet

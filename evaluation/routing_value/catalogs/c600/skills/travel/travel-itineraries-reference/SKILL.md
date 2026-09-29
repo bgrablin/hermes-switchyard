@@ -1,6 +1,6 @@
 ---
 name: travel-itineraries-reference
-description: "Use for a itineraries reference in a fictional travel exercise."
+description: "Use for a reference about itineraries in a fictional travel exercise."
 ---
 
 # Travel Itineraries Reference

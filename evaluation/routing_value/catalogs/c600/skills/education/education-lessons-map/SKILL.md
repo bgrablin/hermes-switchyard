@@ -1,6 +1,6 @@
 ---
 name: education-lessons-map
-description: "Use for a lessons map in a fictional education exercise."
+description: "Use for a map about lessons in a fictional education exercise."
 ---
 
 # Education Lessons Map

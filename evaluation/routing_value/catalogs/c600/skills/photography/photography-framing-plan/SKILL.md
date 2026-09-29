@@ -1,6 +1,6 @@
 ---
 name: photography-framing-plan
-description: "Use for a framing plan in a fictional photography exercise."
+description: "Use for a plan about framing in a fictional photography exercise."
 ---
 
 # Photography Framing Plan

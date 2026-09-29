@@ -1,6 +1,6 @@
 ---
 name: recreation-puzzles-plan
-description: "Use for a puzzles plan in a fictional recreation exercise."
+description: "Use for a plan about puzzles in a fictional recreation exercise."
 ---
 
 # Recreation Puzzles Plan

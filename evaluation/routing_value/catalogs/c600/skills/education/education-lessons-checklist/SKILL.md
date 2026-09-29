@@ -1,6 +1,6 @@
 ---
 name: education-lessons-checklist
-description: "Use for a lessons checklist in a fictional education exercise."
+description: "Use for a checklist about lessons in a fictional education exercise."
 ---
 
 # Education Lessons Checklist

@@ -1,6 +1,6 @@
 ---
 name: writing-letters-schedule
-description: "Use for a letters schedule in a fictional writing exercise."
+description: "Use for a schedule about letters in a fictional writing exercise."
 ---
 
 # Writing Letters Schedule

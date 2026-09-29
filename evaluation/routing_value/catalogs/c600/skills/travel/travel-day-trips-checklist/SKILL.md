@@ -1,6 +1,6 @@
 ---
 name: travel-day-trips-checklist
-description: "Use for a day trips checklist in a fictional travel exercise."
+description: "Use for a checklist about day trips in a fictional travel exercise."
 ---
 
 # Travel Day Trips Checklist

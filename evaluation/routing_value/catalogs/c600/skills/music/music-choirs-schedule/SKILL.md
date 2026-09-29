@@ -1,6 +1,6 @@
 ---
 name: music-choirs-schedule
-description: "Use for a choirs schedule in a fictional music exercise."
+description: "Use for a schedule about choirs in a fictional music exercise."
 ---
 
 # Music Choirs Schedule

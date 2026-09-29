@@ -1,6 +1,6 @@
 ---
 name: nature-wildflowers-brief
-description: "Use for a wildflowers brief in a fictional nature exercise."
+description: "Use for a brief about wildflowers in a fictional nature exercise."
 ---
 
 # Nature Wildflowers Brief

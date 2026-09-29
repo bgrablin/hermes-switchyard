@@ -1,6 +1,6 @@
 ---
 name: sewing-repairs-calendar
-description: "Use for a repairs calendar in a fictional sewing exercise."
+description: "Use for a calendar about repairs in a fictional sewing exercise."
 ---
 
 # Sewing Repairs Calendar

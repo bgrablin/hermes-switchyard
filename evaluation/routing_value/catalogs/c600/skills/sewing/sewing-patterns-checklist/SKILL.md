@@ -1,6 +1,6 @@
 ---
 name: sewing-patterns-checklist
-description: "Use for a patterns checklist in a fictional sewing exercise."
+description: "Use for a checklist about patterns in a fictional sewing exercise."
 ---
 
 # Sewing Patterns Checklist

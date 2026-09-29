@@ -1,6 +1,6 @@
 ---
 name: fitness-cooldowns-worksheet
-description: "Use for a cooldowns worksheet in a fictional fitness exercise."
+description: "Use for a worksheet about cooldowns in a fictional fitness exercise."
 ---
 
 # Fitness Cooldowns Worksheet

@@ -1,6 +1,6 @@
 ---
 name: community-neighbors-guide
-description: "Use for a neighbors guide in a fictional community exercise."
+description: "Use for a guide about neighbors in a fictional community exercise."
 ---
 
 # Community Neighbors Guide

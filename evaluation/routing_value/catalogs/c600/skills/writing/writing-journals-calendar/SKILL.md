@@ -1,6 +1,6 @@
 ---
 name: writing-journals-calendar
-description: "Use for a journals calendar in a fictional writing exercise."
+description: "Use for a calendar about journals in a fictional writing exercise."
 ---
 
 # Writing Journals Calendar

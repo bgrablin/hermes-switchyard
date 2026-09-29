@@ -1,6 +1,6 @@
 ---
 name: nature-pond-visits-calendar
-description: "Use for a pond visits calendar in a fictional nature exercise."
+description: "Use for a calendar about pond visits in a fictional nature exercise."
 ---
 
 # Nature Pond Visits Calendar

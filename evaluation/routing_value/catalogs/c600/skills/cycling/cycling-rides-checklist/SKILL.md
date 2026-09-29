@@ -1,6 +1,6 @@
 ---
 name: cycling-rides-checklist
-description: "Use for a rides checklist in a fictional cycling exercise."
+description: "Use for a checklist about rides in a fictional cycling exercise."
 ---
 
 # Cycling Rides Checklist

@@ -1,6 +1,6 @@
 ---
 name: history-oral-stories-reference
-description: "Use for a oral stories reference in a fictional history exercise."
+description: "Use for a reference about oral stories in a fictional history exercise."
 ---
 
 # History Oral Stories Reference

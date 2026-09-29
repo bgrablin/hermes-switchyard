@@ -1,6 +1,6 @@
 ---
 name: writing-letters-checklist
-description: "Use for a letters checklist in a fictional writing exercise."
+description: "Use for a checklist about letters in a fictional writing exercise."
 ---
 
 # Writing Letters Checklist

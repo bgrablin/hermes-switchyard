@@ -1,6 +1,6 @@
 ---
 name: recreation-games-plan
-description: "Use for a games plan in a fictional recreation exercise."
+description: "Use for a plan about games in a fictional recreation exercise."
 ---
 
 # Recreation Games Plan

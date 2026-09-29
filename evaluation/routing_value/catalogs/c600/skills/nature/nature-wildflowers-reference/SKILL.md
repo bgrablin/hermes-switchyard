@@ -1,6 +1,6 @@
 ---
 name: nature-wildflowers-reference
-description: "Use for a wildflowers reference in a fictional nature exercise."
+description: "Use for a reference about wildflowers in a fictional nature exercise."
 ---
 
 # Nature Wildflowers Reference

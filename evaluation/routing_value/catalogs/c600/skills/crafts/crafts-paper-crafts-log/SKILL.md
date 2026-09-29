@@ -1,6 +1,6 @@
 ---
 name: crafts-paper-crafts-log
-description: "Use for a paper crafts log in a fictional crafts exercise."
+description: "Use for a log about paper crafts in a fictional crafts exercise."
 ---
 
 # Crafts Paper Crafts Log

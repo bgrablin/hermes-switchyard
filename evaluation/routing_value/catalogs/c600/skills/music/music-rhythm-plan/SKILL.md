@@ -1,6 +1,6 @@
 ---
 name: music-rhythm-plan
-description: "Use for a rhythm plan in a fictional music exercise."
+description: "Use for a plan about rhythm in a fictional music exercise."
 ---
 
 # Music Rhythm Plan

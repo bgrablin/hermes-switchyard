@@ -1,6 +1,6 @@
 ---
 name: gardening-planters-log
-description: "Use for a planters log in a fictional gardening exercise."
+description: "Use for a log about planters in a fictional gardening exercise."
 ---
 
 # Gardening Planters Log

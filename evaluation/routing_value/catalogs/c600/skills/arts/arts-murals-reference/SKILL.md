@@ -1,6 +1,6 @@
 ---
 name: arts-murals-reference
-description: "Use for a murals reference in a fictional arts exercise."
+description: "Use for a reference about murals in a fictional arts exercise."
 ---
 
 # Arts Murals Reference

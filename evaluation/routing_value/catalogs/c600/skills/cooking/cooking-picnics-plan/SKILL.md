@@ -1,6 +1,6 @@
 ---
 name: cooking-picnics-plan
-description: "Use for a picnics plan in a fictional cooking exercise."
+description: "Use for a plan about picnics in a fictional cooking exercise."
 ---
 
 # Cooking Picnics Plan

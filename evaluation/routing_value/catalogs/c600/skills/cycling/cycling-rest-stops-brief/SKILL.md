@@ -1,6 +1,6 @@
 ---
 name: cycling-rest-stops-brief
-description: "Use for a rest stops brief in a fictional cycling exercise."
+description: "Use for a brief about rest stops in a fictional cycling exercise."
 ---
 
 # Cycling Rest Stops Brief

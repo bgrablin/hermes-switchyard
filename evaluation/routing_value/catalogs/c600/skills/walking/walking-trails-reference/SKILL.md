@@ -1,6 +1,6 @@
 ---
 name: walking-trails-reference
-description: "Use for a trails reference in a fictional walking exercise."
+description: "Use for a reference about trails in a fictional walking exercise."
 ---
 
 # Walking Trails Reference

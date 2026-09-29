@@ -1,6 +1,6 @@
 ---
 name: theater-readings-plan
-description: "Use for a readings plan in a fictional theater exercise."
+description: "Use for a plan about readings in a fictional theater exercise."
 ---
 
 # Theater Readings Plan

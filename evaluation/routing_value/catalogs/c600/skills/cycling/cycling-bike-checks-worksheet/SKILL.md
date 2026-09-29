@@ -1,6 +1,6 @@
 ---
 name: cycling-bike-checks-worksheet
-description: "Use for a bike checks worksheet in a fictional cycling exercise."
+description: "Use for a worksheet about bike checks in a fictional cycling exercise."
 ---
 
 # Cycling Bike Checks Worksheet

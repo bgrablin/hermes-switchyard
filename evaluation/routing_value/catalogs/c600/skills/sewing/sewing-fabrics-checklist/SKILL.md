@@ -1,6 +1,6 @@
 ---
 name: sewing-fabrics-checklist
-description: "Use for a fabrics checklist in a fictional sewing exercise."
+description: "Use for a checklist about fabrics in a fictional sewing exercise."
 ---
 
 # Sewing Fabrics Checklist

@@ -1,6 +1,6 @@
 ---
 name: sewing-patterns-worksheet
-description: "Use for a patterns worksheet in a fictional sewing exercise."
+description: "Use for a worksheet about patterns in a fictional sewing exercise."
 ---
 
 # Sewing Patterns Worksheet

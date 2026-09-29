@@ -1,6 +1,6 @@
 ---
 name: theater-readings-guide
-description: "Use for a readings guide in a fictional theater exercise."
+description: "Use for a guide about readings in a fictional theater exercise."
 ---
 
 # Theater Readings Guide

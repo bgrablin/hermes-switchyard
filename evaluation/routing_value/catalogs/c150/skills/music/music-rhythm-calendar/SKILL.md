@@ -1,6 +1,6 @@
 ---
 name: music-rhythm-calendar
-description: "Use for a rhythm calendar in a fictional music exercise."
+description: "Use for a calendar about rhythm in a fictional music exercise."
 ---
 
 # Music Rhythm Calendar

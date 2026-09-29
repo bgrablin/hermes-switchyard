@@ -1,6 +1,6 @@
 ---
 name: travel-day-trips-schedule
-description: "Use for a day trips schedule in a fictional travel exercise."
+description: "Use for a schedule about day trips in a fictional travel exercise."
 ---
 
 # Travel Day Trips Schedule

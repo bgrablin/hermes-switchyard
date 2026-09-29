@@ -1,6 +1,6 @@
 ---
 name: education-study-groups-guide
-description: "Use for a study groups guide in a fictional education exercise."
+description: "Use for a guide about study groups in a fictional education exercise."
 ---
 
 # Education Study Groups Guide

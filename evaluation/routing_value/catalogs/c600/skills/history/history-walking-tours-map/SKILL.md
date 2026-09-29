@@ -1,6 +1,6 @@
 ---
 name: history-walking-tours-map
-description: "Use for a walking tours map in a fictional history exercise."
+description: "Use for a map about walking tours in a fictional history exercise."
 ---
 
 # History Walking Tours Map

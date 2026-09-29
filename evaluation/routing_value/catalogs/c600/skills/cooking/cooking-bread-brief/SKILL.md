@@ -1,6 +1,6 @@
 ---
 name: cooking-bread-brief
-description: "Use for a bread brief in a fictional cooking exercise."
+description: "Use for a brief about bread in a fictional cooking exercise."
 ---
 
 # Cooking Bread Brief

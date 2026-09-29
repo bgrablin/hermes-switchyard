@@ -1,6 +1,6 @@
 ---
 name: fitness-stretches-log
-description: "Use for a stretches log in a fictional fitness exercise."
+description: "Use for a log about stretches in a fictional fitness exercise."
 ---
 
 # Fitness Stretches Log

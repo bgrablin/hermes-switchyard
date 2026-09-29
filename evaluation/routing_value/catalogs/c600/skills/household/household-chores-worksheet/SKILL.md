@@ -1,6 +1,6 @@
 ---
 name: household-chores-worksheet
-description: "Use for a chores worksheet in a fictional household exercise."
+description: "Use for a worksheet about chores in a fictional household exercise."
 ---
 
 # Household Chores Worksheet

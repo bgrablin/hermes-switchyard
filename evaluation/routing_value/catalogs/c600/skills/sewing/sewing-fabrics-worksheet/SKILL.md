@@ -1,6 +1,6 @@
 ---
 name: sewing-fabrics-worksheet
-description: "Use for a fabrics worksheet in a fictional sewing exercise."
+description: "Use for a worksheet about fabrics in a fictional sewing exercise."
 ---
 
 # Sewing Fabrics Worksheet

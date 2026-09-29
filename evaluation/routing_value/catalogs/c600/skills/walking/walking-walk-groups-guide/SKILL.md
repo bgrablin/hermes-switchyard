@@ -1,6 +1,6 @@
 ---
 name: walking-walk-groups-guide
-description: "Use for a walk groups guide in a fictional walking exercise."
+description: "Use for a guide about walk groups in a fictional walking exercise."
 ---
 
 # Walking Walk Groups Guide

@@ -1,6 +1,6 @@
 ---
 name: photography-framing-reference
-description: "Use for a framing reference in a fictional photography exercise."
+description: "Use for a reference about framing in a fictional photography exercise."
 ---
 
 # Photography Framing Reference

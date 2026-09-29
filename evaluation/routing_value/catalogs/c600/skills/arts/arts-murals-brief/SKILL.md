@@ -1,6 +1,6 @@
 ---
 name: arts-murals-brief
-description: "Use for a murals brief in a fictional arts exercise."
+description: "Use for a brief about murals in a fictional arts exercise."
 ---
 
 # Arts Murals Brief

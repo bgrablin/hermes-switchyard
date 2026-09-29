@@ -1,6 +1,6 @@
 ---
 name: nature-wildflowers-schedule
-description: "Use for a wildflowers schedule in a fictional nature exercise."
+description: "Use for a schedule about wildflowers in a fictional nature exercise."
 ---
 
 # Nature Wildflowers Schedule

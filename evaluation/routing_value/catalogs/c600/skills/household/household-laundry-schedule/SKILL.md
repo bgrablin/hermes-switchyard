@@ -1,6 +1,6 @@
 ---
 name: household-laundry-schedule
-description: "Use for a laundry schedule in a fictional household exercise."
+description: "Use for a schedule about laundry in a fictional household exercise."
 ---
 
 # Household Laundry Schedule

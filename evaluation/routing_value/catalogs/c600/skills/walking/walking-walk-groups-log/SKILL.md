@@ -1,6 +1,6 @@
 ---
 name: walking-walk-groups-log
-description: "Use for a walk groups log in a fictional walking exercise."
+description: "Use for a log about walk groups in a fictional walking exercise."
 ---
 
 # Walking Walk Groups Log

@@ -1,6 +1,6 @@
 ---
 name: history-oral-stories-guide
-description: "Use for a oral stories guide in a fictional history exercise."
+description: "Use for a guide about oral stories in a fictional history exercise."
 ---
 
 # History Oral Stories Guide

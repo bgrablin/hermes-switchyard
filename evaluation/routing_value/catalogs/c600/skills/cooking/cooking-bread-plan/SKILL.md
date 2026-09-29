@@ -1,6 +1,6 @@
 ---
 name: cooking-bread-plan
-description: "Use for a bread plan in a fictional cooking exercise."
+description: "Use for a plan about bread in a fictional cooking exercise."
 ---
 
 # Cooking Bread Plan

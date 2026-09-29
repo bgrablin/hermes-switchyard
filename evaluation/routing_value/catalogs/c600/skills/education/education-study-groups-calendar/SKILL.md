@@ -1,6 +1,6 @@
 ---
 name: education-study-groups-calendar
-description: "Use for a study groups calendar in a fictional education exercise."
+description: "Use for a calendar about study groups in a fictional education exercise."
 ---
 
 # Education Study Groups Calendar

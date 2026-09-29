@@ -1,6 +1,6 @@
 ---
 name: crafts-clay-guide
-description: "Use for a clay guide in a fictional crafts exercise."
+description: "Use for a guide about clay in a fictional crafts exercise."
 ---
 
 # Crafts Clay Guide

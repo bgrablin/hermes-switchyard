@@ -1,6 +1,6 @@
 ---
 name: theater-props-plan
-description: "Use for a props plan in a fictional theater exercise."
+description: "Use for a plan about props in a fictional theater exercise."
 ---
 
 # Theater Props Plan

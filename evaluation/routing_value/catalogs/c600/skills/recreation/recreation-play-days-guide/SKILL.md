@@ -1,6 +1,6 @@
 ---
 name: recreation-play-days-guide
-description: "Use for a play days guide in a fictional recreation exercise."
+description: "Use for a guide about play days in a fictional recreation exercise."
 ---
 
 # Recreation Play Days Guide

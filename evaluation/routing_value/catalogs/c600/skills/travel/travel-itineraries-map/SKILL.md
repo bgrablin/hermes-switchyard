@@ -1,6 +1,6 @@
 ---
 name: travel-itineraries-map
-description: "Use for a itineraries map in a fictional travel exercise."
+description: "Use for a map about itineraries in a fictional travel exercise."
 ---
 
 # Travel Itineraries Map

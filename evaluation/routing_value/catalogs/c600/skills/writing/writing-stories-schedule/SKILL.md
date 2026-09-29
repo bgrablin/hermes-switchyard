@@ -1,6 +1,6 @@
 ---
 name: writing-stories-schedule
-description: "Use for a stories schedule in a fictional writing exercise."
+description: "Use for a schedule about stories in a fictional writing exercise."
 ---
 
 # Writing Stories Schedule

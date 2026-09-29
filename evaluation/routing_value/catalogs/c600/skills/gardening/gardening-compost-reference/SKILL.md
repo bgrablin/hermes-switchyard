@@ -1,6 +1,6 @@
 ---
 name: gardening-compost-reference
-description: "Use for a compost reference in a fictional gardening exercise."
+description: "Use for a reference about compost in a fictional gardening exercise."
 ---
 
 # Gardening Compost Reference

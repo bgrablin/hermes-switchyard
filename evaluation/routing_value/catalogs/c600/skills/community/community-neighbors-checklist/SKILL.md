@@ -1,6 +1,6 @@
 ---
 name: community-neighbors-checklist
-description: "Use for a neighbors checklist in a fictional community exercise."
+description: "Use for a checklist about neighbors in a fictional community exercise."
 ---
 
 # Community Neighbors Checklist

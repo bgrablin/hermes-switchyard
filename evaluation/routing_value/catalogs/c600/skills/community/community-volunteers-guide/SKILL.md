@@ -1,6 +1,6 @@
 ---
 name: community-volunteers-guide
-description: "Use for a volunteers guide in a fictional community exercise."
+description: "Use for a guide about volunteers in a fictional community exercise."
 ---
 
 # Community Volunteers Guide

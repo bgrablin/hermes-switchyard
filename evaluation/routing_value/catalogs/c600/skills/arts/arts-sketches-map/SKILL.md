@@ -1,6 +1,6 @@
 ---
 name: arts-sketches-map
-description: "Use for a sketches map in a fictional arts exercise."
+description: "Use for a map about sketches in a fictional arts exercise."
 ---
 
 # Arts Sketches Map

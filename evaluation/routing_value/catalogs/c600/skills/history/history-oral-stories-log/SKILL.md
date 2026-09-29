@@ -1,6 +1,6 @@
 ---
 name: history-oral-stories-log
-description: "Use for a oral stories log in a fictional history exercise."
+description: "Use for a log about oral stories in a fictional history exercise."
 ---
 
 # History Oral Stories Log

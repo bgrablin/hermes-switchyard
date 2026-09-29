@@ -1,6 +1,6 @@
 ---
 name: music-practice-worksheet
-description: "Use for a practice worksheet in a fictional music exercise."
+description: "Use for a worksheet about practice in a fictional music exercise."
 ---
 
 # Music Practice Worksheet

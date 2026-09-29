@@ -1,6 +1,6 @@
 ---
 name: travel-day-trips-worksheet
-description: "Use for a day trips worksheet in a fictional travel exercise."
+description: "Use for a worksheet about day trips in a fictional travel exercise."
 ---
 
 # Travel Day Trips Worksheet

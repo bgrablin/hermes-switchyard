@@ -1,6 +1,6 @@
 ---
 name: arts-collage-map
-description: "Use for a collage map in a fictional arts exercise."
+description: "Use for a map about collage in a fictional arts exercise."
 ---
 
 # Arts Collage Map

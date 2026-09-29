@@ -1,6 +1,6 @@
 ---
 name: community-gatherings-schedule
-description: "Use for a gatherings schedule in a fictional community exercise."
+description: "Use for a schedule about gatherings in a fictional community exercise."
 ---
 
 # Community Gatherings Schedule

@@ -1,6 +1,6 @@
 ---
 name: walking-walk-groups-map
-description: "Use for a walk groups map in a fictional walking exercise."
+description: "Use for a map about walk groups in a fictional walking exercise."
 ---
 
 # Walking Walk Groups Map

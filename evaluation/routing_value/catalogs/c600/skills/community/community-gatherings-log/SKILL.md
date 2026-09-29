@@ -1,6 +1,6 @@
 ---
 name: community-gatherings-log
-description: "Use for a gatherings log in a fictional community exercise."
+description: "Use for a log about gatherings in a fictional community exercise."
 ---
 
 # Community Gatherings Log

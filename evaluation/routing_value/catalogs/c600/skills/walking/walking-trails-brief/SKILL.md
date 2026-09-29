@@ -1,6 +1,6 @@
 ---
 name: walking-trails-brief
-description: "Use for a trails brief in a fictional walking exercise."
+description: "Use for a brief about trails in a fictional walking exercise."
 ---
 
 # Walking Trails Brief

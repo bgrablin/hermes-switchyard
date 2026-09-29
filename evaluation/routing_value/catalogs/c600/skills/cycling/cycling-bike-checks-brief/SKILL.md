@@ -1,6 +1,6 @@
 ---
 name: cycling-bike-checks-brief
-description: "Use for a bike checks brief in a fictional cycling exercise."
+description: "Use for a brief about bike checks in a fictional cycling exercise."
 ---
 
 # Cycling Bike Checks Brief

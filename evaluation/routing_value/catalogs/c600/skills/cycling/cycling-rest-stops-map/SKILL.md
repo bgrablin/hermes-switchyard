@@ -1,6 +1,6 @@
 ---
 name: cycling-rest-stops-map
-description: "Use for a rest stops map in a fictional cycling exercise."
+description: "Use for a map about rest stops in a fictional cycling exercise."
 ---
 
 # Cycling Rest Stops Map

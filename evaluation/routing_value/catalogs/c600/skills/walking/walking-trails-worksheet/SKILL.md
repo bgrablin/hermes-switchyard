@@ -1,6 +1,6 @@
 ---
 name: walking-trails-worksheet
-description: "Use for a trails worksheet in a fictional walking exercise."
+description: "Use for a worksheet about trails in a fictional walking exercise."
 ---
 
 # Walking Trails Worksheet

@@ -1,6 +1,6 @@
 ---
 name: arts-sketches-brief
-description: "Use for a sketches brief in a fictional arts exercise."
+description: "Use for a brief about sketches in a fictional arts exercise."
 ---
 
 # Arts Sketches Brief

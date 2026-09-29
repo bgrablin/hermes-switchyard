@@ -1,6 +1,6 @@
 ---
 name: travel-itineraries-plan
-description: "Use for a itineraries plan in a fictional travel exercise."
+description: "Use for a plan about itineraries in a fictional travel exercise."
 ---
 
 # Travel Itineraries Plan

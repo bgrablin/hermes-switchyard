@@ -1,6 +1,6 @@
 ---
 name: cooking-soups-reference
-description: "Use for a soups reference in a fictional cooking exercise."
+description: "Use for a reference about soups in a fictional cooking exercise."
 ---
 
 # Cooking Soups Reference

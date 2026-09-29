@@ -1,6 +1,6 @@
 ---
 name: crafts-paper-crafts-guide
-description: "Use for a paper crafts guide in a fictional crafts exercise."
+description: "Use for a guide about paper crafts in a fictional crafts exercise."
 ---
 
 # Crafts Paper Crafts Guide

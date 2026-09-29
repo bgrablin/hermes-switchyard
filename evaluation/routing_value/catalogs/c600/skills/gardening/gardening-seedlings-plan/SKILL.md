@@ -1,6 +1,6 @@
 ---
 name: gardening-seedlings-plan
-description: "Use for a seedlings plan in a fictional gardening exercise."
+description: "Use for a plan about seedlings in a fictional gardening exercise."
 ---
 
 # Gardening Seedlings Plan

@@ -1,6 +1,6 @@
 ---
 name: cycling-rides-plan
-description: "Use for a rides plan in a fictional cycling exercise."
+description: "Use for a plan about rides in a fictional cycling exercise."
 ---
 
 # Cycling Rides Plan

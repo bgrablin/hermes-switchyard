@@ -1,6 +1,6 @@
 ---
 name: writing-journals-checklist
-description: "Use for a journals checklist in a fictional writing exercise."
+description: "Use for a checklist about journals in a fictional writing exercise."
 ---
 
 # Writing Journals Checklist

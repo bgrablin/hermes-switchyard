@@ -1,6 +1,6 @@
 ---
 name: walking-nature-notes-map
-description: "Use for a nature notes map in a fictional walking exercise."
+description: "Use for a map about nature notes in a fictional walking exercise."
 ---
 
 # Walking Nature Notes Map

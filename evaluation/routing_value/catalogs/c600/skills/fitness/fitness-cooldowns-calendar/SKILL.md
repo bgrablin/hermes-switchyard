@@ -1,6 +1,6 @@
 ---
 name: fitness-cooldowns-calendar
-description: "Use for a cooldowns calendar in a fictional fitness exercise."
+description: "Use for a calendar about cooldowns in a fictional fitness exercise."
 ---
 
 # Fitness Cooldowns Calendar

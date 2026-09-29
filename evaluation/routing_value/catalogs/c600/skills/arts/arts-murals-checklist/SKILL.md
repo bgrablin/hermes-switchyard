@@ -1,6 +1,6 @@
 ---
 name: arts-murals-checklist
-description: "Use for a murals checklist in a fictional arts exercise."
+description: "Use for a checklist about murals in a fictional arts exercise."
 ---
 
 # Arts Murals Checklist

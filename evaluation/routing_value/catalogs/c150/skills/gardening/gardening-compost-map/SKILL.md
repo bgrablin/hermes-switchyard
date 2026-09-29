@@ -1,6 +1,6 @@
 ---
 name: gardening-compost-map
-description: "Use for a compost map in a fictional gardening exercise."
+description: "Use for a map about compost in a fictional gardening exercise."
 ---
 
 # Gardening Compost Map

@@ -1,6 +1,6 @@
 ---
 name: travel-packing-brief
-description: "Use for a packing brief in a fictional travel exercise."
+description: "Use for a brief about packing in a fictional travel exercise."
 ---
 
 # Travel Packing Brief

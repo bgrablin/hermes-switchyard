@@ -1,6 +1,6 @@
 ---
 name: theater-props-brief
-description: "Use for a props brief in a fictional theater exercise."
+description: "Use for a brief about props in a fictional theater exercise."
 ---
 
 # Theater Props Brief

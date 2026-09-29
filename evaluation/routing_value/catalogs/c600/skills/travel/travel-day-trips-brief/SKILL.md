@@ -1,6 +1,6 @@
 ---
 name: travel-day-trips-brief
-description: "Use for a day trips brief in a fictional travel exercise."
+description: "Use for a brief about day trips in a fictional travel exercise."
 ---
 
 # Travel Day Trips Brief

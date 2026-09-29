@@ -1,6 +1,6 @@
 ---
 name: photography-framing-brief
-description: "Use for a framing brief in a fictional photography exercise."
+description: "Use for a brief about framing in a fictional photography exercise."
 ---
 
 # Photography Framing Brief

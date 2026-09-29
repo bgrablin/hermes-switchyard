@@ -1,6 +1,6 @@
 ---
 name: crafts-paper-crafts-worksheet
-description: "Use for a paper crafts worksheet in a fictional crafts exercise."
+description: "Use for a worksheet about paper crafts in a fictional crafts exercise."
 ---
 
 # Crafts Paper Crafts Worksheet

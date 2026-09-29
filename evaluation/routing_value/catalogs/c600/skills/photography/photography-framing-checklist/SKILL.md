@@ -1,6 +1,6 @@
 ---
 name: photography-framing-checklist
-description: "Use for a framing checklist in a fictional photography exercise."
+description: "Use for a checklist about framing in a fictional photography exercise."
 ---
 
 # Photography Framing Checklist

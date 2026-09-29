@@ -1,6 +1,6 @@
 ---
 name: fitness-cooldowns-map
-description: "Use for a cooldowns map in a fictional fitness exercise."
+description: "Use for a map about cooldowns in a fictional fitness exercise."
 ---
 
 # Fitness Cooldowns Map

@@ -1,6 +1,6 @@
 ---
 name: recreation-play-days-map
-description: "Use for a play days map in a fictional recreation exercise."
+description: "Use for a map about play days in a fictional recreation exercise."
 ---
 
 # Recreation Play Days Map

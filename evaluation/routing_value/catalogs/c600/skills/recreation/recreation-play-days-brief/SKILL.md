@@ -1,6 +1,6 @@
 ---
 name: recreation-play-days-brief
-description: "Use for a play days brief in a fictional recreation exercise."
+description: "Use for a brief about play days in a fictional recreation exercise."
 ---
 
 # Recreation Play Days Brief

@@ -1,6 +1,6 @@
 ---
 name: nature-birdwatching-worksheet
-description: "Use for a birdwatching worksheet in a fictional nature exercise."
+description: "Use for a worksheet about birdwatching in a fictional nature exercise."
 ---
 
 # Nature Birdwatching Worksheet

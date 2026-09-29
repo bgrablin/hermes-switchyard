@@ -1,6 +1,6 @@
 ---
 name: household-chores-guide
-description: "Use for a chores guide in a fictional household exercise."
+description: "Use for a guide about chores in a fictional household exercise."
 ---
 
 # Household Chores Guide

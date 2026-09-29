@@ -1,6 +1,6 @@
 ---
 name: community-neighbors-plan
-description: "Use for a neighbors plan in a fictional community exercise."
+description: "Use for a plan about neighbors in a fictional community exercise."
 ---
 
 # Community Neighbors Plan

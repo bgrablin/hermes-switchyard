@@ -1,6 +1,6 @@
 ---
 name: gardening-compost-plan
-description: "Use for a compost plan in a fictional gardening exercise."
+description: "Use for a plan about compost in a fictional gardening exercise."
 ---
 
 # Gardening Compost Plan

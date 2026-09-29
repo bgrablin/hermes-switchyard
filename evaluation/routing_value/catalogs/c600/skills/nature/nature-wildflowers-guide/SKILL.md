@@ -1,6 +1,6 @@
 ---
 name: nature-wildflowers-guide
-description: "Use for a wildflowers guide in a fictional nature exercise."
+description: "Use for a guide about wildflowers in a fictional nature exercise."
 ---
 
 # Nature Wildflowers Guide

@@ -1,6 +1,6 @@
 ---
 name: libraries-shelves-map
-description: "Use for a shelves map in a fictional libraries exercise."
+description: "Use for a map about shelves in a fictional libraries exercise."
 ---
 
 # Libraries Shelves Map

@@ -1,6 +1,6 @@
 ---
 name: fitness-cooldowns-plan
-description: "Use for a cooldowns plan in a fictional fitness exercise."
+description: "Use for a plan about cooldowns in a fictional fitness exercise."
 ---
 
 # Fitness Cooldowns Plan

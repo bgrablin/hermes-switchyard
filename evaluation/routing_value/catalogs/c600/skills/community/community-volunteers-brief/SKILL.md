@@ -1,6 +1,6 @@
 ---
 name: community-volunteers-brief
-description: "Use for a volunteers brief in a fictional community exercise."
+description: "Use for a brief about volunteers in a fictional community exercise."
 ---
 
 # Community Volunteers Brief

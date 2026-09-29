@@ -1,6 +1,6 @@
 ---
 name: theater-readings-reference
-description: "Use for a readings reference in a fictional theater exercise."
+description: "Use for a reference about readings in a fictional theater exercise."
 ---
 
 # Theater Readings Reference

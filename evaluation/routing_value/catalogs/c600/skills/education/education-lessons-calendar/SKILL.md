@@ -1,6 +1,6 @@
 ---
 name: education-lessons-calendar
-description: "Use for a lessons calendar in a fictional education exercise."
+description: "Use for a calendar about lessons in a fictional education exercise."
 ---
 
 # Education Lessons Calendar

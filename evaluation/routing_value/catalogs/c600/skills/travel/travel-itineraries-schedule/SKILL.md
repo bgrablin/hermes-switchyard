@@ -1,6 +1,6 @@
 ---
 name: travel-itineraries-schedule
-description: "Use for a itineraries schedule in a fictional travel exercise."
+description: "Use for a schedule about itineraries in a fictional travel exercise."
 ---
 
 # Travel Itineraries Schedule

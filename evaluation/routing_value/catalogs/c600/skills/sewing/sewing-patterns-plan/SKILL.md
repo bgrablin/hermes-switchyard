@@ -1,6 +1,6 @@
 ---
 name: sewing-patterns-plan
-description: "Use for a patterns plan in a fictional sewing exercise."
+description: "Use for a plan about patterns in a fictional sewing exercise."
 ---
 
 # Sewing Patterns Plan

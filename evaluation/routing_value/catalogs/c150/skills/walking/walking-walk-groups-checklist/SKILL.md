@@ -1,6 +1,6 @@
 ---
 name: walking-walk-groups-checklist
-description: "Use for a walk groups checklist in a fictional walking exercise."
+description: "Use for a checklist about walk groups in a fictional walking exercise."
 ---
 
 # Walking Walk Groups Checklist

@@ -1,6 +1,6 @@
 ---
 name: cooking-bread-checklist
-description: "Use for a bread checklist in a fictional cooking exercise."
+description: "Use for a checklist about bread in a fictional cooking exercise."
 ---
 
 # Cooking Bread Checklist

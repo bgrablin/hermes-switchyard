@@ -1,6 +1,6 @@
 ---
 name: music-rhythm-log
-description: "Use for a rhythm log in a fictional music exercise."
+description: "Use for a log about rhythm in a fictional music exercise."
 ---
 
 # Music Rhythm Log

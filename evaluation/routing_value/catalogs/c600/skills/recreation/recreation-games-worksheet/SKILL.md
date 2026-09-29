@@ -1,6 +1,6 @@
 ---
 name: recreation-games-worksheet
-description: "Use for a games worksheet in a fictional recreation exercise."
+description: "Use for a worksheet about games in a fictional recreation exercise."
 ---
 
 # Recreation Games Worksheet

@@ -1,6 +1,6 @@
 ---
 name: household-laundry-map
-description: "Use for a laundry map in a fictional household exercise."
+description: "Use for a map about laundry in a fictional household exercise."
 ---
 
 # Household Laundry Map

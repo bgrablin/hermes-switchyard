@@ -1,6 +1,6 @@
 ---
 name: nature-pond-visits-checklist
-description: "Use for a pond visits checklist in a fictional nature exercise."
+description: "Use for a checklist about pond visits in a fictional nature exercise."
 ---
 
 # Nature Pond Visits Checklist

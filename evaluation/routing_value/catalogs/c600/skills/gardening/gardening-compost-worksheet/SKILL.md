@@ -1,6 +1,6 @@
 ---
 name: gardening-compost-worksheet
-description: "Use for a compost worksheet in a fictional gardening exercise."
+description: "Use for a worksheet about compost in a fictional gardening exercise."
 ---
 
 # Gardening Compost Worksheet

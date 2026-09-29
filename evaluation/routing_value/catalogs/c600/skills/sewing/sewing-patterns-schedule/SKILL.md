@@ -1,6 +1,6 @@
 ---
 name: sewing-patterns-schedule
-description: "Use for a patterns schedule in a fictional sewing exercise."
+description: "Use for a schedule about patterns in a fictional sewing exercise."
 ---
 
 # Sewing Patterns Schedule

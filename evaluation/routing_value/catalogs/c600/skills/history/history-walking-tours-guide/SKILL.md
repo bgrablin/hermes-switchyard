@@ -1,6 +1,6 @@
 ---
 name: history-walking-tours-guide
-description: "Use for a walking tours guide in a fictional history exercise."
+description: "Use for a guide about walking tours in a fictional history exercise."
 ---
 
 # History Walking Tours Guide

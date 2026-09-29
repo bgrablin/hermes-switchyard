@@ -1,6 +1,6 @@
 ---
 name: music-choirs-calendar
-description: "Use for a choirs calendar in a fictional music exercise."
+description: "Use for a calendar about choirs in a fictional music exercise."
 ---
 
 # Music Choirs Calendar

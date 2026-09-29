@@ -1,6 +1,6 @@
 ---
 name: cooking-picnics-calendar
-description: "Use for a picnics calendar in a fictional cooking exercise."
+description: "Use for a calendar about picnics in a fictional cooking exercise."
 ---
 
 # Cooking Picnics Calendar

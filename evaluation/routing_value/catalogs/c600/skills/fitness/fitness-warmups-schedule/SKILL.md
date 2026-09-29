@@ -1,6 +1,6 @@
 ---
 name: fitness-warmups-schedule
-description: "Use for a warmups schedule in a fictional fitness exercise."
+description: "Use for a schedule about warmups in a fictional fitness exercise."
 ---
 
 # Fitness Warmups Schedule

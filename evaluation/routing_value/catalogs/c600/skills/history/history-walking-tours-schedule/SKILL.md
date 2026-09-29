@@ -1,6 +1,6 @@
 ---
 name: history-walking-tours-schedule
-description: "Use for a walking tours schedule in a fictional history exercise."
+description: "Use for a schedule about walking tours in a fictional history exercise."
 ---
 
 # History Walking Tours Schedule

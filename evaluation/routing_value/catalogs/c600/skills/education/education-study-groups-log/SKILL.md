@@ -1,6 +1,6 @@
 ---
 name: education-study-groups-log
-description: "Use for a study groups log in a fictional education exercise."
+description: "Use for a log about study groups in a fictional education exercise."
 ---
 
 # Education Study Groups Log

@@ -1,6 +1,6 @@
 ---
 name: cooking-bread-calendar
-description: "Use for a bread calendar in a fictional cooking exercise."
+description: "Use for a calendar about bread in a fictional cooking exercise."
 ---
 
 # Cooking Bread Calendar

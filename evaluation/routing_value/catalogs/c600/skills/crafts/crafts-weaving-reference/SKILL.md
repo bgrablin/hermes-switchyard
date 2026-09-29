@@ -1,6 +1,6 @@
 ---
 name: crafts-weaving-reference
-description: "Use for a weaving reference in a fictional crafts exercise."
+description: "Use for a reference about weaving in a fictional crafts exercise."
 ---
 
 # Crafts Weaving Reference

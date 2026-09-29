@@ -1,6 +1,6 @@
 ---
 name: crafts-paper-crafts-calendar
-description: "Use for a paper crafts calendar in a fictional crafts exercise."
+description: "Use for a calendar about paper crafts in a fictional crafts exercise."
 ---
 
 # Crafts Paper Crafts Calendar

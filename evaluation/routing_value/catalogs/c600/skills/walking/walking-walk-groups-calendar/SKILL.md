@@ -1,6 +1,6 @@
 ---
 name: walking-walk-groups-calendar
-description: "Use for a walk groups calendar in a fictional walking exercise."
+description: "Use for a calendar about walk groups in a fictional walking exercise."
 ---
 
 # Walking Walk Groups Calendar

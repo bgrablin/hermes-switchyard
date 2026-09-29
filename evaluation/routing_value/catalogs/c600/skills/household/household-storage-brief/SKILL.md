@@ -1,6 +1,6 @@
 ---
 name: household-storage-brief
-description: "Use for a storage brief in a fictional household exercise."
+description: "Use for a brief about storage in a fictional household exercise."
 ---
 
 # Household Storage Brief

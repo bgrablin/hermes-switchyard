@@ -1,6 +1,6 @@
 ---
 name: crafts-weaving-schedule
-description: "Use for a weaving schedule in a fictional crafts exercise."
+description: "Use for a schedule about weaving in a fictional crafts exercise."
 ---
 
 # Crafts Weaving Schedule

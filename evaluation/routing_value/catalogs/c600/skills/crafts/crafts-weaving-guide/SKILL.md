@@ -1,6 +1,6 @@
 ---
 name: crafts-weaving-guide
-description: "Use for a weaving guide in a fictional crafts exercise."
+description: "Use for a guide about weaving in a fictional crafts exercise."
 ---
 
 # Crafts Weaving Guide

@@ -1,6 +1,6 @@
 ---
 name: gardening-seedlings-log
-description: "Use for a seedlings log in a fictional gardening exercise."
+description: "Use for a log about seedlings in a fictional gardening exercise."
 ---
 
 # Gardening Seedlings Log

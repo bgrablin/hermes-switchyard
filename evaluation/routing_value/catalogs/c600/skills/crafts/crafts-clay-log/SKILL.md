@@ -1,6 +1,6 @@
 ---
 name: crafts-clay-log
-description: "Use for a clay log in a fictional crafts exercise."
+description: "Use for a log about clay in a fictional crafts exercise."
 ---
 
 # Crafts Clay Log

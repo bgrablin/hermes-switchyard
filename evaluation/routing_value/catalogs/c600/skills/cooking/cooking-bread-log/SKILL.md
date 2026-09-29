@@ -1,6 +1,6 @@
 ---
 name: cooking-bread-log
-description: "Use for a bread log in a fictional cooking exercise."
+description: "Use for a log about bread in a fictional cooking exercise."
 ---
 
 # Cooking Bread Log

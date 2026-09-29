@@ -1,6 +1,6 @@
 ---
 name: household-storage-log
-description: "Use for a storage log in a fictional household exercise."
+description: "Use for a log about storage in a fictional household exercise."
 ---
 
 # Household Storage Log

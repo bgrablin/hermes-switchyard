@@ -1,6 +1,6 @@
 ---
 name: music-practice-checklist
-description: "Use for a practice checklist in a fictional music exercise."
+description: "Use for a checklist about practice in a fictional music exercise."
 ---
 
 # Music Practice Checklist

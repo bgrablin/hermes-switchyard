@@ -1,6 +1,6 @@
 ---
 name: libraries-book-clubs-map
-description: "Use for a book clubs map in a fictional libraries exercise."
+description: "Use for a map about book clubs in a fictional libraries exercise."
 ---
 
 # Libraries Book Clubs Map

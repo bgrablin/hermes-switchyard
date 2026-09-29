@@ -1,6 +1,6 @@
 ---
 name: education-field-trips-schedule
-description: "Use for a field trips schedule in a fictional education exercise."
+description: "Use for a schedule about field trips in a fictional education exercise."
 ---
 
 # Education Field Trips Schedule

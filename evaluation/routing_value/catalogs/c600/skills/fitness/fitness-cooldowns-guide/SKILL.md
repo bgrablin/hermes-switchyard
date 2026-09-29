@@ -1,6 +1,6 @@
 ---
 name: fitness-cooldowns-guide
-description: "Use for a cooldowns guide in a fictional fitness exercise."
+description: "Use for a guide about cooldowns in a fictional fitness exercise."
 ---
 
 # Fitness Cooldowns Guide

@@ -1,6 +1,6 @@
 ---
 name: writing-letters-plan
-description: "Use for a letters plan in a fictional writing exercise."
+description: "Use for a plan about letters in a fictional writing exercise."
 ---
 
 # Writing Letters Plan

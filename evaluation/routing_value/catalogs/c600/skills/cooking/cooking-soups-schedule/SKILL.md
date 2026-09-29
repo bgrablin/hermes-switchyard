@@ -1,6 +1,6 @@
 ---
 name: cooking-soups-schedule
-description: "Use for a soups schedule in a fictional cooking exercise."
+description: "Use for a schedule about soups in a fictional cooking exercise."
 ---
 
 # Cooking Soups Schedule

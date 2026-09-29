@@ -1,6 +1,6 @@
 ---
 name: household-chores-schedule
-description: "Use for a chores schedule in a fictional household exercise."
+description: "Use for a schedule about chores in a fictional household exercise."
 ---
 
 # Household Chores Schedule

@@ -1,6 +1,6 @@
 ---
 name: cooking-soups-calendar
-description: "Use for a soups calendar in a fictional cooking exercise."
+description: "Use for a calendar about soups in a fictional cooking exercise."
 ---
 
 # Cooking Soups Calendar

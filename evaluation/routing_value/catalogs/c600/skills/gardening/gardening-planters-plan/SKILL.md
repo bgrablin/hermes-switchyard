@@ -1,6 +1,6 @@
 ---
 name: gardening-planters-plan
-description: "Use for a planters plan in a fictional gardening exercise."
+description: "Use for a plan about planters in a fictional gardening exercise."
 ---
 
 # Gardening Planters Plan

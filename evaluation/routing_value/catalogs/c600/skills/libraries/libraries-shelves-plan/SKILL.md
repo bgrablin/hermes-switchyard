@@ -1,6 +1,6 @@
 ---
 name: libraries-shelves-plan
-description: "Use for a shelves plan in a fictional libraries exercise."
+description: "Use for a plan about shelves in a fictional libraries exercise."
 ---
 
 # Libraries Shelves Plan

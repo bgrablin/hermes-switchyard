@@ -1,6 +1,6 @@
 ---
 name: cycling-bike-checks-log
-description: "Use for a bike checks log in a fictional cycling exercise."
+description: "Use for a log about bike checks in a fictional cycling exercise."
 ---
 
 # Cycling Bike Checks Log

@@ -1,6 +1,6 @@
 ---
 name: household-laundry-brief
-description: "Use for a laundry brief in a fictional household exercise."
+description: "Use for a brief about laundry in a fictional household exercise."
 ---
 
 # Household Laundry Brief

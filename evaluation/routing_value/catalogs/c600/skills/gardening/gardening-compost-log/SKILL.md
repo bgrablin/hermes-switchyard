@@ -1,6 +1,6 @@
 ---
 name: gardening-compost-log
-description: "Use for a compost log in a fictional gardening exercise."
+description: "Use for a log about compost in a fictional gardening exercise."
 ---
 
 # Gardening Compost Log

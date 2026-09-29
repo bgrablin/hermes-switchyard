@@ -1,6 +1,6 @@
 ---
 name: sewing-repairs-worksheet
-description: "Use for a repairs worksheet in a fictional sewing exercise."
+description: "Use for a worksheet about repairs in a fictional sewing exercise."
 ---
 
 # Sewing Repairs Worksheet

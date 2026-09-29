@@ -1,6 +1,6 @@
 ---
 name: history-walking-tours-calendar
-description: "Use for a walking tours calendar in a fictional history exercise."
+description: "Use for a calendar about walking tours in a fictional history exercise."
 ---
 
 # History Walking Tours Calendar

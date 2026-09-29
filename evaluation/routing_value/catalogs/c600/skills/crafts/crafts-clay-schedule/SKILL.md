@@ -1,6 +1,6 @@
 ---
 name: crafts-clay-schedule
-description: "Use for a clay schedule in a fictional crafts exercise."
+description: "Use for a schedule about clay in a fictional crafts exercise."
 ---
 
 # Crafts Clay Schedule

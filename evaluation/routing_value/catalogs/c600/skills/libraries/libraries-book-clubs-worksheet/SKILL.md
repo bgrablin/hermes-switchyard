@@ -1,6 +1,6 @@
 ---
 name: libraries-book-clubs-worksheet
-description: "Use for a book clubs worksheet in a fictional libraries exercise."
+description: "Use for a worksheet about book clubs in a fictional libraries exercise."
 ---
 
 # Libraries Book Clubs Worksheet

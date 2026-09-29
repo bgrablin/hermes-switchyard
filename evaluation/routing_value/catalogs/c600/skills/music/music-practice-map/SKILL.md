@@ -1,6 +1,6 @@
 ---
 name: music-practice-map
-description: "Use for a practice map in a fictional music exercise."
+description: "Use for a map about practice in a fictional music exercise."
 ---
 
 # Music Practice Map

@@ -1,6 +1,6 @@
 ---
 name: travel-itineraries-log
-description: "Use for a itineraries log in a fictional travel exercise."
+description: "Use for a log about itineraries in a fictional travel exercise."
 ---
 
 # Travel Itineraries Log

@@ -1,6 +1,6 @@
 ---
 name: travel-packing-guide
-description: "Use for a packing guide in a fictional travel exercise."
+description: "Use for a guide about packing in a fictional travel exercise."
 ---
 
 # Travel Packing Guide

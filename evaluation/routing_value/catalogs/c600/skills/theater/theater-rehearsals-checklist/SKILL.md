@@ -1,6 +1,6 @@
 ---
 name: theater-rehearsals-checklist
-description: "Use for a rehearsals checklist in a fictional theater exercise."
+description: "Use for a checklist about rehearsals in a fictional theater exercise."
 ---
 
 # Theater Rehearsals Checklist

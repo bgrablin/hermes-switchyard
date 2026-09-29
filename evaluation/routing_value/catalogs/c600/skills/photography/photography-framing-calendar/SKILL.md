@@ -1,6 +1,6 @@
 ---
 name: photography-framing-calendar
-description: "Use for a framing calendar in a fictional photography exercise."
+description: "Use for a calendar about framing in a fictional photography exercise."
 ---
 
 # Photography Framing Calendar

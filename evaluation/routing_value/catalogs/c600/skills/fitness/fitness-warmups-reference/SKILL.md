@@ -1,6 +1,6 @@
 ---
 name: fitness-warmups-reference
-description: "Use for a warmups reference in a fictional fitness exercise."
+description: "Use for a reference about warmups in a fictional fitness exercise."
 ---
 
 # Fitness Warmups Reference

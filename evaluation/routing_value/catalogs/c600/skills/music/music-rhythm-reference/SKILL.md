@@ -1,6 +1,6 @@
 ---
 name: music-rhythm-reference
-description: "Use for a rhythm reference in a fictional music exercise."
+description: "Use for a reference about rhythm in a fictional music exercise."
 ---
 
 # Music Rhythm Reference

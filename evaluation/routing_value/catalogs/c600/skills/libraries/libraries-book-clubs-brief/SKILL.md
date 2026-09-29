@@ -1,6 +1,6 @@
 ---
 name: libraries-book-clubs-brief
-description: "Use for a book clubs brief in a fictional libraries exercise."
+description: "Use for a brief about book clubs in a fictional libraries exercise."
 ---
 
 # Libraries Book Clubs Brief

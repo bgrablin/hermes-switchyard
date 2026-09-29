@@ -1,6 +1,6 @@
 ---
 name: fitness-warmups-log
-description: "Use for a warmups log in a fictional fitness exercise."
+description: "Use for a log about warmups in a fictional fitness exercise."
 ---
 
 # Fitness Warmups Log

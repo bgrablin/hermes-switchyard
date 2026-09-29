@@ -1,6 +1,6 @@
 ---
 name: history-exhibits-map
-description: "Use for a exhibits map in a fictional history exercise."
+description: "Use for a map about exhibits in a fictional history exercise."
 ---
 
 # History Exhibits Map

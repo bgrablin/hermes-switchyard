@@ -1,6 +1,6 @@
 ---
 name: writing-letters-worksheet
-description: "Use for a letters worksheet in a fictional writing exercise."
+description: "Use for a worksheet about letters in a fictional writing exercise."
 ---
 
 # Writing Letters Worksheet

@@ -1,6 +1,6 @@
 ---
 name: history-oral-stories-worksheet
-description: "Use for a oral stories worksheet in a fictional history exercise."
+description: "Use for a worksheet about oral stories in a fictional history exercise."
 ---
 
 # History Oral Stories Worksheet

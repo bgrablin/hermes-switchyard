@@ -1,6 +1,6 @@
 ---
 name: cycling-rest-stops-plan
-description: "Use for a rest stops plan in a fictional cycling exercise."
+description: "Use for a plan about rest stops in a fictional cycling exercise."
 ---
 
 # Cycling Rest Stops Plan

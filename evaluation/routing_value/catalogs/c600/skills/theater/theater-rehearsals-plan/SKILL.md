@@ -1,6 +1,6 @@
 ---
 name: theater-rehearsals-plan
-description: "Use for a rehearsals plan in a fictional theater exercise."
+description: "Use for a plan about rehearsals in a fictional theater exercise."
 ---
 
 # Theater Rehearsals Plan

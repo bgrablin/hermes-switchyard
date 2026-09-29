@@ -1,6 +1,6 @@
 ---
 name: photography-framing-map
-description: "Use for a framing map in a fictional photography exercise."
+description: "Use for a map about framing in a fictional photography exercise."
 ---
 
 # Photography Framing Map

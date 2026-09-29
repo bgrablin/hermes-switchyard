@@ -1,6 +1,6 @@
 ---
 name: writing-journals-worksheet
-description: "Use for a journals worksheet in a fictional writing exercise."
+description: "Use for a worksheet about journals in a fictional writing exercise."
 ---
 
 # Writing Journals Worksheet

@@ -1,6 +1,6 @@
 ---
 name: recreation-games-map
-description: "Use for a games map in a fictional recreation exercise."
+description: "Use for a map about games in a fictional recreation exercise."
 ---
 
 # Recreation Games Map

@@ -1,6 +1,6 @@
 ---
 name: community-neighbors-calendar
-description: "Use for a neighbors calendar in a fictional community exercise."
+description: "Use for a calendar about neighbors in a fictional community exercise."
 ---
 
 # Community Neighbors Calendar

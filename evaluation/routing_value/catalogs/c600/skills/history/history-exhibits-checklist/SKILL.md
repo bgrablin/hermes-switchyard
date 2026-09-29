@@ -1,6 +1,6 @@
 ---
 name: history-exhibits-checklist
-description: "Use for a exhibits checklist in a fictional history exercise."
+description: "Use for a checklist about exhibits in a fictional history exercise."
 ---
 
 # History Exhibits Checklist

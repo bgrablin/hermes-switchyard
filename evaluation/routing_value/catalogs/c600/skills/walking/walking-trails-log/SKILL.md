@@ -1,6 +1,6 @@
 ---
 name: walking-trails-log
-description: "Use for a trails log in a fictional walking exercise."
+description: "Use for a log about trails in a fictional walking exercise."
 ---
 
 # Walking Trails Log

@@ -1,6 +1,6 @@
 ---
 name: arts-collage-worksheet
-description: "Use for a collage worksheet in a fictional arts exercise."
+description: "Use for a worksheet about collage in a fictional arts exercise."
 ---
 
 # Arts Collage Worksheet

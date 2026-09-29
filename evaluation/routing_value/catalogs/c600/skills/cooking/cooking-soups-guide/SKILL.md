@@ -1,6 +1,6 @@
 ---
 name: cooking-soups-guide
-description: "Use for a soups guide in a fictional cooking exercise."
+description: "Use for a guide about soups in a fictional cooking exercise."
 ---
 
 # Cooking Soups Guide

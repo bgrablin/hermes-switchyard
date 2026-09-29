@@ -1,6 +1,6 @@
 ---
 name: crafts-weaving-worksheet
-description: "Use for a weaving worksheet in a fictional crafts exercise."
+description: "Use for a worksheet about weaving in a fictional crafts exercise."
 ---
 
 # Crafts Weaving Worksheet

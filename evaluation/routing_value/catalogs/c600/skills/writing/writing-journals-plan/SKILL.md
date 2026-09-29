@@ -1,6 +1,6 @@
 ---
 name: writing-journals-plan
-description: "Use for a journals plan in a fictional writing exercise."
+description: "Use for a plan about journals in a fictional writing exercise."
 ---
 
 # Writing Journals Plan

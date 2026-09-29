@@ -1,6 +1,6 @@
 ---
 name: recreation-puzzles-guide
-description: "Use for a puzzles guide in a fictional recreation exercise."
+description: "Use for a guide about puzzles in a fictional recreation exercise."
 ---
 
 # Recreation Puzzles Guide

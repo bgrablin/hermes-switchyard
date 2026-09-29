@@ -1,6 +1,6 @@
 ---
 name: theater-rehearsals-reference
-description: "Use for a rehearsals reference in a fictional theater exercise."
+description: "Use for a reference about rehearsals in a fictional theater exercise."
 ---
 
 # Theater Rehearsals Reference

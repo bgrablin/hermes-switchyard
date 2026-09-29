@@ -1,6 +1,6 @@
 ---
 name: cycling-rides-worksheet
-description: "Use for a rides worksheet in a fictional cycling exercise."
+description: "Use for a worksheet about rides in a fictional cycling exercise."
 ---
 
 # Cycling Rides Worksheet

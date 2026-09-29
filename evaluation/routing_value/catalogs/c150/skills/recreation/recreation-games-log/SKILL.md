@@ -1,6 +1,6 @@
 ---
 name: recreation-games-log
-description: "Use for a games log in a fictional recreation exercise."
+description: "Use for a log about games in a fictional recreation exercise."
 ---
 
 # Recreation Games Log

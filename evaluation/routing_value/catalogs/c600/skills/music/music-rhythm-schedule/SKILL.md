@@ -1,6 +1,6 @@
 ---
 name: music-rhythm-schedule
-description: "Use for a rhythm schedule in a fictional music exercise."
+description: "Use for a schedule about rhythm in a fictional music exercise."
 ---
 
 # Music Rhythm Schedule

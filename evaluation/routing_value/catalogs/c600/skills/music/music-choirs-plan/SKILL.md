@@ -1,6 +1,6 @@
 ---
 name: music-choirs-plan
-description: "Use for a choirs plan in a fictional music exercise."
+description: "Use for a plan about choirs in a fictional music exercise."
 ---
 
 # Music Choirs Plan

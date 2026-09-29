@@ -1,6 +1,6 @@
 ---
 name: writing-letters-guide
-description: "Use for a letters guide in a fictional writing exercise."
+description: "Use for a guide about letters in a fictional writing exercise."
 ---
 
 # Writing Letters Guide

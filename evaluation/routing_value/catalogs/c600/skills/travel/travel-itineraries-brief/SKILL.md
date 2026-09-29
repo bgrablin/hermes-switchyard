@@ -1,6 +1,6 @@
 ---
 name: travel-itineraries-brief
-description: "Use for a itineraries brief in a fictional travel exercise."
+description: "Use for a brief about itineraries in a fictional travel exercise."
 ---
 
 # Travel Itineraries Brief

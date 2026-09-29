@@ -1,6 +1,6 @@
 ---
 name: music-choirs-log
-description: "Use for a choirs log in a fictional music exercise."
+description: "Use for a log about choirs in a fictional music exercise."
 ---
 
 # Music Choirs Log

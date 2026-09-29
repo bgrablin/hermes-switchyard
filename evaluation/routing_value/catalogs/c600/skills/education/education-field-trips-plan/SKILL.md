@@ -1,6 +1,6 @@
 ---
 name: education-field-trips-plan
-description: "Use for a field trips plan in a fictional education exercise."
+description: "Use for a plan about field trips in a fictional education exercise."
 ---
 
 # Education Field Trips Plan

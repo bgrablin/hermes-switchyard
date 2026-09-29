@@ -1,6 +1,6 @@
 ---
 name: theater-readings-schedule
-description: "Use for a readings schedule in a fictional theater exercise."
+description: "Use for a schedule about readings in a fictional theater exercise."
 ---
 
 # Theater Readings Schedule

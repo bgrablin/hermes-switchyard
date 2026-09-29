@@ -1,6 +1,6 @@
 ---
 name: gardening-seedlings-checklist
-description: "Use for a seedlings checklist in a fictional gardening exercise."
+description: "Use for a checklist about seedlings in a fictional gardening exercise."
 ---
 
 # Gardening Seedlings Checklist

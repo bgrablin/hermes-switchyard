@@ -1,6 +1,6 @@
 ---
 name: arts-murals-log
-description: "Use for a murals log in a fictional arts exercise."
+description: "Use for a log about murals in a fictional arts exercise."
 ---
 
 # Arts Murals Log

@@ -1,6 +1,6 @@
 ---
 name: nature-wildflowers-calendar
-description: "Use for a wildflowers calendar in a fictional nature exercise."
+description: "Use for a calendar about wildflowers in a fictional nature exercise."
 ---
 
 # Nature Wildflowers Calendar

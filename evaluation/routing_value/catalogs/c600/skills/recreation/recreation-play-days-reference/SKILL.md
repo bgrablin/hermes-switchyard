@@ -1,6 +1,6 @@
 ---
 name: recreation-play-days-reference
-description: "Use for a play days reference in a fictional recreation exercise."
+description: "Use for a reference about play days in a fictional recreation exercise."
 ---
 
 # Recreation Play Days Reference

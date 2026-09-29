@@ -1,6 +1,6 @@
 ---
 name: fitness-stretches-worksheet
-description: "Use for a stretches worksheet in a fictional fitness exercise."
+description: "Use for a worksheet about stretches in a fictional fitness exercise."
 ---
 
 # Fitness Stretches Worksheet

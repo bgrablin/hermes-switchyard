@@ -1,6 +1,6 @@
 ---
 name: photography-framing-schedule
-description: "Use for a framing schedule in a fictional photography exercise."
+description: "Use for a schedule about framing in a fictional photography exercise."
 ---
 
 # Photography Framing Schedule

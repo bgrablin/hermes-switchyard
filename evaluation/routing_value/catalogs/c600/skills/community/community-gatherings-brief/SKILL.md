@@ -1,6 +1,6 @@
 ---
 name: community-gatherings-brief
-description: "Use for a gatherings brief in a fictional community exercise."
+description: "Use for a brief about gatherings in a fictional community exercise."
 ---
 
 # Community Gatherings Brief

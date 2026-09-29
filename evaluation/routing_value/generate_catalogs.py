@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import shutil
 from pathlib import Path
 
 SEED = 130
@@ -90,7 +91,7 @@ def _definitions() -> list[dict[str, str]]:
         {
             "category": category, "name": f"{category}-{_slug(topic)}-{action}",
             "subject": f"{topic} {action}",
-            "description": f"Use for a {topic} {action} in a fictional {category} exercise.",
+            "description": f"Use for a {action} about {topic} in a fictional {category} exercise.",
         }
         for category, topics in TOPICS.items() for topic in topics for action in ACTIONS
     ]
@@ -160,20 +161,25 @@ def generate(root: Path) -> None:
     definitions = _definitions()
     tasks, facts = _task_templates()
     root.mkdir(parents=True, exist_ok=True)
+    catalogs = root / "catalogs"
+    if catalogs.is_symlink():
+        raise ValueError("refusing to replace a symlinked catalogs directory")
+    if catalogs.exists():
+        shutil.rmtree(catalogs)
     for size in SIZES:
         for definition in definitions[:size]:
             name = definition["name"]
-            skill = root / "catalogs" / f"c{size}" / "skills" / definition["category"] / name / "SKILL.md"
+            skill = catalogs / f"c{size}" / "skills" / definition["category"] / name / "SKILL.md"
             skill.parent.mkdir(parents=True, exist_ok=True)
             frontmatter = ("---\n" + f"name: {name}\n"
                            + "description: " + json.dumps(definition["description"]) + "\n---\n\n")
             body = f"# {name.replace('-', ' ').title()}\n\nUse for {definition['subject']} in a fictional civilian exercise.\n"
             for case, token in facts.get(name, ()):
                 body += f"The invented label for {case} is {token}. Quote it only for this case.\n"
-            skill.write_text(frontmatter + body, encoding="utf-8")
+            skill.write_text(frontmatter + body, encoding="utf-8", newline="\n")
     variants = [{**task, "skills_dir": f"catalogs/c{size}", "toolsets": ["skills"]}
                 for size in SIZES for task in tasks]
-    (root / "tasks.json").write_text(json.dumps(variants, indent=2) + "\n", encoding="utf-8")
+    (root / "tasks.json").write_text(json.dumps(variants, indent=2) + "\n", encoding="utf-8", newline="\n")
 
 
 def main() -> None:

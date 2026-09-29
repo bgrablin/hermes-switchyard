@@ -1,6 +1,6 @@
 ---
 name: theater-readings-log
-description: "Use for a readings log in a fictional theater exercise."
+description: "Use for a log about readings in a fictional theater exercise."
 ---
 
 # Theater Readings Log

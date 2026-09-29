@@ -1,6 +1,6 @@
 ---
 name: walking-nature-notes-guide
-description: "Use for a nature notes guide in a fictional walking exercise."
+description: "Use for a guide about nature notes in a fictional walking exercise."
 ---
 
 # Walking Nature Notes Guide

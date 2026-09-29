@@ -1,6 +1,6 @@
 ---
 name: photography-portraits-map
-description: "Use for a portraits map in a fictional photography exercise."
+description: "Use for a map about portraits in a fictional photography exercise."
 ---
 
 # Photography Portraits Map

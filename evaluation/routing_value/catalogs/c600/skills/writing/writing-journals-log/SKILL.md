@@ -1,6 +1,6 @@
 ---
 name: writing-journals-log
-description: "Use for a journals log in a fictional writing exercise."
+description: "Use for a log about journals in a fictional writing exercise."
 ---
 
 # Writing Journals Log

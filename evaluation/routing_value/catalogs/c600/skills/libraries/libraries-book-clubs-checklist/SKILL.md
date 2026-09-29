@@ -1,6 +1,6 @@
 ---
 name: libraries-book-clubs-checklist
-description: "Use for a book clubs checklist in a fictional libraries exercise."
+description: "Use for a checklist about book clubs in a fictional libraries exercise."
 ---
 
 # Libraries Book Clubs Checklist

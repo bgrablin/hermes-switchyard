@@ -1,6 +1,6 @@
 ---
 name: cooking-soups-map
-description: "Use for a soups map in a fictional cooking exercise."
+description: "Use for a map about soups in a fictional cooking exercise."
 ---
 
 # Cooking Soups Map

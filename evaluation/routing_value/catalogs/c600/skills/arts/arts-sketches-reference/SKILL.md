@@ -1,6 +1,6 @@
 ---
 name: arts-sketches-reference
-description: "Use for a sketches reference in a fictional arts exercise."
+description: "Use for a reference about sketches in a fictional arts exercise."
 ---
 
 # Arts Sketches Reference

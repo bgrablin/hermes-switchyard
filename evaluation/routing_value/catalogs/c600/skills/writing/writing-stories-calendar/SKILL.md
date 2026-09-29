@@ -1,6 +1,6 @@
 ---
 name: writing-stories-calendar
-description: "Use for a stories calendar in a fictional writing exercise."
+description: "Use for a calendar about stories in a fictional writing exercise."
 ---
 
 # Writing Stories Calendar

@@ -1,6 +1,6 @@
 ---
 name: community-neighbors-map
-description: "Use for a neighbors map in a fictional community exercise."
+description: "Use for a map about neighbors in a fictional community exercise."
 ---
 
 # Community Neighbors Map

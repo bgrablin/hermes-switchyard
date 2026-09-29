@@ -1,6 +1,6 @@
 ---
 name: travel-packing-reference
-description: "Use for a packing reference in a fictional travel exercise."
+description: "Use for a reference about packing in a fictional travel exercise."
 ---
 
 # Travel Packing Reference

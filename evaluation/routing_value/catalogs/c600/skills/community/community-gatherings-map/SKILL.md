@@ -1,6 +1,6 @@
 ---
 name: community-gatherings-map
-description: "Use for a gatherings map in a fictional community exercise."
+description: "Use for a map about gatherings in a fictional community exercise."
 ---
 
 # Community Gatherings Map

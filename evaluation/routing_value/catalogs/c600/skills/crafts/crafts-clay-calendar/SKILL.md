@@ -1,6 +1,6 @@
 ---
 name: crafts-clay-calendar
-description: "Use for a clay calendar in a fictional crafts exercise."
+description: "Use for a calendar about clay in a fictional crafts exercise."
 ---
 
 # Crafts Clay Calendar

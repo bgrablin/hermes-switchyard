@@ -1,6 +1,6 @@
 ---
 name: crafts-weaving-log
-description: "Use for a weaving log in a fictional crafts exercise."
+description: "Use for a log about weaving in a fictional crafts exercise."
 ---
 
 # Crafts Weaving Log

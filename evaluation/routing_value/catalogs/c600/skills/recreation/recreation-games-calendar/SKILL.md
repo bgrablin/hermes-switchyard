@@ -1,6 +1,6 @@
 ---
 name: recreation-games-calendar
-description: "Use for a games calendar in a fictional recreation exercise."
+description: "Use for a calendar about games in a fictional recreation exercise."
 ---
 
 # Recreation Games Calendar

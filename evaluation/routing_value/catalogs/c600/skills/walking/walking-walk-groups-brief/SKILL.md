@@ -1,6 +1,6 @@
 ---
 name: walking-walk-groups-brief
-description: "Use for a walk groups brief in a fictional walking exercise."
+description: "Use for a brief about walk groups in a fictional walking exercise."
 ---
 
 # Walking Walk Groups Brief

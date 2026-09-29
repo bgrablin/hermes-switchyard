@@ -1,6 +1,6 @@
 ---
 name: history-exhibits-schedule
-description: "Use for a exhibits schedule in a fictional history exercise."
+description: "Use for a schedule about exhibits in a fictional history exercise."
 ---
 
 # History Exhibits Schedule

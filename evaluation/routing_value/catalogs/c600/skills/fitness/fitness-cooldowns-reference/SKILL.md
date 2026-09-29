@@ -1,6 +1,6 @@
 ---
 name: fitness-cooldowns-reference
-description: "Use for a cooldowns reference in a fictional fitness exercise."
+description: "Use for a reference about cooldowns in a fictional fitness exercise."
 ---
 
 # Fitness Cooldowns Reference

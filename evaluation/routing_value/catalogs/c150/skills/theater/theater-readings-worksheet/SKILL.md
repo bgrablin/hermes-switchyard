@@ -1,6 +1,6 @@
 ---
 name: theater-readings-worksheet
-description: "Use for a readings worksheet in a fictional theater exercise."
+description: "Use for a worksheet about readings in a fictional theater exercise."
 ---
 
 # Theater Readings Worksheet

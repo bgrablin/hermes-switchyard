@@ -1,6 +1,6 @@
 ---
 name: photography-framing-log
-description: "Use for a framing log in a fictional photography exercise."
+description: "Use for a log about framing in a fictional photography exercise."
 ---
 
 # Photography Framing Log

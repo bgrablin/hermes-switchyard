@@ -1,6 +1,6 @@
 ---
 name: travel-packing-log
-description: "Use for a packing log in a fictional travel exercise."
+description: "Use for a log about packing in a fictional travel exercise."
 ---
 
 # Travel Packing Log

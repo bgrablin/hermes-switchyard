@@ -1,6 +1,6 @@
 ---
 name: photography-portraits-brief
-description: "Use for a portraits brief in a fictional photography exercise."
+description: "Use for a brief about portraits in a fictional photography exercise."
 ---
 
 # Photography Portraits Brief

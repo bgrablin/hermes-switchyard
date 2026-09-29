@@ -1,6 +1,6 @@
 ---
 name: nature-pond-visits-reference
-description: "Use for a pond visits reference in a fictional nature exercise."
+description: "Use for a reference about pond visits in a fictional nature exercise."
 ---
 
 # Nature Pond Visits Reference

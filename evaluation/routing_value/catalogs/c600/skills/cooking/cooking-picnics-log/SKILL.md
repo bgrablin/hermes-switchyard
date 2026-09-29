@@ -1,6 +1,6 @@
 ---
 name: cooking-picnics-log
-description: "Use for a picnics log in a fictional cooking exercise."
+description: "Use for a log about picnics in a fictional cooking exercise."
 ---
 
 # Cooking Picnics Log

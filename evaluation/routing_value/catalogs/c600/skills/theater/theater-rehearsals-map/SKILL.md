@@ -1,6 +1,6 @@
 ---
 name: theater-rehearsals-map
-description: "Use for a rehearsals map in a fictional theater exercise."
+description: "Use for a map about rehearsals in a fictional theater exercise."
 ---
 
 # Theater Rehearsals Map

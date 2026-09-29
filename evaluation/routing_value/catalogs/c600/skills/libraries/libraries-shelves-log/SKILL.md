@@ -1,6 +1,6 @@
 ---
 name: libraries-shelves-log
-description: "Use for a shelves log in a fictional libraries exercise."
+description: "Use for a log about shelves in a fictional libraries exercise."
 ---
 
 # Libraries Shelves Log

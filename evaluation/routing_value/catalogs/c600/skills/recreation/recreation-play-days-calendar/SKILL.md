@@ -1,6 +1,6 @@
 ---
 name: recreation-play-days-calendar
-description: "Use for a play days calendar in a fictional recreation exercise."
+description: "Use for a calendar about play days in a fictional recreation exercise."
 ---
 
 # Recreation Play Days Calendar

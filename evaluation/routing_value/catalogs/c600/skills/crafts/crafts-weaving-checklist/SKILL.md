@@ -1,6 +1,6 @@
 ---
 name: crafts-weaving-checklist
-description: "Use for a weaving checklist in a fictional crafts exercise."
+description: "Use for a checklist about weaving in a fictional crafts exercise."
 ---
 
 # Crafts Weaving Checklist

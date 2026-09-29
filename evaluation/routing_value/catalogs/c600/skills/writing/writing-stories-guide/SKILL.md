@@ -1,6 +1,6 @@
 ---
 name: writing-stories-guide
-description: "Use for a stories guide in a fictional writing exercise."
+description: "Use for a guide about stories in a fictional writing exercise."
 ---
 
 # Writing Stories Guide

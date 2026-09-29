@@ -1,6 +1,6 @@
 ---
 name: sewing-repairs-checklist
-description: "Use for a repairs checklist in a fictional sewing exercise."
+description: "Use for a checklist about repairs in a fictional sewing exercise."
 ---
 
 # Sewing Repairs Checklist

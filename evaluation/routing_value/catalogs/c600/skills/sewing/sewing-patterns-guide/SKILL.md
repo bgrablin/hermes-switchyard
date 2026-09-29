@@ -1,6 +1,6 @@
 ---
 name: sewing-patterns-guide
-description: "Use for a patterns guide in a fictional sewing exercise."
+description: "Use for a guide about patterns in a fictional sewing exercise."
 ---
 
 # Sewing Patterns Guide

@@ -1,6 +1,6 @@
 ---
 name: writing-journals-map
-description: "Use for a journals map in a fictional writing exercise."
+description: "Use for a map about journals in a fictional writing exercise."
 ---
 
 # Writing Journals Map

@@ -1,6 +1,6 @@
 ---
 name: cycling-rest-stops-checklist
-description: "Use for a rest stops checklist in a fictional cycling exercise."
+description: "Use for a checklist about rest stops in a fictional cycling exercise."
 ---
 
 # Cycling Rest Stops Checklist

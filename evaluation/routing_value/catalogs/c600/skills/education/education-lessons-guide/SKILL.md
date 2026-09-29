@@ -1,6 +1,6 @@
 ---
 name: education-lessons-guide
-description: "Use for a lessons guide in a fictional education exercise."
+description: "Use for a guide about lessons in a fictional education exercise."
 ---
 
 # Education Lessons Guide

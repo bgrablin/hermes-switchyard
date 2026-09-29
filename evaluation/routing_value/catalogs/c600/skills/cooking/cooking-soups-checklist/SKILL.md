@@ -1,6 +1,6 @@
 ---
 name: cooking-soups-checklist
-description: "Use for a soups checklist in a fictional cooking exercise."
+description: "Use for a checklist about soups in a fictional cooking exercise."
 ---
 
 # Cooking Soups Checklist

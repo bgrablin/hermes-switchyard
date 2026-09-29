@@ -1,6 +1,6 @@
 ---
 name: fitness-warmups-checklist
-description: "Use for a warmups checklist in a fictional fitness exercise."
+description: "Use for a checklist about warmups in a fictional fitness exercise."
 ---
 
 # Fitness Warmups Checklist

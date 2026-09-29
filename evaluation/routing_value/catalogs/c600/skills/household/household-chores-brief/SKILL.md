@@ -1,6 +1,6 @@
 ---
 name: household-chores-brief
-description: "Use for a chores brief in a fictional household exercise."
+description: "Use for a brief about chores in a fictional household exercise."
 ---
 
 # Household Chores Brief

@@ -1,6 +1,6 @@
 ---
 name: writing-stories-plan
-description: "Use for a stories plan in a fictional writing exercise."
+description: "Use for a plan about stories in a fictional writing exercise."
 ---
 
 # Writing Stories Plan

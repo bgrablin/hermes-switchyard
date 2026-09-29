@@ -1,6 +1,6 @@
 ---
 name: writing-stories-map
-description: "Use for a stories map in a fictional writing exercise."
+description: "Use for a map about stories in a fictional writing exercise."
 ---
 
 # Writing Stories Map

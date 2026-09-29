@@ -1,6 +1,6 @@
 ---
 name: crafts-paper-crafts-brief
-description: "Use for a paper crafts brief in a fictional crafts exercise."
+description: "Use for a brief about paper crafts in a fictional crafts exercise."
 ---
 
 # Crafts Paper Crafts Brief

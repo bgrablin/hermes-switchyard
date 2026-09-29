@@ -1,6 +1,6 @@
 ---
 name: walking-trails-map
-description: "Use for a trails map in a fictional walking exercise."
+description: "Use for a map about trails in a fictional walking exercise."
 ---
 
 # Walking Trails Map

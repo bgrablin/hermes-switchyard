@@ -1,6 +1,6 @@
 ---
 name: walking-nature-notes-log
-description: "Use for a nature notes log in a fictional walking exercise."
+description: "Use for a log about nature notes in a fictional walking exercise."
 ---
 
 # Walking Nature Notes Log

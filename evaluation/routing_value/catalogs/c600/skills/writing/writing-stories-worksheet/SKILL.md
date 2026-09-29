@@ -1,6 +1,6 @@
 ---
 name: writing-stories-worksheet
-description: "Use for a stories worksheet in a fictional writing exercise."
+description: "Use for a worksheet about stories in a fictional writing exercise."
 ---
 
 # Writing Stories Worksheet

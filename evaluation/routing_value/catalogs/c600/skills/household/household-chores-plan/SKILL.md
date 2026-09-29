@@ -1,6 +1,6 @@
 ---
 name: household-chores-plan
-description: "Use for a chores plan in a fictional household exercise."
+description: "Use for a plan about chores in a fictional household exercise."
 ---
 
 # Household Chores Plan

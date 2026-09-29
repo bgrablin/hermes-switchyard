@@ -1,6 +1,6 @@
 ---
 name: household-storage-reference
-description: "Use for a storage reference in a fictional household exercise."
+description: "Use for a reference about storage in a fictional household exercise."
 ---
 
 # Household Storage Reference

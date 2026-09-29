@@ -1,6 +1,6 @@
 ---
 name: arts-collage-calendar
-description: "Use for a collage calendar in a fictional arts exercise."
+description: "Use for a calendar about collage in a fictional arts exercise."
 ---
 
 # Arts Collage Calendar

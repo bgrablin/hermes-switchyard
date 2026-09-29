@@ -1,6 +1,6 @@
 ---
 name: gardening-planters-map
-description: "Use for a planters map in a fictional gardening exercise."
+description: "Use for a map about planters in a fictional gardening exercise."
 ---
 
 # Gardening Planters Map

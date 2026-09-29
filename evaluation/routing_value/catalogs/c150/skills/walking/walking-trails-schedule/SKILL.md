@@ -1,6 +1,6 @@
 ---
 name: walking-trails-schedule
-description: "Use for a trails schedule in a fictional walking exercise."
+description: "Use for a schedule about trails in a fictional walking exercise."
 ---
 
 # Walking Trails Schedule

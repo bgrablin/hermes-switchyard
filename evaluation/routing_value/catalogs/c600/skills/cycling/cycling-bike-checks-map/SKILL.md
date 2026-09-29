@@ -1,6 +1,6 @@
 ---
 name: cycling-bike-checks-map
-description: "Use for a bike checks map in a fictional cycling exercise."
+description: "Use for a map about bike checks in a fictional cycling exercise."
 ---
 
 # Cycling Bike Checks Map

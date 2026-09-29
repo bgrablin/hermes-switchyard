@@ -1,6 +1,6 @@
 ---
 name: arts-collage-log
-description: "Use for a collage log in a fictional arts exercise."
+description: "Use for a log about collage in a fictional arts exercise."
 ---
 
 # Arts Collage Log

@@ -1,6 +1,6 @@
 ---
 name: education-study-groups-map
-description: "Use for a study groups map in a fictional education exercise."
+description: "Use for a map about study groups in a fictional education exercise."
 ---
 
 # Education Study Groups Map

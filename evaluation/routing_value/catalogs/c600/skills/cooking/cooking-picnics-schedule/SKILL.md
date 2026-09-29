@@ -1,6 +1,6 @@
 ---
 name: cooking-picnics-schedule
-description: "Use for a picnics schedule in a fictional cooking exercise."
+description: "Use for a schedule about picnics in a fictional cooking exercise."
 ---
 
 # Cooking Picnics Schedule

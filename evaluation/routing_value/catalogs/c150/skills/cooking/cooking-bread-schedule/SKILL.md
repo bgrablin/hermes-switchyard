@@ -1,6 +1,6 @@
 ---
 name: cooking-bread-schedule
-description: "Use for a bread schedule in a fictional cooking exercise."
+description: "Use for a schedule about bread in a fictional cooking exercise."
 ---
 
 # Cooking Bread Schedule

@@ -1,6 +1,6 @@
 ---
 name: arts-sketches-checklist
-description: "Use for a sketches checklist in a fictional arts exercise."
+description: "Use for a checklist about sketches in a fictional arts exercise."
 ---
 
 # Arts Sketches Checklist

@@ -1,6 +1,6 @@
 ---
 name: photography-photo-walks-map
-description: "Use for a photo walks map in a fictional photography exercise."
+description: "Use for a map about photo walks in a fictional photography exercise."
 ---
 
 # Photography Photo Walks Map

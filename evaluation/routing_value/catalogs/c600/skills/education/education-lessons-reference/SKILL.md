@@ -1,6 +1,6 @@
 ---
 name: education-lessons-reference
-description: "Use for a lessons reference in a fictional education exercise."
+description: "Use for a reference about lessons in a fictional education exercise."
 ---
 
 # Education Lessons Reference

@@ -1,6 +1,6 @@
 ---
 name: crafts-clay-brief
-description: "Use for a clay brief in a fictional crafts exercise."
+description: "Use for a brief about clay in a fictional crafts exercise."
 ---
 
 # Crafts Clay Brief

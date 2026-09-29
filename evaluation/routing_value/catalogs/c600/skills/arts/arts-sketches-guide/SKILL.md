@@ -1,6 +1,6 @@
 ---
 name: arts-sketches-guide
-description: "Use for a sketches guide in a fictional arts exercise."
+description: "Use for a guide about sketches in a fictional arts exercise."
 ---
 
 # Arts Sketches Guide

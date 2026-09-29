@@ -1,6 +1,6 @@
 ---
 name: photography-photo-walks-guide
-description: "Use for a photo walks guide in a fictional photography exercise."
+description: "Use for a guide about photo walks in a fictional photography exercise."
 ---
 
 # Photography Photo Walks Guide

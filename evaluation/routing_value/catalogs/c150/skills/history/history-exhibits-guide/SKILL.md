@@ -1,6 +1,6 @@
 ---
 name: history-exhibits-guide
-description: "Use for a exhibits guide in a fictional history exercise."
+description: "Use for a guide about exhibits in a fictional history exercise."
 ---
 
 # History Exhibits Guide

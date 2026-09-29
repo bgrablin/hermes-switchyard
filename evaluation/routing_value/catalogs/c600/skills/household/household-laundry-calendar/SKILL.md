@@ -1,6 +1,6 @@
 ---
 name: household-laundry-calendar
-description: "Use for a laundry calendar in a fictional household exercise."
+description: "Use for a calendar about laundry in a fictional household exercise."
 ---
 
 # Household Laundry Calendar

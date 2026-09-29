@@ -1,6 +1,6 @@
 ---
 name: nature-birdwatching-reference
-description: "Use for a birdwatching reference in a fictional nature exercise."
+description: "Use for a reference about birdwatching in a fictional nature exercise."
 ---
 
 # Nature Birdwatching Reference

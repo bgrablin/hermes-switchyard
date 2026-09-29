@@ -1,6 +1,6 @@
 ---
 name: gardening-seedlings-calendar
-description: "Use for a seedlings calendar in a fictional gardening exercise."
+description: "Use for a calendar about seedlings in a fictional gardening exercise."
 ---
 
 # Gardening Seedlings Calendar

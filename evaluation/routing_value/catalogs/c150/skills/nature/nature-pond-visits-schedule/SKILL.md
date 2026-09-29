@@ -1,6 +1,6 @@
 ---
 name: nature-pond-visits-schedule
-description: "Use for a pond visits schedule in a fictional nature exercise."
+description: "Use for a schedule about pond visits in a fictional nature exercise."
 ---
 
 # Nature Pond Visits Schedule

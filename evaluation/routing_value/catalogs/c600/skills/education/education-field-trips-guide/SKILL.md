@@ -1,6 +1,6 @@
 ---
 name: education-field-trips-guide
-description: "Use for a field trips guide in a fictional education exercise."
+description: "Use for a guide about field trips in a fictional education exercise."
 ---
 
 # Education Field Trips Guide

@@ -1,6 +1,6 @@
 ---
 name: writing-letters-reference
-description: "Use for a letters reference in a fictional writing exercise."
+description: "Use for a reference about letters in a fictional writing exercise."
 ---
 
 # Writing Letters Reference

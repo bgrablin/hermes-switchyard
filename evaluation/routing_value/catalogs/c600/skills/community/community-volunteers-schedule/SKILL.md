@@ -1,6 +1,6 @@
 ---
 name: community-volunteers-schedule
-description: "Use for a volunteers schedule in a fictional community exercise."
+description: "Use for a schedule about volunteers in a fictional community exercise."
 ---
 
 # Community Volunteers Schedule

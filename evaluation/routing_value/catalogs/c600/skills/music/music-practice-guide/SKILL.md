@@ -1,6 +1,6 @@
 ---
 name: music-practice-guide
-description: "Use for a practice guide in a fictional music exercise."
+description: "Use for a guide about practice in a fictional music exercise."
 ---
 
 # Music Practice Guide

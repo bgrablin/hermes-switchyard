@@ -1,6 +1,6 @@
 ---
 name: nature-birdwatching-checklist
-description: "Use for a birdwatching checklist in a fictional nature exercise."
+description: "Use for a checklist about birdwatching in a fictional nature exercise."
 ---
 
 # Nature Birdwatching Checklist

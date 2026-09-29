@@ -1,6 +1,6 @@
 ---
 name: libraries-book-clubs-reference
-description: "Use for a book clubs reference in a fictional libraries exercise."
+description: "Use for a reference about book clubs in a fictional libraries exercise."
 ---
 
 # Libraries Book Clubs Reference

@@ -1,6 +1,6 @@
 ---
 name: history-exhibits-log
-description: "Use for a exhibits log in a fictional history exercise."
+description: "Use for a log about exhibits in a fictional history exercise."
 ---
 
 # History Exhibits Log

@@ -1,6 +1,6 @@
 ---
 name: arts-sketches-plan
-description: "Use for a sketches plan in a fictional arts exercise."
+description: "Use for a plan about sketches in a fictional arts exercise."
 ---
 
 # Arts Sketches Plan

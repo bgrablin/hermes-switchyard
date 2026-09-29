@@ -1,6 +1,6 @@
 ---
 name: nature-wildflowers-worksheet
-description: "Use for a wildflowers worksheet in a fictional nature exercise."
+description: "Use for a worksheet about wildflowers in a fictional nature exercise."
 ---
 
 # Nature Wildflowers Worksheet

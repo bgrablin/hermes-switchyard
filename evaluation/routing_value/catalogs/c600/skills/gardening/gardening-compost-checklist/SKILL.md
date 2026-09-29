@@ -1,6 +1,6 @@
 ---
 name: gardening-compost-checklist
-description: "Use for a compost checklist in a fictional gardening exercise."
+description: "Use for a checklist about compost in a fictional gardening exercise."
 ---
 
 # Gardening Compost Checklist

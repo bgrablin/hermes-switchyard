@@ -1,6 +1,6 @@
 ---
 name: travel-packing-calendar
-description: "Use for a packing calendar in a fictional travel exercise."
+description: "Use for a calendar about packing in a fictional travel exercise."
 ---
 
 # Travel Packing Calendar

@@ -1,6 +1,6 @@
 ---
 name: nature-birdwatching-log
-description: "Use for a birdwatching log in a fictional nature exercise."
+description: "Use for a log about birdwatching in a fictional nature exercise."
 ---
 
 # Nature Birdwatching Log

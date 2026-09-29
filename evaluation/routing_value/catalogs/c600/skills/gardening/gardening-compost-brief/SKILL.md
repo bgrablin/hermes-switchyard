@@ -1,6 +1,6 @@
 ---
 name: gardening-compost-brief
-description: "Use for a compost brief in a fictional gardening exercise."
+description: "Use for a brief about compost in a fictional gardening exercise."
 ---
 
 # Gardening Compost Brief

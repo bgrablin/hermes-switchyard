@@ -1,6 +1,6 @@
 ---
 name: libraries-story-hours-plan
-description: "Use for a story hours plan in a fictional libraries exercise."
+description: "Use for a plan about story hours in a fictional libraries exercise."
 ---
 
 # Libraries Story Hours Plan

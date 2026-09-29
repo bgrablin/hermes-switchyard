@@ -1,6 +1,6 @@
 ---
 name: sewing-fabrics-map
-description: "Use for a fabrics map in a fictional sewing exercise."
+description: "Use for a map about fabrics in a fictional sewing exercise."
 ---
 
 # Sewing Fabrics Map

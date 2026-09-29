@@ -1,6 +1,6 @@
 ---
 name: gardening-planters-worksheet
-description: "Use for a planters worksheet in a fictional gardening exercise."
+description: "Use for a worksheet about planters in a fictional gardening exercise."
 ---
 
 # Gardening Planters Worksheet

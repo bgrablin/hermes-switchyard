@@ -1,6 +1,6 @@
 ---
 name: music-choirs-worksheet
-description: "Use for a choirs worksheet in a fictional music exercise."
+description: "Use for a worksheet about choirs in a fictional music exercise."
 ---
 
 # Music Choirs Worksheet

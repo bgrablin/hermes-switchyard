@@ -1,6 +1,6 @@
 ---
 name: sewing-repairs-plan
-description: "Use for a repairs plan in a fictional sewing exercise."
+description: "Use for a plan about repairs in a fictional sewing exercise."
 ---
 
 # Sewing Repairs Plan

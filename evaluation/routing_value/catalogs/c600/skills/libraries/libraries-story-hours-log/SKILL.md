@@ -1,6 +1,6 @@
 ---
 name: libraries-story-hours-log
-description: "Use for a story hours log in a fictional libraries exercise."
+description: "Use for a log about story hours in a fictional libraries exercise."
 ---
 
 # Libraries Story Hours Log

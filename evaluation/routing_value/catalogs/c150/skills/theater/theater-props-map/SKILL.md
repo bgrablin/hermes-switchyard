@@ -1,6 +1,6 @@
 ---
 name: theater-props-map
-description: "Use for a props map in a fictional theater exercise."
+description: "Use for a map about props in a fictional theater exercise."
 ---
 
 # Theater Props Map

@@ -1,6 +1,6 @@
 ---
 name: household-chores-checklist
-description: "Use for a chores checklist in a fictional household exercise."
+description: "Use for a checklist about chores in a fictional household exercise."
 ---
 
 # Household Chores Checklist

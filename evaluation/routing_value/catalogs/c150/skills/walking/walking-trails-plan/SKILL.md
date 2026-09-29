@@ -1,6 +1,6 @@
 ---
 name: walking-trails-plan
-description: "Use for a trails plan in a fictional walking exercise."
+description: "Use for a plan about trails in a fictional walking exercise."
 ---
 
 # Walking Trails Plan

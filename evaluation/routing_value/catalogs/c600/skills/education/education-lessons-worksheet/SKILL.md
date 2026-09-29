@@ -1,6 +1,6 @@
 ---
 name: education-lessons-worksheet
-description: "Use for a lessons worksheet in a fictional education exercise."
+description: "Use for a worksheet about lessons in a fictional education exercise."
 ---
 
 # Education Lessons Worksheet

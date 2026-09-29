@@ -1,6 +1,6 @@
 ---
 name: music-practice-plan
-description: "Use for a practice plan in a fictional music exercise."
+description: "Use for a plan about practice in a fictional music exercise."
 ---
 
 # Music Practice Plan

@@ -1,6 +1,6 @@
 ---
 name: community-gatherings-reference
-description: "Use for a gatherings reference in a fictional community exercise."
+description: "Use for a reference about gatherings in a fictional community exercise."
 ---
 
 # Community Gatherings Reference

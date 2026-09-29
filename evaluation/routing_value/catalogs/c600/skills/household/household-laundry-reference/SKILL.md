@@ -1,6 +1,6 @@
 ---
 name: household-laundry-reference
-description: "Use for a laundry reference in a fictional household exercise."
+description: "Use for a reference about laundry in a fictional household exercise."
 ---
 
 # Household Laundry Reference

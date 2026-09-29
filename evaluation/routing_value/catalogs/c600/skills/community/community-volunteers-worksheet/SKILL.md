@@ -1,6 +1,6 @@
 ---
 name: community-volunteers-worksheet
-description: "Use for a volunteers worksheet in a fictional community exercise."
+description: "Use for a worksheet about volunteers in a fictional community exercise."
 ---
 
 # Community Volunteers Worksheet

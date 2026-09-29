@@ -1,6 +1,6 @@
 ---
 name: cooking-bread-worksheet
-description: "Use for a bread worksheet in a fictional cooking exercise."
+description: "Use for a worksheet about bread in a fictional cooking exercise."
 ---
 
 # Cooking Bread Worksheet

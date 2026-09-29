@@ -1,6 +1,6 @@
 ---
 name: recreation-puzzles-calendar
-description: "Use for a puzzles calendar in a fictional recreation exercise."
+description: "Use for a calendar about puzzles in a fictional recreation exercise."
 ---
 
 # Recreation Puzzles Calendar

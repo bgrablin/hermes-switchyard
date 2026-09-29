@@ -1,6 +1,6 @@
 ---
 name: nature-wildflowers-checklist
-description: "Use for a wildflowers checklist in a fictional nature exercise."
+description: "Use for a checklist about wildflowers in a fictional nature exercise."
 ---
 
 # Nature Wildflowers Checklist

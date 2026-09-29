@@ -1,6 +1,6 @@
 ---
 name: nature-birdwatching-schedule
-description: "Use for a birdwatching schedule in a fictional nature exercise."
+description: "Use for a schedule about birdwatching in a fictional nature exercise."
 ---
 
 # Nature Birdwatching Schedule

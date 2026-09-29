@@ -1,6 +1,6 @@
 ---
 name: libraries-story-hours-reference
-description: "Use for a story hours reference in a fictional libraries exercise."
+description: "Use for a reference about story hours in a fictional libraries exercise."
 ---
 
 # Libraries Story Hours Reference

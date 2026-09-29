@@ -1,6 +1,6 @@
 ---
 name: writing-letters-calendar
-description: "Use for a letters calendar in a fictional writing exercise."
+description: "Use for a calendar about letters in a fictional writing exercise."
 ---
 
 # Writing Letters Calendar

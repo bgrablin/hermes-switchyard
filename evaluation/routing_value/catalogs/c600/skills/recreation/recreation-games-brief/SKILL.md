@@ -1,6 +1,6 @@
 ---
 name: recreation-games-brief
-description: "Use for a games brief in a fictional recreation exercise."
+description: "Use for a brief about games in a fictional recreation exercise."
 ---
 
 # Recreation Games Brief

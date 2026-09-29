@@ -1,6 +1,6 @@
 ---
 name: cooking-picnics-guide
-description: "Use for a picnics guide in a fictional cooking exercise."
+description: "Use for a guide about picnics in a fictional cooking exercise."
 ---
 
 # Cooking Picnics Guide

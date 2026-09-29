@@ -1,6 +1,6 @@
 ---
 name: gardening-seedlings-guide
-description: "Use for a seedlings guide in a fictional gardening exercise."
+description: "Use for a guide about seedlings in a fictional gardening exercise."
 ---
 
 # Gardening Seedlings Guide

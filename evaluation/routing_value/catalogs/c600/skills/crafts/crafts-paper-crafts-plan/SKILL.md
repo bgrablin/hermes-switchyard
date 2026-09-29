@@ -1,6 +1,6 @@
 ---
 name: crafts-paper-crafts-plan
-description: "Use for a paper crafts plan in a fictional crafts exercise."
+description: "Use for a plan about paper crafts in a fictional crafts exercise."
 ---
 
 # Crafts Paper Crafts Plan

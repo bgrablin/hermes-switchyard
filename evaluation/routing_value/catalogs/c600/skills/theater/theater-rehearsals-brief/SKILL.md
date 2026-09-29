@@ -1,6 +1,6 @@
 ---
 name: theater-rehearsals-brief
-description: "Use for a rehearsals brief in a fictional theater exercise."
+description: "Use for a brief about rehearsals in a fictional theater exercise."
 ---
 
 # Theater Rehearsals Brief

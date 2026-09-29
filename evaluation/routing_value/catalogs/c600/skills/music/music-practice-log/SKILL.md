@@ -1,6 +1,6 @@
 ---
 name: music-practice-log
-description: "Use for a practice log in a fictional music exercise."
+description: "Use for a log about practice in a fictional music exercise."
 ---
 
 # Music Practice Log

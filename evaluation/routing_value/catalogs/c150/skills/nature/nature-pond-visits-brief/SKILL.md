@@ -1,6 +1,6 @@
 ---
 name: nature-pond-visits-brief
-description: "Use for a pond visits brief in a fictional nature exercise."
+description: "Use for a brief about pond visits in a fictional nature exercise."
 ---
 
 # Nature Pond Visits Brief

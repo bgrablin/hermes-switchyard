@@ -1,6 +1,6 @@
 ---
 name: sewing-repairs-log
-description: "Use for a repairs log in a fictional sewing exercise."
+description: "Use for a log about repairs in a fictional sewing exercise."
 ---
 
 # Sewing Repairs Log

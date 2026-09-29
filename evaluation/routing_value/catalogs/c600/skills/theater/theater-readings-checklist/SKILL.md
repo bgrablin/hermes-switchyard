@@ -1,6 +1,6 @@
 ---
 name: theater-readings-checklist
-description: "Use for a readings checklist in a fictional theater exercise."
+description: "Use for a checklist about readings in a fictional theater exercise."
 ---
 
 # Theater Readings Checklist

@@ -1,6 +1,6 @@
 ---
 name: cycling-rest-stops-worksheet
-description: "Use for a rest stops worksheet in a fictional cycling exercise."
+description: "Use for a worksheet about rest stops in a fictional cycling exercise."
 ---
 
 # Cycling Rest Stops Worksheet

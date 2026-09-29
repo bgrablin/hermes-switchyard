@@ -1,6 +1,6 @@
 ---
 name: crafts-clay-map
-description: "Use for a clay map in a fictional crafts exercise."
+description: "Use for a map about clay in a fictional crafts exercise."
 ---
 
 # Crafts Clay Map

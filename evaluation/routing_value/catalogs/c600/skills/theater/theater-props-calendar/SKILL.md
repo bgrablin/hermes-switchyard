@@ -1,6 +1,6 @@
 ---
 name: theater-props-calendar
-description: "Use for a props calendar in a fictional theater exercise."
+description: "Use for a calendar about props in a fictional theater exercise."
 ---
 
 # Theater Props Calendar

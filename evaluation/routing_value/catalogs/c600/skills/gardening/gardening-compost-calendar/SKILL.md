@@ -1,6 +1,6 @@
 ---
 name: gardening-compost-calendar
-description: "Use for a compost calendar in a fictional gardening exercise."
+description: "Use for a calendar about compost in a fictional gardening exercise."
 ---
 
 # Gardening Compost Calendar

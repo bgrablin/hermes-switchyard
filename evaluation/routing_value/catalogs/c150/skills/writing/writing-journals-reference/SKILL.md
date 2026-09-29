@@ -1,6 +1,6 @@
 ---
 name: writing-journals-reference
-description: "Use for a journals reference in a fictional writing exercise."
+description: "Use for a reference about journals in a fictional writing exercise."
 ---
 
 # Writing Journals Reference

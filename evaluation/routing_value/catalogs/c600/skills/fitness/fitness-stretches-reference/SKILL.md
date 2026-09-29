@@ -1,6 +1,6 @@
 ---
 name: fitness-stretches-reference
-description: "Use for a stretches reference in a fictional fitness exercise."
+description: "Use for a reference about stretches in a fictional fitness exercise."
 ---
 
 # Fitness Stretches Reference

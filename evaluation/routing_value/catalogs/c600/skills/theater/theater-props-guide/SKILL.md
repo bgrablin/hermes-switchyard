@@ -1,6 +1,6 @@
 ---
 name: theater-props-guide
-description: "Use for a props guide in a fictional theater exercise."
+description: "Use for a guide about props in a fictional theater exercise."
 ---
 
 # Theater Props Guide

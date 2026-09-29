@@ -1,6 +1,6 @@
 ---
 name: photography-portraits-checklist
-description: "Use for a portraits checklist in a fictional photography exercise."
+description: "Use for a checklist about portraits in a fictional photography exercise."
 ---
 
 # Photography Portraits Checklist

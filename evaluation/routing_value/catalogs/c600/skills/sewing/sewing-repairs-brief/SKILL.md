@@ -1,6 +1,6 @@
 ---
 name: sewing-repairs-brief
-description: "Use for a repairs brief in a fictional sewing exercise."
+description: "Use for a brief about repairs in a fictional sewing exercise."
 ---
 
 # Sewing Repairs Brief

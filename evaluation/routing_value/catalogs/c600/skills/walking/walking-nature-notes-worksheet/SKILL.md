@@ -1,6 +1,6 @@
 ---
 name: walking-nature-notes-worksheet
-description: "Use for a nature notes worksheet in a fictional walking exercise."
+description: "Use for a worksheet about nature notes in a fictional walking exercise."
 ---
 
 # Walking Nature Notes Worksheet

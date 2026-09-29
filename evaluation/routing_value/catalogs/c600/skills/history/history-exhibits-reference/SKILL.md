@@ -1,6 +1,6 @@
 ---
 name: history-exhibits-reference
-description: "Use for a exhibits reference in a fictional history exercise."
+description: "Use for a reference about exhibits in a fictional history exercise."
 ---
 
 # History Exhibits Reference

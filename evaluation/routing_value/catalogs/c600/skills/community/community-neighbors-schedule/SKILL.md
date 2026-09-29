@@ -1,6 +1,6 @@
 ---
 name: community-neighbors-schedule
-description: "Use for a neighbors schedule in a fictional community exercise."
+description: "Use for a schedule about neighbors in a fictional community exercise."
 ---
 
 # Community Neighbors Schedule

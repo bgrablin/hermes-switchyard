@@ -1,6 +1,6 @@
 ---
 name: theater-readings-calendar
-description: "Use for a readings calendar in a fictional theater exercise."
+description: "Use for a calendar about readings in a fictional theater exercise."
 ---
 
 # Theater Readings Calendar

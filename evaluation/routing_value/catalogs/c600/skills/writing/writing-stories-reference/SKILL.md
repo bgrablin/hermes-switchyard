@@ -1,6 +1,6 @@
 ---
 name: writing-stories-reference
-description: "Use for a stories reference in a fictional writing exercise."
+description: "Use for a reference about stories in a fictional writing exercise."
 ---
 
 # Writing Stories Reference

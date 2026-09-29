@@ -1,6 +1,6 @@
 ---
 name: music-practice-brief
-description: "Use for a practice brief in a fictional music exercise."
+description: "Use for a brief about practice in a fictional music exercise."
 ---
 
 # Music Practice Brief

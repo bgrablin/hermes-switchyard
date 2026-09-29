@@ -1,6 +1,6 @@
 ---
 name: arts-sketches-calendar
-description: "Use for a sketches calendar in a fictional arts exercise."
+description: "Use for a calendar about sketches in a fictional arts exercise."
 ---
 
 # Arts Sketches Calendar

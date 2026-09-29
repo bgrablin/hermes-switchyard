@@ -1,6 +1,6 @@
 ---
 name: crafts-weaving-plan
-description: "Use for a weaving plan in a fictional crafts exercise."
+description: "Use for a plan about weaving in a fictional crafts exercise."
 ---
 
 # Crafts Weaving Plan

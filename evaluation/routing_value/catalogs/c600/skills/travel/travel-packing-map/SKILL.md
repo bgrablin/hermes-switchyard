@@ -1,6 +1,6 @@
 ---
 name: travel-packing-map
-description: "Use for a packing map in a fictional travel exercise."
+description: "Use for a map about packing in a fictional travel exercise."
 ---
 
 # Travel Packing Map

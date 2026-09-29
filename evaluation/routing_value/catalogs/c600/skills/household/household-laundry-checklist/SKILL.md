@@ -1,6 +1,6 @@
 ---
 name: household-laundry-checklist
-description: "Use for a laundry checklist in a fictional household exercise."
+description: "Use for a checklist about laundry in a fictional household exercise."
 ---
 
 # Household Laundry Checklist

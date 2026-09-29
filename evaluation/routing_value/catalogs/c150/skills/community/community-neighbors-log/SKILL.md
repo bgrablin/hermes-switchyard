@@ -1,6 +1,6 @@
 ---
 name: community-neighbors-log
-description: "Use for a neighbors log in a fictional community exercise."
+description: "Use for a log about neighbors in a fictional community exercise."
 ---
 
 # Community Neighbors Log

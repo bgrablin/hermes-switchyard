@@ -1,6 +1,6 @@
 ---
 name: community-gatherings-plan
-description: "Use for a gatherings plan in a fictional community exercise."
+description: "Use for a plan about gatherings in a fictional community exercise."
 ---
 
 # Community Gatherings Plan

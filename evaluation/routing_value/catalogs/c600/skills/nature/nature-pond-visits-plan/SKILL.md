@@ -1,6 +1,6 @@
 ---
 name: nature-pond-visits-plan
-description: "Use for a pond visits plan in a fictional nature exercise."
+description: "Use for a plan about pond visits in a fictional nature exercise."
 ---
 
 # Nature Pond Visits Plan

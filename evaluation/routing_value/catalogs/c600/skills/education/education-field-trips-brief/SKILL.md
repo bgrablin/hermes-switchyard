@@ -1,6 +1,6 @@
 ---
 name: education-field-trips-brief
-description: "Use for a field trips brief in a fictional education exercise."
+description: "Use for a brief about field trips in a fictional education exercise."
 ---
 
 # Education Field Trips Brief

@@ -1,6 +1,6 @@
 ---
 name: sewing-fabrics-schedule
-description: "Use for a fabrics schedule in a fictional sewing exercise."
+description: "Use for a schedule about fabrics in a fictional sewing exercise."
 ---
 
 # Sewing Fabrics Schedule

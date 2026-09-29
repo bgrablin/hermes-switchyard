@@ -1,6 +1,6 @@
 ---
 name: music-practice-calendar
-description: "Use for a practice calendar in a fictional music exercise."
+description: "Use for a calendar about practice in a fictional music exercise."
 ---
 
 # Music Practice Calendar

@@ -1,6 +1,6 @@
 ---
 name: writing-journals-schedule
-description: "Use for a journals schedule in a fictional writing exercise."
+description: "Use for a schedule about journals in a fictional writing exercise."
 ---
 
 # Writing Journals Schedule

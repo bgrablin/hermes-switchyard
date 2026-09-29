@@ -1,6 +1,6 @@
 ---
 name: cooking-bread-guide
-description: "Use for a bread guide in a fictional cooking exercise."
+description: "Use for a guide about bread in a fictional cooking exercise."
 ---
 
 # Cooking Bread Guide

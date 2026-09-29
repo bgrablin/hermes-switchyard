@@ -1,6 +1,6 @@
 ---
 name: libraries-shelves-reference
-description: "Use for a shelves reference in a fictional libraries exercise."
+description: "Use for a reference about shelves in a fictional libraries exercise."
 ---
 
 # Libraries Shelves Reference

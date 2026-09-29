@@ -1,6 +1,6 @@
 ---
 name: music-choirs-brief
-description: "Use for a choirs brief in a fictional music exercise."
+description: "Use for a brief about choirs in a fictional music exercise."
 ---
 
 # Music Choirs Brief

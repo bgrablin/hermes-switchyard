@@ -1,6 +1,6 @@
 ---
 name: walking-nature-notes-plan
-description: "Use for a nature notes plan in a fictional walking exercise."
+description: "Use for a plan about nature notes in a fictional walking exercise."
 ---
 
 # Walking Nature Notes Plan

@@ -1,6 +1,6 @@
 ---
 name: sewing-repairs-reference
-description: "Use for a repairs reference in a fictional sewing exercise."
+description: "Use for a reference about repairs in a fictional sewing exercise."
 ---
 
 # Sewing Repairs Reference

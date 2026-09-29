@@ -1,6 +1,6 @@
 ---
 name: photography-framing-guide
-description: "Use for a framing guide in a fictional photography exercise."
+description: "Use for a guide about framing in a fictional photography exercise."
 ---
 
 # Photography Framing Guide

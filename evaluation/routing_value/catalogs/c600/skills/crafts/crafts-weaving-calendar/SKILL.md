@@ -1,6 +1,6 @@
 ---
 name: crafts-weaving-calendar
-description: "Use for a weaving calendar in a fictional crafts exercise."
+description: "Use for a calendar about weaving in a fictional crafts exercise."
 ---
 
 # Crafts Weaving Calendar

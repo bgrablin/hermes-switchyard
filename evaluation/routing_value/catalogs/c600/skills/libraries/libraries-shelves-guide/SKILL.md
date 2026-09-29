@@ -1,6 +1,6 @@
 ---
 name: libraries-shelves-guide
-description: "Use for a shelves guide in a fictional libraries exercise."
+description: "Use for a guide about shelves in a fictional libraries exercise."
 ---
 
 # Libraries Shelves Guide

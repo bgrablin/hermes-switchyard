@@ -1,6 +1,6 @@
 ---
 name: travel-itineraries-checklist
-description: "Use for a itineraries checklist in a fictional travel exercise."
+description: "Use for a checklist about itineraries in a fictional travel exercise."
 ---
 
 # Travel Itineraries Checklist
