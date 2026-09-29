@@ -1,6 +1,6 @@
 # Offline outcome labels (0.6.0 candidate)
 
-Switchyard routing receipts record routing choices, not answer quality. This local-only tool creates four **evidence-limited** labels from the existing bounded receipt history. It does not run in a Hermes hook, call Jev, change routing or effort, create a runtime holdout, or send data to a provider. It is not in the 0.5.6 release.
+Switchyard routing receipts capture routing activity, not answer quality. This local-only tool creates four **evidence-limited** labels from the existing bounded receipt history. It does not run in a Hermes hook, call Jev, change routing or effort, create a runtime holdout, or send data to a provider. It is not in the 0.5.6 release.
 
 ## Inputs and use
 
