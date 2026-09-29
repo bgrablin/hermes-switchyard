@@ -201,7 +201,7 @@ class CiContractTests(unittest.TestCase):
             "${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}",
         )
         self.assertEqual(job["runs-on"], "ubuntu-latest")
-        self.assertEqual(job["strategy"]["matrix"]["python-version"], ["3.11", "3.14"])
+        self.assertEqual(job["strategy"]["matrix"]["python-version"], ["3.14"])
         self.assertIs(job["strategy"]["fail-fast"], False)
         self.assertIs(job["continue-on-error"], True)
         self.assertNotIn("needs", job)
