@@ -68,7 +68,8 @@ class DetectorTests(unittest.TestCase):
         self.assertFalse(is_trivial_turn(GREETING_INSTRUCTION))
         self.assertEqual(hosted_skill_bypass_reason(LISTDIR), LIGHT_NO_SKILL_REASON)
         self.assertTrue(is_readonly_listing_prompt(LISTDIR))
-        self.assertEqual(hosted_skill_bypass_reason(MULTISTEP_GENERIC), LIGHT_NO_SKILL_REASON)
+        # Open-ended explanations stay hosted (not part of default light bypass).
+        self.assertIsNone(hosted_skill_bypass_reason(MULTISTEP_GENERIC))
         self.assertTrue(is_light_explanation_prompt(MULTISTEP_GENERIC))
 
     def test_domain_multistep_still_routes(self):
@@ -141,6 +142,22 @@ class CapabilityGuardTests(unittest.TestCase):
                 self.assertIsNone(hosted_skill_bypass_reason(prompt))
                 self.assertFalse(is_light_explanation_prompt(prompt))
 
+    def test_listing_rejects_follow_on_deliverables(self):
+        prompt = (
+            "Using safe read-only actions, list the current working directory, then "
+            "analyze the Python files for security vulnerabilities."
+        )
+        self.assertIsNone(hosted_skill_bypass_reason(prompt))
+        self.assertFalse(is_readonly_listing_prompt(prompt))
+
+    def test_open_ended_explanation_stays_hosted(self):
+        for prompt in (
+            "Explain how Django middleware works. Do not run commands.",
+            MULTISTEP_GENERIC,
+        ):
+            with self.subTest(prompt=prompt[:50]):
+                self.assertIsNone(hosted_skill_bypass_reason(prompt))
+
     def test_printer_and_logs_style_without_explicit_skill_cue_still_route(self):
         self.assertIsNone(
             hosted_skill_bypass_reason(
@@ -161,7 +178,6 @@ class RecommendBypassTests(HermesHomeTestCase):
             ("hi", "trivial_turn"),
             (GREETING_INSTRUCTION, LIGHT_NO_SKILL_REASON),
             (LISTDIR, LIGHT_NO_SKILL_REASON),
-            (MULTISTEP_GENERIC, LIGHT_NO_SKILL_REASON),
         ):
             with self.subTest(task=task[:40]):
                 calls: list[bool] = []
@@ -486,6 +502,48 @@ class EarlyLightBypassBeforeDiscoverTests(HermesHomeTestCase):
         meta = (response or {}).get("metadata", {}).get("skill_recommendation", {})
         self.assertEqual(meta.get("status"), "explicit_override")
         self.assertEqual(meta.get("explicit_skill"), "systematic-debugging")
+
+    def test_flag_on_greeting_shaped_explicit_skill_still_discovers(self):
+        """Greeting-class + Use <skill> must not early-bypass before override pool."""
+        from unittest import mock
+        from hermes_switchyard.automatic import build_pre_llm_call_hook
+
+        catalog = list(CATALOG) + [
+            {"name": "greeting-writer", "description": "Compose greeting replies"}
+        ]
+        calls: list[bool] = []
+        hook = build_pre_llm_call_hook(
+            enabled=True,
+            configured_candidates=catalog,
+            routing_mode="hosted_sanitized",
+            hosted_mode="always",
+            public_or_sanitized_data_ack=True,
+            client_factory=forbidden_factory(calls),
+            cache_seconds=0.0,
+            consumer_mode="advisory",
+            light_turn_bypass=True,
+            early_light_bypass_before_discover=True,
+        )
+        assert hook is not None
+        discover_calls: list[int] = []
+
+        def fake_discover():
+            discover_calls.append(1)
+            return tuple(catalog)
+
+        task = "Use greeting-writer to reply with hello. Do not use tools."
+        with mock.patch(
+            "hermes_switchyard.automatic.discover_available_skill_candidates",
+            side_effect=fake_discover,
+        ):
+            response = hook(
+                user_message=task, session_id="s-greet-ov", turn_id="t1", platform="cli"
+            )
+        self.assertEqual(calls, [])
+        self.assertGreaterEqual(len(discover_calls), 1)
+        meta = (response or {}).get("metadata", {}).get("skill_recommendation", {})
+        self.assertEqual(meta.get("status"), "explicit_override")
+        self.assertEqual(meta.get("explicit_skill"), "greeting-writer")
 
 
 if __name__ == "__main__":

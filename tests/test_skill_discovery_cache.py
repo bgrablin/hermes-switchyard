@@ -143,5 +143,23 @@ class SkillDiscoveryCacheTests(HermesHomeTestCase):
         self.assertNotEqual(fp_active, fp_env)
 
 
+    def test_fingerprint_includes_policy_and_cwd(self):
+        """Disabled/platform/cwd inputs must change the fingerprint (not home-only)."""
+        import os
+
+        fp1 = automatic._discovery_fingerprint()
+        parts = automatic._discovery_policy_parts()
+        self.assertTrue(any(p.startswith("cwd:") for p in parts))
+        self.assertTrue(any(p.startswith("sys_platform:") for p in parts))
+        # Env platform alone must shift the fingerprint.
+        with mock.patch.dict(os.environ, {"HERMES_PLATFORM": "sy-test-platform-a"}):
+            fp_a = automatic._discovery_fingerprint()
+        with mock.patch.dict(os.environ, {"HERMES_PLATFORM": "sy-test-platform-b"}):
+            fp_b = automatic._discovery_fingerprint()
+        self.assertNotEqual(fp_a, fp_b)
+        self.assertIsInstance(fp1, str)
+        self.assertRegex(fp1, r"^[0-9a-f]{64}$")
+
+
 if __name__ == "__main__":
     unittest.main()

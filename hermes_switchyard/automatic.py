@@ -108,10 +108,10 @@ _CATALOG_FEATURE_LOCK = threading.Lock()
 
 # In-process skill registry discovery cache. skills_list() is fail-open and can
 # be expensive on large profiles; automatic routing may also call discovery twice
-# in one turn (catalog + explicit-override pool). Invalidate when the active Hermes home
-# skills roots change (path + mtime fingerprint) or when the entry exceeds the
-# max age. Behavior is identical to uncached discovery aside from avoiding
-# repeat registry scans.
+# in one turn (catalog + explicit-override pool). Invalidate when any observed
+# registry input changes (home/project/external roots, disabled set, platform,
+# cwd, config) or when the entry exceeds the max age. Behavior is identical to
+# uncached discovery aside from avoiding repeat registry scans.
 _DISCOVERY_CACHE_LOCK = threading.Lock()
 _DISCOVERY_CACHE: tuple[str, float, tuple[dict[str, str], ...]] | None = None
 _DISCOVERY_CACHE_MAX_AGE_SECONDS = 30.0
@@ -385,27 +385,134 @@ def _active_hermes_home() -> Path | None:
 
 
 def _skills_registry_roots() -> tuple[Path, ...]:
-    """Return profile skill roots used only for discovery-cache invalidation.
+    """Return skill roots used only for discovery-cache invalidation.
 
     Paths are never logged or written into receipts. Missing roots are fine:
     the fingerprint records absence so a later create invalidates the cache.
     Roots are keyed off the *active* Hermes home (``get_hermes_home()``), not
     process env alone, so multiplexed profiles do not cross-cache catalogs.
+
+    When Hermes skill_utils helpers are importable, also include trusted project
+    dirs, configured external dirs, and create_dir — the same extra roots
+    ``skills_list()`` consults beyond the profile home.
     """
     roots: list[Path] = []
+    seen: set[str] = set()
+
+    def _add(path: Path | None) -> None:
+        if path is None:
+            return
+        try:
+            key = str(path.resolve())
+        except OSError:
+            key = str(path)
+        if key in seen:
+            return
+        seen.add(key)
+        roots.append(path)
+
     base = _active_hermes_home()
     if base is not None:
-        roots.append(base / "skills")
+        _add(base / "skills")
         # Profile-scoped skills (when HERMES_PROFILE is set) live beside the
         # shared tree; include both so an install under either root refreshes.
         profile = os.environ.get("HERMES_PROFILE")
         if isinstance(profile, str) and profile.strip():
-            roots.append(base / "profiles" / profile.strip() / "skills")
+            _add(base / "profiles" / profile.strip() / "skills")
+    # Extra registry inputs Hermes skills_list() merges in (fail-open).
+    try:
+        from agent.skill_utils import (  # type: ignore[import-not-found]
+            get_external_skills_dirs,
+            get_project_skills_dirs,
+            get_skill_create_dir,
+        )
+
+        for getter in (get_project_skills_dirs, get_external_skills_dirs):
+            try:
+                for entry in getter() or ():
+                    if isinstance(entry, (str, os.PathLike)):
+                        _add(Path(entry))
+            except Exception:  # noqa: BLE001 -- fingerprint must stay cheap
+                continue
+        try:
+            create_dir = get_skill_create_dir()
+        except Exception:  # noqa: BLE001
+            create_dir = None
+        if create_dir is not None:
+            _add(Path(create_dir))
+    except Exception:  # noqa: BLE001 -- plugin stays usable without Hermes internals
+        pass
     return tuple(roots)
 
 
+def _discovery_policy_parts() -> list[str]:
+    """Non-path registry inputs that change skills_list() without an mtime bump.
+
+    Covers disabled skill names, platform eligibility context, and config.yaml
+    identity so a config-only disable / platform switch invalidates the cache.
+    Never embeds absolute paths into the returned strings (hashed later).
+    """
+    parts: list[str] = []
+    platform = (
+        os.environ.get("HERMES_PLATFORM")
+        or os.environ.get("HERMES_SESSION_PLATFORM")
+        or ""
+    )
+    if isinstance(platform, str) and platform.strip():
+        parts.append(f"platform:{platform.strip()}")
+    try:
+        import sys as _sys
+
+        parts.append(f"sys_platform:{getattr(_sys, 'platform', '')}")
+    except Exception:  # noqa: BLE001
+        parts.append("sys_platform:unknown")
+    # cwd identity: project skills vary by working directory.
+    try:
+        cwd = Path.cwd().resolve()
+        parts.append(f"cwd:{cwd}")
+    except OSError:
+        parts.append("cwd:unknown")
+    try:
+        from agent.skill_utils import get_disabled_skill_names  # type: ignore[import-not-found]
+
+        disabled = sorted(str(name) for name in (get_disabled_skill_names() or set()) if name)
+        parts.append("disabled:" + ",".join(disabled))
+    except Exception:  # noqa: BLE001
+        parts.append("disabled:unavailable")
+    # Config mtime so disabled / external_dirs edits without skills-dir churn refresh.
+    try:
+        from hermes_cli.config import get_config_path  # type: ignore[import-not-found]
+
+        cfg_path = get_config_path()
+        if cfg_path is not None:
+            try:
+                st = Path(cfg_path).stat()
+                parts.append(f"config:{st.st_mtime_ns}:{st.st_ino}:{st.st_size}")
+            except OSError:
+                parts.append("config:missing")
+    except Exception:  # noqa: BLE001
+        # Fall back to HERMES_HOME/config.yaml when the helper is unavailable.
+        base = _active_hermes_home()
+        if base is not None:
+            cfg = base / "config.yaml"
+            try:
+                st = cfg.stat()
+                parts.append(f"config:{st.st_mtime_ns}:{st.st_ino}:{st.st_size}")
+            except OSError:
+                parts.append("config:missing")
+        else:
+            parts.append("config:unavailable")
+    return parts
+
+
 def _discovery_fingerprint() -> str:
-    """Cheap fingerprint of skill registry roots (paths + mtimes + children)."""
+    """Cheap fingerprint of all skills_list() registry inputs we can observe.
+
+    Includes profile/project/external skill roots (path + mtime + children),
+    disabled set, platform, cwd, and config identity — not only the active home
+    skills tree — so two turns that differ only by project dir, disable list, or
+    platform do not reuse each other's catalog.
+    """
     parts: list[str] = []
     for root in _skills_registry_roots():
         try:
@@ -426,6 +533,7 @@ def _discovery_fingerprint() -> str:
                     parts.append(f"{child.name}:unreadable")
         except OSError:
             parts.append(f"{root}:missing")
+    parts.extend(_discovery_policy_parts())
     if not parts:
         parts.append("no_hermes_home")
     return hashlib.sha256("\n".join(parts).encode("utf-8", "backslashreplace")).hexdigest()
@@ -449,9 +557,10 @@ def discover_available_skill_candidates(
     surface and already filters disabled/platform-ineligible skills. Descriptions
     remain local ranking metadata and are bounded before use.
 
-    Results are cached in-process and invalidated when skill-root mtimes change
-    or after ``_DISCOVERY_CACHE_MAX_AGE_SECONDS``. Pass ``force_refresh=True`` to
-    bypass the cache. Failures are not cached.
+    Results are cached in-process and invalidated when any observed registry
+    input changes (profile/project/external skill-root mtimes, disabled set,
+    platform, cwd, config identity) or after ``_DISCOVERY_CACHE_MAX_AGE_SECONDS``.
+    Pass ``force_refresh=True`` to bypass the cache. Failures are not cached.
     """
     global _DISCOVERY_CACHE
     fingerprint = _discovery_fingerprint()
@@ -1559,6 +1668,34 @@ def _format_recommendation(name: str) -> str:
     )
 
 
+# Text-only explicit-skill intent (no catalog). Used to refuse early light bypass
+# when the turn looks like "Use foo-bar …" / "/foo-bar" so discover still runs and
+# `_explicit_skill_override` can honor a matching registry skill.
+_EXPLICIT_SKILL_INTENT_RE = re.compile(
+    r"(?:^|\s)/[a-z][\w.-]{1,63}(?:\s|$|[.,!?])"
+    r"|"
+    r"\b(?:use|load)\s+(?:the\s+)?skill\b"
+    r"|"
+    r"\b(?:use|load)\s+(?:the\s+)?[`'\"]?[a-z][\w]*[-_][\w.-]{0,62}",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_explicit_skill_request(task: Any) -> bool:
+    """True when the turn text looks like an explicit skill use/load/slash request.
+
+    Catalog-free: hyphenated / underscored names and the word ``skill`` after
+    use/load count; bare ``use tools`` does not. Fail-open (False) on coerce errors.
+    """
+    try:
+        text = _coerce_bounded_text(task, MAX_TASK_CHARS)
+    except Exception:  # noqa: BLE001
+        return False
+    if not text:
+        return False
+    return _EXPLICIT_SKILL_INTENT_RE.search(text) is not None
+
+
 def _explicit_skill_override(task: Any, candidates: Any) -> str | None:
     """Return an explicitly requested candidate, if the turn names one."""
     text = _coerce_bounded_text(task, MAX_TASK_CHARS).lower()
@@ -1811,7 +1948,8 @@ def build_pre_llm_call_hook(
         # *after* the explicit-skill override below, so disabled-mode and
         # explicit-override receipts keep their established precedence.
         # Optional early probe (flag default OFF) may skip discover when the same
-        # text-only light predicate already fires; fail-open on probe errors.
+        # text-only light predicate already fires and the turn does not look like an
+        # explicit skill use/load; fail-open on probe errors.
         del conversation_history  # local-only input; never part of an egress payload
         if (
             early_before_discover
@@ -1825,8 +1963,11 @@ def build_pre_llm_call_hook(
                     early_reason = _hosted_skill_bypass_reason(task_text)
             except Exception:  # noqa: BLE001 -- fail open to discover path
                 early_reason = None
-            if early_reason is not None:
+            if early_reason is not None and not _looks_like_explicit_skill_request(
+                user_message
+            ):
                 # Same light path as recommend(); empty candidates never reached.
+                # Explicit-use phrasing falls through so discover + override run.
                 result = recommender.recommend(
                     user_message,
                     candidates=(),

@@ -4,10 +4,11 @@ A greeting, thanks, or acknowledgement never names a specialist skill and needs 
 reasoning, so a hosted call only adds latency. The rule is a closed word list, not a length
 rule, so short task requests (``fix ci``) are not trivial.
 
-Light-turn predicates (greeting-class instructions, pure read-only cwd listings, short
-no-action explanations without domain-skill cues) skip hosted skill routing when a
-specialist skill cannot help. Adaptive effort still uses only ``is_trivial_turn`` /
-greeting-class for local bypass.
+Light-turn predicates (greeting-class instructions and pure read-only cwd listings)
+skip hosted skill routing when a specialist skill cannot help. Open-ended explanations
+stay hosted — a fixed denylist cannot prove specialist irrelevance against a dynamic
+catalog. Adaptive effort still uses only ``is_trivial_turn`` / greeting-class for local
+bypass.
 """
 from __future__ import annotations
 
@@ -85,7 +86,9 @@ _LIST_NEGATIVE_RE = re.compile(
     r"\b(?:"
     r"skill|debug|deploy|printer|error\s+logs?|compose(?:\s+health)?|"
     r"docker(?:\s+update)?|rollback|unreachable|"
-    r"nginx|spool|hermes|catalog|skills?"
+    r"nginx|spool|hermes|catalog|skills?|"
+    # Follow-on task nouns (not the "do not patch/delete" constraint clause).
+    r"analy[sz]e|inspect|investigate|vulnerabilit(?:y|ies)|security|python"
     r")\b",
     re.IGNORECASE,
 )
@@ -204,6 +207,9 @@ def is_readonly_listing_prompt(text: str) -> bool:
         return False
     if not _NO_MUTATE_RE.search(stripped):
         return False
+    # Listing must be the only deliverable — follow-on analyze/debug tasks stay hosted.
+    if _SECOND_DELIVERABLE_RE.search(stripped):
+        return False
     return _LIST_NEGATIVE_RE.search(stripped) is None
 
 
@@ -230,9 +236,8 @@ def hosted_skill_bypass_reason(text: str) -> str | None:
     """Return a hosted skill-routing bypass reason, or None when hosting may help.
 
     ``trivial_turn`` covers closed-list acknowledgements. ``light_no_skill`` covers
-    greeting-class instructions, pure read-only cwd listings, and short no-action
-    explanations without domain-skill cues where a specialist skill cannot earn
-    its keep.
+    greeting-class instructions and pure read-only cwd listings where a specialist
+    skill cannot earn its keep. Open-ended explanations are not bypassed by default.
     """
     stripped = text.strip()
     if not stripped:
@@ -243,6 +248,6 @@ def hosted_skill_bypass_reason(text: str) -> str | None:
         return LIGHT_NO_SKILL_REASON
     if is_readonly_listing_prompt(stripped):
         return LIGHT_NO_SKILL_REASON
-    if is_light_explanation_prompt(stripped):
-        return LIGHT_NO_SKILL_REASON
+    # Open-ended explanations stay hosted: a fixed denylist cannot prove a
+    # specialist skill is irrelevant against a dynamic catalog (Copilot #164).
     return None
