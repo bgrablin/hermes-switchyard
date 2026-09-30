@@ -640,6 +640,8 @@ _RECEIPT_SUFFIX = (
 _RECEIPT_TAIL = re.compile(
     rf"\n\n(?:"
     rf"switchyard: effort {_EFFORT_PATH}(?: \(kept: [^)\n]*\))?(?: · [^\n]*)?"
+    rf"|Reasoning: not adapted — (?:host sent no effort|no lower level for this route|"
+    rf"host sent no effort; no lower level for this route) · no Jev call"
     rf"|"
     rf"Reasoning: (?:{_EFFORT_PATH}|kept at {_EFFORT_TOKEN} — {_KEPT_WHY}|"
     rf"{_EFFORT_TOKEN} · {_PASS_WHY})(?: · {_RECEIPT_SUFFIX})*"
@@ -1942,30 +1944,11 @@ class ReasoningEffortController:
         turn = _turn_key(receipt.get("turn_id"))
         requested = receipt.get("requested_effort")
         sent = receipt.get("effort")
-        if turn is None or requested not in ALLOWED_EFFORTS or sent not in ALLOWED_EFFORTS:
+        if turn is None:
             return
-        if receipt.get("reason_code") in _PASS_REASONS:
-            if self.receipt_mode != "always":
-                return  # the plugin did no work; quiet unless receipt mode is always
-            with self._turn_receipts_lock:
-                entry = self._turn_receipts.get(turn)
-                if entry is None:
-                    entry = {
-                        "requested": requested, "sent": [], "jev_calls": 0, "jev_ms": 0.0, "cached": 0,
-                        "kept": None, "metadata_only": False, "lowered": 0, "measured": 0,
-                        "metric": None, "saved": 0, "local": 0, "timeouts": 0,
-                        "passed": True, "pass_reason": receipt.get("reason_code"),
-                    }
-                    self._turn_receipts[turn] = entry
-                self._turn_receipts.move_to_end(turn)
-                if not entry["sent"] or entry["sent"][-1] != sent:
-                    entry["sent"].append(sent)
-                entry["requested"] = requested
-                entry["passed"] = True
-                entry["pass_reason"] = receipt.get("reason_code")
-                while len(self._turn_receipts) > _TURN_RECEIPT_LIMIT:
-                    self._turn_receipts.popitem(last=False)
-            return
+        reason = receipt.get("reason_code")
+        route_pass = reason in {"no_host_effort", "no_room"} and receipt.get("mode") != "pinned"
+        known_effort = requested in ALLOWED_EFFORTS and sent in ALLOWED_EFFORTS
         with self._turn_receipts_lock:
             entry = self._turn_receipts.get(turn)
             if entry is None:
@@ -1974,9 +1957,27 @@ class ReasoningEffortController:
                     "kept": None, "metadata_only": False, "lowered": 0, "measured": 0,
                     "metric": None, "saved": 0, "local": 0, "timeouts": 0,
                     "passed": False, "pass_reason": None,
+                    "route_only": True, "route_reasons": set(),
                 }
                 self._turn_receipts[turn] = entry
             self._turn_receipts.move_to_end(turn)
+            while len(self._turn_receipts) > _TURN_RECEIPT_LIMIT:
+                self._turn_receipts.popitem(last=False)
+            # A route-only signal must not hide actual work or a user-selected bypass.
+            entry["route_only"] = entry["route_only"] and route_pass
+            if route_pass:
+                entry["route_reasons"].add(reason)
+            if not known_effort:
+                return  # never invent a wire level for a missing host field
+            if reason in _PASS_REASONS:
+                if self.receipt_mode != "always":
+                    return
+                if not entry["sent"] or entry["sent"][-1] != sent:
+                    entry["sent"].append(sent)
+                entry["requested"] = requested
+                entry["passed"] = True
+                entry["pass_reason"] = reason
+                return
             if not entry["sent"] or entry["sent"][-1] != sent:
                 entry["sent"].append(sent)
             entry["requested"] = requested
@@ -1999,16 +2000,14 @@ class ReasoningEffortController:
                 label = _kept_label(receipt)
                 if entry["kept"] is None or label != "cloud decision":
                     entry["kept"] = label
-            while len(self._turn_receipts) > _TURN_RECEIPT_LIMIT:
-                self._turn_receipts.popitem(last=False)
 
     def turn_receipt_line(self, turn_id: Any) -> str | None:
         """Return and clear the one-line effort receipt for *turn_id*, or None.
 
         Default ``auto`` mode: a line when Switchyard changed effort or made/reused a
-        decision (cloud, local, or cached). ``always`` also shows pass-through when a wire
-        level is known (pinned, no room, excluded model, …); not when there is no host effort
-        field or the route is unsupported. ``off`` never shows a line. Examples:
+        decision (cloud, local, or cached), or every request was not adapted because the
+        host sent no effort or the route had no lower level. ``always`` also shows other
+        pass-through when a wire level is known. ``off`` never shows a line. Examples:
         ``Reasoning: high→low · 180 ms`` and
         ``Reasoning: kept at high — consequential request · 210 ms``. The saved figure is
         present only when every lowered request in the turn has measured usage and the session
@@ -2021,6 +2020,13 @@ class ReasoningEffortController:
             entry = self._turn_receipts.pop(turn, None)
         if entry is None:
             return None
+        if entry["route_only"] and entry["route_reasons"]:
+            labels = {
+                "no_host_effort": "host sent no effort",
+                "no_room": "no lower level for this route",
+            }
+            why = "; ".join(labels[reason] for reason in labels if reason in entry["route_reasons"])
+            return f"Reasoning: not adapted — {why} · no Jev call"
         requested = entry["requested"]
         changed = any(level != requested for level in entry["sent"])
         calls = int(entry["jev_calls"])
