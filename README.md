@@ -191,7 +191,7 @@ These are code-owned status or receipt reasons. They identify a gate, not necess
 
 The installer can also report `Security scan blocked plugin install`. This occurs before any plugin status command is available. Review the exact scanner findings and source; do not pass `--force` merely to make the quickstart appear complete. [Setup](docs/SETUP.md) covers browser startup, explicit pins, and further status reasons.
 
-**No per-turn effort line?** It appears only on a foreground turn where the plugin changed effort, called the cloud, decided locally, or reused a cached choice (or also on pinned/pass-through turns with a known wire level in `always` mode). Check `adaptive_reasoning_effort_receipt_mode` (`auto`/`always`/`off`), `/switchyard effort receipt`, and whether you started a fresh session after enabling the plugin. A disabled adapter or unsupported Hermes middleware cannot produce it. Use `/switchyard effort status` and `hermes switchyard status --json` to see the current state.
+**No per-turn effort line?** It appears only on a foreground turn where the plugin changed effort, called the cloud, decided locally, or reused a cached choice or when every request was not adapted because the host sent no effort or the route had no lower level (also on pinned/pass-through turns with a known wire level in `always` mode). Check `adaptive_reasoning_effort_receipt_mode` (`auto`/`always`/`off`), `/switchyard effort receipt`, and whether you started a fresh session after enabling the plugin. A disabled adapter or unsupported Hermes middleware cannot produce it. Use `/switchyard effort status` and `hermes switchyard status --json` to see the current state.
 
 ## Uninstall and rollback
 
