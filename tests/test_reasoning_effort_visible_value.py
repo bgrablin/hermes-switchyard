@@ -22,6 +22,7 @@ from hermes_switchyard.reasoning_effort_adapter import (
     parse_receipt_mode,
     persist_plugin_receipt_mode,
     register_reasoning_effort_adapter,
+    strip_receipt_lines,
 )
 
 from tests.test_reasoning_effort_user_cap import OPUS, ORDER, Env, opus_request, sent_effort
@@ -362,18 +363,9 @@ class ReceiptModeAndPlainLanguageTests(unittest.TestCase):
         self.assertIn(lead, summary)
         self.assertEqual(summary.count(lead), 1)
 
-    def test_always_mode_stays_quiet_without_a_known_wire_level(self):
-        """always covers pinned/pass-through with a level; not no_host_effort / unsupported_route."""
+    def test_always_mode_stays_quiet_for_unsupported_route(self):
         controller, _, _ = make()
         controller.set_receipt_mode("always", persist=False)
-        begin(controller, "hi")
-        request = {"model": OPUS["model"], "messages": [{"role": "user", "content": "hi"}]}
-        result = controller.on_llm_request(
-            request, session_id=SESSION, task_id=SESSION, turn_id="t1", **OPUS
-        )
-        self.assertIsNone(result)  # no effort field → no_host_effort, request unchanged
-        self.assertEqual(last_receipt()["reason_code"], "no_host_effort")
-        self.assertIsNone(finish(controller))
         begin(controller, "hi", turn="t2")
         result = controller.on_llm_request(
             {"modelId": "model", "messages": []},
@@ -387,6 +379,117 @@ class ReceiptModeAndPlainLanguageTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertEqual(last_receipt()["reason_code"], "unsupported_route")
         self.assertIsNone(finish(controller, turn="t2"))
+
+
+class RoutePassReceiptTests(unittest.TestCase):
+    def missing(self, controller, *, turn="t1", task=SESSION):
+        request = {"model": OPUS["model"], "messages": [{"role": "user", "content": "hi"}]}
+        original = copy.deepcopy(request)
+        self.assertIsNone(controller.on_llm_request(
+            request, session_id=SESSION, task_id=task, turn_id=turn, **OPUS
+        ))
+        self.assertEqual(request, original)
+
+    def test_route_passes_once_per_turn_in_auto_and_always(self):
+        for mode in ("auto", "always", "off"):
+            for reason in ("no_host_effort", "no_room", "both"):
+                with self.subTest(mode=mode, reason=reason):
+                    controller, jev, _ = make(receipt_mode=mode)
+                    for turn in ("t1", "t2"):
+                        begin(controller, "hi", turn=turn)
+                        for _ in range(2):
+                            if reason != "no_room":
+                                self.missing(controller, turn=turn)
+                            if reason != "no_host_effort":
+                                self.assertEqual(send(controller, "low", turn=turn), "low")
+                                self.assertEqual(last_receipt()["reason_code"], "no_room")
+                        why = {"no_host_effort": "host sent no effort",
+                               "no_room": "no lower level for this route",
+                               "both": "host sent no effort; no lower level for this route"}[reason]
+                        expected = f"Reasoning: not adapted — {why} · no Jev call"
+                        self.assertEqual(receipt_line(controller, turn), None if mode == "off" else expected)
+                        self.assertIsNone(finish(controller, turn=turn))
+                        if mode != "off":
+                            request = {"messages": [{"role": "assistant", "content": "Answer.\n\n" + expected}]}
+                            self.assertEqual(strip_receipt_lines(request)["messages"][0]["content"], "Answer.")
+                    self.assertEqual(jev.calls, [])
+
+    def test_user_bypasses_and_nonforeground_missing_effort_stay_quiet(self):
+        for mode in ("auto", "always"):
+            for bypass in ("pinned", "excluded", "disabled", "delegated", "background"):
+                with self.subTest(mode=mode, bypass=bypass):
+                    controller, jev, _ = make(receipt_mode=mode)
+                    task = SESSION
+                    if bypass == "pinned":
+                        controller.set_mode("pinned", session_id=SESSION)
+                    elif bypass == "excluded":
+                        controller.exclude_models = [OPUS["model"]]
+                    elif bypass == "disabled":
+                        controller.enabled = False
+                    elif bypass in {"delegated", "background"}:
+                        task = "synthetic-child"
+                    if bypass != "background":
+                        begin(controller, "hi", task=task, parent=SESSION if bypass == "delegated" else "")
+                    self.missing(controller, task=task)
+                    self.assertIsNone(finish(controller))
+                    self.assertEqual(jev.calls, [])
+
+    def test_known_effort_user_bypasses_keep_existing_modes(self):
+        for mode in ("auto", "always", "off"):
+            for bypass, label in (("pinned", "pinned"), ("excluded", "model excluded"),
+                                  ("disabled", "adaptive off"), ("reasoning_disabled", "reasoning off")):
+                with self.subTest(mode=mode, bypass=bypass):
+                    controller, jev, _ = make(receipt_mode=mode)
+                    if bypass == "pinned":
+                        controller.set_mode("pinned", session_id=SESSION)
+                    elif bypass == "excluded":
+                        controller.exclude_models = [OPUS["model"]]
+                    elif bypass == "disabled":
+                        controller.enabled = False
+                    begin(controller, "hi")
+                    level = "none" if bypass == "reasoning_disabled" else "high"
+                    send(controller, level)
+                    expected = f"Reasoning: {level} · {label}" if mode == "always" else None
+                    self.assertEqual(receipt_line(controller), expected)
+                    self.assertEqual(jev.calls, [])
+
+    def test_no_room_when_requested_level_is_outside_allowed_ladder(self):
+        controller, jev, _ = make(allowed_efforts=["low", "medium"])
+        begin(controller, "hi")
+        self.assertEqual(send(controller, "high"), "high")
+        self.assertEqual(last_receipt()["reason_code"], "no_room")
+        self.assertEqual(receipt_line(controller),
+                         "Reasoning: not adapted — no lower level for this route · no Jev call")
+        self.assertEqual(jev.calls, [])
+
+    def test_actual_work_wins_in_either_request_order(self):
+        for missing_first in (True, False):
+            controller, _, _ = make()
+            begin(controller, "status ping")
+            if missing_first:
+                self.missing(controller)
+            send(controller, "high")
+            if not missing_first:
+                self.missing(controller)
+            self.assertRegex(receipt_line(controller), r"^Reasoning: high→low · \d+ ms$")
+
+    def test_route_signal_requires_every_request_to_be_route_pass(self):
+        for pinned_first in (True, False):
+            controller, _, _ = make()
+            begin(controller, "hi")
+            if not pinned_first:
+                self.missing(controller)
+            controller.set_mode("pinned", session_id=SESSION)
+            send(controller, "high")
+            controller.set_mode("auto", session_id=SESSION)
+            if pinned_first:
+                self.missing(controller)
+            self.assertIsNone(finish(controller))
+
+    def test_unrelated_reasoning_prose_is_not_stripped(self):
+        request = {"messages": [{"role": "assistant", "content":
+            "Answer.\n\nReasoning: not adapted — an ordinary explanation · no Jev call"}]}
+        self.assertIs(strip_receipt_lines(request), request)
 
 
 class PersistReceiptModeTests(unittest.TestCase):
