@@ -65,7 +65,7 @@ Switchyard keeps the captured text only in memory for the current turn and clear
 /switchyard effort summary          show the session summary only
 /switchyard effort pin              send your /reasoning level unchanged in this session
 /switchyard effort auto             let Switchyard lower effort for routine steps again
-/switchyard effort receipt auto      show a receipt when effort changed or a decision was made/reused (default)
+/switchyard effort receipt auto      show decisions and route-side not-adapted receipts (default)
 /switchyard effort receipt always   also when pinned / pass-through with a known wire level
 /switchyard effort receipt off      show no receipt line
 ```
@@ -81,7 +81,7 @@ This release does not claim TUI chip sync with the sent level; the status bar re
 
 ### Receipt modes
 
-`/switchyard effort receipt always|auto|off` updates the live mode and **persists** it in plugin settings (`adaptive_reasoning_effort_receipt_mode`) so it survives restart. Legacy `receipt work` and `receipt on` mean `auto`. The receipt line uses the Hermes `transform_llm_output` hook. Default **`auto`**: a foreground reply where Switchyard changed effort or made/reused a decision (cloud, local, or cached). **`always`**: also shows the last sent level when pinned or other pass-through with a known wire level (not when the host has no effort field or the route is unsupported). **`off`**: none. Examples:
+`/switchyard effort receipt always|auto|off` updates the live mode and **persists** it in plugin settings (`adaptive_reasoning_effort_receipt_mode`) so it survives restart. Legacy `receipt work` and `receipt on` mean `auto`. The receipt line uses the Hermes `transform_llm_output` hook. Default **`auto`**: a foreground reply where Switchyard changed effort or made/reused a decision (cloud, local, or cached), or every request passed through for `no_host_effort` / `no_room`. **`always`**: also shows the last sent level when pinned or other pass-through with a known wire level (unsupported routes remain quiet). **`off`**: none. Examples:
 
 ```text
 Reasoning: high→low · 180 ms
@@ -91,9 +91,11 @@ Reasoning: kept at high — consequential request · 210 ms
 Reasoning: high→low · 190 ms · 2 cached
 Reasoning: high→low · 170 ms · shape only (message text not sent)
 Reasoning: high · pinned
+Reasoning: not adapted — host sent no effort · no Jev call
+Reasoning: not adapted — no lower level for this route · no Jev call
 ```
 
-Kept lines use a plain-language why: consequential request, after a tool failure, after a write, change request, cloud unavailable, invalid cloud answer, cloud over budget, or cloud decision (the cloud picked your level). In `auto` mode a pinned session, excluded model, or no-room request gets no line. In `always` mode those still show `Reasoning: <level> · …` when a wire level is known (no line for `no_host_effort` / `unsupported_route`).
+Kept lines use a plain-language why: consequential request, after a tool failure, after a write, change request, cloud unavailable, invalid cloud answer, cloud over budget, or cloud decision (the cloud picked your level). Route-only turns show one `not adapted` line in `auto` and `always`, without inventing a wire level or calling Jev. If both route reasons occur, the line names both. Actual decisions keep their normal receipt. A turn containing a user-selected bypass is not route-only. Pinned sessions (including missing host effort), excluded models, disabled adaptation, and unsupported routes retain their previous visibility: quiet in `auto`, with known wire levels shown in `always`. Use `off` to suppress all receipt lines.
 
 The line is added to the reply you see. Current Hermes stores the reply with the line, so `/resume` shows it. Before each request, Switchyard removes the line from earlier replies, so the model never gets it back. Both the current `Reasoning: …` shape and the older `switchyard: effort …` shape are stripped. Other text stays. Delegated and background turns never get the line. If the line fails, the reply is sent unchanged.
 
