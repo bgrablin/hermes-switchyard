@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest import mock
 
 from hermes_switchyard import receipt_history, receipt_state
 
@@ -162,13 +163,135 @@ class OutcomeLabelTests(unittest.TestCase):
         records, evidence, _ = frozen_case("explicit-correction-with-same-arm-adjacent-reply")
         for text in ("No, that's wrong.", "I asked for three items.", "Please undo this.",
                      "Could you fix the mistake?", "No, I asked for three items, actually.",
-                     "No, I asked for...", "No, I asked for"):
+                     "No, I asked for...", "No, I asked for", "No, I asked you to!",
+                     "That's not what I asked for", "That's not what I asked you to...",
+                     "You misread my request, actually.",
+                     "You misunderstood my request. Try again."):
             with self.subTest(text=text):
                 next_user = {**evidence[1], "user_message": {
                     "reply_to_message_id": "m-positive", "text": text,
                 }}
                 result = generate(records, [evidence[0], next_user])
                 self.assertEqual(result["labels"][0]["next_turn_user_correction"], "UNKNOWN")
+
+    def test_complete_correction_markers_need_no_suffix(self):
+        from hermes_switchyard.outcome_labels import generate
+
+        records, evidence, _ = frozen_case("explicit-correction-with-same-arm-adjacent-reply")
+        for marker in ("You misread my request", "You misunderstood my request"):
+            for suffix in ("", ".", "?!", "...", ": list three items."):
+                text = f"  {marker.upper()}{suffix}  "
+                with self.subTest(text=text):
+                    following = {**evidence[1], "user_message": {
+                        "reply_to_message_id": "m-positive", "text": text,
+                    }}
+                    result = generate(records, [evidence[0], following])
+                    self.assertIs(result["labels"][0]["next_turn_user_correction"], True)
+                    self.assertNotIn(text.strip(), json.dumps(result))
+
+    def test_complete_correction_markers_still_require_attribution(self):
+        from hermes_switchyard.outcome_labels import generate
+
+        for boundary in ("reply_target", "retried", "undone", "completion", "session", "split", "next_turn"):
+            with self.subTest(boundary=boundary):
+                records, evidence, _ = frozen_case("explicit-correction-with-same-arm-adjacent-reply")
+                evidence[1]["user_message"]["text"] = "You misunderstood my request."
+                if boundary == "reply_target":
+                    evidence[1]["user_message"]["reply_to_message_id"] = "other-message"
+                elif boundary in ("retried", "undone"):
+                    evidence[1][boundary] = True
+                elif boundary == "completion":
+                    evidence[0]["turn_completed"] = False
+                elif boundary == "session":
+                    records[1]["session_id"] = evidence[1]["session_id"] = "other-session"
+                elif boundary == "split":
+                    records[1]["turn_id"] = evidence[1]["turn_id"] = "b-no-correction"
+                else:
+                    records.insert(1, {**records[1], "turn_id": "j-reaction"})
+                result = generate(records, evidence)
+                self.assertEqual(result["labels"][0]["next_turn_user_correction"], "UNKNOWN")
+
+    def test_cli_protects_before_writing_and_closes_before_failed_protection_cleanup(self):
+        from hermes_switchyard import outcome_labels
+
+        for denied in (False, True):
+            with self.subTest(denied=denied), tempfile.TemporaryDirectory(prefix="outcome-label-test-") as temporary:
+                root = Path(temporary)
+                data = root / "retained"
+                data.mkdir()
+                records, evidence, expected = frozen_case("explicit-correction-with-same-arm-adjacent-reply")
+                history = receipt_history.history_path(data)
+                assert history is not None
+                history.write_text(
+                    "".join(json.dumps(record) + "\n" for record in records), encoding="utf-8",
+                )
+                input_path = root / "evidence.json"
+                input_path.write_text(json.dumps(evidence), encoding="utf-8")
+                output = root / "labels.json"
+                args = ["--history-dir", str(data), "--evidence", str(input_path), "--output", str(output)]
+                events = []
+                descriptors = []
+                real_open, real_fdopen, real_unlink = os.open, os.fdopen, Path.unlink
+
+                def capture_open(path, flags, mode):
+                    descriptor = real_open(path, flags, mode)
+                    descriptors.append(descriptor)
+                    return descriptor
+
+                def protect(path):
+                    self.assertEqual(path, output)
+                    self.assertEqual(path.read_bytes(), b"")
+                    events.append("protect")
+                    if denied:
+                        raise OSError("synthetic protection failure")
+
+                class TrackedOutput:
+                    def __init__(self, descriptor, *args, **kwargs):
+                        self.handle = real_fdopen(descriptor, *args, **kwargs)
+
+                    def __enter__(self):
+                        return self
+
+                    def __exit__(self, *args):
+                        return self.handle.__exit__(*args)
+
+                    def write(self, payload):
+                        if events != ["protect"] or denied:
+                            raise AssertionError("payload written before successful protection")
+                        events.append("write")
+                        return self.handle.write(payload)
+
+                def remove(path, *args, **kwargs):
+                    self.assertEqual(path, output)
+                    self.assertEqual(events, ["protect"])
+                    self.assertEqual(path.read_bytes(), b"")
+                    with self.assertRaises(OSError):
+                        os.fstat(descriptors[0])
+                    events.append("remove")
+                    return real_unlink(path, *args, **kwargs)
+
+                with mock.patch.object(outcome_labels.os, "open", side_effect=capture_open), \
+                        mock.patch.object(outcome_labels.os, "fdopen", side_effect=TrackedOutput), \
+                        mock.patch.object(receipt_state, "_apply_private_permissions", side_effect=protect), \
+                        mock.patch.object(Path, "unlink", autospec=True, side_effect=remove):
+                    if denied:
+                        with self.assertRaisesRegex(OSError, "synthetic protection failure"):
+                            outcome_labels.main(args)
+                    else:
+                        self.assertEqual(outcome_labels.main(args), 0)
+                self.assertEqual(events, ["protect", "remove"] if denied else ["protect", "write"])
+                if denied:
+                    self.assertFalse(output.exists())
+                else:
+                    self.assertEqual(json.loads(output.read_text(encoding="ascii"))["labels"], expected)
+                    if os.name != "nt":
+                        self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+                    original = output.read_bytes()
+                    with mock.patch.object(receipt_state, "_apply_private_permissions") as protection:
+                        with self.assertRaises(FileExistsError):
+                            outcome_labels.main(args)
+                        protection.assert_not_called()
+                    self.assertEqual(output.read_bytes(), original)
 
     def test_offline_cli_reads_only_explicit_synthetic_history_and_writes_private_output(self):
         with tempfile.TemporaryDirectory(prefix="outcome-label-test-") as temporary:

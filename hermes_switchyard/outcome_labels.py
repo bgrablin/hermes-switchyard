@@ -30,7 +30,7 @@ _EVIDENCE_FIELDS = frozenset({
 _CORRECTION = re.compile(
     r"^(?:no[,!?.]?\s+i asked (?:for|you to)\b|"
     r"that's not what i asked (?:for|you to)\b|"
-    r"you (?:misread|misunderstood) my request\b)", re.IGNORECASE,
+    r"(?P<complete>you (?:misread|misunderstood) my request\b))", re.IGNORECASE,
 )
 _AMBIGUOUS = re.compile(
     r"\b(?:no|wrong|incorrect|mistake|i asked|instead|retry|undo|try again|i meant|actually)\b",
@@ -124,7 +124,7 @@ def _correction_label(current: Mapping, following: Mapping | None) -> bool | str
         return UNKNOWN
     text = text.strip()
     match = _CORRECTION.match(text)
-    if (match and re.search(r"[A-Za-z0-9]", text[match.end():])
+    if (match and (match.group("complete") or re.search(r"[A-Za-z0-9]", text[match.end():]))
             and not _AMBIGUOUS.search(text[match.end():])):
         return True
     if _AMBIGUOUS.search(text):
@@ -209,8 +209,17 @@ def main(argv: list[str] | None = None) -> int:
     payload = json.dumps(report, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(args.output, flags, 0o600)
-    with os.fdopen(fd, "w", encoding="ascii") as handle:
-        handle.write(payload)
+    try:
+        with os.fdopen(fd, "w", encoding="ascii") as handle:
+            fd = None  # The file object now owns and closes the descriptor.
+            receipt_state._apply_private_permissions(args.output)
+            handle.write(payload)
+    except BaseException:
+        # Close before unlink so failed protection can be cleaned up on Windows.
+        if fd is not None:
+            os.close(fd)
+        args.output.unlink()
+        raise
     return 0
 
 

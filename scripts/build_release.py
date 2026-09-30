@@ -441,9 +441,9 @@ def _bounded_archive_infos(infos: list[zipfile.ZipInfo]) -> None:
 
 
 def _verify_packaged_references(destination: Path) -> None:
-    """Ensure relative links in packaged top-level guides resolve in the archive."""
+    """Ensure relative links in the checked packaged guides resolve in the archive."""
     root = destination.resolve()
-    for document_name in ("README.md", "CHANGELOG.md"):
+    for document_name in ("README.md", "CHANGELOG.md", "docs/OUTCOME-LABELS.md"):
         document = destination / document_name
         try:
             text = document.read_text(encoding="utf-8")
