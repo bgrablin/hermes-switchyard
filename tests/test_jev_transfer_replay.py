@@ -11,6 +11,7 @@ import unittest
 from evaluation.jev_transfer.summarize import (
     LEGACY_RECEIPT,
     complete_rows,
+    decision_summary,
     native_summary,
     normalize_answer,
     summarize,
@@ -33,6 +34,48 @@ class JevTransferEvidenceTests(unittest.TestCase):
             self.assertFalse(result[name]["release_qualified"])
             for metrics in result[name]["arms"].values():
                 self.assertEqual(metrics["n"], 24)
+
+    def test_decision_screens_bind_derived_fields_to_call_answers(self):
+        for name in ["decision_screen", "decision_confirmation"]:
+            for arm in ["split", "merged", "cap_matrix"]:
+                for field in ["skill", "effort"]:
+                    with self.subTest(name=name, arm=arm, field=field):
+                        run = copy.deepcopy(self.evidence["runs"][name])
+                        row = next(r for r in run["rows"] if r["arm"] == arm)
+                        if field == "skill":
+                            row["skill"]["selected"] = "not-the-recorded-choice"
+                        else:
+                            row["effort"]["effort"] = (
+                                "high" if row["effort"]["effort"] == "low" else "low"
+                            )
+                        with self.assertRaisesRegex(ValueError, "derived decision fields"):
+                            decision_summary(run)
+
+    def test_decision_screens_validate_physical_call_contracts(self):
+        for arm in ["split", "merged", "cap_matrix"]:
+            for changed in ["model", "questions", "answers", "choice", "missing", "extra", "timing", "error"]:
+                with self.subTest(arm=arm, changed=changed):
+                    run = copy.deepcopy(self.evidence["runs"]["decision_screen"])
+                    row = next(r for r in run["rows"] if r["arm"] == arm)
+                    call = row["calls"][0]
+                    if changed == "model":
+                        call["result"]["model"] = "another-model"
+                    elif changed == "questions":
+                        call["questions"].remove("skill")
+                    elif changed == "answers":
+                        del call["result"]["answers"]["needs_skill"]
+                    elif changed == "choice":
+                        call["result"]["answers"]["skill"]["confidence"] = True
+                    elif changed == "missing":
+                        row["calls"].pop()
+                    elif changed == "extra":
+                        row["calls"].append(copy.deepcopy(call))
+                    elif changed == "timing":
+                        call["wall_ms"] = row["wall_ms"] + (arm != "split")
+                    else:
+                        row["error_type"] = "invented-error"
+                    with self.assertRaises(ValueError):
+                        decision_summary(run)
 
     def test_missing_duplicate_and_nonfinite_rows_are_rejected(self):
         run = self.evidence["runs"]["native_routing"]

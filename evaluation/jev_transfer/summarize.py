@@ -91,7 +91,7 @@ def latency(rows):
     return {
         "n": len(rows),
         "median_ms": statistics.median(values),
-        "total_ms": sum(values),
+        "total_ms": math.fsum(values),
         "p95_nearest_rank_ms": values[math.ceil(0.95 * len(values)) - 1],
     }
 
@@ -337,7 +337,7 @@ def native_summary(run):
             "legacy_receipts_removed": stripped,
             "physical_main_dispatches": sum(len(r["wire"]) for r in subset),
             "jev_calls": sum(len(r["jev"]) for r in subset),
-            "known_jev_cost": sum(costs),
+            "known_jev_cost": math.fsum(costs),
             "unknown_jev_cost_calls": unknown,
             "pilot_consumed": sum(
                 (r["arm"], r["id"])
@@ -391,6 +391,101 @@ def native_summary(run):
     }
 
 
+def decision_fields_from_calls(row, freeze):
+    """Cross-check screen selections using the frozen skill and effort policies."""
+    skill_schema = {
+        "skill": ("choice", {skill["name"] for skill in freeze["catalog"]}),
+        "needs_skill": ("noul", None),
+    }
+    effort_schema = {
+        "reasoning_effort": ("choice", NATIVE_EFFORT_CRITERIA["high"]),
+        "stakes": ("noul", None),
+    }
+    if row["arm"] == "split":
+        schemas = [skill_schema, effort_schema]
+    elif row["arm"] == "merged":
+        schemas = [{**skill_schema, **effort_schema}]
+    elif row["arm"] == "cap_matrix":
+        schemas = [{
+            **skill_schema,
+            "stakes": ("noul", None),
+            **{
+                "reasoning_effort_" + cap: ("choice", levels)
+                for cap, levels in NATIVE_EFFORT_CRITERIA.items()
+            },
+        }]
+    else:
+        raise ValueError("unknown decision study arm")
+    calls = row.get("calls")
+    if not isinstance(calls, list) or not 1 <= len(calls) <= len(schemas):
+        raise ValueError("decision call count differs from frozen arm")
+    if any(
+        not isinstance(call, dict)
+        or not bounded_number(call.get("wall_ms"), row["wall_ms"])
+        for call in calls
+    ) or math.fsum(call["wall_ms"] for call in calls) > row["wall_ms"]:
+        raise ValueError("decision calls exceed their enclosing row timing")
+    answers = {}
+    for index, call in enumerate(calls):
+        schema = schemas[index]
+        questions = call.get("questions")
+        if (
+            not isinstance(questions, list)
+            or any(not isinstance(q, str) for q in questions)
+            or len(questions) != len(schema)
+            or set(questions) != set(schema)
+        ):
+            raise ValueError("decision call differs from frozen questions")
+        if call.get("error_type"):
+            if (
+                row.get("error_type") != call["error_type"]
+                or index != len(calls) - 1
+                or "result" in call
+                or "skill" in row
+                or "effort" in row
+            ):
+                raise ValueError("unbound decision study error")
+            return None
+        result = call.get("result")
+        if not isinstance(result, dict) or result.get("model") != freeze["model"]:
+            raise ValueError("decision call differs from frozen model")
+        raw = result.get("answers")
+        if not isinstance(raw, dict) or set(raw) != set(schema):
+            raise ValueError("decision call answers differ from frozen questions")
+        for name, (kind, criteria) in schema.items():
+            answer = normalize_answer(raw[name], kind, criteria)
+            if answer is None:
+                raise ValueError("invalid decision study answer")
+            answers[name] = answer
+    if "error_type" in row or len(calls) != len(schemas):
+        raise ValueError("unbound decision study error or missing call")
+    choice = answers["skill"]
+    needs = answers["needs_skill"]["noul"]
+    selected = choice["choice"] if (
+        choice["confidence"] >= 0.8 and needs >= 0.8
+        and choice["probabilities"][choice["choice"]] >= 0.8
+    ) else None
+    skill = {
+        "selected": selected,
+        "status": "selected" if selected is not None else "abstained",
+        "needs_skill_noul": needs,
+        "confidence": choice["confidence"],
+    }
+    effort_key = "reasoning_effort_high" if row["arm"] == "cap_matrix" else "reasoning_effort"
+    effort = answers[effort_key]["choice"]
+    stakes = answers["stakes"]["noul"]
+    vetoed = effort != "high" and stakes >= 0.5
+    effort_result = {
+        "effort": "high" if vetoed else effort,
+        "stakes": stakes,
+        "reason_code": "kept_requested_high_stakes" if vetoed else "jev_selected",
+        "status": "selected",
+    }
+    if row.get("skill") != skill or row.get("effort") != effort_result:
+        raise ValueError("derived decision fields disagree with retained call answers")
+    return selected, effort_result["effort"]
+
+
 def decision_summary(run):
     freeze, rows = run["freeze"], run["rows"]
     complete_rows(freeze, rows, False)
@@ -398,17 +493,18 @@ def decision_summary(run):
     arms = {}
     for arm in freeze["arms"]:
         subset = [r for r in rows if r["arm"] == arm]
+        derived = [decision_fields_from_calls(row, freeze) for row in subset]
         arms[arm] = {
             **latency(subset),
             "skill_label_matches": sum(
-                "error_type" not in r and r["skill"]["selected"] == cases[r["id"]][2]
-                for r in subset
+                decision is not None and decision[0] == cases[row["id"]][2]
+                for row, decision in zip(subset, derived)
             ),
             "unsafe_lowering": sum(
-                "error_type" not in r
-                and cases[r["id"]][3]
-                and r["effort"]["effort"] != "high"
-                for r in subset
+                decision is not None
+                and cases[row["id"]][3]
+                and decision[1] != "high"
+                for row, decision in zip(subset, derived)
             ),
             "errors": sum("error_type" in r for r in subset),
             "jev_calls": sum(len(r["calls"]) for r in subset),
