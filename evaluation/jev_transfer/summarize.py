@@ -96,7 +96,7 @@ def latency(rows):
     }
 
 
-def routing_decision_matches(decision, calls, expected_model):
+def routing_decision_matches(decision, calls, expected_model, wall_ms):
     if not isinstance(decision, dict):
         return False
     request_id = decision.get("request_id")
@@ -115,6 +115,8 @@ def routing_decision_matches(decision, calls, expected_model):
         or call.get("error_type")
         or call.get("model") != expected_model
         or decision.get("model") != expected_model
+        or not bounded_number(wall_ms, math.inf)
+        or not bounded_number(call.get("wall_ms"), wall_ms)
     ):
         return False
     raw_answers, answers = call.get("answers"), decision.get("answers")
@@ -201,6 +203,7 @@ def shared_decision_matches(receipt, calls, freeze):
         or not bounded_number(
             receipt.get("shared_latency_ms"), freeze["routing_deadline_ms"]
         )
+        or not bounded_number(call.get("wall_ms"), receipt["shared_latency_ms"])
     ):
         return False
     cap = receipt.get("cap")
@@ -261,7 +264,8 @@ def native_summary(run):
                 ):
                     raise ValueError("invalid routing receipt")
                 valid_routing_decision = routing_decision_matches(
-                    receipt.get("decision"), row["jev"], freeze["jev"]
+                    receipt.get("decision"), row["jev"], freeze["jev"],
+                    receipt.get("wall_ms"),
                 )
                 if receipt["applied"] != (receipt["to"] == freeze["candidate_model"]):
                     raise ValueError("routing receipt has inconsistent application state")

@@ -216,6 +216,27 @@ class JevTransferEvidenceTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "shared decision is not bound"):
                     native_summary(run)
 
+    def test_decision_receipt_must_enclose_physical_call_latency(self):
+        for name in ["native_routing", "native_consolidation"]:
+            for value in ["exceeds_receipt", 500, math.nan, math.inf, -1, True, None, "20"]:
+                with self.subTest(name=name, value=value):
+                    run = copy.deepcopy(self.evidence["runs"][name])
+                    row = next(
+                        r for r in run["rows"]
+                        if r["arm"] == "candidate" and r["route"]
+                        and (name == "native_consolidation" or r["route"][0]["applied"])
+                    )
+                    receipt = row["route"][0]
+                    request_id = (
+                        receipt["decision"]["request_id"] if name == "native_routing"
+                        else receipt["shared_request_id"]
+                    )
+                    call = next(c for c in row["jev"] if c["request_id"] == request_id)
+                    outer = receipt.get("shared_latency_ms", receipt.get("wall_ms"))
+                    call["wall_ms"] = outer + 0.001 if value == "exceeds_receipt" else value
+                    with self.assertRaisesRegex(ValueError, "not bound"):
+                        native_summary(run)
+
     def test_optional_raw_type_tags_preserve_native_metrics(self):
         for name in ["native_routing", "native_consolidation"]:
             with self.subTest(name=name):
