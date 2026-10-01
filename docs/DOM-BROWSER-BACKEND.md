@@ -22,7 +22,7 @@
 
 **Typing into forms.** The model supplies each value in `text_inputs`, keyed by the field's label. Jev decides *which* field to type into, but never sees *what* is typed. Switchyard masks copies of those values that echo back in page text and URLs. This is best-effort: values in a host name, or transformed by the page (hashed, encoded, translated, or partly copied), are not caught. See [how caller values are protected](#typing-how-caller-values-are-checked-and-protected).
 
-**"Done" needs two signals.** When the loop finishes, it returns a *completion candidate*. The receipt shows whether the stop came from a local check (`completion_condition`, such as "the title contains *Analytical Engine*") or from Jev deciding it was done. Either way, the result is `verified: false`, so verify it yourself. See [Action evidence](#action-evidence).
+**"Done" needs two signals.** When the loop finishes, it returns a *completion candidate*. The receipt shows whether the stop came from a local check (`completion_condition`, such as "the title contains *Analytical Engine*") or from Jev deciding it was done. In the current loop the result is `verified: false` either way. The receipt also has a dual-gate verified state (Jev `DONE` plus a satisfied local condition), but the loop stops on the local condition first, so normal runs don't reach it. Verify the result yourself. See [Action evidence](#action-evidence).
 
 **Settings:** `browser_executable` (optional browser path) and `computer_max_steps` (default 100). See the [Configuration reference](CONFIGURATION.md#computer-use).
 

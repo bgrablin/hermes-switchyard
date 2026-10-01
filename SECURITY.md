@@ -17,6 +17,6 @@ Switchyard handles model-facing state and can drive a browser or Hermes `compute
 - **Fixed endpoints only.** The client accepts only the fixed direct TypeSafe or OpenRouter Jev endpoint and the matching aliases. OpenRouter provider fallback is disabled, direct TypeSafe requests omit OpenRouter-only fields, and redirects are rejected.
 - **Computer use stays inside Hermes' controls.**
   - Desktop runs go through Hermes' Cua Driver-backed tool. They keep Hermes' dispatch and approval, filter sensitive or destructive controls, split dense target lists without dropping targets, and recapture the screen before each action.
-  - Completion candidates, browser and desktop alike, return `verified: false`.
+  - Desktop completion candidates always return `verified: false`. Browser candidates also return `verified: false` in the current loop. The receipt's dual-gate verified state is not reached in normal runs ([details](docs/DOM-BROWSER-BACKEND.md#action-evidence)).
   - Browser runs use a throwaway profile and allow public `https` destinations only. Details: [DOM-BROWSER-BACKEND.md](docs/DOM-BROWSER-BACKEND.md).
 - **Nothing sensitive in the repository.** Don't commit API keys, auth files, config files, raw runs, screen captures, or logs. Use the repository `.gitignore` and Hermes' own secret and config flows.
