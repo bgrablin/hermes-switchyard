@@ -1,5 +1,15 @@
 # Hermes Switchyard benchmark results
 
+**In plain words:**
+
+- **Picking the right skill:** Jev chose correctly in **12 of 12** single-skill cases, against **7 of 12** for simple word matching. A decision took about **166 ms** at the median and cost roughly **$0.00006**.
+- **Picking several skills for one task:** Jev covered **5 of 5** required sets. The single-pick tool covered none of them, as expected.
+- **Model recommendations and typed checks:** Jev passed small smoke tests (3 of 3). These are too small to generalize.
+- **Computer use:** there's no fair comparison against stock Hermes yet.
+- **What this does *not* show:** that a whole Hermes session gets better. Most rows other than skill picking date from 0.5.0.
+
+The detailed tables, sources, and reproduction steps follow.
+
 The selector value report below was collected against source commit `7dc77c8` in the 0.5.4 codebase. This report-refresh commit changes documentation and the release allowlist only, leaving the plugin and selector collector source unchanged. The other feature-battery rows below—multi-skill, model route, assess, automatic routing, and computer use—remain **0.5.0-only**: their feature-battery measurements were collected at `c8e6008c6314e182fd7b100a30efb384db542ee8`, and computer-use DOM was re-bound to tip-main commit `a8dae196b0b9892eeb627829d97363ec3d4bb9c9` after #57+#58. Those rows were **not re-collected for 0.5.1, 0.5.2, 0.5.3, or 0.5.4**. Comparison arms vary by row. Human-readable benefits first. Hashes and reproduce steps are under [Proof](#proof). This page does not claim whole-agent improvement.
 
 ## Per-feature scorecard

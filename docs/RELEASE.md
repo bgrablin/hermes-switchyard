@@ -1,5 +1,7 @@
 # Release instructions
 
+**In short:** a release candidate is a ZIP built from one exact, clean Git commit. It contains a fixed list of files, embedded checksums, and a manifest. Automation builds and verifies it. Tagging, publishing a GitHub Release, and catalog submission are always manual steps the maintainer takes.
+
 This repository publishes a release candidate artifact for human review. The workflow does not create a tag, publish a GitHub Release, or change repository settings.
 
 ## Prepare a candidate

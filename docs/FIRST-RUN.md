@@ -1,5 +1,7 @@
 # First-run check (v0.5.5 development candidate)
 
+**In short:** on a clean machine, installing, enabling, and checking Switchyard took about **9 seconds** of measured time, with no key and no billed calls. Typing in a key and getting a first live answer weren't timed. So "working in under two minutes" is plausible, but not proven end to end. The details follow.
+
 This check used a clean, disposable Hermes home and the pinned Python 3.11 Hermes CLI. The source was the public GitHub repository at commit [`fffcf03`](https://github.com/bgrablin/hermes-switchyard/commit/fffcf03f03bcb9ab3b8bb512907b472c59831019). The manifest still says `0.5.4`; this is not a published v0.5.5 release. The installer completed its normal security scan without `--force`. No provider key was added and no billed request was made. The recorded times include process startup.
 
 | Step | Time | Type | Result |

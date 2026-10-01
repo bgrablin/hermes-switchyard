@@ -1,5 +1,12 @@
 # Awesome Jev implementation experiments
 
+**In short:** four ideas from community Jev projects ([awesome-jev](https://github.com/yibie/awesome-jev)) were tested against Switchyard. One earned its place:
+
+- **Multi-file evidence** shipped as an opt-in extension of [source prefetch](SOURCE-FINDER.md). In an 80-conversation test, it answered all 16 cases correctly, like every other arm, while cutting median time by about **53%** against Hermes without the plugin.
+- **The other three** (output pruning, batch log triage, and completion checking) didn't justify a new feature.
+
+The evidence covers this synthetic workload only and does not justify turning the feature on by default.
+
 Status: the multi-file extension passes the complete native pilot's predeclared
 correctness and efficiency gates and is qualified for merging into the #183
 source-finder branch as an opt-in feature. The evidence is limited to this

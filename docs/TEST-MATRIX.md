@@ -1,5 +1,7 @@
 # Feature and test matrix
 
+**In short:** most tests here run offline with synthetic data. They prove that the plugin is wired correctly and fails safely. They don't prove answer quality, live Jev accuracy, or real desktop behavior. The table shows exactly what each kind of check covers and what you can (and can't) claim from it.
+
 This matrix separates synthetic checks from host integrations and comparative evaluation.
 
 | Area | Coverage | Evidence in this repository | Release statement |

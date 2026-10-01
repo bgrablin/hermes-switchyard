@@ -1,12 +1,22 @@
 # Security
 
-This plugin handles model-facing state and can dispatch Hermes `computer_use` actions. Do not open a public issue with secrets, credentials, raw UI captures, or private logs. Use the repository's GitHub private vulnerability reporting channel when it is available; otherwise contact the maintainer through the repository profile before public disclosure.
+## Reporting a vulnerability
 
-Operational boundaries:
+**Please don't open a public issue** for a security problem, and never include secrets, credentials, raw screen captures, or private logs anywhere.
 
-- `public_or_sanitized_data_ack` is a caller attestation, not DLP or authorization. Do not send private, employer, regulated, credential, payment, or verification data.
-- The client accepts only the fixed direct TypeSafe or OpenRouter Jev endpoint and endpoint-specific aliases. OpenRouter provider fallback is disabled, direct TypeSafe requests omit OpenRouter-only fields, and redirects are rejected.
-- Computer use is cross-platform when Hermes' Cua Driver-backed tool is available. It preserves Hermes dispatch and approval, filters sensitive or destructive controls, partitions dense targets without dropping them, re-captures before actions, and returns `verified: false` for completion candidates.
-- Do not commit API keys, auth files, config files, raw runs, UI captures, or logs. Use the repository `.gitignore` and Hermes' native secret/config flows.
+- Use the repository's GitHub **private vulnerability reporting** channel when it's available.
+- Otherwise, contact the maintainer through the repository profile before any public disclosure.
 
-Security reports should include the plugin version, a minimal reproduction, and sanitized output only. Never include secret values.
+A good report includes the plugin version, a minimal reproduction, and sanitized output only. Never include secret values.
+
+## Security boundaries to know about
+
+Switchyard handles model-facing state and can drive a browser or Hermes `computer_use`. These are its main boundaries:
+
+- **The data acknowledgement is a promise, not a filter.** `public_or_sanitized_data_ack` records the caller's attestation. It is not DLP or authorization. Don't send private, employer, regulated, credential, payment, or verification data.
+- **Fixed endpoints only.** The client accepts only the fixed direct TypeSafe or OpenRouter Jev endpoint and the matching aliases. OpenRouter provider fallback is disabled, direct TypeSafe requests omit OpenRouter-only fields, and redirects are rejected.
+- **Computer use stays inside Hermes' controls.**
+  - Desktop runs go through Hermes' Cua Driver-backed tool. They keep Hermes' dispatch and approval, filter sensitive or destructive controls, split dense target lists without dropping targets, and recapture the screen before each action.
+  - Desktop completion candidates always return `verified: false`.
+  - Browser runs use a throwaway profile and allow public `https` destinations only. Details: [DOM-BROWSER-BACKEND.md](docs/DOM-BROWSER-BACKEND.md).
+- **Nothing sensitive in the repository.** Don't commit API keys, auth files, config files, raw runs, screen captures, or logs. Use the repository `.gitignore` and Hermes' own secret and config flows.
