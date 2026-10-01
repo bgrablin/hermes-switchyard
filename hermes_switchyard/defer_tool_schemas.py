@@ -201,30 +201,39 @@ def should_omit_switchyard_tool_schemas(
     if not isinstance(tools, list) or not tools:
         # Nothing to omit, or tools live under another key we do not rewrite.
         return False
-    # Mixed multimodal and unrecognized content cannot be classified from its
-    # text fragment. Tool results are continuations, but can carry images/files.
+    # Hidden server-side history and ambiguous provider envelopes cannot be
+    # classified locally. Preserve capabilities whenever context is unavailable.
+    if request.get("previous_response_id") or request.get("conversation"):
+        return False
+    if request.get("messages") is not None and request.get("input") is not None:
+        return False
+    instructions = request.get("instructions")
+    if instructions is not None and (not isinstance(instructions, str)
+                                     or user_requests_switchyard_tools(instructions)):
+        return False
+    # Accept only understood text message shapes and scalar tool results.
+    # Every opaque item/reference or non-text block keeps the complete tool set.
     for item in iter_request_items(request):
         if not isinstance(item, Mapping):
             return False
-        if item.get("type") == "function_call_output":
-            if not isinstance(item.get("output"), str):
+        role, item_type = item.get("role"), item.get("type")
+        if item_type == "function_call_output":
+            if role not in (None, "") or not isinstance(item.get("output"), str):
                 return False
             continue
-        if item.get("role") == "tool":
-            if not isinstance(item.get("content"), str):
-                return False
-            continue
-        if item.get("role") != "user":
-            continue
+        if role not in {"system", "developer", "user", "assistant", "tool"} or item_type not in (None, "message"):
+            return False
         content = item.get("content")
+        if role in {"system", "developer"} and user_requests_switchyard_tools(_text_from_content(content)):
+            return False
         if isinstance(content, str):
             continue
-        if not isinstance(content, list):
+        if role == "tool" or not isinstance(content, list):
             return False
         for part in content:
             if not isinstance(part, Mapping):
                 return False
-            if part.get("type") == "tool_result":
+            if role == "user" and part.get("type") == "tool_result":
                 if not isinstance(part.get("content"), str):
                     return False
             elif part.get("type") not in {"text", "input_text", "output_text"} or not isinstance(part.get("text"), str):

@@ -376,6 +376,27 @@ class ProviderBoundaryTests(unittest.TestCase):
                     else:
                         self.assertIsNone(callback(request=request))
 
+    def test_opaque_history_and_unknown_roles_keep_schemas(self):
+        callback = build_defer_tool_schemas_middleware(enabled=True)
+        for item in ({"type": "item_reference", "id": "item-1"},
+                     {"type": "custom_tool_call_output", "output": "opaque"},
+                     {"type": "future_shape", "content": "opaque"},
+                     {"role": "unknown", "content": "text"},
+                     {"role": "user", "type": "future_shape", "content": "text"},
+                     {"role": "assistant", "content": [{"type": "image", "source": {}}]}):
+            request = _skill_route_request(user="Continue.")
+            request["input"] = request.pop("messages") + [item]
+            self.assertIsNone(callback(request=request))
+        for field, value in (("previous_response_id", "resp-1"), ("conversation", "conv-1"),
+                             ("instructions", {"unknown": "shape"}),
+                             ("instructions", "Use Switchyard to assess the decision."),
+                             ("input", "ambiguous second conversation")):
+            self.assertIsNone(callback(request={**_skill_route_request(), field: value}))
+        for role in ("system", "developer"):
+            request = _skill_route_request()
+            request["messages"].insert(0, {"role": role, "content": "Use jev_assess for each decision."})
+            self.assertIsNone(callback(request=request))
+
     def test_full_switchyard_and_computer_pin_keeps_decision_tools(self):
         request = _skill_route_request()
         request["tools"] = [_openai_tool(name) for name in (
