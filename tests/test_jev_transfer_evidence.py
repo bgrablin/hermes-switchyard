@@ -56,6 +56,21 @@ class JevTransferEvidenceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "digest mismatch"):
                 summarize(root)
 
+    def test_modified_archived_source_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for name in [
+                "provenance.json",
+                "observations.json",
+                "source-snapshots.json",
+            ]:
+                shutil.copy2(ROOT / name, root / name)
+            shutil.copytree(ROOT / "frozen", root / "frozen")
+            archive = next((root / "frozen").rglob("*.py"))
+            archive.write_bytes(archive.read_bytes() + b"# changed\n")
+            with self.assertRaisesRegex(ValueError, "archived source digest mismatch"):
+                summarize(root)
+
     def test_route_without_matching_wire_is_rejected(self):
         run = copy.deepcopy(self.evidence["runs"]["native_routing"])
         for row in run["rows"]:

@@ -1,3 +1,3 @@
 * text=auto eol=lf
 evaluation/jev_transfer/observations.json linguist-generated=true
-evaluation/jev_transfer/source-snapshots.json linguist-generated=true
+evaluation/jev_transfer/frozen/** linguist-generated=true

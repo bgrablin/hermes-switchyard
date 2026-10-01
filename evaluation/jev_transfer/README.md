@@ -1,6 +1,6 @@
 # Jev transfer pilots
 
-These are evaluation adapters, not registered Switchyard features. They test two ideas from [kerpopule/hermes-jev-skills](https://github.com/kerpopule/hermes-jev-skills/tree/c52837522f575820c63d2ff608c6cb19bae96400): combine compatible per-turn decisions, and route a request to another model through the existing Hermes request middleware.
+These are evaluation adapters, not registered Switchyard features. They test two ideas: combine compatible per-turn decisions, and route a request to another model through the existing Hermes request middleware.
 
 No Hermes source patch, production configuration change, new default, release, or deployment is included. The existing severity-rubric improvement is already on main and is not claimed again here. Plan-once computer use remains outside these pilots.
 
@@ -54,8 +54,8 @@ python3 evaluation/jev_transfer/summarize.py
 python3 -m unittest discover -s tests -p 'test_jev_transfer_evidence.py' -v
 ```
 
-observations.json contains the unmodified per-run freezes, ordered raw rows, and deduplicated runtime fingerprints. source-snapshots.json retains the original evaluated source bytes before formatting cleanup. provenance.json binds those exports. The confirmation wrapper and shared native worker launcher were not included in the original pre-call hashes; their archived bytes are explicitly retrospective bindings, not a claim of a complete pre-call dependency freeze.
+observations.json contains the unmodified per-run freezes, ordered raw rows, and deduplicated runtime fingerprints. frozen/ retains the original evaluated Python source bytes before formatting cleanup; source-snapshots.json maps them to paths and digests. provenance.json binds those exports. The confirmation wrapper and shared native worker launcher were not included in the original pre-call hashes; their archived bytes are explicitly retrospective bindings, not a claim of a complete pre-call dependency freeze.
 
 The maintained live runners are evaluation/model_routing/compare.py and evaluation/turn_consolidation/native_compare.py. Set HERMES_HOME to an authorized evaluation profile with working Codex and OpenRouter credentials, then pass --output with a new directory. They invoke hermes --print-runtime-command, use pinned Git snapshots, and make live provider calls. Their runtime fingerprint path is currently specific to Silver. The smaller screen.py and confirmation.py require the installed Hermes Python environment.
 
-The checked-in code has formatting/import cleanup after the runs; the original hashes match source-snapshots.json, not those maintained files. Local profile directories, plugin snapshots, databases, logs, and credential sources are excluded from the publication. The release archive's existing allowlist excludes evaluation code and data.
+The checked-in code has formatting/import cleanup after the runs; the original hashes match the Python files under frozen/, not those maintained files. Local profile directories, plugin snapshots, databases, logs, and credential sources are excluded from the publication. The release archive's existing allowlist excludes evaluation code and data.

@@ -218,7 +218,16 @@ def summarize(root=ROOT):
         if sha((root / name).read_bytes()) != digest:
             raise ValueError("evidence digest mismatch: " + name)
     evidence = json.loads((root / "observations.json").read_text())
-    sources = json.loads((root / "source-snapshots.json").read_text())
+    source_index = json.loads((root / "source-snapshots.json").read_text())
+    sources = {}
+    for name, entry in source_index.items():
+        archive = root / entry["archive_path"]
+        if not archive.resolve().is_relative_to((root / "frozen").resolve()):
+            raise ValueError("source archive outside frozen directory")
+        data = archive.read_bytes()
+        if sha(data) != entry["sha256"]:
+            raise ValueError("archived source digest mismatch: " + name)
+        sources[name] = data
     if set(evidence["runs"]) != RUNS:
         raise ValueError("unexpected study set")
     for digest, snapshot in evidence["runtime_snapshots"].items():
@@ -230,7 +239,7 @@ def summarize(root=ROOT):
         for path, digest in run["freeze"]["files"].items():
             source = run["source_bindings"][path]
             if source["kind"] == "snapshot":
-                data = sources[source["path"]].encode()
+                data = sources[source["path"]]
             elif source["kind"] == "git":
                 data = subprocess.check_output(
                     ["git", "show", source["revision"] + ":" + source["path"]], cwd=REPO

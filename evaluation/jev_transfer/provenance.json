@@ -1,12 +1,13 @@
 {
   "files": {
     "observations.json": "37e2faf4c97ba7feb9d41f9d40071c19822582987d122fc2aee9259ce84dfd0e",
-    "source-snapshots.json": "e31262f2c5ccaf08e39731dafa719a4c88d387d8172b3cfd75cfa91dac2d6b72"
+    "source-snapshots.json": "e3454eb95b6beb4ec1c7ec4e45b0c02ebcd9b36091009c1a7c9e1786503a76ab"
   },
   "notes": [
     "Export and source dependency bindings are retrospective; per-run freezes remain unmodified.",
     "Confirmation wrapper and shared native worker launcher were not hashed by the original freezes. Their preserved bytes are retrospective bindings.",
     "Interrupted consolidation is retained for disclosure and excluded from the complete-trial gate.",
-    "Runtime maps cover tracked Python files, not all machine state or installed dependencies."
+    "Runtime maps cover tracked Python files, not all machine state or installed dependencies.",
+    "Original Python source bytes are stored as Python files in frozen/; source-snapshots.json is their path/digest index."
   ]
 }
