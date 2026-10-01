@@ -26,11 +26,11 @@ class FingerprintHelpersTests(unittest.TestCase):
             '{"a":2,"b":1}',
         )
 
-    def test_args_stable_skill_view_identity(self):
-        obs = observation_identity("skill_view", {"name": "demo-skill"})
-        self.assertIsNotNone(obs)
-        assert obs is not None
-        self.assertTrue(obs.startswith("args_stable:"))
+    def test_no_implicit_catalog_observation_identity(self):
+        self.assertFalse(ARGS_STABLE_READ_TOOLS)
+        for name in ("skill_view", "skills_list", "tool_search", "tool_describe"):
+            self.assertIsNone(observation_identity(name, {"name": "demo"}))
+            self.assertIsNone(fingerprint_for(name, {"observation_id": "version-1"}))
 
     def test_missing_obs_on_ordinary_read_fail_opens(self):
         self.assertIsNone(observation_identity("read_file", {"path": "README.md"}))
@@ -44,9 +44,9 @@ class FingerprintHelpersTests(unittest.TestCase):
                      [1], "[1]"):
             with self.subTest(kind=type(args).__name__):
                 self.assertIsNone(canonical_args(args))
-                self.assertIsNone(fingerprint_for("skill_view", args))
+                self.assertIsNone(fingerprint_for("read_file", args))
                 self.assertIsNone(fingerprint_for("read_file", args, observation_id="known"))
-                self.assertFalse(record_tool_outcome(enabled=True, tool_name="skill_view",
+                self.assertFalse(record_tool_outcome(enabled=True, tool_name="read_file",
                                  args=args, result="must not cache", status="ok", session_id="bad")["recorded"])
 
     def test_explicit_observation_id_used(self):
@@ -62,8 +62,8 @@ class FingerprintHelpersTests(unittest.TestCase):
         self.assertIsNone(fingerprint_for("write_file", {"path": "x", "observation_id": "o"}))
         self.assertIsNone(fingerprint_for("terminal", {"command": "ls", "observation_id": "o"}))
 
-    def test_args_stable_set_includes_skill_view(self):
-        self.assertIn("skill_view", ARGS_STABLE_READ_TOOLS)
+    def test_no_read_is_args_stable(self):
+        self.assertFalse(ARGS_STABLE_READ_TOOLS)
 
     def test_live_state_integrations_not_args_stable(self):
         # HA / Kanban reads can change without a write tool Hermes classifies as write.
@@ -83,35 +83,35 @@ class DecideAndRecordTests(unittest.TestCase):
     def test_flag_off_never_reuses(self):
         record_tool_outcome(
             enabled=True,
-            tool_name="skill_view",
-            args={"name": "demo"},
+            tool_name="read_file",
+            args={"path": "demo", "observation_id": "fixture-v1"},
             result='{"ok": true, "body": "skill text"}',
             status="ok",
             session_id="s1",
         )
         decision = decide_local_duplicate(
             enabled=False,
-            tool_name="skill_view",
-            args={"name": "demo"},
+            tool_name="read_file",
+            args={"path": "demo", "observation_id": "fixture-v1"},
             session_id="s1",
         )
         self.assertEqual(decision["action"], "dispatch")
         self.assertEqual(decision["reason"], "flag_off")
 
-    def test_exact_duplicate_skill_view_reuses(self):
+    def test_exact_duplicate_read_file_reuses(self):
         body = '{"name":"demo","content":"hello skill"}'
         record_tool_outcome(
             enabled=True,
-            tool_name="skill_view",
-            args={"name": "demo"},
+            tool_name="read_file",
+            args={"path": "demo", "observation_id": "fixture-v1"},
             result=body,
             status="ok",
             session_id="s1",
         )
         decision = decide_local_duplicate(
             enabled=True,
-            tool_name="skill_view",
-            args={"name": "demo"},
+            tool_name="read_file",
+            args={"path": "demo", "observation_id": "fixture-v1"},
             session_id="s1",
         )
         self.assertEqual(decision["action"], "reuse")
@@ -121,16 +121,16 @@ class DecideAndRecordTests(unittest.TestCase):
     def test_different_args_dispatch(self):
         record_tool_outcome(
             enabled=True,
-            tool_name="skill_view",
-            args={"name": "a"},
+            tool_name="read_file",
+            args={"path": "a", "observation_id": "fixture-v1"},
             result="A",
             status="ok",
             session_id="s1",
         )
         decision = decide_local_duplicate(
             enabled=True,
-            tool_name="skill_view",
-            args={"name": "b"},
+            tool_name="read_file",
+            args={"path": "b", "observation_id": "fixture-v1"},
             session_id="s1",
         )
         self.assertEqual(decision["action"], "dispatch")
@@ -139,16 +139,16 @@ class DecideAndRecordTests(unittest.TestCase):
     def test_sessions_isolated(self):
         record_tool_outcome(
             enabled=True,
-            tool_name="skill_view",
-            args={"name": "demo"},
+            tool_name="read_file",
+            args={"path": "demo", "observation_id": "fixture-v1"},
             result="from-s1",
             status="ok",
             session_id="s1",
         )
         decision = decide_local_duplicate(
             enabled=True,
-            tool_name="skill_view",
-            args={"name": "demo"},
+            tool_name="read_file",
+            args={"path": "demo", "observation_id": "fixture-v1"},
             session_id="s2",
         )
         self.assertEqual(decision["action"], "dispatch")
@@ -156,8 +156,8 @@ class DecideAndRecordTests(unittest.TestCase):
     def test_mutation_clears_session(self):
         record_tool_outcome(
             enabled=True,
-            tool_name="skill_view",
-            args={"name": "demo"},
+            tool_name="read_file",
+            args={"path": "demo", "observation_id": "fixture-v1"},
             result="body",
             status="ok",
             session_id="s1",
@@ -172,17 +172,17 @@ class DecideAndRecordTests(unittest.TestCase):
         )
         decision = decide_local_duplicate(
             enabled=True,
-            tool_name="skill_view",
-            args={"name": "demo"},
+            tool_name="read_file",
+            args={"path": "demo", "observation_id": "fixture-v1"},
             session_id="s1",
         )
         self.assertEqual(decision["action"], "dispatch")
 
     def test_failed_read_invalidates_and_never_skips(self):
-        args = {"name": "demo"}
+        args = {"path": "demo", "observation_id": "fixture-v1"}
         record_tool_outcome(
             enabled=True,
-            tool_name="skill_view",
+            tool_name="read_file",
             args=args,
             result="good",
             status="ok",
@@ -191,7 +191,7 @@ class DecideAndRecordTests(unittest.TestCase):
         # A later failure for the same key drops the cache.
         record_tool_outcome(
             enabled=True,
-            tool_name="skill_view",
+            tool_name="read_file",
             args=args,
             result='{"error":"not found"}',
             status="error",
@@ -200,7 +200,7 @@ class DecideAndRecordTests(unittest.TestCase):
         )
         decision = decide_local_duplicate(
             enabled=True,
-            tool_name="skill_view",
+            tool_name="read_file",
             args=args,
             session_id="s1",
         )
@@ -214,7 +214,7 @@ class DecideAndRecordTests(unittest.TestCase):
             calls.append(a)
             return "fresh"
 
-        out = mid(tool_name="skill_view", args=args, next_call=next_call, session_id="s1")
+        out = mid(tool_name="read_file", args=args, next_call=next_call, session_id="s1")
         self.assertEqual(out, "fresh")
         self.assertEqual(len(calls), 1)
 
@@ -278,8 +278,8 @@ class MiddlewareHookTests(unittest.TestCase):
     def test_middleware_reuses_without_next_call(self):
         record_tool_outcome(
             enabled=True,
-            tool_name="skill_view",
-            args={"name": "demo"},
+            tool_name="read_file",
+            args={"path": "demo", "observation_id": "fixture-v1"},
             result="cached-body",
             status="ok",
             session_id="s1",
@@ -292,8 +292,8 @@ class MiddlewareHookTests(unittest.TestCase):
             return "should-not-run"
 
         out = mid(
-            tool_name="skill_view",
-            args={"name": "demo"},
+            tool_name="read_file",
+            args={"path": "demo", "observation_id": "fixture-v1"},
             next_call=next_call,
             session_id="s1",
         )
@@ -304,16 +304,16 @@ class MiddlewareHookTests(unittest.TestCase):
     def test_middleware_flag_off_always_dispatches(self):
         record_tool_outcome(
             enabled=True,
-            tool_name="skill_view",
-            args={"name": "demo"},
+            tool_name="read_file",
+            args={"path": "demo", "observation_id": "fixture-v1"},
             result="cached-body",
             status="ok",
             session_id="s1",
         )
         mid = build_tool_execution_middleware(enabled=False)
         out = mid(
-            tool_name="skill_view",
-            args={"name": "demo"},
+            tool_name="read_file",
+            args={"path": "demo", "observation_id": "fixture-v1"},
             next_call=lambda a: "live",
             session_id="s1",
         )
@@ -321,17 +321,22 @@ class MiddlewareHookTests(unittest.TestCase):
 
     def test_post_tool_hook_records(self):
         hook = build_post_tool_call_hook(enabled=True)
+        build_tool_execution_middleware(enabled=True)(
+            tool_name="read_file", args={"path": "demo", "observation_id": "fixture-v1"},
+            session_id="s1", tool_call_id="record-1", next_call=lambda args: "from-hook",
+        )
         hook(
-            tool_name="skill_view",
-            args={"name": "demo"},
+            tool_call_id="record-1",
+            tool_name="read_file",
+            args={"path": "demo", "observation_id": "fixture-v1"},
             result="from-hook",
             session_id="s1",
             status="ok",
         )
         decision = decide_local_duplicate(
             enabled=True,
-            tool_name="skill_view",
-            args={"name": "demo"},
+            tool_name="read_file",
+            args={"path": "demo", "observation_id": "fixture-v1"},
             session_id="s1",
         )
         self.assertEqual(decision["action"], "reuse")
@@ -378,11 +383,11 @@ class OfflineScorerShapeTests(unittest.TestCase):
     def test_toy_trace_local_duplicate_count(self):
         # Synthetic public trace — no host paths.
         trace = [
-            {"tool": "skill_view", "args": {"name": "alpha"}, "ok": True, "result": "A1"},
-            {"tool": "skill_view", "args": {"name": "alpha"}, "ok": True, "result": "A1"},
-            {"tool": "skill_view", "args": {"name": "beta"}, "ok": True, "result": "B1"},
+            {"tool": "read_file", "args": {"path": "alpha", "observation_id": "fixture-v1"}, "ok": True, "result": "A1"},
+            {"tool": "read_file", "args": {"path": "alpha", "observation_id": "fixture-v1"}, "ok": True, "result": "A1"},
+            {"tool": "read_file", "args": {"path": "beta", "observation_id": "fixture-v1"}, "ok": True, "result": "B1"},
             {"tool": "write_file", "args": {"path": "out.txt"}, "ok": True, "result": "ok"},
-            {"tool": "skill_view", "args": {"name": "alpha"}, "ok": True, "result": "A2"},
+            {"tool": "read_file", "args": {"path": "alpha", "observation_id": "fixture-v1"}, "ok": True, "result": "A2"},
             {
                 "tool": "browser_snapshot",
                 "args": {"url": "https://example.com", "observation_id": "o1"},
@@ -425,7 +430,7 @@ class OfflineScorerShapeTests(unittest.TestCase):
                 ok=step["ok"],
                 session_id=session,
             )
-        # skill_view alpha exact dupe (1) + browser_snapshot o1 exact dupe (1) = 2
+        # read_file alpha exact dupe (1) + browser_snapshot o1 exact dupe (1) = 2
         # write clears session so later alpha redispatches; o2 is unique.
         self.assertEqual(skipped, 2)
         self.assertEqual(must_dispatch, len(trace) - skipped)
@@ -439,13 +444,13 @@ class CacheBoundaryTests(unittest.TestCase):
         reset_store_for_tests()
 
     def record(self, **overrides):
-        values = dict(enabled=True, tool_name="skill_view", args={"name": "demo"},
+        values = dict(enabled=True, tool_name="read_file", args={"path": "demo", "observation_id": "fixture-v1"},
                       result="complete result", status="ok", session_id="s1")
         values.update(overrides)
         return record_tool_outcome(**values)
 
     def decide(self, **overrides):
-        values = dict(enabled=True, tool_name="skill_view", args={"name": "demo"}, session_id="s1")
+        values = dict(enabled=True, tool_name="read_file", args={"path": "demo", "observation_id": "fixture-v1"}, session_id="s1")
         values.update(overrides)
         return decide_local_duplicate(**values)
 
@@ -483,21 +488,21 @@ class CacheBoundaryTests(unittest.TestCase):
         payload = "x" * gate.DEFAULT_MAX_RESULT_CHARS
         for session in range(gate.DEFAULT_MAX_SESSIONS + 2):
             for key in range(gate.DEFAULT_MAX_KEYS_PER_SESSION + 2):
-                self.record(session_id=str(session), args={"name": str(key)}, result=payload,
+                self.record(session_id=str(session), args={"path": str(key), "observation_id": "fixture-v1"}, result=payload,
                             max_sessions=1000, max_keys_per_session=1000, max_result_chars=10**9)
         total = sum(len(value) for session in gate._SESSION_STORE.values() for value in session.values())
         self.assertEqual(total, 4 * 1024 * 1024)
-        self.assertEqual(self.decide(session_id="0", args={"name": "0"})["action"], "dispatch")
+        self.assertEqual(self.decide(session_id="0", args={"path": "0", "observation_id": "fixture-v1"})["action"], "dispatch")
         self.assertFalse(self.record(result=payload + "x", max_result_chars=10**9)["recorded"])
 
     def test_cache_hits_refresh_entry_and_session_recency(self):
-        self.record(args={"name": "a"}, max_keys_per_session=2, max_sessions=2)
-        self.record(args={"name": "b"}, max_keys_per_session=2, max_sessions=2)
-        self.decide(args={"name": "a"})
-        self.record(args={"name": "c"}, max_keys_per_session=2, max_sessions=2)
-        self.assertEqual(self.decide(args={"name": "b"})["action"], "dispatch")
+        self.record(args={"path": "a", "observation_id": "fixture-v1"}, max_keys_per_session=2, max_sessions=2)
+        self.record(args={"path": "b", "observation_id": "fixture-v1"}, max_keys_per_session=2, max_sessions=2)
+        self.decide(args={"path": "a", "observation_id": "fixture-v1"})
+        self.record(args={"path": "c", "observation_id": "fixture-v1"}, max_keys_per_session=2, max_sessions=2)
+        self.assertEqual(self.decide(args={"path": "b", "observation_id": "fixture-v1"})["action"], "dispatch")
         self.record(session_id="s2", max_sessions=2)
-        self.decide(args={"name": "a"})
+        self.decide(args={"path": "a", "observation_id": "fixture-v1"})
         self.record(session_id="s3", max_sessions=2)
         self.assertEqual(self.decide(session_id="s2")["action"], "dispatch")
 
@@ -507,7 +512,7 @@ class CacheBoundaryTests(unittest.TestCase):
         self.assertEqual(self.decide(tool_name="mcp__two__read_file", args=args)["action"], "dispatch")
         for field in ("page_id", "document_id"):
             self.assertIsNone(fingerprint_for("read_file", {field: "resource-1"}))
-        self.assertIsNone(fingerprint_for("mcp__other__skill_view", {"name": "demo"}))
+        self.assertIsNone(fingerprint_for("mcp__other__read_file", {"path": "demo", "observation_id": "fixture-v1"}))
 
     def test_unknown_mutations_clear_and_hook_failure_flags_invalidate(self):
         self.record()
@@ -515,9 +520,79 @@ class CacheBoundaryTests(unittest.TestCase):
         self.assertEqual(self.decide()["action"], "dispatch")
         self.record()
         hook = build_post_tool_call_hook(enabled=True)
-        hook(tool_name="skill_view", args={"name": "demo"}, result="failure",
+        hook(tool_name="read_file", args={"path": "demo", "observation_id": "fixture-v1"}, result="failure",
              session_id="s1", ok=False)
         self.assertEqual(self.decide()["action"], "dispatch")
+
+
+class DispatchGenerationTests(unittest.TestCase):
+    def setUp(self):
+        reset_store_for_tests()
+        self.addCleanup(reset_store_for_tests)
+        self.middleware = build_tool_execution_middleware(enabled=True)
+        self.hook = build_post_tool_call_hook(enabled=True)
+        self.args = {"path": "demo", "observation_id": "snapshot-1"}
+
+    def read(self, dispatch=lambda args: "result", call_id="read-1"):
+        result = self.middleware(tool_name="read_file", args=self.args, next_call=dispatch,
+                                 session_id="s", tool_call_id=call_id)
+        self.hook(tool_name="read_file", args=self.args, result=result,
+                  session_id="s", tool_call_id=call_id, status="ok")
+        return result
+
+    def decision(self):
+        return decide_local_duplicate(enabled=True, tool_name="read_file", args=self.args,
+                                      session_id="s")["action"]
+
+    def test_unknown_get_prefix_and_catalog_reads_always_dispatch_and_invalidate(self):
+        for name in ("get_or_create_record", "list_and_delete", "skill_view", "skills_list",
+                     "tool_search", "tool_describe", "mcp__server__read_file"):
+            self.read()
+            self.assertEqual(self.decision(), "reuse")
+            calls = []
+            for _ in range(2):
+                self.middleware(tool_name=name, args=self.args, session_id="s",
+                                next_call=lambda args: calls.append(args) or "changed")
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(self.decision(), "dispatch")
+
+    def test_read_started_before_mutation_cannot_repopulate_cache(self):
+        # Deterministically interleave a mutation between read start and outcome.
+        def read_dispatch(args):
+            self.middleware(tool_name="write_file", args={}, session_id="other",
+                            next_call=lambda args: "changed")
+            return "old observation"
+        self.assertEqual(self.read(read_dispatch), "old observation")
+        self.assertEqual(self.decision(), "dispatch")
+        self.read(call_id="fresh-read")
+        self.assertEqual(self.decision(), "reuse")
+
+    def test_read_started_during_mutation_neither_reuses_nor_records(self):
+        self.read()
+        def mutation(args):
+            self.assertEqual(self.decision(), "dispatch")
+            self.assertEqual(self.read(lambda args: "during mutation", "overlap"), "during mutation")
+            self.assertEqual(self.decision(), "dispatch")
+            return "mutated"
+        self.middleware(tool_name="write_file", args={}, next_call=mutation)
+        self.assertEqual(self.decision(), "dispatch")
+
+    def test_missing_or_mismatched_call_identity_never_records(self):
+        self.read(call_id=None)
+        self.assertEqual(self.decision(), "dispatch")
+        self.middleware(tool_name="read_file", args=self.args, next_call=lambda args: "result",
+                        session_id="s", tool_call_id="call")
+        self.hook(tool_name="read_file", args={**self.args, "path": "different"}, result="result",
+                  session_id="s", tool_call_id="call", status="ok")
+        self.assertEqual(self.decision(), "dispatch")
+
+    def test_failed_mutation_also_invalidates(self):
+        self.read()
+        def mutation(args):
+            raise RuntimeError("partial mutation")
+        with self.assertRaises(RuntimeError):
+            self.middleware(tool_name="get_or_create_record", args={}, next_call=mutation)
+        self.assertEqual(self.decision(), "dispatch")
 
 
 class NativeExecutionChainTests(unittest.TestCase):
@@ -542,16 +617,16 @@ class NativeExecutionChainTests(unittest.TestCase):
             calls.append(args)
             return "complete live result"
         def run(tool, args):
-            result = run_tool_execution_middleware(tool, args, dispatch, session_id="native-test", task_id="task")
-            hook(tool_name=tool, args=args, result=result, session_id="native-test", task_id="task", status="ok")
+            result = run_tool_execution_middleware(tool, args, dispatch, session_id="native-test", task_id="task", tool_call_id="native-call")
+            hook(tool_name=tool, args=args, result=result, session_id="native-test", task_id="task", tool_call_id="native-call", status="ok")
             return result
         with patch.object(plugins, "get_plugin_manager", return_value=manager), \
                 patch.object(plugins, "_delivery_manager", return_value=manager, create=True):
-            self.assertEqual(run("skill_view", {"name": "demo"}), "complete live result")
-            self.assertEqual(run("skill_view", {"name": "demo"}), "complete live result")
+            self.assertEqual(run("read_file", {"path": "demo", "observation_id": "fixture-v1"}), "complete live result")
+            self.assertEqual(run("read_file", {"path": "demo", "observation_id": "fixture-v1"}), "complete live result")
             self.assertEqual(len(calls), 1)
             run("write_file", {"path": "demo"})
-            run("skill_view", {"name": "demo"})
+            run("read_file", {"path": "demo", "observation_id": "fixture-v1"})
             self.assertEqual(len(calls), 3)
             run("browser_snapshot", {"url": "https://example.com"})
             run("browser_snapshot", {"url": "https://example.com"})

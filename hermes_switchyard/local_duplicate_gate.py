@@ -1,19 +1,9 @@
-"""Opt-in local exact-duplicate tool-round gate (C2 / #139).
+"""Default-off exact reuse of explicitly versioned, trusted read results.
 
-When ``local_duplicate_tool_gate`` is on, successful **read** tool outcomes are
-fingerprinted per session. A later call with the same tool + canonical args +
-observation identity reuses the prior result via Hermes ``tool_execution``
-middleware (skip ``next_call``) — **0 Jev**, replace-not-add.
-
-Capability-first:
-- Flag default **off**.
-- Fail-open when unsure (non-read, missing observation identity, errors, writes).
-- Mutations and failed reads never skip; writes/exec clear all session stores.
-- Empty observation identity never silently skips (except closed-set args-stable
-  read tools where identity is derived from args explicitly as ``args_stable:…``).
-
-Plugin-only: uses existing ``tool_execution`` middleware + ``post_tool_call``.
-No Hermes core / hermes-agent changes.
+Only native read_file and browser_snapshot names qualify, and both require an
+explicit observation/snapshot identity. Catalog reads, names inferred from verb
+prefixes, and unrecognized extensions always dispatch. Runtime recording requires
+a matched tool-call identity and an unchanged mutation generation.
 """
 from __future__ import annotations
 
@@ -23,21 +13,17 @@ import threading
 from collections import OrderedDict
 from typing import Any, Callable, Mapping
 
-from .reasoning_effort_adapter import classify_tool_kind, derive_tool_failure
+from .reasoning_effort_adapter import derive_tool_failure
 
-# Closed-set reads whose resource is fully named by args (mining: skill_view).
-# Observation identity is derived as args_stable:<digest>, never empty.
-ARGS_STABLE_READ_TOOLS = frozenset(
-    {
-        # Catalog / schema reads named entirely by args. Live-state integrations
-        # (HA entity lists, Kanban boards) are intentionally excluded — they need
-        # an explicit observation identity so a later mutation cannot stale-reuse.
-        "skill_view",
-        "skills_list",
-        "tool_search",
-        "tool_describe",
-    }
-)
+# Gate purity is a closed contract, not the effort adapter's name heuristic.
+# Catalog tools can preprocess content or change registry state, so are excluded.
+TRUSTED_READ_TOOLS = frozenset({"read_file", "browser_snapshot"})
+ARGS_STABLE_READ_TOOLS = frozenset()  # No resource is versioned by arguments alone.
+
+
+def _gate_tool_kind(name: str) -> str:
+    return "read" if name in TRUSTED_READ_TOOLS else "other"
+
 
 # Explicit observation-id field names (first non-empty wins).
 _OBS_ARG_KEYS = (
@@ -54,6 +40,10 @@ DEFAULT_MAX_KEYS_PER_SESSION = 16
 DEFAULT_MAX_SESSIONS = 8
 
 _STORE_LOCK = threading.Lock()
+_MUTATION_GENERATION = 0
+_ACTIVE_MUTATIONS = 0
+_PENDING_READS: OrderedDict[tuple[str, str], tuple[int, str]] = OrderedDict()
+_MAX_PENDING_READS = 512
 # session_key -> OrderedDict[fingerprint -> cached result text]
 _SESSION_STORE: OrderedDict[str, OrderedDict[str, str]] = OrderedDict()
 _COUNTERS = {
@@ -67,7 +57,10 @@ _COUNTERS = {
 
 def reset_store_for_tests() -> None:
     """Test helper: drop all session fingerprints and counters."""
+    global _MUTATION_GENERATION, _ACTIVE_MUTATIONS
     with _STORE_LOCK:
+        _MUTATION_GENERATION = _ACTIVE_MUTATIONS = 0
+        _PENDING_READS.clear()
         _SESSION_STORE.clear()
         for key in _COUNTERS:
             _COUNTERS[key] = 0
@@ -132,10 +125,8 @@ def observation_identity(
     """Return observation identity for fingerprinting, or None to fail-open.
 
     Prefer explicit ids in args (and structured result metadata when recording).
-    Args-stable read tools derive ``args_stable:<16-hex>`` from canonical args so
-    empty transcript obs fields never become silent skips for other tools.
+    Resource identifiers alone are insufficient; catalog reads never qualify.
     """
-    name = _normalize_tool_name(tool_name)
     canonical = canonical_args(args)
     if canonical is None:
         return None
@@ -164,10 +155,6 @@ def observation_identity(
                 if isinstance(value, str) and value.strip():
                     return value.strip()
 
-    if name in ARGS_STABLE_READ_TOOLS:
-        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
-        return f"args_stable:{digest}"
-
     return None
 
 
@@ -178,11 +165,11 @@ def fingerprint_for(
     observation_id: str | None = None,
     result: Any = None,
 ) -> str | None:
-    """Build ``kind:sha256(tool|args|obs)[:16]`` or None when identity is missing."""
+    """Build ``kind:sha256(tool|args|obs)`` or None when identity is missing."""
     name = _normalize_tool_name(tool_name)
     if not name:
         return None
-    kind = classify_tool_kind(name)
+    kind = _gate_tool_kind(name)
     if kind != "read":
         return None
     canonical = canonical_args(args)
@@ -194,7 +181,7 @@ def fingerprint_for(
     if not obs:
         return None
     payload = json.dumps([name, canonical, obs], ensure_ascii=False, separators=(",", ":"))
-    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     return f"{kind}:{digest}"
 
 
@@ -215,7 +202,7 @@ def decide_local_duplicate(
         return {"action": "dispatch", "reason": "flag_off", "fingerprint": None, "cached_result": None}
 
     name = _normalize_tool_name(tool_name)
-    kind = classify_tool_kind(name) if name else "other"
+    kind = _gate_tool_kind(name) if name else "other"
     if kind != "read":
         return {"action": "dispatch", "reason": "non_read", "fingerprint": None, "cached_result": None}
 
@@ -227,6 +214,8 @@ def decide_local_duplicate(
     if scope is None:
         return {"action": "dispatch", "reason": "missing_session_identity", "fingerprint": key, "cached_result": None}
     with _STORE_LOCK:
+        if _ACTIVE_MUTATIONS:
+            return {"action": "dispatch", "reason": "mutation_in_progress", "fingerprint": key, "cached_result": None}
         session = _SESSION_STORE.get(scope)
         cached = session.get(key) if session is not None else None
         if cached is None:
@@ -259,6 +248,7 @@ def record_tool_outcome(
     ok: Any = None,
     session_id: Any = None,
     task_id: Any = None,
+    expected_generation: int | None = None,
     max_result_chars: int = DEFAULT_MAX_RESULT_CHARS,
     max_keys_per_session: int = DEFAULT_MAX_KEYS_PER_SESSION,
     max_sessions: int = DEFAULT_MAX_SESSIONS,
@@ -273,7 +263,7 @@ def record_tool_outcome(
         return {"recorded": False, "reason": "flag_off"}
 
     name = _normalize_tool_name(tool_name)
-    kind = classify_tool_kind(name) if name else "other"
+    kind = _gate_tool_kind(name) if name else "other"
     scope = _scope_key(session_id=session_id, task_id=task_id)
     failed, _detail = derive_tool_failure(
         status=status,
@@ -286,10 +276,7 @@ def record_tool_outcome(
 
     if kind != "read":
         with _STORE_LOCK:
-            if _SESSION_STORE:
-                _COUNTERS["cleared_sessions"] += len(_SESSION_STORE)
-                _SESSION_STORE.clear()
-                _bump("invalidated")
+            _invalidate_all_locked()
         return {"recorded": False, "reason": "mutation_cleared_session", "kind": kind}
 
     if scope is None:
@@ -326,6 +313,9 @@ def record_tool_outcome(
     max_sessions = max(1, min(max_sessions, DEFAULT_MAX_SESSIONS))
 
     with _STORE_LOCK:
+        if _ACTIVE_MUTATIONS or (expected_generation is not None and expected_generation != _MUTATION_GENERATION):
+            _bump("fail_open")
+            return {"recorded": False, "reason": "mutation_generation_changed"}
         if scope not in _SESSION_STORE:
             _SESSION_STORE[scope] = OrderedDict()
             _SESSION_STORE.move_to_end(scope)
@@ -341,81 +331,101 @@ def record_tool_outcome(
     return {"recorded": True, "reason": "stored", "fingerprint": key, "chars": len(text)}
 
 
-def build_tool_execution_middleware(*, enabled: bool) -> Callable[..., Any]:
-    """Hermes ``tool_execution`` middleware: reuse on exact local_duplicate, else next_call."""
+def _invalidate_all_locked() -> None:
+    global _MUTATION_GENERATION
+    _MUTATION_GENERATION += 1
+    _COUNTERS["cleared_sessions"] += len(_SESSION_STORE)
+    _SESSION_STORE.clear()
+    _bump("invalidated")
 
-    def on_tool_execution(
-        *,
-        tool_name: str = "",
-        args: Any = None,
-        next_call: Callable[..., Any] | None = None,
-        session_id: Any = None,
-        task_id: Any = None,
-        **_kwargs: Any,
-    ) -> Any:
+
+def _pending_key(session_id: Any, task_id: Any, tool_call_id: Any) -> tuple[str, str] | None:
+    scope = _scope_key(session_id=session_id, task_id=task_id)
+    if scope and isinstance(tool_call_id, str) and tool_call_id.strip() and len(tool_call_id) <= 512:
+        return scope, tool_call_id
+    return None
+
+
+def build_tool_execution_middleware(*, enabled: bool) -> Callable[..., Any]:
+    """Reuse only explicitly versioned trusted reads; track dispatch generations."""
+    def on_tool_execution(*, tool_name: str = "", args: Any = None,
+                          next_call: Callable[..., Any] | None = None,
+                          session_id: Any = None, task_id: Any = None,
+                          tool_call_id: Any = None, **_kwargs: Any) -> Any:
+        global _ACTIVE_MUTATIONS
         if not callable(next_call):
             return None
         if enabled is not True:
             return next_call(args)
-
+        if _gate_tool_kind(_normalize_tool_name(tool_name)) != "read":
+            with _STORE_LOCK:
+                _ACTIVE_MUTATIONS += 1
+                _invalidate_all_locked()
+            try:
+                return next_call(args)
+            finally:
+                with _STORE_LOCK:
+                    _ACTIVE_MUTATIONS -= 1
+                    _invalidate_all_locked()
         try:
-            decision = decide_local_duplicate(
-                enabled=True,
-                tool_name=tool_name,
-                args=args,
-                session_id=session_id,
-                task_id=task_id,
-            )
-        except Exception:  # noqa: BLE001 -- fail-open
+            decision = decide_local_duplicate(enabled=True, tool_name=tool_name, args=args,
+                                              session_id=session_id, task_id=task_id)
+            if decision["action"] == "reuse":
+                with _STORE_LOCK:
+                    # Recheck under the same lock as dispatch-generation capture.
+                    current = _SESSION_STORE.get(_scope_key(session_id=session_id, task_id=task_id), {})
+                    cached = current.get(decision["fingerprint"])
+                    if not _ACTIVE_MUTATIONS and cached is not None:
+                        _bump("reused")
+                        return cached
+            pending = _pending_key(session_id, task_id, tool_call_id)
+            fingerprint = fingerprint_for(tool_name, args)
+            if pending is not None and fingerprint is not None:
+                with _STORE_LOCK:
+                    if not _ACTIVE_MUTATIONS:
+                        _PENDING_READS[pending] = (_MUTATION_GENERATION, fingerprint)
+                        _PENDING_READS.move_to_end(pending)
+                        while len(_PENDING_READS) > _MAX_PENDING_READS:
+                            _PENDING_READS.popitem(last=False)
+        except Exception:  # noqa: BLE001 -- malformed calls always dispatch
             with _STORE_LOCK:
                 _bump("fail_open")
             return next_call(args)
-
-        if decision.get("action") == "reuse" and isinstance(decision.get("cached_result"), str):
+        try:
+            return next_call(args)
+        except BaseException:
             with _STORE_LOCK:
-                _bump("reused")
-            return decision["cached_result"]
-
-        return next_call(args)
-
+                if pending is not None:
+                    _PENDING_READS.pop(pending, None)
+            raise
     return on_tool_execution
 
 
 def build_post_tool_call_hook(*, enabled: bool) -> Callable[..., Any]:
-    """Observer: record successful reads / invalidate failures / clear all scopes on mutation."""
-
-    def on_post_tool_call(
-        tool_name: str = "",
-        args: Any = None,
-        result: Any = None,
-        *,
-        session_id: Any = None,
-        task_id: Any = None,
-        status: Any = None,
-        error_type: Any = None,
-        error_message: Any = None,
-        **_kwargs: Any,
-    ) -> None:
+    """Record only reads tied to an unchanged dispatch generation and identity."""
+    def on_post_tool_call(tool_name: str = "", args: Any = None, result: Any = None,
+                          *, session_id: Any = None, task_id: Any = None,
+                          tool_call_id: Any = None, status: Any = None,
+                          error_type: Any = None, error_message: Any = None,
+                          **kwargs: Any) -> None:
         if enabled is not True:
             return
         try:
-            record_tool_outcome(
-                enabled=True,
-                tool_name=tool_name,
-                args=args,
-                result=result,
-                status=status,
-                error_type=error_type,
-                error_message=error_message,
-                error=_kwargs.get("error"),
-                ok=_kwargs.get("ok"),
-                session_id=session_id,
-                task_id=task_id,
-            )
+            if _gate_tool_kind(_normalize_tool_name(tool_name)) != "read":
+                with _STORE_LOCK:
+                    _invalidate_all_locked()
+                return
+            pending_key = _pending_key(session_id, task_id, tool_call_id)
+            with _STORE_LOCK:
+                pending = _PENDING_READS.pop(pending_key, None)
+            expected = pending[0] if pending and pending[1] == fingerprint_for(tool_name, args) else -1
+            record_tool_outcome(enabled=True, tool_name=tool_name, args=args, result=result,
+                                status=status, error_type=error_type, error_message=error_message,
+                                error=kwargs.get("error"), ok=kwargs.get("ok"),
+                                session_id=session_id, task_id=task_id, expected_generation=expected)
         except Exception:  # noqa: BLE001 -- recorder must never break the host
             with _STORE_LOCK:
                 _bump("fail_open")
-
     return on_post_tool_call
 
 
