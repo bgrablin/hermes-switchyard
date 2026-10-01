@@ -124,7 +124,7 @@ An example allow policy, for hosts that send one:
 {"version":1,"decision":"allow","data_class":"sanitized","reason_code":"host_policy_allowed","allowed_payload":"sanitized public task"}
 ```
 
-**`always` vs `uncertain_only`:** `always` (the default) asks Jev even when local matching is confident. `uncertain_only` saves latency by asking only when local matching is unsure. If Jev validly says "no skill," that answer stands. Switchyard falls back to a local pick only when Jev couldn't be reached at all.
+**`always` vs `uncertain_only`:** `always` (the default) asks Jev even when local matching is confident. `uncertain_only` saves latency by asking only when local matching is unsure. If Jev validly says "no skill," that answer stands. Any other hosted failure, such as an unreachable provider, an invalid answer, or a deadline, keeps a local pick if there is one.
 
 ## 6. Turn it off or roll back
 

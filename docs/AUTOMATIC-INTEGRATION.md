@@ -91,7 +91,7 @@ Switchyard checks the remaining budget before every request. If Hermes can't can
 ### When Jev fails or abstains
 
 - **Jev validly answers "no skill":** that's final for the turn. There's no local fallback.
-- **Transport or client failure:** recorded as `hosted_failure` if there's no local winner, or `hosted_failure_local_fallback` if a local pick is kept.
+- **Any other hosted failure** (transport or client error, invalid or malformed answer, deadline, cancellation, or partial-accounting failure): recorded as `hosted_failure` if there's no local winner, or `hosted_failure_local_fallback` if a local pick is kept.
 
 Hosted details live only in the typed routing receipt and callback state. They are not a claim that the task succeeded.
 
