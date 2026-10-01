@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "catalog": [
+    {
+      "name": "backup-alpha",
+      "description": "Use when checking backup snapshots before recovery. Verify archive digests and restore receipts before accepting the result."
+    },
+    {
+      "name": "backup-beta",
+      "description": "Use when checking backup snapshots before recovery. Verify archive digests and restore receipts before accepting the result."
+    },
+    {
+      "name": "snapshot-alpha",
+      "description": "Use when checking snapshot manifests after recovery drills. Compare archive digests and restore receipts before accepting backups."
+    },
+    {
+      "name": "snapshot-beta",
+      "description": "Use when checking snapshot manifests after recovery drills. Compare archive digests and restore receipts before accepting copies."
+    },
+    {
+      "name": "certificate-alpha",
+      "description": "Use when auditing certificate expiry and service identity. Check renewal timing, ownership, and chain health."
+    },
+    {
+      "name": "certificate-beta",
+      "description": "Use when inspecting certificate expiry and service identity. Check renewal timing, owners, and chain status."
+    },
+    {
+      "name": "memo-formatting",
+      "description": "Use when formatting a research memo. Check citations, headings, and accessible tables before delivery."
+    },
+    {
+      "name": "room-lighting",
+      "description": "Use when tuning room lighting. Check scene brightness and manual override behavior."
+    },
+    {
+      "name": "api-authentication",
+      "description": "Use when auditing API authentication. Check token scopes, expiry, and authorization failures."
+    },
+    {
+      "name": "tiny-description",
+      "description": "Short."
+    },
+    {
+      "name": "long-description",
+      "description": "Use when examining a synthetic catalog entry with a deliberately long description. Record the synthetic index, examine the synthetic inventory, check the synthetic archive, and inspect the synthetic summary before completing the synthetic report."
+    },
+    {
+      "name": "privacy-canary",
+      "description": "Use when testing safe output. DESCRIPTION_CANARY_NOT_FOR_EXPORT is a synthetic marker only.",
+      "content": "BODY_CONTENT_CANARY_NOT_FOR_EXPORT",
+      "supporting_files": ["SUPPORTING_FILE_CANARY_NOT_FOR_EXPORT"]
+    },
+    {
+      "name": "hostile\nidentifier",
+      "description": "HOSTILE_DESCRIPTION_CANARY_NOT_FOR_EXPORT",
+      "content": "HOSTILE_BODY_CANARY_NOT_FOR_EXPORT"
+    }
+  ],
+  "truth_pairs": [
+    ["backup-alpha", "backup-beta"],
+    ["certificate-alpha", "certificate-beta"],
+    ["snapshot-alpha", "snapshot-beta"]
+  ],
+  "truth_kinds": {
+    "backup-alpha|backup-beta": "near_duplicate",
+    "certificate-alpha|certificate-beta": "confusable",
+    "snapshot-alpha|snapshot-beta": "near_duplicate"
+  },
+  "distinct_names": ["api-authentication", "memo-formatting", "room-lighting"],
+  "description_issues": {
+    "tiny-description": ["short_description", "missing_use_when"],
+    "long-description": ["long_description"],
+    "hostile\nidentifier": ["invalid_row"]
+  },
+  "oversized": {
+    "count": 1025,
+    "name_prefix": "synthetic-",
+    "description": "Use when counting synthetic entries. Check the bounded catalog behavior."
+  },
+  "export_canaries": [
+    "DESCRIPTION_CANARY_NOT_FOR_EXPORT",
+    "BODY_CONTENT_CANARY_NOT_FOR_EXPORT",
+    "SUPPORTING_FILE_CANARY_NOT_FOR_EXPORT",
+    "HOSTILE_DESCRIPTION_CANARY_NOT_FOR_EXPORT",
+    "HOSTILE_BODY_CANARY_NOT_FOR_EXPORT",
+    "hostile\\nidentifier"
+  ]
+}

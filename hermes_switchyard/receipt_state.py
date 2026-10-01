@@ -65,7 +65,7 @@ HOSTED_ERROR_DETAILS = frozenset({
 # (for example ``trivial_turn``); ``input_chars`` is the redacted task length
 # that crossed the hosted boundary. Older receipts omit both.
 OPTIONAL_RECEIPT_FIELDS = frozenset({"hosted_error_detail", "bypass_reason", "input_chars"})
-BYPASS_REASONS = frozenset({"trivial_turn", "local_confident", "local_no_skill_gate", "cache_hit"})
+BYPASS_REASONS = frozenset({"trivial_turn", "light_no_skill", "local_confident", "local_no_skill_gate", "cache_hit"})
 HOSTED_SKIP_REASONS = frozenset(
     {
         "disabled",
@@ -89,6 +89,7 @@ HOSTED_SKIP_REASONS = frozenset(
         "local_scan_oversized",
         "redaction_unavailable",
         "trivial_turn",
+        "light_no_skill",
         "local_no_skill_gate",
         "public_or_sanitized_data_ack_required",
         "client_unavailable",

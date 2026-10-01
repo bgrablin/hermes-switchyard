@@ -43,16 +43,15 @@ ARGS_STABLE_READ_TOOLS = frozenset(
 _OBS_ARG_KEYS = (
     "observation_id",
     "obs_id",
-    "document_id",
-    "page_id",
     "snapshot_id",
     "state_hash",
 )
 
-# Bound stored payloads so a large read cannot pin unbounded RAM.
-DEFAULT_MAX_RESULT_CHARS = 262_144
-DEFAULT_MAX_KEYS_PER_SESSION = 128
-DEFAULT_MAX_SESSIONS = 32
+# Combined hard ceiling: 8 sessions * 16 entries * 32 Ki characters = 4 Mi
+# characters (at most 16 MiB Unicode payload, plus bounded container overhead).
+DEFAULT_MAX_RESULT_CHARS = 32_768
+DEFAULT_MAX_KEYS_PER_SESSION = 16
+DEFAULT_MAX_SESSIONS = 8
 
 _STORE_LOCK = threading.Lock()
 # session_key -> OrderedDict[fingerprint -> cached result text]
@@ -84,15 +83,11 @@ def _bump(name: str) -> None:
     _COUNTERS[name] = int(_COUNTERS.get(name, 0)) + 1
 
 
-def _scope_key(*, session_id: Any = None, task_id: Any = None) -> str:
-    for value in (session_id, task_id):
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-        if value is not None and not isinstance(value, (bytes, bytearray)):
-            text = str(value).strip()
-            if text:
-                return text
-    return "default"
+def _scope_key(*, session_id: Any = None, task_id: Any = None) -> str | None:
+    for label, value in (("session", session_id), ("task", task_id)):
+        if isinstance(value, str) and value.strip() and len(value) <= 512:
+            return label + ":" + value.strip()
+    return None
 
 
 def canonical_args(args: Any) -> str:
@@ -114,8 +109,6 @@ def _normalize_tool_name(tool_name: Any) -> str:
     if not isinstance(tool_name, str):
         return ""
     name = tool_name.strip()
-    if name.startswith("mcp__"):
-        name = name.rsplit("__", 1)[-1]
     return name
 
 
@@ -188,17 +181,6 @@ def fingerprint_for(
     return f"{kind}:{digest}"
 
 
-def _result_as_text(result: Any) -> str:
-    if result is None:
-        return ""
-    if isinstance(result, str):
-        return result
-    try:
-        return json.dumps(result, ensure_ascii=False, sort_keys=True, default=str)
-    except (TypeError, ValueError):
-        return str(result)
-
-
 def decide_local_duplicate(
     *,
     enabled: bool,
@@ -225,6 +207,8 @@ def decide_local_duplicate(
         return {"action": "dispatch", "reason": "missing_observation_identity", "fingerprint": None, "cached_result": None}
 
     scope = _scope_key(session_id=session_id, task_id=task_id)
+    if scope is None:
+        return {"action": "dispatch", "reason": "missing_session_identity", "fingerprint": key, "cached_result": None}
     with _STORE_LOCK:
         session = _SESSION_STORE.get(scope)
         cached = session.get(key) if session is not None else None
@@ -235,6 +219,8 @@ def decide_local_duplicate(
                 "fingerprint": key,
                 "cached_result": None,
             }
+        session.move_to_end(key)
+        _SESSION_STORE.move_to_end(scope)
         return {
             "action": "reuse",
             "reason": "local_duplicate",
@@ -272,6 +258,8 @@ def record_tool_outcome(
     name = _normalize_tool_name(tool_name)
     kind = classify_tool_kind(name) if name else "other"
     scope = _scope_key(session_id=session_id, task_id=task_id)
+    if scope is None:
+        return {"recorded": False, "reason": "missing_session_identity"}
 
     failed, _detail = derive_tool_failure(
         status=status,
@@ -282,7 +270,7 @@ def record_tool_outcome(
         ok=ok,
     )
 
-    if kind in {"write", "exec"}:
+    if kind != "read":
         with _STORE_LOCK:
             if scope in _SESSION_STORE:
                 del _SESSION_STORE[scope]
@@ -290,10 +278,8 @@ def record_tool_outcome(
                 _bump("invalidated")
         return {"recorded": False, "reason": "mutation_cleared_session", "kind": kind}
 
-    if kind != "read":
-        return {"recorded": False, "reason": "non_read"}
-
-    key = fingerprint_for(name, args, result=result)
+    # Use the same call-time identity for recording and lookup.
+    key = fingerprint_for(name, args)
     if key is None:
         with _STORE_LOCK:
             _bump("fail_open")
@@ -308,11 +294,19 @@ def record_tool_outcome(
             _bump("fail_open")
         return {"recorded": False, "reason": "failed_read_invalidated", "fingerprint": key}
 
-    text = _result_as_text(result)
-    if max_result_chars < 64:
-        max_result_chars = 64
-    if len(text) > max_result_chars:
-        text = text[:max_result_chars]
+    # Reuse must preserve the complete host result and its type. Never truncate.
+    max_result_chars = max(1, min(max_result_chars, DEFAULT_MAX_RESULT_CHARS))
+    if not isinstance(result, str) or len(result) > max_result_chars:
+        with _STORE_LOCK:
+            session = _SESSION_STORE.get(scope)
+            if session is not None and key in session:
+                del session[key]
+                _bump("invalidated")
+            _bump("fail_open")
+        return {"recorded": False, "reason": "result_not_cacheable", "fingerprint": key}
+    text = result
+    max_keys_per_session = max(1, min(max_keys_per_session, DEFAULT_MAX_KEYS_PER_SESSION))
+    max_sessions = max(1, min(max_sessions, DEFAULT_MAX_SESSIONS))
 
     with _STORE_LOCK:
         if scope not in _SESSION_STORE:
@@ -396,6 +390,8 @@ def build_post_tool_call_hook(*, enabled: bool) -> Callable[..., Any]:
                 status=status,
                 error_type=error_type,
                 error_message=error_message,
+                error=_kwargs.get("error"),
+                ok=_kwargs.get("ok"),
                 session_id=session_id,
                 task_id=task_id,
             )

@@ -90,7 +90,9 @@ You can also set `public_or_sanitized_data_ack` and `automatic_skill_public_or_s
 | --- | --- | --- |
 | Tools (7) | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, `jev_session_search_rerank`, `jev_computer_use` | Callable when the corresponding toolset is selected |
 | Hooks (5) | `pre_llm_call` for automatic skill routing and effort capture; `post_llm_call` to clear that capture; `post_tool_call` for reconsideration; `transform_llm_output` for the visible effort line; `post_api_request` for usage counts | On after install |
-| Middleware (2) | `llm_request` for request-scoped reasoning effort; `tool_execution` for optional local exact-duplicate read reuse (off by default) | On when supported by Hermes |
+| Middleware (2) | `llm_request` for request-scoped reasoning effort; `tool_execution` for optional local duplicate read reuse | On when supported by Hermes |
+| Local report (0.6.0 candidate; not in 0.5.6) | `hermes switchyard wow` and `/switchyard wow` summarize retained observations without a provider call; [limits and JSON schema](docs/WOW-LOCAL-REPORT.md) | Trailing 7 days; read-only |
+| CLI (offline) | `hermes switchyard lint-skills [--json]` checks description routability; see [limits](docs/LINT-SKILLS.md) | Explicit only; no provider calls or edits |
 
 Doctor reports six hook registrations because two handlers use `pre_llm_call`; the manifest lists five distinct kinds. `jev_skill_select_many` recommends several skills but does not load them. The automatic hook can load one accepted skill per identified turn. The model-routing tools do not apply a model switch. Jev `DONE` alone does not verify a browser goal; Switchyard also needs its local completion condition. An early local stop is a candidate, not verified success. [Browser receipts](docs/DOM-BROWSER-BACKEND.md) show the separate action, effect, and goal fields.
 
@@ -143,6 +145,9 @@ All current settings live under `plugins.entries.hermes-switchyard.settings`. Th
 | `automatic_skill_routing_mode` | `hosted_sanitized` | Use `off`, `local_only`, or eligible hosted routing. |
 | `automatic_skill_jev` | `true` | Deprecated compatibility setting; does not authorize hosted egress alone. |
 | `automatic_skill_jev_mode` | `always` | Try hosted routing on eligible turns; `uncertain_only` opts in to a local-first latency policy. |
+| `automatic_skill_honor_no_skill_gate` | `false` | When true, skip hosted fan-out under `always` mode on near-zero local overlap. |
+| `automatic_skill_light_turn_bypass` | `true` | Skip hosted skill routing for closed-list acknowledgements and full-request greeting/cwd-listing forms. Unknown wording and open-ended explanations keep normal routing. |
+| `automatic_skill_early_light_bypass_before_discover` | `false` | Opt-in: run the light-turn bypass probe before catalog discover; default keeps discover-then-recommend. |
 | `automatic_skill_public_or_sanitized_data_ack` | `true` | Standing acknowledgement for hosted automatic skill routing; not a data classifier. |
 | `automatic_skill_mandatory_skills` | `[]` | Exact skill IDs that must not be displaced by an automatic load. |
 | `automatic_skill_two_stage` | `true` | Use the bounded two-stage hosted selector. |
@@ -165,10 +170,10 @@ All current settings live under `plugins.entries.hermes-switchyard.settings`. Th
 | `session_search_rerank_choice_confidence_threshold` | `0.8` | Minimum Jev Choice confidence to change FTS order. |
 | `session_search_rerank_winning_probability_threshold` | `0.8` | Minimum winning probability to change FTS order. |
 | `session_search_rerank_max_card_chars` | `360` | Maximum text in a redacted FTS candidate card. |
-| `local_duplicate_tool_gate` | `false` | Opt-in experiment. Reuse exact prior successful read tool results in-session (0 Jev). Keep off until prove-value. |
+| `local_duplicate_tool_gate` | `false` | Opt-in experiment. Reuse complete successful read results within an identified session (0 Jev). Requires stable arguments or snapshot identity; missing scope, oversized/non-string results, and uncertain cases dispatch normally. Cache payload is bounded to 4 Mi characters. Keep off until prove-value. |
 | `public_or_sanitized_data_ack` | `true` | Standing acknowledgement for explicit Jev tools and adaptive effort; callers can refuse one call. |
 
-The 42 setting rows above match the manifest defaults. F1 and F2 settings from their PRs are not in this manifest; do not set them. Both failed their frozen release evaluations. On timeout the 0.4 s guard sends your level unchanged. With the earlier 0.25 s guard, an installed cold one-shot sample had 8 timeouts in 14 non-trivial decisions (57.1%). A fresh TUI yielded one client-reused Jev call at 178.4 ms; n=1 cannot establish a warm p95 for the current default.
+The 45 setting rows above match the manifest defaults. F1 and F2 settings from their PRs are not in this manifest; do not set them. Both failed their frozen release evaluations. On timeout the 0.4 s guard sends your level unchanged. With the earlier 0.25 s guard, an installed cold one-shot sample had 8 timeouts in 14 non-trivial decisions (57.1%). A fresh TUI yielded one client-reused Jev call at 178.4 ms; n=1 cannot establish a warm p95 for the current default.
 
 ## Troubleshooting
 
@@ -187,7 +192,7 @@ These are code-owned status or receipt reasons. They identify a gate, not necess
 
 The installer can also report `Security scan blocked plugin install`. This occurs before any plugin status command is available. Review the exact scanner findings and source; do not pass `--force` merely to make the quickstart appear complete. [Setup](docs/SETUP.md) covers browser startup, explicit pins, and further status reasons.
 
-**No per-turn effort line?** It appears only on a foreground turn where the plugin changed effort, called the cloud, decided locally, or reused a cached choice (or also on pinned/pass-through turns with a known wire level in `always` mode). Check `adaptive_reasoning_effort_receipt_mode` (`auto`/`always`/`off`), `/switchyard effort receipt`, and whether you started a fresh session after enabling the plugin. A disabled adapter or unsupported Hermes middleware cannot produce it. Use `/switchyard effort status` and `hermes switchyard status --json` to see the current state.
+**No per-turn effort line?** It appears only on a foreground turn where the plugin changed effort, called the cloud, decided locally, or reused a cached choice. It also appears when every request passed through because the host sent no effort or the level could not be adapted on the route (also on pinned/pass-through turns with a known wire level in `always` mode). Check `adaptive_reasoning_effort_receipt_mode` (`auto`/`always`/`off`), `/switchyard effort receipt`, and whether you started a fresh session after enabling the plugin. A disabled adapter or unsupported Hermes middleware cannot produce it. Use `/switchyard effort status` and `hermes switchyard status --json` to see the current state.
 
 ## Uninstall and rollback
 

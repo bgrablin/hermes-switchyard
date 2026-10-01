@@ -37,6 +37,7 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any
 
 from . import egress_redaction, receipt_history, receipt_state
@@ -64,9 +65,11 @@ from .egress import (
 from .reasoning_effort_adapter import _effort_scan_reason
 from .routing import select_skill
 from .trivial_turn import (  # noqa: F401 -- the limits stay importable from automatic
+    LIGHT_NO_SKILL_REASON,
     TRIVIAL_ACK_MAX_WORDS,
     TRIVIAL_ACK_WORDS,
     TRIVIAL_SYMBOL_MAX_CHARS,
+    hosted_skill_bypass_reason,
     is_trivial_turn,
 )
 from .two_stage_routing import (
@@ -102,6 +105,16 @@ DEFAULT_AUTOMATIC_DEADLINE_SECONDS = DEFAULT_AUTOMATIC_ROUTING_DEADLINE_SECONDS
 # Catalog token-feature cache keyed by catalog hash (names + descriptions).
 _CATALOG_FEATURE_CACHE: OrderedDict[str, tuple[frozenset[str], ...]] = OrderedDict()
 _CATALOG_FEATURE_LOCK = threading.Lock()
+
+# In-process skill registry discovery cache. skills_list() is fail-open and can
+# be expensive on large profiles; automatic routing may also call discovery twice
+# in one turn (catalog + explicit-override pool). Invalidate when any observed
+# registry input changes (home/project/external roots, disabled set, platform,
+# cwd, config) or when the entry exceeds the max age. Behavior is identical to
+# uncached discovery aside from avoiding repeat registry scans.
+_DISCOVERY_CACHE_LOCK = threading.Lock()
+_DISCOVERY_CACHE: tuple[str, float, tuple[dict[str, str], ...]] | None = None
+_DISCOVERY_CACHE_MAX_AGE_SECONDS = 30.0
 
 # Stable, privacy-safe terminal states for the routing-receipt surface. These
 # names identify every automatic-routing outcome without carrying task text,
@@ -160,12 +173,14 @@ _RESTRICTED_WORD_RE = re.compile(
 MAX_SCANNED_TASK_CHARS = 64_000
 REDACTION_UNAVAILABLE_REASON = egress_redaction.REDACTION_UNAVAILABLE_REASON
 
-# Trivial-turn bypass: a greeting, thanks, or acknowledgement never names a
-# specialist skill, so the hosted call only adds latency. The rule is a closed
-# word list, not a length rule, so short task requests still reach Jev.
+# Light-turn bypass: greetings / thanks / acknowledgements, greeting-class
+# instructions, pure read-only listings, and short no-action explanations never
+# name a specialist skill, so the hosted call only adds latency. Closed-list and
+# predicate detectors live in trivial_turn.py; adaptive effort shares the ack list
+# and greeting-class path.
 TRIVIAL_TURN_REASON = "trivial_turn"
-# The closed list lives in trivial_turn.py; adaptive reasoning effort uses the same detector.
 _trivial_turn = is_trivial_turn
+_hosted_skill_bypass_reason = hosted_skill_bypass_reason
 _TRIVIAL_ACK_WORDS = TRIVIAL_ACK_WORDS
 
 # These words do not identify a specialist skill. Keeping this list local makes
@@ -342,7 +357,208 @@ def _validate_candidates(raw: Any, *, limit: int | None) -> tuple[dict[str, str]
     return tuple(result)
 
 
-def discover_available_skill_candidates() -> tuple[dict[str, str], ...]:
+def _active_hermes_home() -> Path | None:
+    """Resolve the active Hermes home the same way ``skills_list`` does.
+
+    Prefer ``hermes_constants.get_hermes_home()`` so context-local / multiplexed
+    profile overrides are honored. Fall back to ``HERMES_HOME`` only when the
+    helper is unavailable. Never logs or serializes the path into receipts.
+    """
+    try:
+        from hermes_constants import get_hermes_home
+    except (ImportError, AttributeError):
+        get_hermes_home = None  # type: ignore[assignment]
+    if callable(get_hermes_home):
+        try:
+            resolved = get_hermes_home()
+        except Exception:  # noqa: BLE001 -- fingerprint must stay fail-open
+            resolved = None
+        if resolved is not None:
+            try:
+                return Path(resolved).expanduser()
+            except (TypeError, ValueError):
+                pass
+    configured = os.environ.get("HERMES_HOME")
+    if isinstance(configured, str) and configured.strip():
+        return Path(configured.strip()).expanduser()
+    return None
+
+
+def _skills_registry_roots() -> tuple[Path, ...]:
+    """Return skill roots used only for discovery-cache invalidation.
+
+    Paths are never logged or written into receipts. Missing roots are fine:
+    the fingerprint records absence so a later create invalidates the cache.
+    Roots are keyed off the *active* Hermes home (``get_hermes_home()``), not
+    process env alone, so multiplexed profiles do not cross-cache catalogs.
+
+    When Hermes skill_utils helpers are importable, also include trusted project
+    dirs, configured external dirs, and create_dir — the same extra roots
+    ``skills_list()`` consults beyond the profile home.
+    """
+    roots: list[Path] = []
+    seen: set[str] = set()
+
+    def _add(path: Path | None) -> None:
+        if path is None:
+            return
+        try:
+            key = str(path.resolve())
+        except OSError:
+            key = str(path)
+        if key in seen:
+            return
+        seen.add(key)
+        roots.append(path)
+
+    base = _active_hermes_home()
+    if base is not None:
+        _add(base / "skills")
+        # Profile-scoped skills (when HERMES_PROFILE is set) live beside the
+        # shared tree; include both so an install under either root refreshes.
+        profile = os.environ.get("HERMES_PROFILE")
+        if isinstance(profile, str) and profile.strip():
+            _add(base / "profiles" / profile.strip() / "skills")
+    # Extra registry inputs Hermes skills_list() merges in (fail-open).
+    try:
+        from agent.skill_utils import (  # type: ignore[import-not-found]
+            get_external_skills_dirs,
+            get_project_skills_dirs,
+            get_skill_create_dir,
+        )
+
+        for getter in (get_project_skills_dirs, get_external_skills_dirs):
+            try:
+                for entry in getter() or ():
+                    if isinstance(entry, (str, os.PathLike)):
+                        _add(Path(entry))
+            except Exception:  # noqa: BLE001 -- fingerprint must stay cheap
+                continue
+        try:
+            create_dir = get_skill_create_dir()
+        except Exception:  # noqa: BLE001
+            create_dir = None
+        if create_dir is not None:
+            _add(Path(create_dir))
+    except Exception:  # noqa: BLE001 -- plugin stays usable without Hermes internals
+        pass
+    return tuple(roots)
+
+
+def _discovery_policy_parts() -> list[str]:
+    """Non-path registry inputs that change skills_list() without an mtime bump.
+
+    Covers disabled skill names, platform eligibility context, and config.yaml
+    identity so a config-only disable / platform switch invalidates the cache.
+    Never embeds absolute paths into the returned strings (hashed later).
+    """
+    parts: list[str] = []
+    platform = (
+        os.environ.get("HERMES_PLATFORM")
+        or os.environ.get("HERMES_SESSION_PLATFORM")
+        or ""
+    )
+    if isinstance(platform, str) and platform.strip():
+        parts.append(f"platform:{platform.strip()}")
+    try:
+        import sys as _sys
+
+        parts.append(f"sys_platform:{getattr(_sys, 'platform', '')}")
+    except Exception:  # noqa: BLE001
+        parts.append("sys_platform:unknown")
+    # cwd identity: project skills vary by working directory.
+    try:
+        cwd = Path.cwd().resolve()
+        parts.append(f"cwd:{cwd}")
+    except OSError:
+        parts.append("cwd:unknown")
+    try:
+        from agent.skill_utils import get_disabled_skill_names  # type: ignore[import-not-found]
+
+        disabled = sorted(str(name) for name in (get_disabled_skill_names() or set()) if name)
+        parts.append("disabled:" + ",".join(disabled))
+    except Exception:  # noqa: BLE001
+        parts.append("disabled:unavailable")
+    # Plugin skills are merged by skills_list outside Hermes' filesystem cache.
+    # Registration/removal need not touch any skill root or config file.
+    try:
+        from hermes_cli.plugins import get_plugin_manager
+
+        metadata = get_plugin_manager().list_plugin_skill_metadata()
+        encoded = json.dumps(metadata, sort_keys=True, default=str).encode("utf-8")
+        parts.append("plugins:" + hashlib.sha256(encoded).hexdigest())
+    except Exception:  # noqa: BLE001 -- no plugin registry on standalone hosts
+        parts.append("plugins:unavailable")
+    # Config mtime so disabled / external_dirs edits without skills-dir churn refresh.
+    try:
+        from hermes_cli.config import get_config_path  # type: ignore[import-not-found]
+
+        cfg_path = get_config_path()
+        if cfg_path is not None:
+            try:
+                st = Path(cfg_path).stat()
+                parts.append(f"config:{st.st_mtime_ns}:{st.st_ino}:{st.st_size}")
+            except OSError:
+                parts.append("config:missing")
+    except Exception:  # noqa: BLE001
+        # Fall back to HERMES_HOME/config.yaml when the helper is unavailable.
+        base = _active_hermes_home()
+        if base is not None:
+            cfg = base / "config.yaml"
+            try:
+                st = cfg.stat()
+                parts.append(f"config:{st.st_mtime_ns}:{st.st_ino}:{st.st_size}")
+            except OSError:
+                parts.append("config:missing")
+        else:
+            parts.append("config:unavailable")
+    return parts
+
+
+def _discovery_fingerprint() -> str:
+    """Cheap fingerprint of all skills_list() registry inputs we can observe.
+
+    Includes profile/project/external skill roots (path + mtime + children),
+    disabled set, platform, cwd, and config identity — not only the active home
+    skills tree — so two turns that differ only by project dir, disable list, or
+    platform do not reuse each other's catalog.
+    """
+    parts: list[str] = []
+    for root in _skills_registry_roots():
+        try:
+            st = root.stat()
+            parts.append(f"{root.resolve()}:{st.st_mtime_ns}:{st.st_ino}")
+            if not root.is_dir():
+                continue
+            try:
+                children = sorted(root.iterdir(), key=lambda p: p.name)
+            except OSError:
+                continue
+            # Cap directory walk so a huge skills tree cannot dominate the turn.
+            for child in children[:512]:
+                try:
+                    cst = child.stat()
+                    parts.append(f"{child.name}:{cst.st_mtime_ns}:{cst.st_ino}")
+                except OSError:
+                    parts.append(f"{child.name}:unreadable")
+        except OSError:
+            parts.append(f"{root}:missing")
+    parts.extend(_discovery_policy_parts())
+    if not parts:
+        parts.append("no_hermes_home")
+    return hashlib.sha256("\n".join(parts).encode("utf-8", "backslashreplace")).hexdigest()
+
+
+def clear_skill_discovery_cache() -> None:
+    """Drop the in-process skills_list discovery cache (tests / forced refresh)."""
+    global _DISCOVERY_CACHE
+    with _DISCOVERY_CACHE_LOCK:
+        _DISCOVERY_CACHE = None
+
+
+def discover_available_skill_candidates(
+    *, force_refresh: bool = False
+) -> tuple[dict[str, str], ...]:
     """Discover the active profile's skills through Hermes' public skills API.
 
     ``pre_llm_call`` receives the conversation messages before Hermes prepends
@@ -350,7 +566,24 @@ def discover_available_skill_candidates() -> tuple[dict[str, str], ...]:
     ``tools.skills_tool.skills_list()`` is the supported profile-scoped registry
     surface and already filters disabled/platform-ineligible skills. Descriptions
     remain local ranking metadata and are bounded before use.
+
+    Results are cached in-process and invalidated when any observed registry
+    input changes (profile/project/external skill-root mtimes, disabled set,
+    platform, cwd, config identity) or after ``_DISCOVERY_CACHE_MAX_AGE_SECONDS``.
+    Pass ``force_refresh=True`` to bypass the cache. Failures are not cached.
     """
+    global _DISCOVERY_CACHE
+    fingerprint = _discovery_fingerprint()
+    now = time.monotonic()
+    with _DISCOVERY_CACHE_LOCK:
+        cached = _DISCOVERY_CACHE
+        if (
+            not force_refresh
+            and cached is not None
+            and cached[0] == fingerprint
+            and (now - cached[1]) <= _DISCOVERY_CACHE_MAX_AGE_SECONDS
+        ):
+            return tuple(dict(candidate) for candidate in cached[2])
     try:
         from tools.skills_tool import skills_list
 
@@ -374,10 +607,15 @@ def discover_available_skill_candidates() -> tuple[dict[str, str], ...]:
             except ValueError:
                 continue
             candidates.append(candidate)
-        return tuple(candidates)
+        result = tuple(candidates)
     except Exception as exc:  # noqa: BLE001 -- catalog discovery is fail-open
         logger.debug("skill registry discovery failed: %s", type(exc).__name__)
         return ()
+    with _DISCOVERY_CACHE_LOCK:
+        _DISCOVERY_CACHE = (
+            fingerprint, time.monotonic(), tuple(dict(candidate) for candidate in result)
+        )
+    return result
 
 
 def _catalog_identity(candidates: tuple[dict[str, str], ...]) -> str:
@@ -523,6 +761,8 @@ class AutomaticSkillRecommender:
         prefilter_no_skill_threshold: float = DEFAULT_PREFILTER_NO_SKILL_THRESHOLD,
         prefilter_min_score: float = DEFAULT_PREFILTER_MIN_SCORE,
         prefilter_cutoff_margin: float = DEFAULT_PREFILTER_CUTOFF_MARGIN,
+        honor_no_skill_gate: bool = False,
+        light_turn_bypass: bool = True,
         two_stage: TwoStageConfig | None = None,
         excerpt_loader: Callable[[str], Any] | None = None,
     ) -> None:
@@ -568,6 +808,11 @@ class AutomaticSkillRecommender:
         self.prefilter_no_skill_threshold = max(0.0, min(float(prefilter_no_skill_threshold), 1.0))
         self.prefilter_min_score = max(0.0, min(float(prefilter_min_score), 1.0))
         self.prefilter_cutoff_margin = max(0.0, min(float(prefilter_cutoff_margin), 1.0))
+        # When true, honor local_no_skill_gate even under hosted_mode=always.
+        # Default false preserves always-mode full fan-out on near-zero overlap
+        # (short opaque tasks such as ``fix ci``). Opt in to cut needless tax.
+        self.honor_no_skill_gate = honor_no_skill_gate is True
+        self.light_turn_bypass = light_turn_bypass is True
         self._cache: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
         self._lock = threading.RLock()
         self._client: Any | None = None
@@ -767,6 +1012,23 @@ class AutomaticSkillRecommender:
             self._record_receipt(result)
             return result
 
+        # Local-first light-turn bypass before catalog work or hosted calls.
+        light_bypass = (
+            _hosted_skill_bypass_reason(task_text) if self.light_turn_bypass else None
+        )
+        if light_bypass is not None:
+            result = self._empty_result(
+                routing_mode=self.routing_mode,
+                reason=light_bypass,
+                routing_status="hosted_skipped",
+            )
+            result["bypass_reason"] = light_bypass
+            result["request_count"] = 0
+            result["offered_count"] = 0
+            result["input_chars"] = 0
+            self._record_receipt(result)
+            return result
+
         if self.configured_candidates:
             candidate_set = self.configured_candidates
         else:
@@ -890,13 +1152,13 @@ class AutomaticSkillRecommender:
                 min_score=self.prefilter_min_score,
                 cutoff_margin=self.prefilter_cutoff_margin,
             )
-            # ``always`` still evaluates hosted fit even when local overlap is
-            # near zero (opaque identifiers / weak lexical signal). The cheap
-            # no-skill gate applies only for ``uncertain_only``, where local
-            # abstention would otherwise pay full fan-out for an obvious miss.
+            # ``always`` historically forced full fan-out even on near-zero local
+            # overlap (opaque identifiers). Default honor_no_skill_gate=False keeps
+            # that always override; set true to skip needless zero-overlap tax.
             if (
                 prefilter_policy == SHORTLIST_POLICY_NO_SKILL_GATE
                 and self.hosted_mode == "always"
+                and not self.honor_no_skill_gate
             ):
                 prefilter_policy = SHORTLIST_POLICY_FULL_FAN_OUT
                 prefilter_subset = None
@@ -932,13 +1194,6 @@ class AutomaticSkillRecommender:
             result["bypass_reason"] = "local_confident"
             result["routing_status"] = "hosted_skipped"
             result["routing_reason"] = "local_confident"
-        elif _trivial_turn(task_text):
-            # Local-first bypass: greetings, thanks, and acknowledgements
-            # never pay for a hosted request.
-            result["hosted_skipped"] = TRIVIAL_TURN_REASON
-            result["bypass_reason"] = TRIVIAL_TURN_REASON
-            result["routing_status"] = "hosted_skipped"
-            result["routing_reason"] = TRIVIAL_TURN_REASON
         elif outbound_scan_reason is not None:
             result["hosted_skipped"] = outbound_scan_reason
             result["routing_status"] = "hosted_skipped"
@@ -1425,6 +1680,33 @@ def _format_recommendation(name: str) -> str:
     )
 
 
+# Text-only explicit-skill intent (no catalog). Used to refuse early light bypass
+# when the turn looks like "Use greeter …" / "/greeter" so discover still runs and
+# `_explicit_skill_override` can honor a matching registry skill.
+_EXPLICIT_SKILL_INTENT_RE = re.compile(
+    r"(?:^|\s)/[a-z][\w.-]{1,63}(?:\s|$|[.,!?])"
+    r"|"
+    r"\b(?:use|load)\s+(?:the\s+)?[`'\"]?[a-z][\w:.-]*",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_explicit_skill_request(task: Any) -> bool:
+    """True when the turn text looks like an explicit skill use/load/slash request.
+
+    Catalog-free and conservative: any use/load target may be a skill name.
+    The closed no-tools constraint is not an override. Errors force discovery.
+    """
+    try:
+        text = _coerce_bounded_text(task, MAX_TASK_CHARS)
+    except Exception:  # noqa: BLE001
+        return True
+    if not text:
+        return False
+    text = re.sub(r"\b(?:do\s+not|don't)\s+use\s+tools\b", "", text, flags=re.IGNORECASE)
+    return _EXPLICIT_SKILL_INTENT_RE.search(text) is not None
+
+
 def _explicit_skill_override(task: Any, candidates: Any) -> str | None:
     """Return an explicitly requested candidate, if the turn names one."""
     text = _coerce_bounded_text(task, MAX_TASK_CHARS).lower()
@@ -1551,6 +1833,9 @@ def build_pre_llm_call_hook(
     consumer_mode: str = DEFAULT_CONSUMER_MODE,
     skill_loader: Callable[..., str] | None = None,
     mandatory_skills: Any = (),
+    honor_no_skill_gate: bool = False,
+    light_turn_bypass: bool = True,
+    early_light_bypass_before_discover: bool = False,
     two_stage: TwoStageConfig | None = None,
     excerpt_loader: Callable[[str], Any] | None = None,
     environ: Mapping[str, str] | None = None,
@@ -1578,6 +1863,8 @@ def build_pre_llm_call_hook(
             cache_seconds=cache_seconds,
             deadline_seconds=deadline_seconds,
             adoption_capable=(consumer_mode == "load"),
+            honor_no_skill_gate=honor_no_skill_gate,
+            light_turn_bypass=light_turn_bypass,
             two_stage=two_stage,
             excerpt_loader=excerpt_loader,
         )
@@ -1585,6 +1872,9 @@ def build_pre_llm_call_hook(
         logger.warning("automatic skill recommendation disabled by invalid configuration: %s", type(exc).__name__)
         return None
 
+    # Default OFF: preserve discover-then-recommend. When ON with light_turn_bypass,
+    # a text-only probe may skip catalog discover for light turns (fail-open).
+    early_before_discover = early_light_bypass_before_discover is True
     configured = bool(recommender.configured_candidates)
     consumed_turns: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
 
@@ -1665,7 +1955,75 @@ def build_pre_llm_call_hook(
             return response
         # Hermes' conversation_history does not include the cached system prompt
         # that advertises skills. Discover the active profile registry directly.
+        # Light-turn bypass runs inside recommend() *after* routing_mode==off and
+        # *after* the explicit-skill override below, so disabled-mode and
+        # explicit-override receipts keep their established precedence.
+        # Optional early probe (flag default OFF) may skip discover when the same
+        # text-only light predicate already fires and the turn does not look like an
+        # explicit skill use/load; fail-open on probe errors.
         del conversation_history  # local-only input; never part of an egress payload
+        if (
+            early_before_discover
+            and recommender.light_turn_bypass
+            and recommender.routing_mode != "off"
+        ):
+            early_reason = None
+            try:
+                task_text = _coerce_text(user_message)
+                if task_text:
+                    early_reason = _hosted_skill_bypass_reason(task_text)
+            except Exception:  # noqa: BLE001 -- fail open to discover path
+                early_reason = None
+            if early_reason is not None and not _looks_like_explicit_skill_request(
+                user_message
+            ):
+                # Same light path as recommend(); empty candidates never reached.
+                # Explicit-use phrasing falls through so discover + override run.
+                result = recommender.recommend(
+                    user_message,
+                    candidates=(),
+                    candidates_from_prompt=False,
+                    turn_egress_policy=turn_egress_policy,
+                    egress_policy=egress_policy,
+                )
+                setattr(on_pre_llm_call, "last_result", dict(result))
+                setattr(
+                    on_pre_llm_call, "last_receipt", dict(recommender.last_receipt or {})
+                )
+                metadata = redacted_routing_metadata(result)
+                setattr(on_pre_llm_call, "last_metadata", dict(metadata))
+                setattr(on_pre_llm_call, "last_routing_metadata", dict(metadata))
+                contract = build_consumption_contract(
+                    delivery_status="not_delivered",
+                    adoption_status="not_applicable",
+                )
+                receipt = _attach_consumption_contract(
+                    dict(recommender.last_receipt or {}), contract
+                )
+                recommender.last_receipt = receipt
+                persist_failed = not _persist_receipt(receipt)
+                record_history(receipt)
+                _mark_persist_failure(metadata, persist_failed)
+                setattr(on_pre_llm_call, "last_receipt", dict(receipt))
+                metadata["skill_recommendation"] = {
+                    "status": "abstained",
+                    "selected": None,
+                    "source": result.get("source", "none"),
+                    "loaded_once": False,
+                    **contract,
+                }
+                for name in ("last_metadata", "last_routing_metadata"):
+                    snapshot = dict(getattr(on_pre_llm_call, name, None) or {})
+                    _mark_persist_failure(
+                        snapshot, bool(metadata.get(RECEIPT_PERSIST_FAILED_KEY))
+                    )
+                    setattr(on_pre_llm_call, name, snapshot)
+                response = {"metadata": metadata}
+                if turn_key is not None:
+                    consumed_turns[turn_key] = dict(response)
+                    while len(consumed_turns) > DEFAULT_CACHE_SIZE:
+                        consumed_turns.popitem(last=False)
+                return response
         catalog_candidates = (
             ()
             if configured or recommender.routing_mode == "off"

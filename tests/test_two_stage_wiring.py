@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import yaml
+from ruamel.yaml import YAML
 
 from hermes_switchyard import receipt_history, receipt_state
 from hermes_switchyard.automatic import build_pre_llm_call_hook
@@ -175,7 +175,9 @@ class TwoStageWiringTests(HermesHomeTestCase):
     def test_manifest_exposes_every_runtime_two_stage_setting(self):
         from hermes_switchyard.two_stage_routing import TWO_STAGE_CONFIG_KEYS
 
-        manifest = yaml.safe_load((Path(__file__).resolve().parents[1] / "plugin.yaml").read_text(encoding="utf-8"))
+        yaml = YAML(typ="safe", pure=True)
+        yaml.version = (1, 1)
+        manifest = yaml.load((Path(__file__).resolve().parents[1] / "plugin.yaml").read_text(encoding="utf-8"))
         schema = manifest["config_schema"]
         expected_types = {
             "automatic_skill_two_stage": "bool",

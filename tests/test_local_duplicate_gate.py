@@ -418,5 +418,118 @@ class OfflineScorerShapeTests(unittest.TestCase):
         self.assertEqual(must_dispatch, len(trace) - skipped)
 
 
+class CacheBoundaryTests(unittest.TestCase):
+    def setUp(self):
+        reset_store_for_tests()
+
+    def tearDown(self):
+        reset_store_for_tests()
+
+    def record(self, **overrides):
+        values = dict(enabled=True, tool_name="skill_view", args={"name": "demo"},
+                      result="complete result", status="ok", session_id="s1")
+        values.update(overrides)
+        return record_tool_outcome(**values)
+
+    def decide(self, **overrides):
+        values = dict(enabled=True, tool_name="skill_view", args={"name": "demo"}, session_id="s1")
+        values.update(overrides)
+        return decide_local_duplicate(**values)
+
+    def test_missing_scope_never_uses_shared_default_and_task_scope_is_distinct(self):
+        self.assertFalse(self.record(session_id=None)["recorded"])
+        self.assertEqual(self.decide(session_id=None)["action"], "dispatch")
+        self.record()
+        self.assertEqual(self.decide(session_id=None, task_id="s1")["action"], "dispatch")
+
+    def test_oversized_or_nonstring_results_invalidate_without_truncation(self):
+        from hermes_switchyard.local_duplicate_gate import DEFAULT_MAX_RESULT_CHARS
+        for result in ("x" * (DEFAULT_MAX_RESULT_CHARS + 1), {"ok": True}, None):
+            self.record()
+            self.assertFalse(self.record(result=result)["recorded"])
+            self.assertEqual(self.decide()["action"], "dispatch")
+        body = "x" * DEFAULT_MAX_RESULT_CHARS
+        self.assertTrue(self.record(result=body)["recorded"])
+        self.assertEqual(self.decide()["cached_result"], body)
+
+    def test_combined_hard_bounds_even_with_larger_caller_limits(self):
+        from hermes_switchyard import local_duplicate_gate as gate
+        payload = "x" * gate.DEFAULT_MAX_RESULT_CHARS
+        for session in range(gate.DEFAULT_MAX_SESSIONS + 2):
+            for key in range(gate.DEFAULT_MAX_KEYS_PER_SESSION + 2):
+                self.record(session_id=str(session), args={"name": str(key)}, result=payload,
+                            max_sessions=1000, max_keys_per_session=1000, max_result_chars=10**9)
+        total = sum(len(value) for session in gate._SESSION_STORE.values() for value in session.values())
+        self.assertEqual(total, 4 * 1024 * 1024)
+        self.assertEqual(self.decide(session_id="0", args={"name": "0"})["action"], "dispatch")
+        self.assertFalse(self.record(result=payload + "x", max_result_chars=10**9)["recorded"])
+
+    def test_cache_hits_refresh_entry_and_session_recency(self):
+        self.record(args={"name": "a"}, max_keys_per_session=2, max_sessions=2)
+        self.record(args={"name": "b"}, max_keys_per_session=2, max_sessions=2)
+        self.decide(args={"name": "a"})
+        self.record(args={"name": "c"}, max_keys_per_session=2, max_sessions=2)
+        self.assertEqual(self.decide(args={"name": "b"})["action"], "dispatch")
+        self.record(session_id="s2", max_sessions=2)
+        self.decide(args={"name": "a"})
+        self.record(session_id="s3", max_sessions=2)
+        self.assertEqual(self.decide(session_id="s2")["action"], "dispatch")
+
+    def test_full_tool_identity_and_resource_ids_do_not_alias_observations(self):
+        args = {"observation_id": "snapshot-1"}
+        self.record(tool_name="mcp__one__read_file", args=args)
+        self.assertEqual(self.decide(tool_name="mcp__two__read_file", args=args)["action"], "dispatch")
+        for field in ("page_id", "document_id"):
+            self.assertIsNone(fingerprint_for("read_file", {field: "resource-1"}))
+        self.assertIsNone(fingerprint_for("mcp__other__skill_view", {"name": "demo"}))
+
+    def test_unknown_mutations_clear_and_hook_failure_flags_invalidate(self):
+        self.record()
+        self.record(tool_name="ha_call_service")
+        self.assertEqual(self.decide()["action"], "dispatch")
+        self.record()
+        hook = build_post_tool_call_hook(enabled=True)
+        hook(tool_name="skill_view", args={"name": "demo"}, result="failure",
+             session_id="s1", ok=False)
+        self.assertEqual(self.decide()["action"], "dispatch")
+
+
+class NativeExecutionChainTests(unittest.TestCase):
+    def test_real_hermes_chain_reuses_read_but_dispatches_after_mutation(self):
+        from unittest.mock import patch
+        import importlib
+        try:
+            from hermes_cli.middleware import run_tool_execution_middleware
+            plugins = importlib.import_module("hermes_cli.plugins")
+        except ImportError:
+            self.skipTest("native Hermes is exercised by compatibility CI")
+        reset_store_for_tests()
+        self.addCleanup(reset_store_for_tests)
+        callback = build_tool_execution_middleware(enabled=True)
+        hook = build_post_tool_call_hook(enabled=True)
+        manager = SimpleNamespace(
+            _middleware={"tool_execution": [callback]},
+            _report_hook_failure=lambda *args, **kwargs: self.fail("middleware failed"),
+        )
+        calls = []
+        def dispatch(args):
+            calls.append(args)
+            return "complete live result"
+        def run(tool, args):
+            result = run_tool_execution_middleware(tool, args, dispatch, session_id="native-test", task_id="task")
+            hook(tool_name=tool, args=args, result=result, session_id="native-test", task_id="task", status="ok")
+            return result
+        with patch.object(plugins, "_delivery_manager", return_value=manager):
+            self.assertEqual(run("skill_view", {"name": "demo"}), "complete live result")
+            self.assertEqual(run("skill_view", {"name": "demo"}), "complete live result")
+            self.assertEqual(len(calls), 1)
+            run("write_file", {"path": "demo"})
+            run("skill_view", {"name": "demo"})
+            self.assertEqual(len(calls), 3)
+            run("browser_snapshot", {"url": "https://example.com"})
+            run("browser_snapshot", {"url": "https://example.com"})
+            self.assertEqual(len(calls), 5)
+
+
 if __name__ == "__main__":
     unittest.main()

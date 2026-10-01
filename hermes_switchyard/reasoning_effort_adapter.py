@@ -33,7 +33,7 @@ from typing import Any, Callable, Mapping, Sequence
 from .client import MAX_CONNECTION_IDLE_SECONDS, HostCancelled, request_budget_scope
 from .egress_redaction import REDACTION_UNAVAILABLE_REASON, redact_for_jev
 from .routing import _choice_metrics, _criteria, _decision_metadata, _noul_score
-from .trivial_turn import is_trivial_turn
+from .trivial_turn import is_greeting_class_prompt, is_trivial_turn
 
 # Hermes hermes_constants.VALID_REASONING_EFFORTS plus "none" (disabled).
 HERMES_REASONING_EFFORTS: tuple[str, ...] = (
@@ -343,11 +343,14 @@ def request_metadata(value: Any) -> dict[str, Any] | None:
 def local_trivial_request(value: Any) -> bool:
     """True when a clean user message is a trivial turn that needs no Jev call.
 
-    Uses the closed acknowledgement list shared with skill routing (``trivial_turn``). A code
-    fence, URL, or file path makes the message non-trivial even when every word is on the list.
+    Uses the closed acknowledgement list and greeting-class instruction detector shared with
+    skill routing (``trivial_turn``). A code fence, URL, or file path makes the message
+    non-trivial even when every word is on the list.
     """
     text = _clean_user_text(value)
-    if text is None or not text.strip() or not is_trivial_turn(text):
+    if text is None or not text.strip():
+        return False
+    if not (is_trivial_turn(text) or is_greeting_class_prompt(text)):
         return False
     return not ("```" in text or _URL_RE.search(text) or _FILE_PATH_RE.search(text))
 
@@ -625,7 +628,7 @@ _KEPT_WHY = (
     r"cloud decision)"
 )
 _PASS_WHY = (
-    r"(?:pinned|no lower level|model excluded|adaptive off|unsupported route|"
+    r"(?:pinned|no lower level|this level cannot be adapted on this route|model excluded|adaptive off|unsupported route|"
     r"pass-through|reasoning off)"
 )
 _RECEIPT_SUFFIX = (
@@ -637,6 +640,8 @@ _RECEIPT_SUFFIX = (
 _RECEIPT_TAIL = re.compile(
     rf"\n\n(?:"
     rf"switchyard: effort {_EFFORT_PATH}(?: \(kept: [^)\n]*\))?(?: · [^\n]*)?"
+    rf"|Reasoning: not adapted — (?:host sent no effort|this level cannot be adapted on this route|"
+    rf"host sent no effort; this level cannot be adapted on this route) · no Jev call"
     rf"|"
     rf"Reasoning: (?:{_EFFORT_PATH}|kept at {_EFFORT_TOKEN} — {_KEPT_WHY}|"
     rf"{_EFFORT_TOKEN} · {_PASS_WHY})(?: · {_RECEIPT_SUFFIX})*"
@@ -894,7 +899,7 @@ def parse_receipt_mode(value: Any) -> str:
     """Return ``auto``, ``always``, or ``off``.
 
     Bool ``True`` / ``"on"`` / legacy ``"work"`` map to ``auto`` (show when
-    Switchyard changed effort or made/reused a decision). Bool ``False`` maps to
+    Switchyard changed effort, made/reused a decision, or a turn was route-only). Bool ``False`` maps to
     ``off``. Unknown values fall back to ``auto``.
     """
     if value is True:
@@ -1277,7 +1282,7 @@ def _human_reason(reason_code: Any) -> str:
         "cached": "reused earlier decision",
         "cached_unchanged": "reused earlier decision",
         "pinned": "pinned (your level)",
-        "no_room": "no lower level for this route",
+        "no_room": "this level cannot be adapted on this route",
         "excluded_model": "model excluded",
         "disabled": "adaptive effort off",
         "unsupported_route": "unsupported route",
@@ -1303,7 +1308,7 @@ def _pass_label(reason_code: Any) -> str:
     reason = str(reason_code or "").strip()
     labels = {
         "pinned": "pinned",
-        "no_room": "no lower level",
+        "no_room": "this level cannot be adapted on this route",
         "excluded_model": "model excluded",
         "disabled": "adaptive off",
         "unsupported_route": "unsupported route",
@@ -1939,30 +1944,11 @@ class ReasoningEffortController:
         turn = _turn_key(receipt.get("turn_id"))
         requested = receipt.get("requested_effort")
         sent = receipt.get("effort")
-        if turn is None or requested not in ALLOWED_EFFORTS or sent not in ALLOWED_EFFORTS:
+        if turn is None:
             return
-        if receipt.get("reason_code") in _PASS_REASONS:
-            if self.receipt_mode != "always":
-                return  # the plugin did no work; quiet unless receipt mode is always
-            with self._turn_receipts_lock:
-                entry = self._turn_receipts.get(turn)
-                if entry is None:
-                    entry = {
-                        "requested": requested, "sent": [], "jev_calls": 0, "jev_ms": 0.0, "cached": 0,
-                        "kept": None, "metadata_only": False, "lowered": 0, "measured": 0,
-                        "metric": None, "saved": 0, "local": 0, "timeouts": 0,
-                        "passed": True, "pass_reason": receipt.get("reason_code"),
-                    }
-                    self._turn_receipts[turn] = entry
-                self._turn_receipts.move_to_end(turn)
-                if not entry["sent"] or entry["sent"][-1] != sent:
-                    entry["sent"].append(sent)
-                entry["requested"] = requested
-                entry["passed"] = True
-                entry["pass_reason"] = receipt.get("reason_code")
-                while len(self._turn_receipts) > _TURN_RECEIPT_LIMIT:
-                    self._turn_receipts.popitem(last=False)
-            return
+        reason = receipt.get("reason_code")
+        route_pass = reason in {"no_host_effort", "no_room"} and receipt.get("mode") != "pinned"
+        known_effort = requested in ALLOWED_EFFORTS and sent in ALLOWED_EFFORTS
         with self._turn_receipts_lock:
             entry = self._turn_receipts.get(turn)
             if entry is None:
@@ -1971,9 +1957,27 @@ class ReasoningEffortController:
                     "kept": None, "metadata_only": False, "lowered": 0, "measured": 0,
                     "metric": None, "saved": 0, "local": 0, "timeouts": 0,
                     "passed": False, "pass_reason": None,
+                    "route_only": True, "route_reasons": set(),
                 }
                 self._turn_receipts[turn] = entry
             self._turn_receipts.move_to_end(turn)
+            while len(self._turn_receipts) > _TURN_RECEIPT_LIMIT:
+                self._turn_receipts.popitem(last=False)
+            # A route-only signal must not hide actual work or a user-selected bypass.
+            entry["route_only"] = entry["route_only"] and route_pass
+            if route_pass:
+                entry["route_reasons"].add(reason)
+            if not known_effort:
+                return  # never invent a wire level for a missing host field
+            if reason in _PASS_REASONS:
+                if self.receipt_mode != "always":
+                    return
+                if not entry["sent"] or entry["sent"][-1] != sent:
+                    entry["sent"].append(sent)
+                entry["requested"] = requested
+                entry["passed"] = True
+                entry["pass_reason"] = reason
+                return
             if not entry["sent"] or entry["sent"][-1] != sent:
                 entry["sent"].append(sent)
             entry["requested"] = requested
@@ -1996,16 +2000,14 @@ class ReasoningEffortController:
                 label = _kept_label(receipt)
                 if entry["kept"] is None or label != "cloud decision":
                     entry["kept"] = label
-            while len(self._turn_receipts) > _TURN_RECEIPT_LIMIT:
-                self._turn_receipts.popitem(last=False)
 
     def turn_receipt_line(self, turn_id: Any) -> str | None:
         """Return and clear the one-line effort receipt for *turn_id*, or None.
 
         Default ``auto`` mode: a line when Switchyard changed effort or made/reused a
-        decision (cloud, local, or cached). ``always`` also shows pass-through when a wire
-        level is known (pinned, no room, excluded model, …); not when there is no host effort
-        field or the route is unsupported. ``off`` never shows a line. Examples:
+        decision (cloud, local, or cached), or every request was not adapted because the
+        host sent no effort or the level could not be adapted on the route. ``always`` also shows other
+        pass-through when a wire level is known. ``off`` never shows a line. Examples:
         ``Reasoning: high→low · 180 ms`` and
         ``Reasoning: kept at high — consequential request · 210 ms``. The saved figure is
         present only when every lowered request in the turn has measured usage and the session
@@ -2018,6 +2020,13 @@ class ReasoningEffortController:
             entry = self._turn_receipts.pop(turn, None)
         if entry is None:
             return None
+        if entry["route_only"] and entry["route_reasons"]:
+            labels = {
+                "no_host_effort": "host sent no effort",
+                "no_room": "this level cannot be adapted on this route",
+            }
+            why = "; ".join(labels[reason] for reason in labels if reason in entry["route_reasons"])
+            return f"Reasoning: not adapted — {why} · no Jev call"
         requested = entry["requested"]
         changed = any(level != requested for level in entry["sent"])
         calls = int(entry["jev_calls"])
@@ -2276,17 +2285,24 @@ class ReasoningEffortController:
 
     def handle_command(self, raw_args: str = "") -> str:
         """``/switchyard effort auto|pin|status|receipt always|work|off`` handler; never raises."""
+        if str(raw_args or "").strip().split()[:1] == ["wow"]:
+            try:
+                from .wow import handle_slash
+
+                return handle_slash(str(raw_args))
+            except Exception:  # noqa: BLE001 -- a diagnostic command must not crash Hermes
+                return "Switchyard wow: report unavailable."
         auto_limit = (
             "may go one level higher after a failed tool call"
             if self.allow_raise else "never above your level"
         )
         usage = (
-            "Usage: /switchyard effort status | summary | pin | auto | receipt always|auto|off\n"
+            "Usage: /switchyard wow [--days N] [--json] | effort status | summary | pin | auto | receipt always|auto|off\n"
             "  status          show cap, last sent, mode, why, recent decisions, and summary\n"
             "  summary         show the session summary: turns, lowered/kept/raised, cloud, tokens\n"
             "  pin             send your selected /reasoning level unchanged\n"
             "  auto            let Switchyard lower effort for routine steps (" + auto_limit + ")\n"
-            "  receipt auto    show a line when effort changed or a decision was made/reused (default)\n"
+            "  receipt auto    show decisions and route-side not-adapted receipts (default)\n"
             "  receipt always  also when pinned / pass-through with a known wire level\n"
             "  receipt off     show no receipt line\n"
             "  (legacy: receipt work|on → auto)"
@@ -2313,17 +2329,21 @@ class ReasoningEffortController:
                 )
                 if mode == "off":
                     return "Reasoning receipt: off." + persist_note
+                route_note = (
+                    " A foreground turn where every request passed through because the host "
+                    "sent no effort or the level cannot be adapted on the route gets one "
+                    "'not adapted' line with 'no Jev call'."
+                )
                 if mode == "always":
                     return (
-                        "Reasoning receipt: always. Also shows the last sent level when "
+                        "Reasoning receipt: always." + route_note + " Also shows the last sent level when "
                         "pinned or other pass-through with a known wire level (for example "
-                        "'Reasoning: high · pinned'). No line when the host has no effort "
-                        "field or the route is unsupported." + persist_note
+                        "'Reasoning: high · pinned'). Unsupported routes remain quiet." + persist_note
                     )
                 return (
                     "Reasoning receipt: auto. A reply where Switchyard changed effort or "
                     "made/reused a decision ends with one line, for example "
-                    "'Reasoning: high→low · 180 ms'." + legacy_note + persist_note
+                    "'Reasoning: high→low · 180 ms'." + route_note + legacy_note + persist_note
                 )
             if len(parts) > 2 or action not in {"status", "summary", "pin", "auto"}:
                 return usage
@@ -3210,6 +3230,29 @@ def effort_stats(*, since: Any = None, data_dir: Any = None, now: Any = None) ->
 # Registration
 # ---------------------------------------------------------------------------
 
+def _register_report_only_command(ctx: Any, reason: str) -> bool:
+    """Keep /switchyard wow available when effort middleware is inactive."""
+    register_command = getattr(ctx, "register_command", None)
+    if not callable(register_command):
+        return False
+
+    def handle(raw_args: str = "") -> str:
+        if str(raw_args or "").strip().split()[:1] == ["wow"]:
+            try:
+                from .wow import handle_slash
+
+                return handle_slash(str(raw_args))
+            except Exception:  # noqa: BLE001 -- a report must not crash Hermes
+                return "Switchyard wow: report unavailable."
+        return f"Adaptive reasoning effort is {reason}. Use /switchyard wow for retained observations."
+
+    try:
+        register_command("switchyard", handle, description="Switchyard retained observations",
+                         args_hint="wow [--days N] [--json]")
+        return True
+    except Exception:  # noqa: BLE001 -- optional slash registration
+        return False
+
 
 def register_reasoning_effort_adapter(
     ctx: Any,
@@ -3247,6 +3290,7 @@ def register_reasoning_effort_adapter(
         "receipt_line": resolved_receipt != "off",
     }
     if not enabled:
+        command_registered = _register_report_only_command(ctx, "disabled")
         receipt = {
             "registered": True,
             "mode": "disabled",
@@ -3254,12 +3298,14 @@ def register_reasoning_effort_adapter(
             "reason": "adaptive_reasoning_effort_disabled",
             "enabled": False,
             "can_apply": False,
+            "command_registered": command_registered,
             "settings": settings,
         }
         _LAST_REGISTRATION = dict(receipt)
         return receipt
 
     if not seam.get("available") or not seam.get("can_apply"):
+        command_registered = _register_report_only_command(ctx, "unavailable")
         receipt = {
             "registered": True,
             "mode": "noop_seam_unavailable",
@@ -3267,6 +3313,7 @@ def register_reasoning_effort_adapter(
             "reason": "hermes_llm_request_middleware_unavailable",
             "enabled": True,
             "can_apply": False,
+            "command_registered": command_registered,
             "settings": settings,
         }
         _LAST_REGISTRATION = dict(receipt)
@@ -3337,8 +3384,8 @@ def register_reasoning_effort_adapter(
             register_command(
                 "switchyard",
                 controller.handle_command,
-                description="Switchyard controls: effort auto | pin | status | summary | receipt always|auto|off",
-                args_hint="effort auto|pin|status|summary|receipt always|auto|off",
+                description="Switchyard: wow report or effort controls",
+                args_hint="wow [--days N] [--json] | effort auto|pin|status|summary|receipt always|auto|off",
             )
             command_registered = True
         except Exception:  # noqa: BLE001 -- the command is optional
