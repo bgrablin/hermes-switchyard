@@ -69,6 +69,13 @@ retries. The v1 candidate was revised to avoid incremental planning on requests
 that already fit one batch and to retain private-helper duplicate validation.
 Each version has its own freeze and source reconstruction; results are not pooled.
 
+Review added semantic checks of the reported accounting: an independent
+full-serialization oracle checks each request count, and recorded per-case costs
+and per-run/combined totals are verified. These are retrospective checks of
+retained observations, not retroactive additions to the pre-call freezes. The v1
+rows omitted resolved-model and wire-payload fields, so only v2 independently
+verifies those fields; no missing historical fields are filled in.
+
 ## Disposition of the proposed ideas
 
 This table records code and contract review, not unperformed live experiments.
