@@ -230,36 +230,53 @@ def _skill_request_parts(
 def _skill_chunks(candidates: list[dict], *, task: str = "") -> list[list[dict]]:
     chunks: list[list[dict]] = []
     current: list[dict] = []
+    request_size = criteria_size = 0
+    names: set[str] = set()
     for candidate in candidates:
+        # JSON objects and arrays use a two-byte separator (", "). Count each
+        # candidate once instead of serializing every growing prefix. Keep the
+        # actual request builder as the source of each partition's fixed cost:
+        # needs_skill and multi-digit partition IDs change that cost.
+        criterion = _criteria([candidate], "name", max_entries=None)
+        if _SKILL_NONE in criterion:
+            raise ValueError(f"candidate name {_SKILL_NONE!r} is reserved")
+        if candidate["name"] in names:
+            raise ValueError("candidate identifiers must be unique and exact")
+        try:
+            candidate_size = len(json.dumps(candidate, ensure_ascii=False, allow_nan=False).encode("utf-8"))
+            entry_size = len(json.dumps(criterion, ensure_ascii=False, allow_nan=False).encode("utf-8")) - 2
+        except (TypeError, ValueError):
+            raise ValueError("Jev request contains a non-JSON value") from None
         while True:
             partition = len(chunks)
-            trial = current + [candidate]
-            state, questions = _skill_request_parts(
-                trial,
-                task=task,
-                total_count=len(candidates),
-                partition=partition,
-                include_needs_skill=partition == 0,
-            )
-            criteria_size = len(
-                json.dumps(
+            if not current:
+                state, questions = _skill_request_parts(
+                    [candidate], task=task, total_count=len(candidates),
+                    partition=partition, include_needs_skill=partition == 0,
+                )
+                trial_size = _request_size(state, questions)
+                trial_criteria_size = len(json.dumps(
                     questions[f"skill_chunk_{partition}"]["criteria"],
-                    ensure_ascii=False,
-                    allow_nan=False,
-                ).encode("utf-8")
-            )
-            too_large = _request_size(state, questions) > MAX_REQUEST_BYTES
+                    ensure_ascii=False, allow_nan=False,
+                ).encode("utf-8"))
+            else:
+                trial_size = request_size + candidate_size + entry_size + 4
+                trial_criteria_size = criteria_size + entry_size + 2
+            too_large = trial_size > MAX_REQUEST_BYTES
             if not current and too_large:
                 raise ValueError("a single skill candidate exceeds the bounded serialized request budget")
             if current and (
-                len(trial) > _SKILL_PARTITION_SIZE
-                or criteria_size > _PARTITION_CRITERIA_BYTES
+                len(current) + 1 > _SKILL_PARTITION_SIZE
+                or trial_criteria_size > _PARTITION_CRITERIA_BYTES
                 or too_large
             ):
                 chunks.append(current)
                 current = []
+                names.clear()
                 continue
-            current = trial
+            current.append(candidate)
+            names.add(candidate["name"])
+            request_size, criteria_size = trial_size, trial_criteria_size
             break
     if current:
         chunks.append(current)
@@ -599,28 +616,33 @@ def _multi_skill_batch_questions(
 
 
 def _multi_skill_batches(candidates: list[dict], *, task: str) -> list[list[dict]]:
+    if not candidates:
+        return []
     batches: list[list[dict]] = []
     current: list[dict] = []
-    offset = 0
-    for candidate in candidates:
+    base_size = _request_size({"task": task, "skills": []}, {})
+    request_size = base_size
+    for index, candidate in enumerate(candidates):
+        questions = _multi_skill_batch_questions([candidate], offset=index, task=task)
+        try:
+            candidate_size = len(json.dumps(candidate, ensure_ascii=False, allow_nan=False).encode("utf-8"))
+            question_size = len(json.dumps(questions, ensure_ascii=False, allow_nan=False).encode("utf-8")) - 2
+        except (TypeError, ValueError):
+            raise ValueError("Jev request contains a non-JSON value") from None
         while True:
-            trial = current + [candidate]
-            questions = _multi_skill_batch_questions(
-                trial, offset=offset, task=task
-            )
-            too_large = _request_size(
-                {"task": task, "skills": trial}, questions
-            ) > MAX_REQUEST_BYTES
+            trial_size = request_size + candidate_size + question_size + (4 if current else 0)
+            too_large = trial_size > MAX_REQUEST_BYTES
             if not current and too_large:
                 raise ValueError(
                     "a single skill candidate exceeds the bounded serialized request budget"
                 )
-            if current and (len(trial) > MAX_QUESTIONS_PER_REQUEST or too_large):
+            if current and (len(current) + 1 > MAX_QUESTIONS_PER_REQUEST or too_large):
                 batches.append(current)
-                offset += len(current)
                 current = []
+                request_size = base_size
                 continue
-            current = trial
+            current.append(candidate)
+            request_size = trial_size
             break
     if current:
         batches.append(current)
