@@ -968,6 +968,38 @@ class DecisionClient:
             result["transport_retries"] = dict(call_retries)
         return result
 
+    def _question_batches(self, state: Any, validated: dict[str, dict[str, Any]]) -> list[dict[str, dict[str, Any]]]:
+        """Preserve exact batch boundaries while sizing growing payloads once."""
+        if len(validated) <= MAX_QUESTIONS_PER_REQUEST:
+            try:
+                self._payload(state, validated)
+            except ValueError:
+                pass  # A valid multi-question request may need byte-sized batches.
+            else:
+                return [validated]
+        batches: list[dict[str, dict[str, Any]]] = []
+        current: dict[str, dict[str, Any]] = {}
+        # The state is constant across batches. JSON's default ", " separator
+        # lets us size each additional question exactly without reserializing
+        # the entire state and every preceding question. _decide_single still
+        # validates the complete payload immediately before transport.
+        base_size = len(json.dumps(self._payload(state, {}), ensure_ascii=False, allow_nan=False).encode("utf-8"))
+        current_size = base_size
+        for name, question in validated.items():
+            entry_size = len(json.dumps({name: question}, ensure_ascii=False, allow_nan=False).encode("utf-8")) - 2
+            trial_size = current_size + entry_size + (2 if current else 0)
+            if current and (trial_size > MAX_REQUEST_BYTES or len(current) >= MAX_QUESTIONS_PER_REQUEST):
+                batches.append(current)
+                current = {}
+                trial_size = base_size + entry_size
+            if trial_size > MAX_REQUEST_BYTES:
+                raise ValueError("Jev request exceeds the bounded serialized request budget")
+            current[name] = question
+            current_size = trial_size
+        if current:
+            batches.append(current)
+        return batches
+
     def decide(
         self,
         state: Any,
@@ -978,26 +1010,7 @@ class DecisionClient:
         """Return a validated typed response. Omit ack to use the standing default (on)."""
         _require_public_data_ack(public_or_sanitized_data_ack)
         validated = self._validate_questions(questions)
-        batches: list[dict[str, dict[str, Any]]] = []
-        current: dict[str, dict[str, Any]] = {}
-        for name, question in validated.items():
-            trial = {**current, name: question}
-            try:
-                self._payload(state, trial)
-            except ValueError:
-                if not current:
-                    raise
-                batches.append(current)
-                current = {name: question}
-                self._payload(state, current)
-            else:
-                if len(trial) > MAX_QUESTIONS_PER_REQUEST:
-                    batches.append(current)
-                    current = {name: question}
-                else:
-                    current = trial
-        if current:
-            batches.append(current)
+        batches = self._question_batches(state, validated)
         remaining = self._request_budget.get()
         allowed = MAX_DECISION_REQUESTS if remaining is None else remaining
         if len(batches) > allowed:

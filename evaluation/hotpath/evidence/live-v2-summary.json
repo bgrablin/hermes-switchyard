@@ -1,0 +1,90 @@
+[
+  {
+    "case": "questions-1-100",
+    "kind": "decide",
+    "arms": {
+      "baseline": {
+        "n": 3,
+        "failures": 0,
+        "median_ms": 255.015522998292,
+        "total_ms": 781.8241870263591,
+        "p95_ms": 284.33726902585477
+      },
+      "candidate": {
+        "n": 3,
+        "failures": 0,
+        "median_ms": 205.69654100108892,
+        "total_ms": 638.5768710752018,
+        "p95_ms": 236.30937305279076
+      }
+    },
+    "identical_plan_or_payload": null,
+    "median_reduction_pct": 19.339599965266974
+  },
+  {
+    "case": "questions-255-100",
+    "kind": "decide",
+    "arms": {
+      "baseline": {
+        "n": 3,
+        "failures": 0,
+        "median_ms": 326.9513379782438,
+        "total_ms": 1032.9005559906363,
+        "p95_ms": 400.8119400241412
+      },
+      "candidate": {
+        "n": 3,
+        "failures": 0,
+        "median_ms": 276.2059780070558,
+        "total_ms": 841.9561390182935,
+        "p95_ms": 291.46195703651756
+      }
+    },
+    "identical_plan_or_payload": null,
+    "median_reduction_pct": 15.520768406999064
+  },
+  {
+    "case": "questions-600-100",
+    "kind": "decide",
+    "arms": {
+      "baseline": {
+        "n": 3,
+        "failures": 0,
+        "median_ms": 809.4589099637233,
+        "total_ms": 2915.9873679163866,
+        "p95_ms": 1377.6066069840454
+      },
+      "candidate": {
+        "n": 3,
+        "failures": 0,
+        "median_ms": 796.3305679732002,
+        "total_ms": 2244.3044040119275,
+        "p95_ms": 802.0459380350076
+      }
+    },
+    "identical_plan_or_payload": null,
+    "median_reduction_pct": 1.6218663886362505
+  },
+  {
+    "case": "questions-600-50000",
+    "kind": "decide",
+    "arms": {
+      "baseline": {
+        "n": 3,
+        "failures": 0,
+        "median_ms": 1044.1809229669161,
+        "total_ms": 3175.320641894359,
+        "p95_ms": 1154.5339389704168
+      },
+      "candidate": {
+        "n": 3,
+        "failures": 0,
+        "median_ms": 966.3492210092954,
+        "total_ms": 2864.878391032107,
+        "p95_ms": 977.3355990182608
+      }
+    },
+    "identical_plan_or_payload": null,
+    "median_reduction_pct": 7.453852129042071
+  }
+]
