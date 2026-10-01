@@ -112,6 +112,46 @@ class JevTransferEvidenceTests(unittest.TestCase):
         self.assertEqual(metrics["pilot_consumed"], 22)
         self.assertEqual(metrics["model_switched"], baseline["model_switched"])
 
+    def test_routes_cannot_bind_to_skill_or_effort_calls(self):
+        for questions in [("skill", "needs_skill"), ("reasoning_effort", "stakes")]:
+            for applied in [False, True]:
+                with self.subTest(questions=questions, applied=applied):
+                    run = copy.deepcopy(self.evidence["runs"]["native_routing"])
+                    row = next(
+                        row
+                        for row in run["rows"]
+                        if row["arm"] == "candidate"
+                        and any(r["applied"] is applied for r in row["route"])
+                        and any(tuple(c["questions"]) == questions for c in row["jev"])
+                    )
+                    receipt = next(r for r in row["route"] if r["applied"] is applied)
+                    other = next(c for c in row["jev"] if tuple(c["questions"]) == questions)
+                    receipt["decision"]["request_id"] = other["request_id"]
+                    if applied:
+                        with self.assertRaisesRegex(ValueError, "route is not bound"):
+                            native_summary(run)
+                    else:
+                        metrics = native_summary(run)["arms"]["candidate"]
+                        self.assertEqual(metrics["pilot_consumed"], 23)
+
+    def test_routing_decision_must_match_recorded_model_and_answers(self):
+        for field in ["model", "answers"]:
+            with self.subTest(field=field):
+                run = copy.deepcopy(self.evidence["runs"]["native_routing"])
+                row = next(
+                    row
+                    for row in run["rows"]
+                    if row["arm"] == "candidate"
+                    and any(r["applied"] for r in row["route"])
+                )
+                receipt = next(r for r in row["route"] if r["applied"])
+                if field == "model":
+                    receipt["decision"]["model"] = "different-decision-model"
+                else:
+                    receipt["decision"]["answers"]["routine"]["noul"] = 0
+                with self.assertRaisesRegex(ValueError, "route is not bound"):
+                    native_summary(run)
+
     def test_receipt_normalization_is_terminal_and_exact(self):
         receipt = "\n\nswitchyard: effort high→low · Jev 180 ms"
         self.assertEqual(LEGACY_RECEIPT.sub("", "Rome" + receipt), "Rome")

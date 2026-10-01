@@ -80,6 +80,58 @@ def latency(rows):
     }
 
 
+def routing_decision_matches(decision, calls):
+    if not isinstance(decision, dict):
+        return False
+    request_id = decision.get("request_id")
+    if not isinstance(request_id, str) or not request_id.strip():
+        return False
+    matches = [call for call in calls if call.get("request_id") == request_id]
+    if len(matches) != 1:
+        return False
+    call = matches[0]
+    questions = call.get("questions")
+    if (
+        not isinstance(questions, list)
+        or len(questions) != 2
+        or any(not isinstance(q, str) for q in questions)
+        or set(questions) != {"routine", "stakes"}
+        or not isinstance(call.get("model"), str)
+        or not call["model"]
+        or decision.get("model") != call["model"]
+    ):
+        return False
+    raw_answers, answers = call.get("answers"), decision.get("answers")
+    if (
+        not isinstance(raw_answers, dict)
+        or not isinstance(answers, dict)
+        or set(raw_answers) != {"routine", "stakes"}
+        or set(answers) != {"routine", "stakes"}
+    ):
+        return False
+    for name in questions:
+        raw, normalized = raw_answers[name], answers[name]
+        if (
+            not isinstance(raw, dict)
+            or set(raw) != {"type", "noul"}
+            or raw["type"] != "noul"
+            or not isinstance(normalized, dict)
+            or set(normalized) != {"noul"}
+        ):
+            return False
+        for score in [raw["noul"], normalized["noul"]]:
+            if (
+                isinstance(score, bool)
+                or not isinstance(score, (int, float))
+                or not math.isfinite(score)
+                or not 0 <= score <= 1
+            ):
+                return False
+        if normalized["noul"] != raw["noul"]:
+            return False
+    return True
+
+
 def native_summary(run):
     freeze, rows = run["freeze"], run["rows"]
     complete_rows(freeze, rows, True)
@@ -103,8 +155,10 @@ def native_summary(run):
                     not in {freeze["source_model"], freeze["candidate_model"]}
                 ):
                     raise ValueError("invalid routing receipt")
-                decision_id = (receipt.get("decision") or {}).get("request_id")
-                if decision_id in call_ids:
+                valid_routing_decision = routing_decision_matches(
+                    receipt.get("decision"), row["jev"]
+                )
+                if valid_routing_decision:
                     routed_decision_turns.add((row["arm"], row["id"]))
             shared = receipt.get("shared_request_id")
             if not routing and (not isinstance(shared, str) or not shared):
@@ -120,8 +174,7 @@ def native_summary(run):
                     )
                 shared_turns.add((row["arm"], row["id"]))
             elif receipt.get("applied"):
-                decision_id = (receipt.get("decision") or {}).get("request_id")
-                if decision_id not in call_ids or not any(
+                if not valid_routing_decision or not any(
                     w["model"] == receipt["to"] for w in row["wire"]
                 ):
                     raise ValueError("route is not bound to its call and wire model")
