@@ -73,6 +73,7 @@ RELEASE_FILES = (
     "hermes_switchyard/record_triage.py",
     "hermes_switchyard/client.py",
     "hermes_switchyard/computer_use.py",
+    "hermes_switchyard/defer_tool_schemas.py",
     "hermes_switchyard/destination_policy.py",
     "hermes_switchyard/host_compat.py",
     "hermes_switchyard/legacy_cleanup.py",

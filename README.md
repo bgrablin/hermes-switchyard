@@ -174,9 +174,10 @@ All current settings live under `plugins.entries.hermes-switchyard.settings`. Th
 | `session_search_rerank_choice_confidence_threshold` | `0.8` | Minimum Jev Choice confidence to change FTS order. |
 | `session_search_rerank_winning_probability_threshold` | `0.8` | Minimum winning probability to change FTS order. |
 | `session_search_rerank_max_card_chars` | `360` | Maximum text in a redacted FTS candidate card. |
+| `defer_switchyard_tool_schemas` | `false` | Opt-in schema deferral for uncued decision tools. Automatic routing remains active; explicit requests, tool history, and forced tool choices keep schemas. Keep off unless this capability tradeoff is acceptable. |
 | `public_or_sanitized_data_ack` | `true` | Standing acknowledgement for explicit Jev tools and adaptive effort; callers can refuse one call. |
 
-The 44 setting rows above match the manifest defaults. F1 and F2 settings from their PRs are not in this manifest; do not set them. Both failed their frozen release evaluations. On timeout the 0.4 s guard sends your level unchanged. With the earlier 0.25 s guard, an installed cold one-shot sample had 8 timeouts in 14 non-trivial decisions (57.1%). A fresh TUI yielded one client-reused Jev call at 178.4 ms; n=1 cannot establish a warm p95 for the current default.
+The table summarizes the manifest defaults; the legacy `adaptive_reasoning_effort_receipt_line` alias is included in the receipt-mode row. F1 and F2 settings from their PRs are not in this manifest; do not set them. Both failed their frozen release evaluations. On timeout the 0.4 s guard sends your level unchanged. With the earlier 0.25 s guard, an installed cold one-shot sample had 8 timeouts in 14 non-trivial decisions (57.1%). A fresh TUI yielded one client-reused Jev call at 178.4 ms; n=1 cannot establish a warm p95 for the current default.
 
 ## Troubleshooting
 

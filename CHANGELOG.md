@@ -16,6 +16,8 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 
 ### Changed
 
+- Optional deferral of Switchyard decision-tool schemas (`defer_switchyard_tool_schemas`, default **off**; #158). Removes six decision schemas from eligible provider requests while preserving automatic skill routing, reasoning adaptation, explicit tool requests, prior tool calls, forced tool choices, and `jev_computer_use`. Supports Chat Completions, Responses, and Anthropic histories. No measured latency or capability benefit is claimed; spontaneous uncued decision calls require disabling this opt-in setting. The rejected cheap-shortlist experiment (#157) is excluded.
+
 - Check current Hermes HEAD on its supported Python 3.14 every week and on manual dispatch, with report-only per-step receipts. The pinned 3.11–3.13 checks and non-required pinned 3.14 pre-qualification cell remain unchanged.
 - Optional early light-turn bypass before catalog discover (`automatic_skill_early_light_bypass_before_discover`, default **off**): when enabled with light-turn bypass, a text-only probe may skip `skills_list` / discover on greeting-class and other light turns while still emitting auditable `bypass_reason` / `source_sha` receipts. Fail-open; consequential and explicit-override turns still discover. Refs #160.
 - Cache validated skill candidates in-process for automatic routing. Observed root, policy, config, and plugin-metadata changes invalidate the cache; a 30-second TTL bounds other changes. Return independent candidate dictionaries. Hermes also caches filesystem discovery; this wrapper avoids repeated public-list serialization and candidate validation, not all cold-start work.
