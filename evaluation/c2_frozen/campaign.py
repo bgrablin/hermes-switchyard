@@ -1,6 +1,7 @@
 """One preregistered interleaved reuse run. Refuses overwrite or failed preflight."""
 import hashlib,json,pathlib,os,queue,re,statistics,subprocess,threading,time
 from read_workload import CASES
+from provenance import validate_receipt
 ROOT=pathlib.Path(__file__).resolve().parent
 PY='/home/brian/.hermes/tools/python-3.14.7+20260901-linux-x64/bin/python3'
 HERMES=pathlib.Path('/home/brian/.hermes/hermes-agent')
@@ -42,7 +43,7 @@ def main():
     freeze={'schema':'c2-reuse-frozen/1','candidate_revision':prereq['revision'],
             'current_main':'b9f68132c158920dbea6659bd2c4741872e23588','release_revision':'552940b8fbb89d453c6356bd29559484cdfc8a9b',
             'prerequisites_sha256':sha(ROOT/'prerequisites.json'),'source_manifests':sources,'runtime_manifest':runtime,
-            'runner_hashes':{f:sha(ROOT/f) for f in ['worker.py','read_workload.py','campaign.py']},
+            'runner_hashes':{f:sha(ROOT/f) for f in ['worker.py','read_workload.py','campaign.py','provenance.py']},
             'cases':CASES,'order':order,'model':'gpt-6-sol','provider':'openai-codex','initial_effort':'high',
             'jev_model':'typesafe/jev-1.13-20260917','jev_provider':'openrouter',
             'gate':{'answer_correctness':'20/20 and >= both baselines','invalid_reuse':0,
@@ -53,7 +54,7 @@ def main():
             'timing':'source workflow plus run_conversation; fixture/process setup excluded; source verification included; no artificial delays; provider cache state uncontrolled',
             'accounting':'Jev billed USD + all native physical HTTP attempts + ledger token deltas; subscription quota not valued as zero dollars',
             'limits':{'turns':60,'main_physical':120,'jev_physical':120,'jev_usd':0.02,'wall_seconds':1800}}
-    dump(ROOT/'freeze.json',freeze);print('FROZEN '+sha(ROOT/'freeze.json'),flush=True)
+    dump(ROOT/'freeze.json',freeze);freeze_digest=sha(ROOT/'freeze.json');print('FROZEN '+freeze_digest,flush=True)
     env={**os.environ,'HERMES_HOME':'/home/brian/.hermes-eval/switchyard-abc','HERMES_ENABLE_PROJECT_PLUGINS':'0','HERMES_DISABLE_LAZY_INSTALLS':'1','PYTHONDONTWRITEBYTECODE':'1'}
     children={};logs={};rows=[];start=time.monotonic()
     try:
@@ -69,7 +70,7 @@ def main():
         for i,job in enumerate(order):
             assert time.monotonic()-start<1800
             p=children[job['arm']];p.stdin.write(json.dumps(job)+'\n');p.stdin.flush()
-            row=receive(p,'EVAL_ROW ',120,logs[job['arm']]);row['order_index']=i;row['success']=score(row)
+            row=receive(p,'EVAL_ROW ',120,logs[job['arm']]);validate_receipt(row,freeze,freeze_digest);row['order_index']=i;row['success']=score(row)
             rows.append(row);dump(ROOT/'rows.json',rows)
             print('ROW '+json.dumps({'index':i,'arm':row['arm'],'case':row['id'],'correct':row['success'],'ms':round(row['wall_ms'],2),'reuse':sum(e['reused'] for e in row['reads']['events']),'invalid':sum(e['invalid_reuse'] for e in row['reads']['events']),'http':len(row['http_attempts'])}),flush=True)
             if any(e['invalid_reuse'] for e in row['reads']['events']):raise RuntimeError('invalid reuse: halt')

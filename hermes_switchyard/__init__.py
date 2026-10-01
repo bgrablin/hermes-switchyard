@@ -42,6 +42,7 @@ from .reasoning_effort_adapter import (
 from .routing import route_model, select_skill, select_skills
 from .session_search_rerank import rerank_session_search
 from .local_duplicate_gate import register_local_duplicate_gate
+from .defer_tool_schemas import register_defer_tool_schemas_middleware
 from .two_stage_routing import TWO_STAGE_CONFIG_KEYS, TwoStageConfig, skill_excerpt
 
 from .host_compat import ctx_get_config, register_auxiliary_task as register_host_auxiliary_task
@@ -56,6 +57,7 @@ _UNREGISTERED_RUNTIME_STATUS = {
     "hosted_construction_allowed": False,
     "model_route_adapter": None,
     "reasoning_effort_adapter": None,
+    "defer_tool_schemas": None,
 }
 _RUNTIME_STATUS = dict(_UNREGISTERED_RUNTIME_STATUS)
 
@@ -121,6 +123,7 @@ def _publish_runtime_status(
             "hosted_construction_allowed": bool(mode == "hosted_sanitized" and ack),
             "model_route_adapter": _RUNTIME_STATUS.get("model_route_adapter"),
             "reasoning_effort_adapter": _RUNTIME_STATUS.get("reasoning_effort_adapter"),
+            "defer_tool_schemas": _RUNTIME_STATUS.get("defer_tool_schemas"),
         }
     )
 
@@ -1039,6 +1042,7 @@ def _cli_handler(args):
             "hosted_construction_allowed": _RUNTIME_STATUS["hosted_construction_allowed"],
             "model_route_adapter": _RUNTIME_STATUS.get("model_route_adapter"),
             "reasoning_effort_adapter": _RUNTIME_STATUS.get("reasoning_effort_adapter"),
+            "defer_tool_schemas": _RUNTIME_STATUS.get("defer_tool_schemas"),
             "tool_exposure": exposure,
             "toolset_composition": _toolset_composition(),
         }
@@ -1684,6 +1688,11 @@ def register(ctx):
 
     # Hermes 0.21 exposes llm_request middleware + reasoning_effort. Adaptive
     # effort is the apply-able win; model route stays advisory (applied: false).
+    defer_schemas_enabled = setting_bool("defer_switchyard_tool_schemas", False)
+    # When both adaptive effort and schema deferral are on, register one composed
+    # llm_request callback. Hermes keeps the last returned request from callbacks
+    # that each see the original payload; a second shallow rewrite would drop the
+    # effort change.
     _RUNTIME_STATUS["reasoning_effort_adapter"] = register_reasoning_effort_adapter(
         ctx,
         enabled=setting_bool("adaptive_reasoning_effort", True),
@@ -1706,15 +1715,32 @@ def register(ctx):
         step_adaptation=ctx_get_config(ctx, "adaptive_reasoning_effort_step_adaptation", default=True),
         receipt_mode=ctx_get_config(ctx, "adaptive_reasoning_effort_receipt_mode", default=None),
         receipt_line=ctx_get_config(ctx, "adaptive_reasoning_effort_receipt_line", default=None),
+        register_llm_request=(not defer_schemas_enabled),
     )
 
     # Opt-in local exact-duplicate tool-round gate (C2 / #139). Default off.
     # Reuses successful read results via tool_execution middleware (skip next_call);
-    # post_tool_call records/invalidates. Plugin-only — no Hermes core changes.
+    # middleware verifies and records; post_tool_call observes invalidation. Plugin-only — no Hermes core changes.
     _RUNTIME_STATUS["local_duplicate_gate"] = register_local_duplicate_gate(
         ctx,
         enabled=setting_bool("local_duplicate_tool_gate", False),
     )
+    from . import reasoning_effort_adapter as _effort_mod
+
+    effort_cb = getattr(_effort_mod, "_ACTIVE_LLM_REQUEST_CALLBACK", None)
+    defer_status = register_defer_tool_schemas_middleware(
+        ctx,
+        enabled=defer_schemas_enabled,
+        chain_with=effort_cb if defer_schemas_enabled else None,
+    )
+    # Never leave callables in runtime status (JSON probe / status dumps).
+    if isinstance(defer_status, dict):
+        defer_status = {k: v for k, v in defer_status.items() if k != "callback"}
+    _RUNTIME_STATUS["defer_tool_schemas"] = defer_status
+    if defer_status.get("registered") and defer_status.get("composed_with_prior"):
+        _RUNTIME_STATUS["reasoning_effort_adapter"] = (
+            _effort_mod.mark_composed_llm_request_registered()
+        )
 
     def assess_handler(args, **kwargs):
         try:

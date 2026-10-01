@@ -19,3 +19,9 @@ Freeze SHA-256: `5560e08d431bf2b5a781650c147831f83f97fca048c5c7b02d892df94d7133c
 Raw evidence and source snapshots are retained alongside these scripts on the evaluation host. No additional live campaign was run.
 
 PR162 advanced concurrently to `2deaa25034d6dcd8002d020731186de02c07c4cf`. Five additional offline checks still reproduced unsafe reuse for missing task/session, unversioned catalogs, caller-only snapshot IDs, and explicitly truncated results. This isolated branch does not modify that PR or deploy C2.
+
+## Review follow-up
+
+The follow-up after Copilot review incorporates a closed allowlist (`read_file`, `browser_snapshot`) and active-mutation/generation synchronization. All other tool names dispatch and invalidate all scopes. These are additional safeguards beyond the historical benchmark revision; no new live comparison is claimed for this combination.
+
+Future receipts include the reviewed source-manifest hash and freeze digest. The worker verifies installed plugin bytes before each job, and both the campaign and analyzer reject missing or mismatched provenance. The original raw rows have global-manifest provenance only and remain unchanged in the evidence archive; use the archived analyzer for that historical run. Do not add invented per-row hashes to historical receipts. The updated workload uses eligible native read names; the historical benchmark used a trusted synthetic MCP callback.

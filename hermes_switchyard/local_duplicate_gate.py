@@ -9,7 +9,7 @@ Capability-first:
 - Flag default **off**; missing trusted evidence always dispatches a fresh call.
 - Both session and task, full source identity, current revision, and complete
   result digest are mandatory. Caller arguments never establish freshness.
-- Mutations invalidate sibling tasks; complete cached results are never truncated.
+- Mutations invalidate every scope; complete cached results are never truncated.
 
 Plugin-only: uses existing ``tool_execution`` middleware + ``post_tool_call``.
 No Hermes core / hermes-agent changes.
@@ -23,7 +23,15 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
-from .reasoning_effort_adapter import classify_tool_kind, derive_tool_failure
+from .reasoning_effort_adapter import derive_tool_failure
+
+# Purity is a closed contract, never an inferred verb prefix or catalog name.
+TRUSTED_READ_TOOLS = frozenset({"read_file", "browser_snapshot"})
+
+
+def _gate_tool_kind(name: Any) -> str:
+    return "read" if type(name) is str and name in TRUSTED_READ_TOOLS else "other"
+
 
 # No tool is fresh merely because its arguments are unchanged.
 ARGS_STABLE_READ_TOOLS = frozenset()
@@ -65,6 +73,8 @@ DEFAULT_MAX_KEYS_PER_SESSION = 16
 DEFAULT_MAX_SESSIONS = 8
 
 _STORE_LOCK = threading.Lock()
+_MUTATION_GENERATION = 0
+_ACTIVE_MUTATIONS = 0
 # session_key -> OrderedDict[fingerprint -> cached result text]
 _SESSION_STORE: OrderedDict[str, OrderedDict[str, str]] = OrderedDict()
 _COUNTERS = {
@@ -78,7 +88,9 @@ _COUNTERS = {
 
 def reset_store_for_tests() -> None:
     """Test helper: drop all session fingerprints and counters."""
+    global _MUTATION_GENERATION, _ACTIVE_MUTATIONS
     with _STORE_LOCK:
+        _MUTATION_GENERATION = _ACTIVE_MUTATIONS = 0
         _SESSION_STORE.clear()
         for key in _COUNTERS:
             _COUNTERS[key] = 0
@@ -146,7 +158,7 @@ def fingerprint_for(tool_name: Any, args: Any = None, *,
     """Full tool, args, source identity, revision and complete-result digest."""
     name = _normalize_tool_name(tool_name)
     canonical = canonical_args(args)
-    if not name or classify_tool_kind(name) != "read" or canonical is None or not _valid_evidence(evidence):
+    if not name or _gate_tool_kind(name) != "read" or canonical is None or not _valid_evidence(evidence):
         return None
     payload = json.dumps([name, canonical, evidence.source_identity,
                           evidence.revision, evidence.result_sha256],
@@ -172,7 +184,7 @@ def decide_local_duplicate(
         return {"action": "dispatch", "reason": "flag_off", "fingerprint": None, "cached_result": None}
 
     name = _normalize_tool_name(tool_name)
-    kind = classify_tool_kind(name) if name else "other"
+    kind = _gate_tool_kind(name) if name else "other"
     if kind != "read":
         return {"action": "dispatch", "reason": "non_read", "fingerprint": None, "cached_result": None}
 
@@ -184,6 +196,8 @@ def decide_local_duplicate(
     if scope is None:
         return {"action": "dispatch", "reason": "missing_session_identity", "fingerprint": key, "cached_result": None}
     with _STORE_LOCK:
+        if _ACTIVE_MUTATIONS:
+            return {"action": "dispatch", "reason": "mutation_in_progress", "fingerprint": key, "cached_result": None}
         session = _SESSION_STORE.get(scope)
         cached = session.get(key) if session is not None else None
         if cached is None:
@@ -217,6 +231,7 @@ def record_tool_outcome(
     session_id: Any = None,
     task_id: Any = None,
     evidence: ReadEvidence | None = None,
+    expected_generation: int | None = None,
     max_result_chars: int = DEFAULT_MAX_RESULT_CHARS,
     max_keys_per_session: int = DEFAULT_MAX_KEYS_PER_SESSION,
     max_sessions: int = DEFAULT_MAX_SESSIONS,
@@ -231,11 +246,8 @@ def record_tool_outcome(
         return {"recorded": False, "reason": "flag_off"}
 
     name = _normalize_tool_name(tool_name)
-    kind = classify_tool_kind(name) if name else "other"
+    kind = _gate_tool_kind(name) if name else "other"
     scope = _scope_key(session_id=session_id, task_id=task_id)
-    if scope is None:
-        return {"recorded": False, "reason": "missing_session_identity"}
-
     failed, _detail = derive_tool_failure(
         status=status,
         error_type=error_type,
@@ -247,11 +259,10 @@ def record_tool_outcome(
 
     if kind != "read":
         with _STORE_LOCK:
-            if scope in _SESSION_STORE:
-                del _SESSION_STORE[scope]
-                _bump("cleared_sessions")
-                _bump("invalidated")
+            _invalidate_all_locked()
         return {"recorded": False, "reason": "mutation_cleared_session", "kind": kind}
+    if scope is None:
+        return {"recorded": False, "reason": "missing_session_identity"}
 
     # Use the same call-time identity for recording and lookup.
     key = fingerprint_for(name, args, evidence=evidence)
@@ -285,6 +296,9 @@ def record_tool_outcome(
     max_sessions = max(1, min(max_sessions, DEFAULT_MAX_SESSIONS))
 
     with _STORE_LOCK:
+        if _ACTIVE_MUTATIONS or (expected_generation is not None and expected_generation != _MUTATION_GENERATION):
+            _bump("fail_open")
+            return {"recorded": False, "reason": "mutation_generation_changed"}
         if scope not in _SESSION_STORE:
             _SESSION_STORE[scope] = OrderedDict()
             _SESSION_STORE.move_to_end(scope)
@@ -300,50 +314,60 @@ def record_tool_outcome(
     return {"recorded": True, "reason": "stored", "fingerprint": key, "chars": len(text)}
 
 
-def _invalidate_session(session_id: Any) -> None:
-    # A mutation can affect sibling tasks. Unknown scope invalidates everything.
-    with _STORE_LOCK:
-        keys = list(_SESSION_STORE)
-        for key in keys:
-            if not isinstance(session_id, str) or not session_id.strip() or json.loads(key)[0] == session_id:
-                del _SESSION_STORE[key]
-                _bump("cleared_sessions")
-                _bump("invalidated")
+def _invalidate_all_locked() -> None:
+    global _MUTATION_GENERATION
+    _MUTATION_GENERATION += 1
+    _COUNTERS["cleared_sessions"] += len(_SESSION_STORE)
+    _SESSION_STORE.clear()
+    _bump("invalidated")
 
 
 def build_tool_execution_middleware(*, enabled: bool) -> Callable[..., Any]:
-    """Reuse requires a trusted host adapter, never a proof in model arguments.
+    """Reuse requires an eligible pure tool and trusted host source verification.
 
-    reuse_evidence_provider is a host-context callable. It must revalidate the
-    complete source on EACH invocation. Stock Hermes does not currently supply
-    it, so stock calls dispatch. The provider is checked before and after reads.
+    The provider revalidates the complete source on EACH invocation. Stock
+    Hermes does not supply one and therefore dispatches. Generation checks
+    synchronize hit publication and recording with all local mutations.
     """
     def on_tool_execution(*, tool_name: str = "", args: Any = None,
                           next_call: Callable[..., Any] | None = None,
                           session_id: Any = None, task_id: Any = None,
                           reuse_evidence_provider: Any = None, **_kwargs: Any) -> Any:
+        global _ACTIVE_MUTATIONS
         if not callable(next_call):
             return None
         if enabled is not True:
             return next_call(args)
-        if classify_tool_kind(tool_name) != "read":
-            _invalidate_session(session_id)
+        if _gate_tool_kind(tool_name) != "read":
+            with _STORE_LOCK:
+                _ACTIVE_MUTATIONS += 1
+                _invalidate_all_locked()
             try:
                 return next_call(args)
             finally:
-                _invalidate_session(session_id)
-        if _scope_key(session_id=session_id, task_id=task_id) is None or not callable(reuse_evidence_provider):
+                with _STORE_LOCK:
+                    _ACTIVE_MUTATIONS -= 1
+                    _invalidate_all_locked()
+        scope = _scope_key(session_id=session_id, task_id=task_id)
+        if scope is None or not callable(reuse_evidence_provider):
+            return next_call(args)
+        with _STORE_LOCK:
+            generation = _MUTATION_GENERATION
+            blocked = bool(_ACTIVE_MUTATIONS)
+        if blocked:
             return next_call(args)
         try:
             evidence = reuse_evidence_provider(tool_name, args)
             decision = decide_local_duplicate(enabled=True, tool_name=tool_name, args=args,
                         session_id=session_id, task_id=task_id, evidence=evidence)
-            if decision["action"] == "reuse":
-                # Do not return a hit if revalidation changed or became unavailable.
-                if reuse_evidence_provider(tool_name, args) == evidence:
-                    with _STORE_LOCK:
+            if decision["action"] == "reuse" and reuse_evidence_provider(tool_name, args) == evidence:
+                with _STORE_LOCK:
+                    # Linearize the hit under the same lock as mutation start.
+                    # Never return the prior decision's detached cached value.
+                    current = _SESSION_STORE.get(scope, {}).get(decision["fingerprint"])
+                    if not _ACTIVE_MUTATIONS and generation == _MUTATION_GENERATION and current is not None:
                         _bump("reused")
-                    return decision["cached_result"]
+                        return current
         except Exception:  # noqa: BLE001 -- uncertainty always dispatches
             with _STORE_LOCK:
                 _bump("fail_open")
@@ -352,7 +376,8 @@ def build_tool_execution_middleware(*, enabled: bool) -> Callable[..., Any]:
         try:
             if _valid_evidence(evidence) and reuse_evidence_provider(tool_name, args) == evidence:
                 record_tool_outcome(enabled=True, tool_name=tool_name, args=args, result=result,
-                                    session_id=session_id, task_id=task_id, evidence=evidence)
+                                    session_id=session_id, task_id=task_id, evidence=evidence,
+                                    expected_generation=generation)
         except Exception:  # noqa: BLE001 -- observer must not affect the live result
             with _STORE_LOCK:
                 _bump("fail_open")
@@ -378,8 +403,9 @@ def build_post_tool_call_hook(*, enabled: bool) -> Callable[..., Any]:
         if enabled is not True:
             return
         try:
-            if classify_tool_kind(tool_name) != "read":
-                _invalidate_session(session_id)
+            if _gate_tool_kind(tool_name) != "read":
+                with _STORE_LOCK:
+                    _invalidate_all_locked()
                 return
             record_tool_outcome(
                 enabled=True,

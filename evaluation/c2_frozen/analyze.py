@@ -5,6 +5,9 @@ rows=json.loads((ROOT/'rows.json').read_text());freeze=json.loads((ROOT/'freeze.
 completion=json.loads((ROOT/'completed.json').read_text())
 assert len(rows)==len(freeze['order'])==60 and completion['unchanged_runtime']
 from campaign import normalize,score
+from provenance import validate_receipt
+for row in rows:
+    validate_receipt(row,freeze,completion["freeze_sha256"])
 stats={};mismatches=[]
 for arm in ['off','release','candidate']:
     rr=[r for r in rows if r['arm']==arm];previous=[0]*5;totals=[0]*5

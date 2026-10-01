@@ -165,6 +165,61 @@ class SafeguardTests(unittest.TestCase):
         self.assertEqual(self.run_read(body=""), "")
         self.assertEqual(self.run_read(), "")
 
+    def test_unknown_and_catalog_tools_invalidate_every_scope(self):
+        for tool in ("get_or_create_record", "list_and_update", "skill_view", "skills_list",
+                     "mcp__one__read_file"):
+            g.reset_store_for_tests(); self.calls.clear()
+            self.run_read()
+            self.run_read(name=tool, scope={"session_id": "other", "task_id": "other"})
+            self.run_read()
+            self.assertEqual(len(self.calls), 3, tool)
+
+    def test_mutation_after_second_verification_cannot_publish_old_hit(self):
+        self.run_read(); verifications = []
+        def provider(name, args):
+            verifications.append(1)
+            if len(verifications) == 2:
+                self.mid(tool_name="write_file", args={}, session_id="other", task_id="other",
+                         next_call=lambda a: "mutation done")
+            return self.ev
+        self.assertEqual(self.run_read(body="fresh", provider=provider), "fresh")
+        self.assertEqual(g.gate_counters()["reused"], 0)
+        self.assertEqual(len(self.calls), 2)
+
+    def test_mutation_during_fresh_dispatch_prevents_recording(self):
+        def downstream(args):
+            self.mid(tool_name="write_file", args={}, session_id="other", task_id="other",
+                     next_call=lambda a: "mutation done")
+            return "complete"
+        self.mid(tool_name="browser_snapshot", args=self.args, **self.scope,
+                 next_call=downstream, reuse_evidence_provider=lambda n, a: self.ev)
+        self.assertEqual(g.gate_counters()["recorded"], 0)
+        self.run_read()
+        self.assertEqual(len(self.calls), 1)
+
+    def test_active_mutation_blocks_reuse_and_recording(self):
+        import threading
+        self.run_read()
+        entered = threading.Event(); release = threading.Event()
+        def mutation(args):
+            entered.set()
+            if not release.wait(3):
+                raise TimeoutError("test synchronization")
+            return "done"
+        thread = threading.Thread(target=lambda: self.mid(tool_name="write_file", args={},
+                    session_id="other", task_id="other", next_call=mutation))
+        thread.start()
+        try:
+            self.assertTrue(entered.wait(3))
+            self.run_read()
+            self.assertEqual(g.gate_counters()["recorded"], 1)
+            self.assertEqual(g.gate_counters()["reused"], 0)
+        finally:
+            release.set(); thread.join(3)
+        self.assertFalse(thread.is_alive())
+        self.run_read()
+        self.assertEqual(len(self.calls), 3)
+
     def test_registration_and_native_chain(self):
         registered = []
         ctx = SimpleNamespace(register_middleware=lambda k, v: registered.append((k, v)),

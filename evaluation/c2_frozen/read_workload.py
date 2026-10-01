@@ -21,7 +21,7 @@ def workload(home, job, gate):
                                  parsed['revision'],digest,case!='incomplete',True)
     started=time.perf_counter()
     for i in range(4):
-        name='mcp__sourceA__read_file'
+        name='read_file'
         if i==2:
             if case=='task_change':scope['task_id']=job['job_id']+'-sibling'
             if case=='session_change':scope['session_id']='other-session'
@@ -30,7 +30,7 @@ def workload(home, job, gate):
             if case=='mutation':
                 run_tool_execution_middleware('write_file',{'path':str(a)},lambda args:'ok',**scope)
                 invoke_hook('post_tool_call',tool_name='write_file',args={'path':str(a)},result='ok',status='ok',**scope)
-        if state['path']==b:name='mcp__sourceB__read_file'
+        args={**args,'path':str(state['path'])}
         active_scope={} if case=='missing_scope' else dict(scope)
         expected=state['path'].read_text()  # independent oracle excluded from event latency
         before=len(calls)

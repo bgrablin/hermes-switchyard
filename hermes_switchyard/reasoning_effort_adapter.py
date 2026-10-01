@@ -146,6 +146,8 @@ _FAILURE_STATUSES = frozenset(
     {"error", "failed", "blocked", "cancelled", "canceled", "timeout", "timed_out"}
 )
 
+_ACTIVE_LLM_REQUEST_CALLBACK: Any = None
+
 _LAST_REGISTRATION: dict[str, Any] = {
     "registered": False,
     "mode": "uninitialized",
@@ -159,6 +161,13 @@ _LAST_RECEIPT: dict[str, Any] = {
     "applied": False,
     "source": "uninitialized",
 }
+
+
+def mark_composed_llm_request_registered() -> dict[str, Any]:
+    """Publish the effective seam only after composed registration succeeds."""
+    if callable(_ACTIVE_LLM_REQUEST_CALLBACK):
+        _LAST_REGISTRATION["llm_request_registered"] = True
+    return dict(_LAST_REGISTRATION)
 
 
 def last_registration() -> dict[str, Any]:
@@ -3270,9 +3279,11 @@ def register_reasoning_effort_adapter(
     receipt_mode: Any = None,
     receipt_line: Any = None,
     client_identity: Callable[[], Any] | None = None,
+    register_llm_request: bool = True,
 ) -> dict[str, Any]:
     """Register llm_request middleware, turn and tool hooks, and ``/switchyard``."""
-    global _LAST_REGISTRATION
+    global _LAST_REGISTRATION, _ACTIVE_LLM_REQUEST_CALLBACK
+    _ACTIVE_LLM_REQUEST_CALLBACK = None
     seam = probe_llm_request_middleware_seam(ctx)
     resolved_receipt = parse_receipt_mode(
         DEFAULT_RECEIPT_MODE if receipt_mode is None and receipt_line is None
@@ -3333,8 +3344,24 @@ def register_reasoning_effort_adapter(
         receipt_mode=settings["receipt_mode"],
         client_identity=client_identity,
     )
-    register_middleware = getattr(ctx, "register_middleware")
-    register_middleware("llm_request", controller.on_llm_request)
+    _ACTIVE_LLM_REQUEST_CALLBACK = controller.on_llm_request
+    register_middleware = getattr(ctx, "register_middleware", None)
+    middleware_registered = False
+    if register_llm_request is True:
+        if not callable(register_middleware):
+            receipt = {
+                "registered": True,
+                "mode": "noop_seam_unavailable",
+                "hermes_seam": seam,
+                "reason": "hermes_llm_request_middleware_unavailable",
+                "enabled": True,
+                "can_apply": False,
+                "settings": settings,
+            }
+            _LAST_REGISTRATION = dict(receipt)
+            return receipt
+        register_middleware("llm_request", controller.on_llm_request)
+        middleware_registered = True
 
     register_hook = getattr(ctx, "register_hook", None)
     post_tool_registered = False
@@ -3405,6 +3432,7 @@ def register_reasoning_effort_adapter(
         "post_api_request_registered": usage_registered,
         "command_registered": command_registered,
         "client_pool_close_registered": pool_close_registered,
+        "llm_request_registered": middleware_registered,
         "integration_point": (
             "hermes_switchyard.reasoning_effort_adapter.register_reasoning_effort_adapter"
         ),

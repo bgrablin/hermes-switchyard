@@ -10,6 +10,10 @@ The [Switchyard branding image](docs/assets/hermes-switchyard-branding.png) is a
 
 **Release state:** version 0.5.6. It includes local decisions for trivial turns, visible effort receipts, a session summary, and a 0.4 s default decision deadline. Research Navigator (F1) and DOM Progress & Recovery (F2) are **not included**: both failed their frozen release evaluations on closed [PR #132](https://github.com/bgrablin/hermes-switchyard/pull/132) and [PR #135](https://github.com/bgrablin/hermes-switchyard/pull/135). [Issue #139](https://github.com/bgrablin/hermes-switchyard/issues/139) tracks follow-up work. Do not install those PRs as if they were shipped features. The [changelog](CHANGELOG.md) separates included work from the two evaluations. The [benchmark report](docs/BENCHMARKS.md) names the older source and limits of its measurements; it does not prove that Jev improves every task.
 
+| 0.6.0 candidate (not in 0.5.6) | Scope | Runtime default |
+| --- | --- | --- |
+| [Offline outcome labels](docs/OUTCOME-LABELS.md) | Local-only, evidence-censored labels and fixed hash split over retained routing receipts; no quality or satisfaction claim | No hook, on-device arm, or routing change |
+
 ## First-run quickstart
 
 You need a working Hermes installation, one TypeSafe or OpenRouter account key, and approval to send **public or sanitized** task data to that provider. Jev requests can incur charges beyond a ChatGPT or Codex subscription. The commands below use the active Hermes profile.
@@ -170,10 +174,11 @@ All current settings live under `plugins.entries.hermes-switchyard.settings`. Th
 | `session_search_rerank_choice_confidence_threshold` | `0.8` | Minimum Jev Choice confidence to change FTS order. |
 | `session_search_rerank_winning_probability_threshold` | `0.8` | Minimum winning probability to change FTS order. |
 | `session_search_rerank_max_card_chars` | `360` | Maximum text in a redacted FTS candidate card. |
-| `local_duplicate_tool_gate` | `false` | Opt-in experiment. Reuse complete successful read results within an identified session (0 Jev). Requires stable arguments or snapshot identity; missing scope, oversized/non-string results, and uncertain cases dispatch normally. Cache payload is bounded to 4 Mi characters. Keep off until prove-value. |
+| `local_duplicate_tool_gate` | `false` | Experimental exact reuse requires both session and task, a trusted per-call source verifier, and a digest of the complete result. Arguments and snapshot IDs alone do not prove freshness. Stock Hermes lacks the verifier and dispatches. Payload is bounded to 4 Mi characters. |
+| `defer_switchyard_tool_schemas` | `false` | Opt-in schema deferral for uncued decision tools. Automatic routing remains active; explicit requests, tool history, and forced tool choices keep schemas. Keep off unless this capability tradeoff is acceptable. |
 | `public_or_sanitized_data_ack` | `true` | Standing acknowledgement for explicit Jev tools and adaptive effort; callers can refuse one call. |
 
-The 45 setting rows above match the manifest defaults. F1 and F2 settings from their PRs are not in this manifest; do not set them. Both failed their frozen release evaluations. On timeout the 0.4 s guard sends your level unchanged. With the earlier 0.25 s guard, an installed cold one-shot sample had 8 timeouts in 14 non-trivial decisions (57.1%). A fresh TUI yielded one client-reused Jev call at 178.4 ms; n=1 cannot establish a warm p95 for the current default.
+The table summarizes the manifest defaults; the legacy `adaptive_reasoning_effort_receipt_line` alias is included in the receipt-mode row. F1 and F2 settings from their PRs are not in this manifest; do not set them. Both failed their frozen release evaluations. On timeout the 0.4 s guard sends your level unchanged. With the earlier 0.25 s guard, an installed cold one-shot sample had 8 timeouts in 14 non-trivial decisions (57.1%). A fresh TUI yielded one client-reused Jev call at 178.4 ms; n=1 cannot establish a warm p95 for the current default.
 
 ## Troubleshooting
 
