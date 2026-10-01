@@ -8,6 +8,10 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 
 ### Added
 
+- Extend the opt-in source finder with bounded multi-file evidence bundles, exact per-file citations, keyed relevance questions, duplicate citation preservation, and whole-lookup fallback. The complete 80-conversation synthetic native pilot passes its correctness and efficiency gates; the feature remains opt-in. See [results and limits](docs/AWESOME-JEV-EVALUATION.md).
+
+- Automatic source-prefetch pilot for simple natural-language requests naming a file. Exact evidence can reach Hermes before its first main-model call; unsupported requests use ordinary tools. No finder tool, schema, or discovery round. Opt-in with an absolute approved root, bounded reads, original-request guards, sanitization, and freshness verification. See [setup and limits](docs/SOURCE-FINDER.md).
+
 - [#152](https://github.com/bgrablin/hermes-switchyard/issues/152): `hermes switchyard wow` and `/switchyard wow` show read-only, offline aggregates from retained routing and effort receipts. The default is 7 days; `--days N` and versioned `--json` are available. Every metric shows its observed denominator and window. Partial or unavailable sources remain explicit; the report makes no savings, outcome, or complete-coverage claim.
 - Synthetic routing-value fixtures for paired plugin-off comparisons: deterministic 25-, 150-, and 600-skill catalogs, hidden-fact answer checks, and offline validation (refs #130). No comparative result has been measured.
 - [#167](https://github.com/bgrablin/hermes-switchyard/issues/167): Local-only offline outcome-label generator over retained routing receipts. Four evidence-censored boolean/unknown fields, explicit per-field coverage, and a stable 20% hash split for already-retained data; no runtime holdout, routing change, or benefit claim. See [the frozen evaluation and limits](docs/OUTCOME-LABELS.md).

@@ -1925,6 +1925,16 @@ def register(ctx):
             emoji="⚡",
         )
 
+    # Source finding is an optional pre-turn optimization, never a callable tool.
+    finder_root = ctx_get_config(ctx, "evidence_finder_root", default="")
+    if (ctx_get_config(ctx, "evidence_finder_enabled", default=False) is True
+            and ctx_get_config(ctx, "public_or_sanitized_data_ack", default=True) is True
+            and isinstance(finder_root, str) and finder_root and Path(finder_root).is_absolute()
+            and callable(getattr(ctx, "register_hook", None)) and decision_tools_available()):
+        from .source_prefetch import build_hook as build_source_prefetch_hook
+        ctx.register_hook("pre_llm_call", build_source_prefetch_hook(
+            enabled=True, root=finder_root, standing_ack=True, client_factory=client,
+        ))
     register_tool("jev_assess", schemas.ASSESS, assess_handler, decision_tools_available)
     register_tool("jev_computer_use", schemas.COMPUTER_USE, computer_handler, computer_route_available)
     register_tool("jev_skill_select", schemas.SKILL_SELECT, skill_handler, decision_tools_available)

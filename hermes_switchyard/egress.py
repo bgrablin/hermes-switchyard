@@ -219,3 +219,28 @@ def evaluate_turn_egress_policy(policy: Any) -> TurnEgressEvaluation:
 def is_routing_mode(value: Any) -> bool:
     """Return whether *value* is one of the explicit automatic modes."""
     return type(value) is str and value in ROUTING_MODES
+
+
+_SOURCE_EGRESS_CUE = re.compile(
+    r"\b(?:offline|off.line|air[\s\-\u2010-\u2015]*gap(?:ped)?|disconnected|"
+    r"local(?:ly)?|private|confidential|without|never|no|not|cannot|can't|won't|"
+    r"(?:could|should|would|must|does|is|are|was|were)n't|"
+    r"don't|do\s+not|avoid|skip|instead|network|internet|cloud|external|"
+    r"third[\s_\-\u2010-\u2015]*part(?:y|ies)|remote|hosted|provider|egress|upload|transmit|share|send|"
+    r"only|solely|exclusively|strictly|keep(?:s|ing)?|stay(?:s|ing)?|remain(?:s|ed|ing)?|leav(?:e|ing)|retain(?:s|ing)?|confined|restricted|"
+    r"inside|within|outside|device|machine|computer|pc|laptop|desktop|host|"
+    r"on.device|ondevice|on.box|onbox|on.prem(?:ises)?|in.house|internal|"
+    r"off.site|offsite|export|hermetic)\b"
+    r"|\b(?:on|within|inside)\s+(?:my|this|the)\s+(?:machine|computer|device|pc)\b",
+    re.IGNORECASE,
+)
+
+
+def source_lookup_needs_local_handling(text: str) -> bool:
+    """Conservatively leave privacy/network cues with the host's local tools.
+
+    This is a source-finder eligibility heuristic, not a general intent parser
+    or permission grant. Even benign mentions of these cues skip hosted source
+    lookup. Host envelopes and standing acknowledgement remain separate gates.
+    """
+    return bool(_SOURCE_EGRESS_CUE.search(text.replace("’", "'")))
