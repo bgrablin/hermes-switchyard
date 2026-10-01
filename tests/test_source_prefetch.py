@@ -111,3 +111,12 @@ class PrefetchTests(unittest.TestCase):
         for suffix in ["Return JSON", "Return only a JSON object with status (found or not_found), source (relative path), and evidence (an exact source quotation, or null when absent).",
                        "Return JSON with answer, confidence (number), and source (relative path)."]:
             self.assertEqual(prefetch.request_source("In notes.md, find the retry limit.\n" + suffix), "notes.md")
+
+    def test_additional_action_or_file_clauses_stay_with_host(self):
+        for prompt in ["In notes.md, find the retry limit and compare it with config.md.",
+                       "In notes.md, find the retry limit; summarize config.md.",
+                       "In notes.md, find the retry limit. Summarize config.md.",
+                       "Find the retry limit and calculate the delay in notes.md.",
+                       "In notes.md, find the retry limit … summarize config.md."]:
+            self.assertIsNone(self.hook(**{**self.kwargs, "user_message": prompt}))
+        self.locate.assert_not_called()

@@ -78,11 +78,19 @@ def request_source(message: Any) -> str | None:
     match = _NAMED_SOURCE.fullmatch(first)
     if match:
         source = next(value for value in match.groups()[:3] if value is not None)
+        query = match.group(4)
     else:
         match = _TRAILING_SOURCE.fullmatch(first)
         if not match:
             return None
         source = next(value for value in match.groups()[1:] if value is not None)
+        query = match.group(1)
+    # A single location question only. Conjunctions, extra sentences, dotted
+    # file/identifier references, and additional actions stay with normal tools.
+    # Conservative false positives only forgo the optional prefetch.
+    if re.search(r"\b(?:and|then|also|compare|summarize|explain|calculate|count)\b|[;&.!?…]",
+                 query.strip().rstrip(".!?"), re.I):
+        return None
     # Require a concrete filename, not a directory or a pronoun like "that".
     return source if "." in source.rsplit("/", 1)[-1] and len(source) <= 512 else None
 
