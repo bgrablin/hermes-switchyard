@@ -33,7 +33,9 @@ That's it. No other configuration is needed.
 
 Both automatic features may send a bounded, secret-scrubbed excerpt of your
 current message (never history, memory, tool output, or files) to your Jev
-provider. Only use them with public or sanitized content. Hermes, not this
+provider. Skill routing also sends your skill names. If you opt in with
+`automatic_skill_hosted_detail`, it can also send short descriptions or
+`SKILL.md` excerpts for a few finalists. Only use them with public or sanitized content. Hermes, not this
 plugin, is responsible for classifying your data.
 
 Keep skill routing on your machine:

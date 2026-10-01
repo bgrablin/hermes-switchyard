@@ -119,7 +119,7 @@ Jev is an external service. Here is what each feature sends to it:
 | **Adaptive effort** (on) | Up to 1,200 characters of your **current message**, after secret scrubbing, plus simple status flags | Earlier messages, memory, tool output, files | `adaptive_reasoning_effort` → `false` |
 | **Skill routing** (on) | Up to 4,000 characters of your **current message**, after secret scrubbing, plus your skill **names**. When Hermes supplies no policy for the turn, a local scan runs first; text Hermes explicitly authorizes skips that scan. If you opt in with `automatic_skill_hosted_detail`, also short descriptions or `SKILL.md` excerpts for a few finalists | Full skill bodies, history | `automatic_skill_routing_mode` → `local_only` |
 | **Decision tools** | Exactly what the model passes to the tool | — | `public_or_sanitized_data_ack` → `false` |
-| **Computer use: browser** | The goal and a bounded view of the page (labels, visible text, recent steps). Values you ask it to type are masked out | Your logins, cookies, files | Don't call the tool |
+| **Computer use: browser** | The goal and a bounded view of the page (labels, visible text, recent steps). Values you ask it to type are masked out where they echo back (best-effort: a value copied into a host name or transformed by the page can slip through) | Your logins, cookies, files | Don't call the tool |
 | **Computer use: desktop** | The goal, app and window title, control labels, visible context, and recent actions on every step. This is **not** masked, so typed values or signed-in app content can reappear | — | Only use it on public or sanitized apps and values |
 | **Source prefetch** (off) | Your lookup question, plus text from 1–8 files you name (80,000 bytes max in total). If the scrubber would change anything, nothing is sent and Hermes handles the request normally | Anything outside the folder you approve | Leave it off |
 
@@ -187,7 +187,7 @@ Neither setting affects your normal Hermes model calls or the explicit Jev tools
 
 `jev_computer_use` handles two kinds of goals:
 
-- **Public web pages:** It opens a fresh, throwaway Chromium profile. It never attaches to your signed-in browser, never logs in, and never uploads files. If a form needs text, the model supplies the values in `text_inputs`. Jev picks *where* to type but never sees *what* is typed.
+- **Public web pages:** It opens a fresh, throwaway Chromium profile. It never attaches to your signed-in browser, never logs in, and never uploads files. If a form needs text, the model supplies the values in `text_inputs`. Jev picks *where* to type, and the values are never sent to it directly. Copies that echo back on the page are masked on a best-effort basis.
 - **Desktop apps:** It uses Hermes' Cua Driver on supported systems.
 
 When a run thinks it's finished, it returns a *completion candidate* with `verified: false`. The browser receipt has a stricter dual-gate verified state, but the current loop never reaches it; see the [browser guide](docs/DOM-BROWSER-BACKEND.md#action-evidence). The receipt shows whether it stopped because a local check passed (for example, "the URL equals …") or because Jev decided it was done. Either way, check the result yourself before treating it as done. Destination rules, receipts, and recovery: [browser and desktop guide](docs/DOM-BROWSER-BACKEND.md).
@@ -205,7 +205,7 @@ With Hermes' default selection, both are on, and `hermes switchyard setup` adds 
 
 - Pinning only `computer_use` leaves out the six decision tools.
 - Pinning only `hermes_switchyard` leaves out computer use.
-- A pin naming neither exposes none of the seven tools.
+- A pin listing only other toolsets exposes none of the seven tools.
 
 To expose all seven in one CLI session:
 
