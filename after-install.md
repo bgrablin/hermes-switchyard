@@ -1,68 +1,85 @@
-# Hermes Switchyard — next steps
+# Hermes Switchyard is installed. Two steps to finish
 
-The plugin is installed. Automatic hosted skill routing (`hosted_sanitized` + `load` + standing acknowledgement) and Jev tool calls are on by default. Hermes owns data classification; this plugin does not.
+1. Save one Jev provider key. You type it into a masked prompt:
 
-1. Save exactly one Jev provider key with a masked prompt:
-   `hermes switchyard setup --provider typesafe`
+   hermes switchyard setup --provider typesafe
    or
-   `hermes switchyard setup --provider openrouter`
-   Do not put a key in a command argument, URL, or chat.
-   Setup also runs `hermes switchyard ensure-toolsets` so `computer_use` and `hermes_switchyard` are selectable without a separate toolsets step.
+   hermes switchyard setup --provider openrouter
 
-2. Start a fresh Hermes session. If you use the gateway, run:
-   `hermes gateway restart`
+   Never put a key in a command argument, URL, or chat. Setup also turns on
+   the `computer_use` and `hermes_switchyard` toolsets for you (it runs
+   `hermes switchyard ensure-toolsets`).
 
-That is the happy path. No further `hermes config set` commands are required for automatic features.
+2. Start a fresh Hermes session. If you use the messaging gateway, restart it:
 
-## Opt out / privacy
+   hermes gateway restart
 
-To keep recommendations local-only (no hosted Jev for automatic routing):
+That's it. No other configuration is needed.
 
-```text
-hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode local_only
-```
+## What is now on
 
-To deliver advisory context without auto-loading a skill:
+- Adaptive reasoning effort: easy turns may go out at lower effort.
+  Your `/reasoning` level is always the cap. A short `Reasoning: …` line under
+  each reply shows what was sent. This needs Hermes 0.21.4 or newer.
+- Automatic skill routing: Switchyard may pick and load one matching skill
+  per turn.
+- Seven Jev tools the model can call, including `jev_computer_use`.
 
-```text
-hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_consumer_mode advisory
-```
+`jev_model_route` only recommends a model. It never switches it.
 
-To refuse hosted automatic routing while leaving tool-call acknowledgement alone:
+## What gets sent to Jev
 
-```text
-hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack false
-```
+Both automatic features may send a bounded, secret-scrubbed excerpt of your
+current message (never history, memory, tool output, or files) to your Jev
+provider. Only use them with public or sanitized content. Hermes, not this
+plugin, is responsible for classifying your data.
 
-Tool-call `public_or_sanitized_data_ack` is also on by default. Callers may omit it. Turn it off with:
+Keep skill routing on your machine:
 
-```text
-hermes config set plugins.entries.hermes-switchyard.settings.public_or_sanitized_data_ack false
-```
+    hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode local_only
 
-Hosted automatic routing uses standing acknowledgement when the host does not forward a `turn_egress_policy` allow envelope (`egress_authority: standing_ack`) and the local restricted-pattern scan is clean. Explicit deny, unknown, malformed, or restricted envelopes, and restricted local scans, still fail closed.
+Suggest skills without loading them:
 
-## Optional extras / troubleshooting
+    hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_consumer_mode advisory
 
-- `jev_computer_use` uses a local Chromium-family browser for public web goals. Desktop GUI still needs Hermes computer_use (Cua Driver).
-- Plugin Doctor reports registration only. Per-session callable exposure is different: run
-  `hermes switchyard status --json`
-  and, for an explicit pin,
-  `hermes switchyard status --json --toolsets "computer_use,terminal"`.
-- If tools are missing from a session catalog after setup, re-run
-  `hermes switchyard ensure-toolsets`
-  On Windows PowerShell, quote pins:
-  `hermes -t "computer_use,hermes_switchyard" chat`
-- Native `computer_use` fallback is not a Jev success. If `jev_computer_use` is missing from the session catalog, fix toolsets before treating the turn as Switchyard computer use.
+Stop hosted skill routing only (tool calls are unaffected):
 
-Re-read this list anytime:
+    hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack false
 
-```text
-hermes switchyard guide
-```
+Stop adaptive effort (this also stops sending message text for it):
 
-Adaptive reasoning effort is on after install (Hermes ≥ 0.21 `llm_request` middleware).
-Your `/reasoning` level is the cap by default. Jev may lower it for routine steps; a failed Jev call keeps your level. To choose, Jev receives bounded text from your current message, not history, memory, or tool results. Use `/switchyard effort status|pin|auto` to inspect or change the session mode. Only an explicit `adaptive_reasoning_effort_allow_raise: true` allows one higher level after a failed tool call.
-Disable (also stops sending message text): `hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort false`.
-`jev_model_route` stays advisory — it does not switch models.
+    hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort false
 
+Refuse all Jev tool calls. This also stops adaptive effort from sending
+message text. The setting `public_or_sanitized_data_ack` is on by default:
+
+    hermes config set plugins.entries.hermes-switchyard.settings.public_or_sanitized_data_ack false
+
+Even with acknowledgement on, a local scan still keeps restricted or marked
+content local. A host policy that denies hosting, or that is malformed,
+always wins.
+
+## Handy commands
+
+    /switchyard effort status | pin | auto     inspect or change effort for this session
+    hermes switchyard status --json            what a fresh session will see (no network)
+    hermes switchyard status --json --toolsets "computer_use,terminal"
+                                               the same, for an explicit toolset pin
+    hermes switchyard ensure-toolsets          re-enable the two toolsets if tools are missing
+
+## Good to know
+
+- Plugin Doctor checks registration only. Use `status` to see whether a session
+  can actually call the tools.
+- On Windows PowerShell, quote toolset pins:
+  hermes -t "computer_use,hermes_switchyard" chat
+- `jev_computer_use` uses a local Chromium-family browser for public web goals.
+  Desktop apps need Hermes' own `computer_use` (Cua Driver).
+- If Hermes falls back to its native `computer_use`, that is not a Switchyard
+  run. If `jev_computer_use` is missing from the session, fix the toolsets first.
+
+Show this guide again anytime:
+
+    hermes switchyard guide
+
+Full documentation: README.md and docs/README.md in the plugin folder.
