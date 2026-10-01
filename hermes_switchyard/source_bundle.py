@@ -107,12 +107,16 @@ def locate_many(*, root, sources, query, client_factory,
                 if passage["text"] not in seen:
                     selected.append({**passage, "duplicates": []})
                     seen.add(passage["text"])
-                else:
-                    entry = next(item for item in selected if item["text"] == passage["text"])
-                    entry["duplicates"].append({field: passage[field] for field in
-                                                ("source", "sha256", "start_line", "end_line")})
         if uncertain or not selected:
             raise source.SourceError("uncertain_or_absent")
+        # Select text by relevance, then preserve every exact-match citation.
+        # Independent scores may disagree even for byte-identical passages.
+        selected_by_text = {passage["text"]: passage for passage in selected}
+        for passage in passages.values():
+            entry = selected_by_text.get(passage["text"])
+            if entry is not None and passage["id"] != entry["id"]:
+                entry["duplicates"].append({field: passage[field] for field in
+                                            ("source", "sha256", "start_line", "end_line")})
         if len(selected) > MAX_EVIDENCE or sum(len(p["text"]) for p in selected) > MAX_EVIDENCE_CHARS:
             raise source.SourceError("evidence_budget_exceeded")
         # Check all inputs, including those scored irrelevant: stale inputs must

@@ -68,6 +68,23 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(len(result["evidence"]), 2)
         self.assertEqual(result["evidence"][0]["duplicates"][0]["source"], "c.md")
 
+    def test_duplicate_citations_survive_divergent_relevance_scores(self):
+        (self.root / "c.md").write_bytes((self.root / "a.md").read_bytes())
+        for first, second in [(0.98, 0.01), (0.01, 0.98)]:
+            with self.subTest(first=first, second=second):
+                self.client.effect = lambda answers: answers.update(
+                    p0={"noul": first}, p2={"noul": second})
+                result = self.lookup(sources=["a.md", "c.md", "b.md"])
+                self.assertEqual(result["status"], "found")
+                matches = [p for p in result["evidence"] if p["text"] == "The limit is 37.\r\n"]
+                self.assertEqual(len(matches), 1)
+                entry = matches[0]
+                self.assertEqual({entry["source"], *[p["source"] for p in entry["duplicates"]]},
+                                 {"a.md", "c.md"})
+                self.assertEqual(len(entry["duplicates"]), 1)
+        self.client.effect = lambda answers: answers.update(p2={"noul": 0.4})
+        self.assertEqual(self.lookup(sources=["a.md", "c.md", "b.md"])["status"], "defer")
+
     def test_uncertain_candidate_keeps_full_native_fallback(self):
         self.client.effect = lambda answers: answers.update(p1={"noul": 0.4})
         result = self.lookup()

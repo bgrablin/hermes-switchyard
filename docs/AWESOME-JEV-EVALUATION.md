@@ -148,6 +148,15 @@ inflections and compound adjuncts. All eight frozen prompt eligibility decisions
 are identical before/after that guard-only change; 64 focused tests and the full
 1,383-test CI suite (16 skipped) pass. Timings stay attributed to 350ee5a6.
 
+A subsequent review found that divergent scores for exact duplicate text could
+omit a citation. The selector now chooses text by relevance, then attaches every
+exact-match citation; uncertainty still defers the whole lookup. The regression
+covers both score orderings. Replaying all 16 recorded candidate Jev responses
+through the measured and corrected selectors produced identical outputs after
+excluding wall time. This fix changes an unexercised edge case, not the measured
+bundles; the native timing attribution remains unchanged. There are now 65
+focused source tests.
+
 **Decision: merge the opt-in multi-file extension.** The other screened families
 remain unqualified. This decision does not enable the pilot by default, release
 it, or install it in an active profile. PR #187 is stacked into #183's feature
