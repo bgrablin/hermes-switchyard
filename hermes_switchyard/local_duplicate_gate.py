@@ -90,19 +90,28 @@ def _scope_key(*, session_id: Any = None, task_id: Any = None) -> str | None:
     return None
 
 
-def canonical_args(args: Any) -> str:
-    """Stable JSON for fingerprinting. Non-mappings become a typed placeholder."""
+def canonical_args(args: Any) -> str | None:
+    """Canonical JSON arguments, or None when exact identity cannot be proven."""
+    def json_value(value: Any) -> bool:
+        if value is None or type(value) in (str, bool, int, float):
+            return True
+        if isinstance(value, Mapping):
+            return all(type(key) is str and json_value(item) for key, item in value.items())
+        if type(value) is list:
+            return all(json_value(item) for item in value)
+        return False
+
     if args is None:
         return "{}"
-    if isinstance(args, Mapping):
-        try:
-            return json.dumps(args, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
-        except (TypeError, ValueError):
-            return json.dumps({"_uncanonicalizable": True}, sort_keys=True, separators=(",", ":"))
+    if not isinstance(args, Mapping):
+        return None
     try:
-        return json.dumps({"_non_mapping": str(args)}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    except (TypeError, ValueError):
-        return "{\"_uncanonicalizable\":true}"
+        if not json_value(args):
+            return None
+        return json.dumps(args, ensure_ascii=False, sort_keys=True,
+                          separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError, RecursionError):
+        return None
 
 
 def _normalize_tool_name(tool_name: Any) -> str:
@@ -125,6 +134,9 @@ def observation_identity(
     empty transcript obs fields never become silent skips for other tools.
     """
     name = _normalize_tool_name(tool_name)
+    canonical = canonical_args(args)
+    if canonical is None:
+        return None
     if isinstance(args, Mapping):
         for key in _OBS_ARG_KEYS:
             value = args.get(key)
@@ -151,7 +163,7 @@ def observation_identity(
                     return value.strip()
 
     if name in ARGS_STABLE_READ_TOOLS:
-        digest = hashlib.sha256(canonical_args(args).encode("utf-8")).hexdigest()[:16]
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
         return f"args_stable:{digest}"
 
     return None
@@ -171,12 +183,15 @@ def fingerprint_for(
     kind = classify_tool_kind(name)
     if kind != "read":
         return None
+    canonical = canonical_args(args)
+    if canonical is None:
+        return None
     obs = observation_id if isinstance(observation_id, str) and observation_id.strip() else None
     if obs is None:
         obs = observation_identity(name, args, result=result)
     if not obs:
         return None
-    payload = f"{name}|{canonical_args(args)}|{obs}"
+    payload = json.dumps([name, canonical, obs], ensure_ascii=False, separators=(",", ":"))
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
     return f"{kind}:{digest}"
 

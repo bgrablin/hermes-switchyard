@@ -36,6 +36,19 @@ class FingerprintHelpersTests(unittest.TestCase):
         self.assertIsNone(observation_identity("read_file", {"path": "README.md"}))
         self.assertIsNone(fingerprint_for("read_file", {"path": "README.md"}))
 
+    def test_uncanonicalizable_arguments_fail_open_without_shared_keys(self):
+        cyclic = {}
+        cyclic["self"] = cyclic
+        for args in (cyclic, {1: "integer key"}, {"nested": {1: "integer key"}},
+                     {"opaque": object()}, {"tuple": (1,)}, {"nan": float("nan")},
+                     [1], "[1]"):
+            with self.subTest(kind=type(args).__name__):
+                self.assertIsNone(canonical_args(args))
+                self.assertIsNone(fingerprint_for("skill_view", args))
+                self.assertIsNone(fingerprint_for("read_file", args, observation_id="known"))
+                self.assertFalse(record_tool_outcome(enabled=True, tool_name="skill_view",
+                                 args=args, result="must not cache", status="ok", session_id="bad")["recorded"])
+
     def test_explicit_observation_id_used(self):
         key = fingerprint_for(
             "browser_snapshot",
@@ -519,7 +532,8 @@ class NativeExecutionChainTests(unittest.TestCase):
             result = run_tool_execution_middleware(tool, args, dispatch, session_id="native-test", task_id="task")
             hook(tool_name=tool, args=args, result=result, session_id="native-test", task_id="task", status="ok")
             return result
-        with patch.object(plugins, "_delivery_manager", return_value=manager):
+        with patch.object(plugins, "get_plugin_manager", return_value=manager), \
+                patch.object(plugins, "_delivery_manager", return_value=manager, create=True):
             self.assertEqual(run("skill_view", {"name": "demo"}), "complete live result")
             self.assertEqual(run("skill_view", {"name": "demo"}), "complete live result")
             self.assertEqual(len(calls), 1)
