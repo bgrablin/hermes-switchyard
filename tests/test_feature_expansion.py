@@ -177,6 +177,23 @@ class CatalogTests(unittest.TestCase):
                 "invalid_mcp_config", {item["rule"] for item in report["findings"]}
             )
 
+    def test_untrusted_mcp_types_and_deep_json_are_reported(self):
+        for payload in (
+            {"mcpServers": {"bad": {"command": ["npx"]}}},
+            {"mcpServers": {"bad": {"command": "npx", "args": "package"}}},
+            {"mcpServers": {"bad": {"url": []}}},
+        ):
+            with tempfile.TemporaryDirectory() as d:
+                (Path(d) / "mcp.json").write_text(json.dumps(payload))
+                report = scan_catalog(d)
+                self.assertIn(
+                    "invalid_mcp_entry", {f["rule"] for f in report["findings"]}
+                )
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "mcp.json").write_text("[" * 2000 + "0" + "]" * 2000)
+            report = scan_catalog(d)
+            self.assertIn("invalid_json", {f["rule"] for f in report["findings"]})
+
     def test_large_file_and_invalid_json_are_not_clean(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d)

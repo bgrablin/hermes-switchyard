@@ -76,7 +76,7 @@ def inspect_text(name: str, text: str) -> list[dict[str, Any]]:
     if suffix == ".json":
         try:
             value = json.loads(text)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, RecursionError):
             return findings + [{"path": name, "line": None, "rule": "invalid_json"}]
         servers = (
             value.get("mcpServers", value.get("mcp_servers", {}))
@@ -94,7 +94,17 @@ def inspect_text(name: str, text: str) -> list[dict[str, Any]]:
                     continue
                 command = server.get("command")
                 args = server.get("args", [])
-                if command in {"npx", "uvx"} and isinstance(args, list):
+                if (
+                    (command is not None and not isinstance(command, str))
+                    or not isinstance(args, list)
+                    or not all(isinstance(arg, str) for arg in args)
+                    or ("url" in server and not isinstance(server["url"], str))
+                ):
+                    findings.append(
+                        {"path": name, "line": None, "rule": "invalid_mcp_entry"}
+                    )
+                    continue
+                if command in {"npx", "uvx"}:
                     packages = [
                         a for a in args if isinstance(a, str) and not a.startswith("-")
                     ]
