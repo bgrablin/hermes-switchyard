@@ -33,6 +33,7 @@ provides_hooks:
   - post_api_request
 provides_middleware:
   - llm_request
+  - tool_execution
 config_schema:
   evidence_finder_enabled: {type: bool, default: false, description: "Opt-in automatic semantic evidence finder. Hermes uses current-turn prefetch or selects switchyard_find from normal prompts; sends one bounded public or sanitized source file to the configured Jev provider. Requires evidence_finder_root. On uncertainty Hermes continues with normal tools."}
   evidence_finder_prefetch: {type: bool, default: true, description: "When the evidence finder is enabled, prefetch evidence for narrowly recognized foreground requests naming a file before the first model call. Requires explicit session, task, and turn identity. Unknown wording, unknown files, delegated/background turns, and host egress envelopes retain normal tool selection. Set false for tool-only operation."}

@@ -215,7 +215,8 @@ class HandlerFailureReportingTests(unittest.TestCase):
         with mock.patch.object(module, "_load_registered_tools", return_value=(None, entries, {case["tool"] for case in _CASES}, mock.Mock())):
             with self.assertRaisesRegex(NativeInvocationError, "jev_skill_select.*RuntimeError"):
                 module.run_invocation_checks(plugin_root=None)  # type: ignore[arg-type]
-        self.assertEqual(set(calls), {case["tool"] for case in _CASES} - {"jev_skill_select"})
+        # The None-manager fixture has no source-policy callbacks to invoke.
+        self.assertEqual(set(calls), {case["tool"] for case in _CASES} - {"jev_skill_select", "switchyard_find"})
 
     def test_a_handler_exception_is_reported_by_tool_name_not_swallowed(self):
         from scripts.ci import check_native_tool_invocation as module

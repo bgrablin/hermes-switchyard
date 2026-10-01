@@ -6,6 +6,7 @@ import json
 import re
 import threading
 from collections import OrderedDict
+from contextvars import ContextVar
 from typing import Any
 
 from .source_find import MAX_QUERY_CHARS, locate
@@ -50,13 +51,91 @@ def _format_only(text: str) -> bool:
                for description in re.findall(r"\(([^()]*)\)", fields))
 
 
+
+def _valid_message(message: Any) -> bool:
+    if type(message) is not str or not 0 < len(message) <= MAX_QUERY_CHARS:
+        return False
+    try:
+        message.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return bool(message.strip())
+
+
+def _format_line(text: str) -> bool:
+    formatting = text.removesuffix("Do not modify files.").strip()
+    return (_format_only(formatting) and not _CHANGE.search(formatting)
+            and not source_lookup_needs_local_handling(
+                re.sub(r"^Return only ", "Return ", formatting, flags=re.I))
+            and not re.search(r"\btool\b", formatting, re.I))
+
+
+class SourceTurnPolicy:
+    """Bounded, metadata-only decisions from original turns, never tool arguments."""
+
+    def __init__(self):
+        self._turns: OrderedDict[tuple[str, ...], str | None] = OrderedDict()
+        self._lock = threading.Lock()
+        self._dispatch_reason: ContextVar[str | None] = ContextVar(
+            "switchyard_source_dispatch_reason", default="turn_policy_unavailable")
+
+    @staticmethod
+    def _key(session_id, task_id, turn_id):
+        scope = (session_id, task_id, turn_id)
+        return scope if all(type(v) is str and v and len(v) <= 256 and v.isprintable()
+                            for v in scope) else None
+
+    def capture(self, *, user_message=None, session_id=None, task_id=None, turn_id=None,
+                parent_session_id=None, platform=None, turn_egress_policy=None,
+                egress_policy=None, **_kwargs):
+        key = self._key(session_id, task_id, turn_id)
+        if key is None:
+            return
+        reason = "turn_policy_unavailable"
+        if (parent_session_id == "" and type(platform) is str and platform in _INTERACTIVE
+                and _valid_message(user_message)):
+            if turn_egress_policy is not None or egress_policy is not None:
+                reason = "host_egress_envelope"
+            else:
+                lines = user_message.strip().splitlines()
+                # Only the fully validated formatting suffix can be omitted.
+                # Other lines remain part of the authoritative privacy decision.
+                text = lines[0] if len(lines) == 2 and _format_line(lines[1]) else user_message
+                reason = "local_handling_required" if source_lookup_needs_local_handling(text) else None
+        with self._lock:
+            # Once denied, later callbacks cannot rewrite the same turn into an allow.
+            if key not in self._turns or self._turns[key] is None:
+                self._turns[key] = reason
+            self._turns.move_to_end(key)
+            while len(self._turns) > 256:
+                self._turns.popitem(last=False)
+
+    def turn_reason(self, session_id, task_id, turn_id):
+        key = self._key(session_id, task_id, turn_id)
+        with self._lock:
+            return self._turns.get(key, "turn_policy_unavailable")
+
+    def dispatch_reason(self):
+        return self._dispatch_reason.get()
+
+    def tool_execution(self, *, tool_name, args, next_call, session_id=None,
+                       task_id=None, turn_id=None, **_kwargs):
+        if tool_name != "switchyard_find":
+            return next_call(args)
+        token = self._dispatch_reason.set(self.turn_reason(session_id, task_id, turn_id))
+        try:
+            return next_call(args)
+        finally:
+            self._dispatch_reason.reset(token)
+
+
 def request_source(message: Any) -> str | None:
     """Recognize complete, explicit location requests, never history or inferred paths.
 
     This deliberately covers a small natural-language grammar. Unknown wording
     incurs no Jev call and retains the ordinary Hermes tool path.
     """
-    if not isinstance(message, str) or not 0 < len(message) <= MAX_QUERY_CHARS:
+    if not _valid_message(message):
         return None
     lines = message.strip().splitlines()
     if not lines:
@@ -67,12 +146,7 @@ def request_source(message: Any) -> str | None:
     if len(lines) > 1:
         if len(lines) != 2:
             return None
-        formatting = lines[1].removesuffix("Do not modify files.").strip()
-        if (not _format_only(formatting)
-                or _CHANGE.search(formatting)
-                # "Return only JSON" restricts formatting, not processing.
-                or source_lookup_needs_local_handling(re.sub(r"^Return only ", "Return ", formatting, flags=re.I))
-                or re.search(r"\btool\b", formatting, re.I)):
+        if not _format_line(lines[1]):
             return None
     if _CHANGE.search(first) or source_lookup_needs_local_handling(first):
         return None
@@ -96,7 +170,8 @@ def request_source(message: Any) -> str | None:
     return source if "." in source.rsplit("/", 1)[-1] and len(source) <= 512 else None
 
 
-def build_hook(*, enabled: bool, root: str, standing_ack: bool, client_factory: Any):
+def build_hook(*, enabled: bool, root: str, standing_ack: bool, client_factory: Any,
+               policy: SourceTurnPolicy | None = None):
     """Never inject cached evidence. A duplicate invocation only skips work."""
     consumed: OrderedDict[tuple[str, ...], None] = OrderedDict()
     lock = threading.Lock()
@@ -104,7 +179,13 @@ def build_hook(*, enabled: bool, root: str, standing_ack: bool, client_factory: 
     def hook(*, user_message=None, session_id=None, task_id=None, turn_id=None,
              parent_session_id=None, platform=None, turn_egress_policy=None,
              egress_policy=None, **_kwargs):
-        if not enabled or standing_ack is not True or parent_session_id != "" or platform not in _INTERACTIVE:
+        if policy is not None:
+            policy.capture(user_message=user_message, session_id=session_id, task_id=task_id,
+                           turn_id=turn_id, parent_session_id=parent_session_id, platform=platform,
+                           turn_egress_policy=turn_egress_policy, egress_policy=egress_policy)
+            if policy.turn_reason(session_id, task_id, turn_id) is not None:
+                return None
+        if not enabled or standing_ack is not True or parent_session_id != "" or type(platform) is not str or platform not in _INTERACTIVE:
             return None
         # A supplied host envelope may grant only a smaller payload. Do not
         # reinterpret that envelope as permission to send an entire local file.

@@ -260,10 +260,16 @@ class WiringTests(unittest.TestCase):
             def __init__(self):
                 self.tools = {}
                 self.sections = {}
+                self.hooks = []
+                self.middleware = {}
             def get_config(self, key, default=None):
                 return settings.get(key, default)
             def register_tool(self, **kwargs):
                 self.tools[kwargs["name"]] = kwargs
+            def register_hook(self, name, callback):
+                self.hooks.append((name, callback))
+            def register_middleware(self, name, callback):
+                self.middleware[name] = callback
             def register_system_prompt_section(self, name, text, **kwargs):
                 self.sections[name] = text
         ctx = Context()
@@ -287,6 +293,42 @@ class WiringTests(unittest.TestCase):
             self.assertIn("local-only", ctx.sections["hermes-switchyard.find"])
             out = json.loads(ctx.tools["switchyard_find"]["handler"]({"source": "x", "query": "y", "public_or_sanitized_data_ack": False}))
             self.assertEqual(out["reason"], "ack_required")
+
+    def test_original_turn_denial_survives_model_rewritten_query(self):
+        ctx = self.context({"evidence_finder_enabled": True, "evidence_finder_root": "/fixture",
+                            "evidence_finder_prefetch": False})
+        capture = next(cb for name, cb in ctx.hooks if cb.__module__.endswith(".source_prefetch"))
+        handler = ctx.tools["switchyard_find"]["handler"]
+        dispatch = ctx.middleware["tool_execution"]
+        ids = dict(session_id="session", task_id="task", turn_id="turn")
+        capture(**ids, user_message="Find the retry limit using local tools only.",
+                parent_session_id="", platform="cli")
+        args = {"source": "notes.md", "query": "Find the retry limit",
+                "public_or_sanitized_data_ack": True, "user_message": "Find the retry limit"}
+        with mock.patch("hermes_switchyard.locate_evidence") as locate:
+            result = json.loads(dispatch(**ids, tool_name="switchyard_find", args=args, next_call=handler))
+            self.assertEqual(result["reason"], "local_handling_required")
+            self.assertEqual(result["request_count"], 0)
+            locate.assert_not_called()
+
+    def test_native_lookup_requires_exact_captured_turn_and_middleware(self):
+        ctx = self.context({"evidence_finder_enabled": True, "evidence_finder_root": "/fixture",
+                            "evidence_finder_prefetch": False})
+        capture = next(cb for name, cb in ctx.hooks if cb.__module__.endswith(".source_prefetch"))
+        handler = ctx.tools["switchyard_find"]["handler"]
+        dispatch = ctx.middleware["tool_execution"]
+        ids = dict(session_id="session", task_id="task", turn_id="turn")
+        capture(**ids, user_message="Find the retry limit.", parent_session_id="", platform="cli")
+        args = {"source": "notes.md", "query": "Find the retry limit"}
+        with mock.patch("hermes_switchyard.locate_evidence", return_value={"status": "found"}) as locate:
+            self.assertEqual(json.loads(dispatch(**ids, tool_name="switchyard_find", args=args,
+                                                 next_call=handler))["status"], "found")
+            self.assertEqual(json.loads(handler(args))["reason"], "turn_policy_unavailable")
+            for key in ids:
+                other = {**ids, key: "other"}
+                result = json.loads(dispatch(**other, tool_name="switchyard_find", args=args, next_call=handler))
+                self.assertEqual(result["reason"], "turn_policy_unavailable")
+            self.assertEqual(locate.call_count, 1)
 
     def test_relative_root_is_not_advertised(self):
         ctx = self.context({"evidence_finder_enabled": True, "evidence_finder_root": "relative/source"})

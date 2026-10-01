@@ -135,6 +135,9 @@ class _PluginContext:
     def register_hook(self, *_args, **_kwargs):
         pass
 
+    def register_middleware(self, *_args, **_kwargs):
+        pass
+
 
 class ToolsetExposureReportTests(unittest.TestCase):
     """The report must never call a tool available that the session catalog omits."""

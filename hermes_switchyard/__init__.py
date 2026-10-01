@@ -1590,6 +1590,11 @@ def register(ctx):
         value = ctx_get_config(ctx, key, default=default)
         return value if type(value) is bool else default
 
+    from .source_prefetch import SourceTurnPolicy, build_hook as build_source_prefetch_hook
+
+    source_policy = SourceTurnPolicy()
+    if callable(getattr(ctx, "register_middleware", None)):
+        ctx.register_middleware("tool_execution", source_policy.tool_execution)
     standing_ack = setting_bool("public_or_sanitized_data_ack", True)
     finder_enabled = setting_bool("evidence_finder_enabled", False)
     finder_root = ctx_get_config(ctx, "evidence_finder_root", default="")
@@ -1597,16 +1602,22 @@ def register(ctx):
     _ROUTE_STATUS["evidence_finder_enabled"] = lambda: finder_enabled
 
     def evidence_find_available():
-        return finder_ready and decision_tools_available()
+        return (finder_ready and decision_tools_available()
+                and callable(getattr(ctx, "register_hook", None))
+                and callable(getattr(ctx, "register_middleware", None)))
 
     def evidence_find_handler(args, **kwargs):
-        if not finder_enabled:
-            return json.dumps({"status": "defer", "reason": "feature_disabled", "request_count": 0,
+        ack = standing_ack and args.get("public_or_sanitized_data_ack", True) is True
+        reason = ("feature_disabled" if not finder_enabled else
+                  "ack_required" if not ack else source_policy.dispatch_reason())
+        if reason is not None:
+            return json.dumps({"status": "defer", "reason": reason, "request_count": 0,
+                               "accounting": "no_request",
                                "next_action": "Continue using normal Hermes search/read tools."})
         return json.dumps(locate_evidence(
             root=finder_root, source=args.get("source"), query=args.get("query"),
             client_factory=client,
-            public_or_sanitized_data_ack=standing_ack and args.get("public_or_sanitized_data_ack", True) is True,
+            public_or_sanitized_data_ack=ack,
         ))
 
     session_search_choice_confidence = _config_float(
@@ -1953,11 +1964,10 @@ def register(ctx):
         )
 
     register_tool("switchyard_find", schemas.EVIDENCE_FIND, evidence_find_handler, evidence_find_available)
-    if evidence_find_available() and setting_bool("evidence_finder_prefetch", True) and callable(getattr(ctx, "register_hook", None)):
-        from .source_prefetch import build_hook as build_source_prefetch_hook
-
+    if evidence_find_available():
         ctx.register_hook("pre_llm_call", build_source_prefetch_hook(
-            enabled=True, root=finder_root, standing_ack=standing_ack, client_factory=client,
+            enabled=setting_bool("evidence_finder_prefetch", True), root=finder_root,
+            standing_ack=standing_ack, client_factory=client, policy=source_policy,
         ))
     if evidence_find_available() and hasattr(ctx, "register_system_prompt_section"):
         ctx.register_system_prompt_section(

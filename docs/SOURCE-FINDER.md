@@ -26,7 +26,13 @@ file, then cite the returned lines. If the path is unknown, normal file search c
 first. On `defer`, Hermes uses normal search/read tools instead of repeating the call.
 No fallback main-model request is made inside the tool itself.
 
-Prefetch requires explicit session, task, turn, foreground, and interactive-platform identity.
+Both source-finder paths require explicit session, task, turn, foreground, and interactive-platform identity.
+A pre-turn hook captures a bounded privacy decision from the original user message, even
+when prefetch is off. Tool-execution middleware binds that decision to the exact turn;
+the handler defers if capture or middleware context is missing. A model rewriting the
+tool query cannot remove a captured denial. Decisions store no message text and cannot
+cross turn identities. The pilot requires both host hook and execution-middleware seams.
+Prefetch additionally recognizes the narrow request grammar below.
 Missing information skips it. A second line may contain a complete JSON-format request (optional field identifiers and closed type/absence descriptors); compound or unsupported formatting stays with normal tools. It never reads conversation history or reuses an earlier source
 result. Repeated hook invocations for the same scope skip work without reinjecting evidence;
 a new scope or query makes a fresh lookup. Host egress envelopes are not interpreted as

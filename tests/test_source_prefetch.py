@@ -37,6 +37,13 @@ class PrefetchTests(unittest.TestCase):
                 self.assertEqual(self.locate.call_args.kwargs["query"],
                                  "In notes.md, find the retry limit.")
 
+    def test_unpaired_surrogates_skip_without_consuming_the_turn(self):
+        for prompt in ["In notes.md, find \ud800.", "In bad\udfff.md, find retries."]:
+            self.assertIsNone(self.hook(**{**self.kwargs, "user_message": prompt}))
+        self.locate.assert_not_called()
+        self.assertIsNotNone(self.hook(**self.kwargs))
+        self.assertEqual(self.locate.call_count, 1)
+
     def test_missing_scope_foreground_and_unknown_platform_skip(self):
         for field, value in [("session_id", None), ("task_id", ""), ("turn_id", None),
                              ("parent_session_id", None), ("parent_session_id", "parent"),
@@ -134,3 +141,81 @@ class PrefetchTests(unittest.TestCase):
                        "In notes.md, find the retry limit … summarize config.md."]:
             self.assertIsNone(self.hook(**{**self.kwargs, "user_message": prompt}))
         self.locate.assert_not_called()
+
+
+class SourceTurnPolicyTests(unittest.TestCase):
+    def setUp(self):
+        self.policy = prefetch.SourceTurnPolicy()
+        self.ids = dict(session_id="s", task_id="t", turn_id="u")
+
+    def capture(self, text="Find the retry limit.", **kwargs):
+        self.policy.capture(**{**self.ids, "user_message": text, "parent_session_id": "",
+                               "platform": "cli", **kwargs})
+
+    def reason(self, **kwargs):
+        return self.policy.turn_reason(**{**self.ids, **kwargs})
+
+    def dispatch(self, callback=None, **kwargs):
+        return self.policy.tool_execution(
+            tool_name="switchyard_find", args={}, next_call=callback or (lambda _: self.policy.dispatch_reason()),
+            **{**self.ids, **kwargs})
+
+    def test_denials_cannot_be_rewritten_or_reused_for_other_turns(self):
+        self.capture("Find the retry limit offline.")
+        self.capture()
+        self.assertEqual(self.reason(), "local_handling_required")
+        self.capture(turn_id="new")
+        self.assertIsNone(self.reason(turn_id="new"))
+        self.assertEqual(self.reason(), "local_handling_required")
+
+    def test_missing_malformed_delegated_or_enveloped_context_denies(self):
+        for kwargs in [{"parent_session_id": None}, {"parent_session_id": "parent"},
+                       {"platform": "cron"}, {"platform": []}, {"user_message": "\ud800"},
+                       {"user_message": "x" * 1201}, {"turn_egress_policy": {"decision": "allow"}},
+                       {"egress_policy": {"decision": "deny"}}]:
+            self.policy = prefetch.SourceTurnPolicy()
+            self.capture(**kwargs)
+            self.assertIsNotNone(self.dispatch())
+        self.assertIsNotNone(self.dispatch(turn_id="missing"))
+
+    def test_only_complete_formatting_suffix_can_be_excluded(self):
+        self.capture("In notes.md, find retries.\nReturn only JSON. Do not modify files.")
+        self.assertIsNone(self.dispatch())
+        self.capture("In notes.md, find retries.\nReturn JSON using local tools only.", turn_id="deny")
+        self.assertEqual(self.dispatch(turn_id="deny"), "local_handling_required")
+
+    def test_dispatch_context_resets_after_error_and_other_tools_do_not_authorize(self):
+        self.capture()
+        def fail(_args):
+            self.assertIsNone(self.policy.dispatch_reason())
+            raise RuntimeError("synthetic failure")
+        with self.assertRaises(RuntimeError):
+            self.dispatch(fail)
+        self.assertEqual(self.policy.dispatch_reason(), "turn_policy_unavailable")
+        result = self.policy.tool_execution(tool_name="other", args={}, **self.ids,
+                                             next_call=lambda _: self.policy.dispatch_reason())
+        self.assertEqual(result, "turn_policy_unavailable")
+
+    def test_concurrent_dispatches_do_not_share_permission(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        self.capture()
+        self.capture("Find retries offline.", turn_id="deny")
+        barrier = Barrier(2)
+        def read(_args):
+            barrier.wait(timeout=5)
+            return self.policy.dispatch_reason()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            allowed = pool.submit(self.dispatch, read)
+            denied = pool.submit(self.dispatch, read, turn_id="deny")
+            self.assertIsNone(allowed.result(timeout=5))
+            self.assertEqual(denied.result(timeout=5), "local_handling_required")
+        self.assertEqual(self.policy.dispatch_reason(), "turn_policy_unavailable")
+
+    def test_bounded_eviction_removes_permission_without_storing_message_text(self):
+        self.capture()
+        for n in range(256):
+            self.capture(turn_id=str(n))
+        self.assertEqual(self.reason(), "turn_policy_unavailable")
+        self.assertEqual(len(self.policy._turns), 256)
+        self.assertTrue(all(value is None for value in self.policy._turns.values()))
