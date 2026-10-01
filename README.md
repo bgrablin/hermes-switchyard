@@ -117,16 +117,16 @@ Jev is an external service. Here is what each feature sends to it:
 | Feature | What goes to Jev | What never goes | How to keep it local |
 | --- | --- | --- | --- |
 | **Adaptive effort** (on) | Up to 1,200 characters of your **current message**, after secret scrubbing, plus simple status flags | Earlier messages, memory, tool output, files | `adaptive_reasoning_effort` → `false` |
-| **Skill routing** (on) | Up to 4,000 characters of your **current message**, after a local scan and secret scrubbing, plus your skill **names**. If you opt in with `automatic_skill_hosted_detail`, also short descriptions or `SKILL.md` excerpts for a few finalists | Full skill bodies, history | `automatic_skill_routing_mode` → `local_only` |
+| **Skill routing** (on) | Up to 4,000 characters of your **current message**, after secret scrubbing, plus your skill **names**. When Hermes supplies no policy for the turn, a local scan runs first; text Hermes explicitly authorizes skips that scan. If you opt in with `automatic_skill_hosted_detail`, also short descriptions or `SKILL.md` excerpts for a few finalists | Full skill bodies, history | `automatic_skill_routing_mode` → `local_only` |
 | **Decision tools** | Exactly what the model passes to the tool | — | `public_or_sanitized_data_ack` → `false` |
 | **Computer use: browser** | The goal and a bounded view of the page (labels, visible text, recent steps). Values you ask it to type are masked out | Your logins, cookies, files | Don't call the tool |
 | **Computer use: desktop** | The goal, app and window title, control labels, visible context, and recent actions on every step. This is **not** masked, so typed values or signed-in app content can reappear | — | Only use it on public or sanitized apps and values |
-| **Source prefetch** (off) | Your lookup question, plus text from 1–8 files you name (80,000 bytes max in total), both scrubbed | Anything outside the folder you approve | Leave it off |
+| **Source prefetch** (off) | Your lookup question, plus text from 1–8 files you name (80,000 bytes max in total). If the scrubber would change anything, nothing is sent and Hermes handles the request normally | Anything outside the folder you approve | Leave it off |
 
 Some turns never reach Jev:
 
 - Obvious greetings and thanks are decided on your machine.
-- Messages with document markings such as `proprietary`, `company confidential`, or a standalone `Confidential` banner stay local.
+- When Hermes supplies no policy for the turn, messages with document markings such as `proprietary`, `company confidential`, or a standalone `Confidential` banner stay local.
 - If your Hermes version lacks its secret scrubber, skill routing falls back to local matching and adaptive effort sends only message *shape* (length buckets and flags), no text.
 
 **The fine print, in plain words:**
@@ -249,7 +249,7 @@ Start a fresh session after any change. Every setting, grouped by feature and ex
 
 - Start a fresh session after installing or changing settings.
 - Check that the receipt mode isn't `off`: `/switchyard effort receipt auto`.
-- In `auto` mode, the line only appears when Switchyard did something on that turn. Use `always` to see it on every turn.
+- In `auto` mode, the line only appears when Switchyard did something on that turn. Use `always` to also see it on pinned and pass-through turns where the sent level is known. Delegated, background, and unsupported-route turns stay quiet.
 - It can't appear if adaptive effort is disabled or your Hermes is older than 0.21.4.
 
 `/switchyard effort status` shows the current state. More status reasons, browser startup, and toolset pins: [setup guide](docs/SETUP.md).
@@ -288,6 +288,8 @@ This README describes the current `main` branch, which is version 0.5.6 plus wor
 
 - [offline outcome labels](docs/OUTCOME-LABELS.md): local-only analysis of retained receipts. They add no hook and change no routing.
 - the `wow` local report
+- [automatic source prefetch](docs/SOURCE-FINDER.md) (opt-in pilot)
+- `hermes switchyard lint-skills`
 
 The [benchmark report](docs/BENCHMARKS.md) shows where Jev measurably helped (for example, picking the right skill 12/12 times against 7/12 for simple word matching) and is explicit about its limits. It does not claim Jev improves every task.
 

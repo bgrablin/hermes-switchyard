@@ -20,7 +20,7 @@
 - upload files or press hotkeys
 - visit private or local addresses (`localhost`, `192.168.x.x`, intranet names, and so on), or any non-`https` page
 
-**Typing into forms.** The model supplies each value in `text_inputs`, keyed by the field's label. Jev decides *which* field to type into, but never sees *what* is typed. Switchyard masks those values everywhere they might echo back to Jev, including page text and URLs.
+**Typing into forms.** The model supplies each value in `text_inputs`, keyed by the field's label. Jev decides *which* field to type into, but never sees *what* is typed. Switchyard masks copies of those values that echo back in page text and URLs. This is best-effort: values in a host name, or transformed by the page (hashed, encoded, translated, or partly copied), are not caught. See [how caller values are protected](#typing-how-caller-values-are-checked-and-protected).
 
 **"Done" needs two signals.** When the loop finishes, it returns a *completion candidate*. The receipt shows whether the stop came from a local check (`completion_condition`, such as "the title contains *Analytical Engine*") or from Jev deciding it was done. It's marked `verified: true` only when both agree: Jev said `DONE` **and** the local condition is satisfied. Everything else stays `verified: false`, so verify the result yourself. See [Action evidence](#action-evidence).
 

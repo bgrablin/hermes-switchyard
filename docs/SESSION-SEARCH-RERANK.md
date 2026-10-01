@@ -25,7 +25,7 @@ The defaults come from the `session_search_rerank_*` settings in the [Configurat
 
 ## Guarantees
 
-- **Redaction:** emails, phone numbers, and common token and secret patterns are redacted before anything is sent.
+- **Redaction (cards only):** in candidate cards and message previews, emails, phone numbers, and common token and secret patterns are redacted before sending. The recall question itself is sent as written, cut to 1,200 characters, so it must not contain private data.
 - **No transcripts:** full transcripts are never sent by default, only short card previews.
 - **Safe fallback ("fail-open"):** a provider failure, invalid response, or below-threshold confidence returns the **first** original search result, with `status: fail_open` and a `fail_open_reason`.
 - **Empty input:** an empty shortlist returns `status: empty` with no provider call.

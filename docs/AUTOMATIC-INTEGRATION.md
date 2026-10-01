@@ -13,12 +13,10 @@ There are two ways to choose:
 - **Local:** on-device word matching. It costs nothing and sends nothing.
 - **Hosted:** asks Jev. This sends only a bounded, scrubbed copy of your current message and the candidate skill **names**.
 
-The defaults are hosted (`hosted_sanitized`), `load`, and the standing acknowledgement `true`. Hosting requires *all* of the following:
+The defaults are hosted (`hosted_sanitized`), `load`, and the standing acknowledgement `true`. Hosting requires `load` mode, the acknowledgement, and one of these:
 
-- `load` mode
-- the acknowledgement
-- a clean local per-turn scan
-- *either* an "allow" policy from Hermes (`egress_authority: host_envelope`) *or* no policy at all (`egress_authority: standing_ack`)
+- an "allow" policy from Hermes (`egress_authority: host_envelope`). Its `allowed_payload` is redacted but **not** re-scanned locally, because Hermes has already classified it; or
+- no policy at all, plus a clean local per-turn scan (`egress_authority: standing_ack`).
 
 The acknowledgement never overrides restricted content or any other control. `advisory` mode never hosts (`consumer_contract_unmet`). For more privacy, choose `local_only` or `advisory`.
 

@@ -67,7 +67,7 @@ Some features only make a recommendation. For example, `jev_model_route` can sug
 
 ### Public or sanitized data
 
-Hosted Jev calls go to an external provider. For its **automatic** features, Switchyard scrubs recognizable secrets and keeps clearly marked confidential text local. That scrubbing is a safety net, not a guarantee. **Explicit tools** such as `jev_assess` send what the caller passes, after only an acknowledgement check, so their inputs must already be public or sanitized. The setting `public_or_sanitized_data_ack` records your agreement that what you send is public or already cleaned up. It does not make private data safe to send. For details, read the [privacy section](../README.md#privacy-at-a-glance).
+Hosted Jev calls go to an external provider. For its **automatic** features, Switchyard scrubs recognizable secrets. When Hermes supplies no policy for the turn, it also keeps clearly marked confidential text local. Text Hermes explicitly authorizes is not re-scanned. That scrubbing is a safety net, not a guarantee. **Explicit tools** such as `jev_assess` send what the caller passes, after only an acknowledgement check, so their inputs must already be public or sanitized. The setting `public_or_sanitized_data_ack` records your agreement that what you send is public or already cleaned up. It does not make private data safe to send. For details, read the [privacy section](../README.md#privacy-at-a-glance).
 
 ## Where to go next
 

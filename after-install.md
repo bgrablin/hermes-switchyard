@@ -57,9 +57,11 @@ message text. The setting `public_or_sanitized_data_ack` is on by default:
 
     hermes config set plugins.entries.hermes-switchyard.settings.public_or_sanitized_data_ack false
 
-Even with acknowledgement on, a local scan still keeps restricted or marked
-content local. A host policy that denies hosting, or that is malformed,
-always wins.
+Even with acknowledgement on, automatic routing runs a local scan that keeps
+restricted or marked content local when Hermes supplies no policy for the turn.
+Text Hermes explicitly authorizes skips that scan. A host policy that denies
+hosting, or that is malformed, always wins. Explicit Jev tools get no scan,
+only the acknowledgement check, so their inputs must already be safe to send.
 
 ## Handy commands
 
