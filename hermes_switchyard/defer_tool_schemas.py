@@ -164,7 +164,7 @@ def user_requests_switchyard_tools(text: str) -> bool:
 
 
 def tools_are_switchyard_primary(tools: Sequence[Any] | None) -> bool:
-    """True when every named tool is a deferred Switchyard tool (explicit pin).
+    """Recognize a decision-only pin or the complete Switchyard/computer surface.
 
     Fail-open: if the session offered only hermes_switchyard decision tools,
     do not strip them — the toolset is the product for that session.
@@ -175,7 +175,10 @@ def tools_are_switchyard_primary(tools: Sequence[Any] | None) -> bool:
     concrete = [n for n in named if n]
     if not concrete:
         return False
-    return all(n in DEFERRED_SWITCHYARD_TOOL_NAMES for n in concrete)
+    primary_names = DEFERRED_SWITCHYARD_TOOL_NAMES | {"jev_computer_use", "computer_use"}
+    return (len(concrete) == len(named)
+            and bool(set(concrete) & DEFERRED_SWITCHYARD_TOOL_NAMES)
+            and all(n in primary_names for n in concrete))
 
 
 def should_omit_switchyard_tool_schemas(
@@ -198,6 +201,20 @@ def should_omit_switchyard_tool_schemas(
     if not isinstance(tools, list) or not tools:
         # Nothing to omit, or tools live under another key we do not rewrite.
         return False
+    # Mixed multimodal and unrecognized user content cannot be classified from
+    # its text fragment. Tool-result continuations are not new user prompts.
+    for item in iter_request_items(request):
+        if not isinstance(item, Mapping) or item.get("role") != "user":
+            continue
+        content = item.get("content")
+        if isinstance(content, str):
+            continue
+        if not isinstance(content, list) or any(
+            not isinstance(part, Mapping)
+            or part.get("type") not in {"text", "input_text", "output_text", "tool_result"}
+            for part in content
+        ):
+            return False
     # Explicit provider tool choices must remain satisfiable.
     choice = request.get("tool_choice")
     if isinstance(choice, Mapping) and tool_definition_name(choice) in DEFERRED_SWITCHYARD_TOOL_NAMES:

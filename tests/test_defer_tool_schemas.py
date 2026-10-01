@@ -318,6 +318,25 @@ class ProviderBoundaryTests(unittest.TestCase):
         request["messages"] = [{"role": "user", "content": [{"type": "image", "source": {}}]}]
         self.assertIsNone(callback(request=request))
 
+    def test_mixed_multimodal_inputs_keep_all_schemas(self):
+        callback = build_defer_tool_schemas_middleware(enabled=True)
+        for block in ({"type": "image_url", "image_url": {}},
+                      {"type": "image", "source": {}},
+                      {"type": "document", "source": {}},
+                      {"type": "unknown", "text": "not a text block"}):
+            request = _skill_route_request()
+            request["messages"] = [{"role": "user", "content": [
+                {"type": "text", "text": "Explain this."}, block,
+            ]}]
+            self.assertIsNone(callback(request=request))
+
+    def test_full_switchyard_and_computer_pin_keeps_decision_tools(self):
+        request = _skill_route_request()
+        request["tools"] = [_openai_tool(name) for name in (
+            *sorted(DEFERRED_SWITCHYARD_TOOL_NAMES), "jev_computer_use", "computer_use",
+        )]
+        self.assertIsNone(build_defer_tool_schemas_middleware(enabled=True)(request=request))
+
     def test_real_registration_composes_and_reports_effective_effort_seam(self):
         import json
         import tempfile
