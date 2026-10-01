@@ -1,132 +1,146 @@
-# Set up automatic skill recommendations
+# Automatic skill routing: setup
 
-This guide enables the implemented automatic skill recommendation hook for the `hermes-switchyard` plugin.
+**What it does:** at the start of each turn, Switchyard looks at the skills in your active Hermes profile, works out which one (if any) fits your request, and loads it through Hermes' normal skill loader. You don't have to remember skill names or say "use the docker skill."
 
-Install defaults are `hosted_sanitized` routing, `load` consumer mode, and standing acknowledgement `true`. After install and saving one Jev key, ordinary turns may construct hosted Jev when the local restricted-pattern scan is clean (or when the host forwards an allow envelope). Opt down to `local_only` / `advisory` for privacy. Advisory mode cannot host (`consumer_contract_unmet`). This guide does not claim that a recommendation certifies model quality or GUI completion.
+**How it decides:** by default it asks Jev, after a local privacy scan and secret scrubbing. You can switch it to on-device word matching only.
 
-## 1. Install the pinned plugin
+**It's on by default.** Once you've installed the plugin and saved a key, there's nothing else to turn on. This page shows how to try it, tune it, make it more private, or turn it off. For the full internals, see [how automatic routing works](AUTOMATIC-INTEGRATION.md).
 
-Install an exact 40-character commit and enable the plugin:
+> A recommendation is not proof of quality. It means a skill was chosen and, in `load` mode, loaded. Whether the final answer is good is still up to you to judge.
+
+## The defaults in one table
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `automatic_skill_routing_mode` | `hosted_sanitized` | May ask Jev when the local scan is clean |
+| `automatic_skill_consumer_mode` | `load` | Loads the chosen skill (instead of just suggesting it) |
+| `automatic_skill_public_or_sanitized_data_ack` | `true` | Your standing agreement that turns sent to Jev are public or sanitized |
+
+## 1. Install (optionally pinned to an exact commit)
+
+For a reproducible install, pin the exact 40-character commit you reviewed:
 
 ```text
 hermes plugins install bgrablin/hermes-switchyard --ref FULL_40_SHA --enable
 hermes plugins list --enabled --plain
 ```
 
-Replace `FULL_40_SHA` with the commit you intend to run. Do not put a credential in the repository URL or shell history. If you want installation and enablement as separate steps, use `--no-enable` and then:
+Replace `FULL_40_SHA` with that commit. Never put a credential in the repository URL or your shell history. To install and enable as separate steps, use `--no-enable`, then:
 
 ```text
 hermes plugins enable hermes-switchyard
 ```
 
-Validate a checkout without changing a live profile:
+To check a local checkout without touching your live profile:
 
 ```text
 hermes plugins doctor . --ci
 ```
 
-Plugin Doctor checks discovery, import, registration, declared hooks, and tools. It does not prove model quality, privacy, skill correctness, or GUI completion.
+Plugin Doctor checks that the plugin is discovered, imports cleanly, and registers its hooks and tools. It doesn't test model quality, privacy, skill correctness, or GUI behavior.
 
-## 2. Save one Jev key (happy path)
+## 2. Save one Jev key
 
 ```text
 hermes switchyard setup --provider typesafe
 # or: hermes switchyard setup --provider openrouter
 ```
 
-Setup also runs `ensure-toolsets` so `computer_use` and `hermes_switchyard` are selectable. Start a fresh Hermes process after installation or configuration changes. A new turn in an old process is not sufficient proof that the new hook settings loaded.
+Setup also runs `ensure-toolsets`, so the `computer_use` and `hermes_switchyard` toolsets are available.
 
-Confirm the plugin remains enabled:
+**Start a fresh Hermes process** after installing or changing settings. Sending a new message in an old process isn't enough, because it keeps the old settings.
 
-```text
-hermes plugins list --enabled --plain
-```
+## 3. Try it
 
-No `hermes config set` commands are required to turn automatic hosted routing and load mode on; those are the install defaults.
-
-## 3. Run a public smoke
-
-With a key saved:
+Send a request that clearly matches a skill you have:
 
 ```text
 hermes chat -q "Diagnose an exiting Docker Compose container"
 ```
 
-Expected behavior when `docker-management` is available to the session:
+If a `docker-management` skill is available in that session, you should see:
 
-- load mode may pass one accepted exact identifier to Hermes' normal `skill_view` loader;
-- typed callback metadata / local receipt report consumer status and whether the load occurred;
-- the system prompt and active Hermes model are unchanged;
-- hosted Jev may run when acknowledgement is true and either a host allow envelope is present or the local scan is clean (`egress_authority: standing_ack`).
+- that one skill loaded through Hermes' normal `skill_view` loader;
+- a receipt (`hermes switchyard receipt --json`) showing whether the load happened;
+- your system prompt and active model unchanged.
 
-If the profile registry is empty, the candidate list is ambiguous, or the request has no overlap, abstention is expected.
+Jev is consulted when the acknowledgement is `true` and the local scan is clean (receipt field `egress_authority: standing_ack`), or when Hermes forwards an "allow" policy for the turn.
 
-For a controlled candidate list, set YAML/JSON as one shell argument:
+**Getting "no skill"?** That's expected when your profile has no skills, when two skills are equally good, or when nothing matches.
+
+### Make the test predictable
+
+To test against a fixed candidate list instead of your whole catalog, pass the list as one quoted argument:
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_candidates '[{"name":"docker-management","description":"Manage Docker containers and Compose services."}]'
 ```
 
-The plugin validates candidate names and descriptions. This setting does not load or authorize the listed skills; it only supplies local ranking data.
+Switchyard validates the names and descriptions. This list only feeds the ranking; it doesn't load or authorize those skills.
 
-## 4. Opt down for privacy
+## 4. Make it more private
 
-Keep all automatic hosted construction off:
+**Keep routing on your machine.** `local_only` never creates a Jev client:
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode local_only
 ```
 
-`local_only` never constructs a Jev client. The local matcher uses Hermes' active profile `skills_list()` registry. It searches the full registry locally and abstains when the score is too low or the winner is too close to the runner-up.
+The local matcher reads your profile's full skill list (`skills_list()`) and picks the best word match. It stays silent if the best score is too low or too close to the runner-up.
 
-Deliver advisory context without auto-loading:
+**Suggest skills without loading them:**
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_consumer_mode advisory
 ```
 
-Refuse hosted automatic routing (tool-call acknowledgement is separate):
+Advisory mode never calls Jev. Receipts show `consumer_contract_unmet` for the skipped hosted step.
+
+**Refuse hosted routing.** This doesn't affect explicit tool calls, which have their own acknowledgement:
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_public_or_sanitized_data_ack false
 ```
 
-Start a fresh Hermes process after changing these settings.
+Start a fresh Hermes process after any of these.
 
-## 5. Host envelopes and standing acknowledgement
+## 5. When is a turn allowed to reach Jev?
 
-Hosted Jev requires either a TypeSafe account/key or an OpenRouter account/key, plus available allowance. `jev_provider: auto` prefers direct TypeSafe. Codex or ChatGPT subscription billing does not pay for either route.
+Jev needs a TypeSafe or OpenRouter key with available credit. `jev_provider: auto` prefers TypeSafe. Codex or ChatGPT billing doesn't cover either.
 
-With the install defaults (`hosted_sanitized` + `load` + acknowledgement true):
+With the defaults (`hosted_sanitized` + `load` + acknowledgement `true`):
 
-- If the host forwards an allow envelope, that envelope authorizes the turn (`egress_authority: host_envelope`). Example:
+| Situation | Result |
+| --- | --- |
+| Hermes forwards an **allow** policy for the turn | Allowed (`egress_authority: host_envelope`) |
+| No policy from Hermes, and the local scan is clean | Allowed, using the scanned and scrubbed text (`egress_authority: standing_ack`) |
+| Hermes forwards a **deny**, unknown, malformed, or restricted policy | Blocked before any Jev client is created |
+| The local scan finds restricted content | Blocked before any Jev client is created |
+| Consumer mode is `advisory` | Never calls Jev (`consumer_contract_unmet`) |
+
+An example allow policy, for hosts that send one:
 
 ```json
 {"version":1,"decision":"allow","data_class":"sanitized","reason_code":"host_policy_allowed","allowed_payload":"sanitized public task"}
 ```
 
-- If no envelope is present and the local restricted-pattern scan is clean, standing acknowledgement authorizes the turn (`egress_authority: standing_ack`) using the bounded task text that passed the scan.
-- Explicit deny, unknown, malformed, or restricted envelopes fail closed before client construction.
-- Restricted local-scan hits fail closed before client construction.
-- Advisory consumer mode records `consumer_contract_unmet` and never constructs a client.
+**`always` vs `uncertain_only`:** `always` (the default) asks Jev even when local matching is confident. `uncertain_only` saves latency by asking only when local matching is unsure. If Jev validly says "no skill," that answer stands. Switchyard falls back to a local pick only when Jev couldn't be reached at all.
 
-`always` calls Jev even for a confident local match when load mode and authorization are present. Use `uncertain_only` only as an explicit latency-saving override. A valid hosted abstention stays abstained; only an unavailable transport may preserve a local recommendation.
+## 6. Turn it off or roll back
 
-## 6. Disable or roll back
-
-Disable automatic recommendations while leaving the rest of the plugin enabled:
+**Turn off automatic recommendations** but keep the rest of the plugin:
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_recommendation false
 ```
 
-Disable hosted requests but keep local matching:
+**Stop hosted requests** but keep local matching:
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode local_only
 ```
 
-Remove the automatic settings and return to manifest defaults:
+**Reset everything to defaults:**
 
 ```text
 hermes config unset plugins.entries.hermes-switchyard.settings.automatic_skill_candidates
@@ -141,40 +155,55 @@ hermes config unset plugins.entries.hermes-switchyard.settings.automatic_skill_p
 hermes config unset plugins.entries.hermes-switchyard.settings.automatic_skill_recommendation
 ```
 
-Start a fresh process after disabling or unsetting values.
-
-To disable the complete plugin:
+**Disable the whole plugin:**
 
 ```text
 hermes plugins disable hermes-switchyard
 ```
 
-To return to a previously reviewed plugin revision, reinstall that exact revision:
+**Go back to an earlier reviewed version** by reinstalling that exact commit:
 
 ```text
 hermes plugins remove hermes-switchyard
 hermes plugins install bgrablin/hermes-switchyard --ref PREVIOUS_FULL_SHA --enable
 ```
 
-Keep the previous 40-character SHA as the rollback target. Verify the installed revision with `hermes plugins list --plain` and run Plugin Doctor before using it.
+Keep a note of the previous 40-character SHA as your rollback target. Confirm the installed revision with `hermes plugins list --plain`, and run Plugin Doctor before using it. Start a fresh process after any of these changes.
 
 ## 7. Troubleshooting
 
-`hermes plugins list --enabled --plain`
+Start with:
 
-`hermes switchyard status` reports local readiness, tool exposure, provider, and whether a fresh session is required. It never prints the task, candidate descriptions, history, or credential value.
+```text
+hermes plugins list --enabled --plain
+hermes switchyard status
+```
 
-- If `hermes-switchyard` is absent, enable it or inspect the install result.
-- If the plugin is enabled but no recommendation appears, check that the current process is fresh and that the request matches an available skill or configured candidate.
-- If the local path abstains, inspect the threshold and margin settings. Lowering them increases selection frequency; these are uncalibrated local policies, not quality probabilities.
-- If hosted Jev is not attempted, inspect the redacted routing receipt `hosted_skip_reason`. `consumer_contract_unmet` means consumer mode is `advisory`; `ack_required` means standing acknowledgement is false; other `local_scan_*` codes mean the plugin rejected the bounded task; `per_turn_policy_unknown`, `per_turn_policy_invalid`, `per_turn_policy_denied`, and `restricted_data_class` mean the host envelope failed closed. `client_unavailable` / credential-required status means no configured route was available. To replace the profile-scoped credential without exposing it, use Switchyard's masked provider setup:
+`status` reports readiness, tool exposure, the provider, and whether you need a fresh session. It never prints your task, skill descriptions, history, or key.
+
+| Symptom | Likely cause and fix |
+| --- | --- |
+| `hermes-switchyard` isn't listed | It isn't enabled. Enable it, or check the install output. |
+| Enabled, but no recommendation | The process isn't fresh, or no skill matches the request. Restart, and check your skills or candidate list. |
+| Local matching always abstains | Try lowering `automatic_skill_local_threshold` or `automatic_skill_local_margin`. These are policy knobs, not quality probabilities. |
+| Jev never gets called | Read `hosted_skip_reason` in the receipt (see below). |
+| Tools missing from the session | Run `hermes switchyard ensure-toolsets`. |
+
+What `hosted_skip_reason` means:
+
+| Reason | Meaning |
+| --- | --- |
+| `consumer_contract_unmet` | Consumer mode is `advisory`. |
+| `ack_required` | The standing acknowledgement is `false`. |
+| `local_scan_*` | The local scan kept the turn local. |
+| `per_turn_policy_unknown`, `per_turn_policy_invalid`, `per_turn_policy_denied`, `restricted_data_class` | Hermes' per-turn policy blocked hosting. |
+| `client_unavailable`, or status `credential_required` | No usable key or route. Re-run the masked setup: |
 
 ```text
 hermes switchyard setup --provider typesafe
 # or: hermes switchyard setup --provider openrouter
 ```
 
-- If tools are missing from the session catalog, re-run `hermes switchyard ensure-toolsets`.
-- If hosted Jev is unavailable, local matching remains the only safe result. The plugin does not silently switch models, providers, accounts, or fallback routes.
+If Jev is unavailable, local matching is the only result. Switchyard never silently switches models, providers, accounts, or fallback routes.
 
-Do not treat a recommendation as proof that a skill was followed. In advisory mode it was not loaded. In load mode, verify the typed `skill_recommendation` metadata or local receipt (`consumer_status`, `loaded_skill`, and `skill_load_verified`) before claiming that Hermes' normal loader accepted it; independently verify the resulting work in either mode.
+**Was the skill actually used?** In `advisory` mode, nothing was loaded. In `load` mode, check the receipt's `consumer_status`, `loaded_skill`, and `skill_load_verified` fields before assuming Hermes accepted the skill. Either way, check the resulting work yourself.

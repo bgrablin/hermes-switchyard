@@ -189,7 +189,7 @@ Neither setting affects your normal Hermes model calls or the explicit Jev tools
 - **Public web pages:** It opens a fresh, throwaway Chromium profile. It never attaches to your signed-in browser, never logs in, and never uploads files. If a form needs text, the model supplies the values in `text_inputs`. Jev picks *where* to type but never sees *what* is typed.
 - **Desktop apps:** It uses Hermes' Cua Driver on supported systems.
 
-When the run thinks it's finished, it returns a *completion candidate* with `verified: false`. Check the result yourself before treating it as done. Destination rules, receipts, and recovery: [browser and desktop guide](docs/DOM-BROWSER-BACKEND.md).
+When a run thinks it's finished, it returns a *completion candidate*. A browser run is marked `verified: true` only when two signals agree: Jev says it's done, **and** a local completion check passes (for example, "the URL equals …"). Anything less, and every desktop run, stays `verified: false`, so check the result yourself before treating it as done. Destination rules, receipts, and recovery: [browser and desktop guide](docs/DOM-BROWSER-BACKEND.md).
 
 ## Toolsets and session exposure
 
