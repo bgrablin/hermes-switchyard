@@ -118,7 +118,12 @@ class RequestPlanningTests(unittest.TestCase):
                     calls.clear()
                     expected = reference_batches(decider, state, questions)
                     result = decider.decide(state, questions)
-                    self.assertEqual(calls, [decider._payload(state, batch) for batch in expected])
+                    expected_payloads = [decider._payload(state, batch) for batch in expected]
+                    self.assertEqual(calls, expected_payloads)
+                    self.assertEqual(
+                        json.dumps(calls, ensure_ascii=False).encode(),
+                        json.dumps(expected_payloads, ensure_ascii=False).encode(),
+                    )
                     self.assertEqual(list(result["answers"]), list(questions))
                     self.assertEqual(result["request_count"], len(expected))
                     self.assertEqual(result["total_usage"]["input_tokens"], len(questions))
