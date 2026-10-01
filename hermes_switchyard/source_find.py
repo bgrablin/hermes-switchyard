@@ -160,6 +160,10 @@ def locate(*, root: str | Path, source: str, query: str, client_factory: Any,
             raise SourceError("ack_required")
         if not isinstance(query, str) or not query.strip() or len(query) > MAX_QUERY_CHARS:
             raise SourceError("invalid_query")
+        try:
+            query.encode("utf-8")
+        except UnicodeEncodeError:
+            raise SourceError("invalid_query") from None
         if source_lookup_needs_local_handling(query):
             raise SourceError("local_handling_required")
         raw, identity = read_source(root, source)

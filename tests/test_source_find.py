@@ -154,7 +154,7 @@ class EvidenceFindTests(unittest.TestCase):
 
     def test_missing_ack_and_invalid_query_do_not_read(self):
         with mock.patch.object(finder, "read_source") as read:
-            for kwargs in [{"public_or_sanitized_data_ack": False}, {"query": ""}, {"query": "x" * 1201}, {"query": None}]:
+            for kwargs in [{"public_or_sanitized_data_ack": False}, {"query": ""}, {"query": "x" * 1201}, {"query": None}, {"query": "\ud800"}, {"query": "\udfff"}]:
                 self.assertEqual(self.run_find(**kwargs)["status"], "defer")
             read.assert_not_called()
         self.factory.assert_not_called()
