@@ -239,3 +239,45 @@ class ProvenanceTests(unittest.TestCase):
         path.write_text(json.dumps(data))
         with self.assertRaisesRegex(ValueError, "implementation revision drift"):
             validate(self.root)
+
+    def alter_confirmation(self, mutate):
+        path = self.root / "confirmation-observations.json"
+        data = json.loads(path.read_text())
+        mutate(data)
+        path.write_text(json.dumps(data))
+        manifest_path = self.root / "confirmation-provenance.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["observations_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        manifest_path.write_text(json.dumps(manifest))
+
+    def test_result_severity_is_reconciled_with_provider_answers(self):
+        def corrupt(book):
+            for row in book["rows"]:
+                for entry in row["result"]["records"]:
+                    if entry["decision"]["severity"] == "minor":
+                        entry["decision"]["severity"] = "critical"
+                        return
+            self.fail("fixture has no accepted minor record")
+
+        self.alter_confirmation(corrupt)
+        with self.assertRaisesRegex(ValueError, "decision disagrees with provider"):
+            validate(self.root)
+
+    def test_consumer_payload_is_reconciled_with_provider_answers(self):
+        def corrupt(book):
+            for row in book["rows"]:
+                for entry in row["result"]["records"]:
+                    if entry["consumer"]["sha256"]:
+                        entry["consumer"]["sha256"] = "0" * 64
+                        return
+
+        self.alter_confirmation(corrupt)
+        with self.assertRaisesRegex(ValueError, "consumer disagrees with provider"):
+            validate(self.root)
+
+    def test_cost_is_reconciled_with_provider_usage(self):
+        self.alter_confirmation(
+            lambda b: b["rows"][0]["result"]["accounting"].update(total_cost=0)
+        )
+        with self.assertRaisesRegex(ValueError, "accounting cost drift"):
+            validate(self.root)

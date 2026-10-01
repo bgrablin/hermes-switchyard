@@ -4,6 +4,7 @@ import json
 import math
 import re
 import statistics
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -169,6 +170,7 @@ def summarize(screen, workflow, native):
 
 
 def main():
+    sys.path.insert(0, str(ROOT.parents[1]))
     from validate_observations import validate
 
     book = validate(ROOT)

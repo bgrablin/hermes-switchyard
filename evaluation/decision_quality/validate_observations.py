@@ -139,6 +139,32 @@ def validate(root: Path):
             digest((root / name).read_bytes()) == frozen[name], "fixture drift: " + name
         )
     module = ast.parse((repo / "hermes_switchyard/record_triage.py").read_text())
+    frozen_module = ast.parse((root / "frozen/record_triage.py").read_text())
+    grading_names = {
+        "_parse_answers",
+        "_bounded_distribution",
+        "_unit",
+        "_decision",
+        "_consume",
+        "_priority",
+        "_routable",
+        "_canonical_bytes",
+    }
+    current_functions = {
+        n.name: ast.dump(n)
+        for n in module.body
+        if isinstance(n, ast.FunctionDef) and n.name in grading_names
+    }
+    frozen_functions = {
+        n.name: ast.dump(n)
+        for n in frozen_module.body
+        if isinstance(n, ast.FunctionDef) and n.name in grading_names
+    }
+    require(
+        set(current_functions) == grading_names
+        and current_functions == frozen_functions,
+        "decision replay implementation drift",
+    )
     literals = {
         node.targets[0].id: ast.literal_eval(node.value)
         for node in module.body
@@ -219,6 +245,8 @@ def validate(root: Path):
         require(
             [r["id"] for r in row["result"]["records"]] == ids, "workflow record drift"
         )
+    for row in book["workflow"]:
+        reconcile_workflow(row, workflow["records"])
     for row in book["screen"]:
         if row["family"] == "rubrics":
             offset = int(row["id"].split("-")[1])
@@ -320,6 +348,8 @@ def validate_confirmation(root):
             [r["id"] for r in row["result"]["records"]] == ids,
             "confirmation record drift",
         )
+    for row in book["rows"]:
+        reconcile_workflow(row, cases["records"])
     return book["rows"]
 
 
@@ -340,3 +370,56 @@ def validate_implementations(root, bindings, expected_runs):
             text=True,
         ).strip()
         require(tree == identity["tree"], "implementation tree drift: " + run)
+
+
+def reconcile_workflow(row, records):
+    """Re-derive accepted decisions and consumer payload hashes from provider answers."""
+    from hermes_switchyard.record_triage import (
+        _parse_answers,
+        _consume,
+        _canonical_bytes,
+    )
+
+    require(len(row["calls"]) == 1, "unexpected workflow provider call count")
+    call = row["calls"][0]
+    require(
+        call["model"] == "typesafe/jev-1.13-20260917", "workflow provider model drift"
+    )
+    require(call["request_count"] == 1, "workflow provider request count drift")
+    inputs = {record["id"]: record for record in records}
+    entries = row["result"]["records"]
+    names = {
+        prefix + entry["id"]
+        for entry in entries
+        for prefix in ["disposition__", "severity__"]
+    }
+    require(set(call["answers"]) == names, "workflow provider answer set drift")
+    for entry in entries:
+        rid = entry["id"]
+        decision = _parse_answers(rid, call["answers"], 0.8, 0.8)
+        require(
+            decision == entry["decision"],
+            "workflow decision disagrees with provider answers",
+        )
+        consumer, payload = _consume(inputs[rid], decision)
+        if payload is not None:
+            consumer["file"] = f"actions/{rid}.json"
+            consumer["sha256"] = digest(_canonical_bytes(payload))
+        require(
+            consumer == entry["consumer"],
+            "workflow consumer disagrees with provider answers",
+        )
+    accounting = row["result"]["accounting"]
+    require(
+        accounting["requests_completed"] == call["request_count"],
+        "workflow accounting request drift",
+    )
+    require(
+        accounting["total_cost"] == call["usage"]["cost"],
+        "workflow accounting cost drift",
+    )
+    require(
+        row["verification"]
+        == {"verified": True, "errors": [], "checked_records": len(entries)},
+        "workflow artifact verification drift",
+    )
