@@ -1,5 +1,6 @@
 """Current-turn prefetch eligibility, host scope, and fallback contracts."""
 import json
+import threading
 import unittest
 from unittest import mock
 
@@ -113,6 +114,37 @@ class PrefetchTests(unittest.TestCase):
         self.assertIsNone(hook(**self.kwargs))
         self.assertEqual(self.locate.call_count, before)
 
+    def test_refusal_during_inflight_lookup_suppresses_publication(self):
+        for refusal in ("same_turn", "capacity"):
+            with self.subTest(refusal=refusal):
+                entered, release = threading.Event(), threading.Event()
+                timed_out, result = [], {}
+                hook = prefetch.build_hook(enabled=True, root="/fixture", standing_ack=True,
+                                           client_factory=self.factory)
+
+                def blocked_lookup(**_kwargs):
+                    entered.set()
+                    if not release.wait(5):
+                        timed_out.append(True)
+                    return self.locate.return_value
+
+                self.locate.side_effect = blocked_lookup
+                worker = threading.Thread(target=lambda: result.update(value=hook(**self.kwargs)))
+                worker.start()
+                try:
+                    self.assertTrue(entered.wait(5))
+                    turns = [self.kwargs["turn_id"]] if refusal == "same_turn" else [str(n) for n in range(257)]
+                    for turn in turns:
+                        self.assertIsNone(hook(**{**self.kwargs, "turn_id": turn,
+                                                 "turn_egress_policy": {"decision": "deny"}}))
+                finally:
+                    release.set()
+                    worker.join(5)
+                self.assertFalse(worker.is_alive())
+                self.assertFalse(timed_out)
+                self.assertIn("value", result)
+                self.assertIsNone(result["value"])
+
     def test_compound_rewrite_copy_rename_inflections_skip(self):
         for action in ("rewrite", "rewrites", "rewriting", "rewritten", "rewrote", "rename",
                        "renames", "renamed", "renaming", "copy", "copies", "copied", "copying",
@@ -129,7 +161,10 @@ class PrefetchTests(unittest.TestCase):
                        "removes", "removed", "removing", "replaces", "replaced", "replacing",
                        "executes", "executed", "executing", "runs", "ran", "running",
                        "installs", "installed", "installing", "deploys", "deployed", "deploying",
-                       "sends", "sent", "sending", "uploads", "uploaded", "uploading"):
+                       "sends", "sent", "sending", "uploads", "uploaded", "uploading",
+                       "write", "writes", "writing", "written", "wrote", "overwrite",
+                       "overwrites", "overwriting", "overwritten", "overwrote", "save",
+                       "saves", "saved", "saving", "append", "appends", "appended", "appending"):
             with self.subTest(action=action):
                 self.assertIsNone(self.hook(**{**self.kwargs, "user_message":
                     "In notes.md, find the retry limit before " + action + " it."}))

@@ -27,8 +27,8 @@ evidence_finder_prefetch switch and switchyard_find tool have been removed.
 The original user message must name one file in a supported form: "In file.md, find
 ..." or "Find ... in file.md". Quoted paths are accepted. A second line may request
 a complete supported JSON format; other multiline and recognized compound work stays with
-Hermes. Explicit printable, nonblank session, task, and turn identities, a foreground
-parent identity, and a supported interactive platform are required. Missing or
+Hermes. Explicit printable, nonblank session, task, and turn identities, an empty
+parent-session identity (foreground work), and a supported interactive platform are required. Missing or
 malformed identity skips prefetch before source I/O or provider work.
 
 Privacy and network constraints in the original request skip lookup. Any supplied
@@ -42,7 +42,8 @@ Host-envelope refusals apply to the entire session/task/turn scope, regardless o
 message changes or an initially malformed message. They are retained separately
 from ordinary duplicate suppression and never evicted to admit another lookup.
 A later callback cannot broaden a refusal by changing the text or omitting the
-envelope. If the bounded refusal store fills, prefetch stops for that hook instance
+envelope. A refusal recorded while a lookup is in flight suppresses its returned
+context; it cannot recall a provider request already dispatched. If the bounded refusal store fills, prefetch stops for that hook instance
 until the plugin is reloaded; ordinary Hermes tools continue normally. Within an
 unrefused scope, a new query reads afresh.
 

@@ -24,6 +24,8 @@ _CHANGE = re.compile(
     r"\b(?:edit(?:s|ed|ing)?|updat(?:e|es|ed|ing)|modif(?:y|ies|ied|ying)|"
     r"delet(?:e|es|ed|ing)|remov(?:e|es|ed|ing)|replac(?:e|es|ed|ing)|"
     r"execut(?:e|es|ed|ing)|run(?:s|ning)?|ran|install(?:s|ed|ing)?|"
+    r"writ(?:e|es|ing|ten)|wrote|overwrit(?:e|es|ing|ten)|overwrote|"
+    r"sav(?:e|es|ed|ing)|append(?:s|ed|ing)?|"
     r"deploy(?:s|ed|ing)?|send(?:s|ing)?|sent|upload(?:s|ed|ing)?)\b", re.IGNORECASE,
 )
 _INTERACTIVE = frozenset({"cli", "tui", "telegram", "discord", "slack", "signal", "whatsapp"})
@@ -217,7 +219,13 @@ def build_hook(*, enabled: bool, root: str, standing_ack: bool, client_factory: 
             metadata = {key: result[key] for key in (
                 "status", "reason", "request_count", "usage", "accounting", "wall_ms", "transport_retries"
             ) if key in result}
-            return {"context": context, "metadata": {"switchyard_find": metadata}}
+            output = {"context": context, "metadata": {"switchyard_find": metadata}}
+            # Publication and refusal share a linearization point. A refusal
+            # observed while locate was in flight must suppress its result.
+            with lock:
+                if refusal_capacity_reached or scope in refused:
+                    return None
+                return output
         except Exception:  # noqa: BLE001 -- optional prefetch must never block normal Hermes work
             return None
 
