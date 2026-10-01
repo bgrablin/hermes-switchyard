@@ -241,8 +241,12 @@ def summarize(root=ROOT):
     if set(evidence["runs"]) != RUNS:
         raise ValueError("unexpected study set")
     for digest, snapshot in evidence["runtime_snapshots"].items():
-        if sha(canonical(snapshot)) != digest or not snapshot:
-            raise ValueError("runtime fingerprint mismatch")
+        if (
+            snapshot.get("canonical_paths_and_hashes_sha256") != digest
+            or not isinstance(snapshot.get("tracked_python_files"), int)
+            or snapshot["tracked_python_files"] <= 0
+        ):
+            raise ValueError("runtime fingerprint metadata mismatch")
     for name, run in evidence["runs"].items():
         if set(run["source_bindings"]) != set(run["freeze"]["files"]):
             raise ValueError("incomplete source bindings")
@@ -250,6 +254,19 @@ def summarize(root=ROOT):
             source = run["source_bindings"][path]
             if source["kind"] == "snapshot":
                 data = sources[source["path"]]
+            elif source["kind"] == "redacted_snapshot":
+                if source["path"] not in {
+                    "evaluation/model_routing/compare.py",
+                    "evaluation/turn_consolidation/native_compare.py",
+                }:
+                    raise ValueError("unexpected redacted historical source")
+                entry = source_index[source["path"]]
+                if (
+                    entry.get("redaction") != "host-runtime-root"
+                    or entry.get("recorded_sha256") != digest
+                ):
+                    raise ValueError("invalid archival redaction binding")
+                continue
             elif source["kind"] == "git":
                 data = subprocess.check_output(
                     ["git", "show", source["revision"] + ":" + source["path"]], cwd=REPO
@@ -273,6 +290,7 @@ def summarize(root=ROOT):
     )
     return {
         "scope": "Synthetic pilots only. No production registration or default enablement.",
+        "archival_limit": "Two historical runner copies redact the host runtime path; their original-byte hashes cannot be re-derived from the public portable copies. Runtime evidence retains aggregate fingerprints and file counts.",
         "interrupted_run": {
             "rows": len(interrupted["rows"]),
             "missing": missing,

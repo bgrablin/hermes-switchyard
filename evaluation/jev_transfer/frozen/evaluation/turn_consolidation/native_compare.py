@@ -34,7 +34,7 @@ def digest(p):
  return hashlib.sha256(p.read_bytes()).hexdigest()
 
 def runtime_hashes():
- root=Path("/home/brian/.hermes/hermes-agent")
+ root=Path("<recorded-hermes-source-root>")
  names=subprocess.check_output(["git","ls-files","*.py"],cwd=root,text=True).splitlines()
  return {name:digest(root/name) for name in names if (root/name).is_file()}
 
@@ -65,7 +65,7 @@ def main():
   "acceptance":"Candidate correctness no lower than every control; median and total latency at least 5% below disabled and main; no unsupported provider mutation; a shared live Jev decision must be consumed. Not sufficient for general-release qualification.",
   "routing_deadline_ms":400,"concurrent_provider_calls":1,
   "files":{p.name:digest(p) for p in [Path(__file__),ROOT/"pilot.py",ROOT/"native_worker.py"]},
-  "runtime_revision":subprocess.check_output(["git","rev-parse","HEAD"],cwd="/home/brian/.hermes/hermes-agent",text=True).strip()}
+  "runtime_revision":subprocess.check_output(["git","rev-parse","HEAD"],cwd="<recorded-hermes-source-root>",text=True).strip()}
  (out/"freeze.json").write_text(json.dumps(freeze,indent=2))
  workers={};rows=[]
  try:

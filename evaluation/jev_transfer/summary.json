@@ -1,5 +1,6 @@
 {
   "scope": "Synthetic pilots only. No production registration or default enablement.",
+  "archival_limit": "Two historical runner copies redact the host runtime path; their original-byte hashes cannot be re-derived from the public portable copies. Runtime evidence retains aggregate fingerprints and file counts.",
   "interrupted_run": {
     "rows": 79,
     "missing": 17,

@@ -95,8 +95,8 @@ def source_hashes():
     return {p.relative_to(REPO).as_posix(): digest(p) for p in paths}
 
 
-def runtime_hashes():
-    root = Path("/home/brian/.hermes/hermes-agent")
+def runtime_hashes(root):
+    root = root.resolve()
     names = subprocess.check_output(
         ["git", "ls-files", "*.py"], cwd=root, text=True
     ).splitlines()
@@ -106,6 +106,7 @@ def runtime_hashes():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--hermes-root", type=Path, required=True)
     args = parser.parse_args()
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
@@ -131,7 +132,7 @@ def main():
         "from .hermes_switchyard.routing_pilot import ContextProxy\n"
         "def register(ctx):\n    return _register(ContextProxy(ctx))\n"
     )
-    before = runtime_hashes()
+    before = runtime_hashes(args.hermes_root)
     (out / "runtime-before.json").write_text(json.dumps(before, sort_keys=True))
     freeze = {
         "cases": CASES,
@@ -150,7 +151,7 @@ def main():
         "files": source_hashes(),
         "runtime_revision": subprocess.check_output(
             ["git", "rev-parse", "HEAD"],
-            cwd="/home/brian/.hermes/hermes-agent",
+            cwd=args.hermes_root,
             text=True,
         ).strip(),
     }
@@ -199,7 +200,7 @@ def main():
     finally:
         for worker in workers.values():
             worker.close()
-    after = runtime_hashes()
+    after = runtime_hashes(args.hermes_root)
     (out / "runtime-after.json").write_text(json.dumps(after, sort_keys=True))
     summary = {"runtime_unchanged": before == after, "arms": {}}
     for arm in freeze["arms"]:
