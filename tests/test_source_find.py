@@ -162,7 +162,8 @@ class EvidenceFindTests(unittest.TestCase):
     def test_local_only_query_defers_before_read_or_provider(self):
         with mock.patch.object(finder, "read_source") as read:
             for query in ["Find retries offline", "Find retries without using an external service",
-                          "Find retries using local tools only", "Find retries on my computer"]:
+                          "Find retries using local tools only", "Find retries on my computer",
+                          "Find retries on this air-gapped system", "Find retries while disconnected"]:
                 self.assertEqual(self.run_find(query=query)["reason"], "local_handling_required")
             read.assert_not_called()
         self.factory.assert_not_called()

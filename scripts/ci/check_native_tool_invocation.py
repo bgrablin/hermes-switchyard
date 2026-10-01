@@ -355,7 +355,7 @@ def _validate_success(tool: str, parsed: dict[str, Any]) -> str:
         raise NativeInvocationError(f"{tool} returned a structured error against synthetic input: {reason}")
     status = parsed.get("status")
     if tool == "switchyard_find":
-        if os.open not in os.supports_dir_fd:
+        if os.open not in os.supports_dir_fd or not hasattr(os, "O_NOFOLLOW"):
             if status == "defer" and parsed.get("reason") == "unsupported_filesystem":
                 return "unsupported_filesystem_with_fallback"
         if status != "found" or parsed.get("evidence") != "Cache entries expire after 45 seconds.\n" or parsed.get("start_line") != 1:

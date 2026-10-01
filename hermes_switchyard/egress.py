@@ -222,7 +222,8 @@ def is_routing_mode(value: Any) -> bool:
 
 
 _SOURCE_EGRESS_CUE = re.compile(
-    r"\b(?:offline|off.line|local(?:ly)?|private|confidential|without|never|no|"
+    r"\b(?:offline|off.line|air[\s\-\u2010-\u2015]*gap(?:ped)?|disconnected|"
+    r"local(?:ly)?|private|confidential|without|never|no|"
     r"don't|do\s+not|avoid|skip|instead|network|internet|cloud|external|"
     r"third.party|remote|hosted|provider|egress|upload|transmit|share|send)\b"
     r"|\b(?:on|within|inside)\s+(?:my|this|the)\s+(?:machine|computer|device|pc)\b",

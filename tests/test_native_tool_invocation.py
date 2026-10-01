@@ -126,6 +126,22 @@ class CaseTableTests(unittest.TestCase):
                 with self.assertRaisesRegex(NativeInvocationError, "jev_assess returned no valid typed fit score"):
                     module._validate_success("jev_assess", payload)
 
+    def test_finder_missing_nofollow_uses_unsupported_fallback(self):
+        from scripts.ci import check_native_tool_invocation as module
+
+        filesystem = mock.Mock(spec=["open", "supports_dir_fd"])
+        filesystem.supports_dir_fd = {filesystem.open}
+        fallback = {"status": "defer", "reason": "unsupported_filesystem"}
+        with mock.patch.object(module, "os", filesystem):
+            self.assertEqual(module._validate_success("switchyard_find", fallback),
+                             "unsupported_filesystem_with_fallback")
+            with self.assertRaises(NativeInvocationError):
+                module._validate_success("switchyard_find", {"status": "defer", "reason": "source_unavailable"})
+        filesystem.O_NOFOLLOW = 1
+        with mock.patch.object(module, "os", filesystem):
+            with self.assertRaises(NativeInvocationError):
+                module._validate_success("switchyard_find", fallback)
+
     def test_non_error_without_a_success_terminal_state_is_rejected(self):
         from scripts.ci import check_native_tool_invocation as module
 

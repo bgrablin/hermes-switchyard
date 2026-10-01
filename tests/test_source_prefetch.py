@@ -92,6 +92,9 @@ class PrefetchTests(unittest.TestCase):
 
     def test_privacy_and_network_cues_skip_before_source_read(self):
         for suffix in ["offline", "off-line", "locally", "using local tools only",
+                       "on this air-gapped system", "on this airgapped system", "on this air gapped system",
+                       "on this air‐gapped system", "on this air‑gapped system", "on this air–gapped system",
+                       "across the air gap", "while disconnected",
                        "without using an external service", "with no network access",
                        "without sharing it", "on my computer", "inside this device",
                        "don't send it anywhere", "don’t use the cloud", "with no third-party access"]:
