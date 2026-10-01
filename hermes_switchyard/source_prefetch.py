@@ -9,6 +9,7 @@ from collections import OrderedDict
 from typing import Any
 
 from .source_find import MAX_QUERY_CHARS, locate
+from .source_bundle import MAX_FILES, locate_many
 from .egress import source_lookup_needs_local_handling
 
 _NAMED_SOURCE = re.compile(
@@ -25,6 +26,7 @@ _CHANGE = re.compile(
     r"execut(?:e|es|ed|ing)|run(?:s|ning)?|ran|install(?:s|ed|ing)?|"
     r"writ(?:e|es|ing|ten)|wrote|overwrit(?:e|es|ing|ten)|overwrote|"
     r"sav(?:e|es|ed|ing)|append(?:s|ed|ing)?|"
+    r"creat(?:e|es|ed|ing)|mov(?:e|es|ed|ing)|publish(?:es|ed|ing)?|"
     r"deploy(?:s|ed|ing)?|send(?:s|ing)?|sent|upload(?:s|ed|ing)?)\b", re.IGNORECASE,
 )
 _INTERACTIVE = frozenset({"cli", "tui", "telegram", "discord", "slack", "signal", "whatsapp"})
@@ -116,11 +118,34 @@ def request_source(message: Any) -> str | None:
     # A single location question only. Conjunctions, extra sentences, dotted
     # file/identifier references, and additional actions stay with normal tools.
     # Conservative false positives only forgo the optional prefetch.
-    if re.search(r"\b(?:and|then|also|compare|summarize|explain|calculate|count|translat(?:e|es|ed|ing)|rewrit(?:e|es|ing|ten)|rewrote|renam(?:e|es|ed|ing)|cop(?:y|ies|ied|ying)|simplif(?:y|ies|ied|ying)|paraphras(?:e|es|ed|ing)|rephras(?:e|es|ed|ing))\b|[,;:&.!?…—–]|\s-\s",
+    if re.search(r"\b(?:and|then|also|while|whilst|before|after|alongside|compare|summarize|explain|calculate|count|translat(?:e|es|ed|ing)|rewrit(?:e|es|ing|ten)|rewrote|renam(?:e|es|ed|ing)|cop(?:y|ies|ied|ying)|simplif(?:y|ies|ied|ying)|paraphras(?:e|es|ed|ing)|rephras(?:e|es|ed|ing))\b|[,;:&.!?…—–]|\s-\s",
                  query.strip().rstrip(".!?"), re.I):
         return None
     # Require a concrete filename, not a directory or a pronoun like "that".
     return source if "." in source.rsplit("/", 1)[-1] and len(source) <= 512 else None
+
+
+def request_sources(message: Any) -> list[str] | None:
+    """Explicit backtick-quoted file lists; unknown syntax keeps ordinary tools."""
+    if not _valid_message(message):
+        return None
+    lines = message.strip().splitlines()
+    match = re.fullmatch(r"In\s+((?:`[^`\n]+`(?:,\s*|\s+and\s+|,\s*and\s+))*`[^`\n]+`),\s*(.+)",
+                         lines[0], re.I)
+    if not match:
+        return None
+    filenames = re.findall(r"`([^`]+)`", match.group(1))
+    if not 2 <= len(filenames) <= MAX_FILES or len(set(filenames)) != len(filenames):
+        return None
+    # Reuse the single-file full-message checks, including format-only suffixes
+    # and privacy/compound-action refusal. Never infer a path from query text.
+    proxy = "In `" + filenames[0] + "`, " + match.group(2)
+    if len(lines) > 1:
+        proxy += "\n" + "\n".join(lines[1:])
+    if request_source(proxy) is None or any(
+            "." not in name.rsplit("/", 1)[-1] or len(name) > 512 for name in filenames):
+        return None
+    return filenames
 
 
 def build_hook(*, enabled: bool, root: str, standing_ack: bool, client_factory: Any):
@@ -168,11 +193,14 @@ def build_hook(*, enabled: bool, root: str, standing_ack: bool, client_factory: 
             return None
         # Hashes belong only to ordinary duplicate suppression, not permission.
         key = (*scope, hashlib.sha256(user_message.encode()).hexdigest())
-        source = request_source(user_message)
-        if source is None or not consume(scope, key):
+        sources = request_sources(user_message)
+        source = request_source(user_message) if sources is None else None
+        if (source is None and sources is None) or not consume(scope, key):
             return None
         try:
-            result = locate(root=root, source=source, query=user_message.strip().splitlines()[0].strip(),
+            lookup = locate_many if sources else locate
+            result = lookup(root=root, **({"sources": sources} if sources else {"source": source}),
+                            query=user_message.strip().splitlines()[0].strip(),
                             client_factory=client_factory, public_or_sanitized_data_ack=True)
             # This ephemeral block belongs to the current user turn. Source
             # evidence is data; neither provider text nor source instructions
@@ -203,3 +231,4 @@ def build_hook(*, enabled: bool, root: str, standing_ack: bool, client_factory: 
             return None
 
     return hook
+
