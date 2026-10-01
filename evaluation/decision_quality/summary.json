@@ -1,0 +1,178 @@
+{
+  "rubrics": {
+    "existing": {
+      "development": {
+        "n": 24,
+        "modal_correct": 22,
+        "accepted_correct": 20,
+        "accepted_wrong": 0
+      },
+      "holdout": {
+        "n": 40,
+        "modal_correct": 22,
+        "accepted_correct": 20,
+        "accepted_wrong": 2
+      }
+    },
+    "descriptive": {
+      "development": {
+        "n": 24,
+        "modal_correct": 24,
+        "accepted_correct": 24,
+        "accepted_wrong": 0
+      },
+      "holdout": {
+        "n": 40,
+        "modal_correct": 40,
+        "accepted_correct": 40,
+        "accepted_wrong": 0
+      }
+    }
+  },
+  "workflow": {
+    "main": {
+      "records": 32,
+      "rated_correct": 15,
+      "rated_wrong": 0,
+      "abstained": 6,
+      "qualified_unrated": 11,
+      "verified_artifacts": 8,
+      "latency": {
+        "n": 8,
+        "mean_ms": 207.461,
+        "p50_ms": 200.24,
+        "p95_ms": 240.777
+      },
+      "cost_usd": 0.00048300000000000003,
+      "requests": 8
+    },
+    "candidate": {
+      "records": 32,
+      "rated_correct": 28,
+      "rated_wrong": 0,
+      "abstained": 4,
+      "qualified_unrated": 0,
+      "verified_artifacts": 8,
+      "latency": {
+        "n": 8,
+        "mean_ms": 227.902,
+        "p50_ms": 198.398,
+        "p95_ms": 385.653
+      },
+      "cost_usd": 0.000578424,
+      "requests": 8
+    }
+  },
+  "native": {
+    "off": {
+      "n": 24,
+      "strict_format_correct": 24,
+      "answer_correct_after_receipt_removal": 24,
+      "latency": {
+        "n": 24,
+        "mean_ms": 5571.496,
+        "p50_ms": 4356.359,
+        "p95_ms": 15397.27
+      },
+      "main_requests": 24,
+      "high_effort_requests": 24,
+      "jev_attempts": 0
+    },
+    "release": {
+      "n": 24,
+      "strict_format_correct": 0,
+      "answer_correct_after_receipt_removal": 24,
+      "latency": {
+        "n": 24,
+        "mean_ms": 2658.224,
+        "p50_ms": 2153.227,
+        "p95_ms": 4981.648
+      },
+      "main_requests": 24,
+      "high_effort_requests": 0,
+      "jev_attempts": 24
+    },
+    "main": {
+      "n": 24,
+      "strict_format_correct": 24,
+      "answer_correct_after_receipt_removal": 24,
+      "latency": {
+        "n": 24,
+        "mean_ms": 2597.272,
+        "p50_ms": 2298.739,
+        "p95_ms": 4191.189
+      },
+      "main_requests": 24,
+      "high_effort_requests": 1,
+      "jev_attempts": 24
+    },
+    "candidate": {
+      "n": 24,
+      "strict_format_correct": 24,
+      "answer_correct_after_receipt_removal": 24,
+      "latency": {
+        "n": 24,
+        "mean_ms": 2629.733,
+        "p50_ms": 2213.546,
+        "p95_ms": 3983.59
+      },
+      "main_requests": 24,
+      "high_effort_requests": 4,
+      "jev_attempts": 24
+    }
+  },
+  "audit": {
+    "n": 32,
+    "correct": 22,
+    "accepted_wrong": 8
+  },
+  "batching": {
+    "serial_four_record_runs": {
+      "n": 2,
+      "mean_ms": 883.99,
+      "p50_ms": 883.99,
+      "p95_ms": 950.613
+    },
+    "batched_four_record_runs": {
+      "n": 2,
+      "mean_ms": 217.789,
+      "p50_ms": 217.789,
+      "p95_ms": 246.347
+    },
+    "scope": "Already implemented batching; conditional severity screen only. Dispositions abstained in this initial screen."
+  },
+  "review_confirmation": {
+    "main": {
+      "records": 48,
+      "rated_correct": 18,
+      "rated_wrong": 2,
+      "abstained": 5,
+      "qualified_unrated": 23,
+      "verified_artifacts": 12,
+      "latency": {
+        "n": 12,
+        "mean_ms": 195.525,
+        "p50_ms": 194.349,
+        "p95_ms": 218.907
+      },
+      "cost_usd": 0.0007287,
+      "requests": 12
+    },
+    "candidate": {
+      "records": 48,
+      "rated_correct": 42,
+      "rated_wrong": 0,
+      "abstained": 6,
+      "qualified_unrated": 0,
+      "verified_artifacts": 12,
+      "latency": {
+        "n": 12,
+        "mean_ms": 232.169,
+        "p50_ms": 195.038,
+        "p95_ms": 388.656
+      },
+      "cost_usd": 0.0008919959999999999,
+      "requests": 12
+    }
+  }
+}

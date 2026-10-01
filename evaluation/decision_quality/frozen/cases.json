@@ -1,0 +1,548 @@
+{
+  "schema": 1,
+  "severity_rubric": [
+    "Appearance or wording defect only; all intended operations still work and no data is lost.",
+    "An operation is degraded or fails, but an explicitly stated usable workaround completes the same task without data loss.",
+    "An intended operation is blocked with no usable workaround; no permanent data loss or unauthorized access is reported.",
+    "Permanent loss or corruption of user data, unauthorized access, or a confirmed exposure of secret values."
+  ],
+  "records": [
+    {
+      "id": "bug-00",
+      "title": "Observed issue 0",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: The heading overlaps the logo at 125% zoom. All buttons and operations still work.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-01",
+      "title": "Observed issue 1",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: Export CSV fails in the menu, but the documented CLI export produces the identical CSV without data loss.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-02",
+      "title": "Observed issue 2",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: Every attempt to import a valid CSV fails. There is no alternative import path. Existing records are intact.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-03",
+      "title": "Observed issue 3",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: Saving a draft permanently overwrites an unrelated customer's stored records; backups are also overwritten.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-04",
+      "title": "Observed issue 4",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: The footer says Nextt instead of Next. Navigation behaves correctly.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-05",
+      "title": "Observed issue 5",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: The search keyboard shortcut fails. Clicking the search button completes the same search correctly.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-06",
+      "title": "Observed issue 6",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: Both the search shortcut and search button fail. Search cannot be performed by any documented route.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-07",
+      "title": "Observed issue 7",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: A logged-out visitor can read another user's private notes by changing the note identifier.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-08",
+      "title": "Observed issue 8",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: A decorative progress animation freezes after the operation has completed successfully. The result is correct.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-09",
+      "title": "Observed issue 9",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: The upload drag target is broken. The Choose File button still uploads every affected file successfully.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-10",
+      "title": "Observed issue 10",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: All file-upload mechanisms reject supported files. No workaround exists, and no stored files are damaged.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-11",
+      "title": "Observed issue 11",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: The support log includes full secret access tokens that any ordinary account can download.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-12",
+      "title": "Observed issue 12",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: The developer labels this CRITICAL, but the only defect is a slightly misaligned border. Functionality is unaffected.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-13",
+      "title": "Observed issue 13",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: A report cannot be printed from the toolbar; the browser Print command produces the same report correctly.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-14",
+      "title": "Observed issue 14",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: Printing is unavailable from every interface. The task cannot be completed; the original report is undamaged.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-15",
+      "title": "Observed issue 15",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: An import reports success but irreversibly replaces all original numeric values with zero.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-16",
+      "title": "Observed issue 16",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: The delete confirmation uses an awkward sentence. It asks for confirmation correctly and deletes only the selected item.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-17",
+      "title": "Observed issue 17",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: A saved filter cannot be renamed inline. Opening its settings allows the identical rename without losing any data.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-18",
+      "title": "Observed issue 18",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: Users cannot rename a saved filter through any supported interface. All existing filters remain intact.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-19",
+      "title": "Observed issue 19",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: A read-only user can change another user's account permissions and grant themselves administrator access.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-20",
+      "title": "Observed issue 20",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: The author calls it catastrophic. Evidence shows a wrong icon beside successful sync; every file matches.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-21",
+      "title": "Observed issue 21",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: The default view fails to open a record. Its direct URL reliably opens the same complete record.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-22",
+      "title": "Observed issue 22",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: A record is stored intact, but no UI, API, or CLI can open it and there is no usable workaround.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-23",
+      "title": "Observed issue 23",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: The author calls it a minor annoyance. Saving preferences deletes the only copy of the user's projects permanently.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-24",
+      "title": "Observed issue 24",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: An empty-state illustration has the wrong color. Creating, listing, and opening records all work.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-25",
+      "title": "Observed issue 25",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: The help search crashes, but the indexed contents page exposes every same help article.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-26",
+      "title": "Observed issue 26",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: Neither help search nor contents nor direct links can open any article. No alternate path is available.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-27",
+      "title": "Observed issue 27",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: The application publishes a user's confidential attachment through an unauthenticated public URL without permission.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-28",
+      "title": "Observed issue 28",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: The terminal emits one extra blank line between rows; values and command behavior remain correct.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-29",
+      "title": "Observed issue 29",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: The terminal table view crashes; the JSON flag returns every same record correctly and can complete the task.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-30",
+      "title": "Observed issue 30",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: Both table and JSON output abort before returning any records. No alternate command can list them.",
+      "data_class": "synthetic",
+      "component": "cli"
+    },
+    {
+      "id": "bug-31",
+      "title": "Observed issue 31",
+      "body": "Reproduction: perform the described operation in a clean test installation. Expected: the documented operation succeeds. Observed: Refreshing the list deletes the backing data file and its recovery copy irreversibly.",
+      "data_class": "synthetic",
+      "component": "cli"
+    }
+  ],
+  "labels": {
+    "bug-00": {
+      "disposition": "qualified",
+      "severity": "cosmetic",
+      "split": "development"
+    },
+    "bug-01": {
+      "disposition": "qualified",
+      "severity": "minor",
+      "split": "development"
+    },
+    "bug-02": {
+      "disposition": "qualified",
+      "severity": "major",
+      "split": "development"
+    },
+    "bug-03": {
+      "disposition": "qualified",
+      "severity": "critical",
+      "split": "development"
+    },
+    "bug-04": {
+      "disposition": "qualified",
+      "severity": "cosmetic",
+      "split": "development"
+    },
+    "bug-05": {
+      "disposition": "qualified",
+      "severity": "minor",
+      "split": "development"
+    },
+    "bug-06": {
+      "disposition": "qualified",
+      "severity": "major",
+      "split": "development"
+    },
+    "bug-07": {
+      "disposition": "qualified",
+      "severity": "critical",
+      "split": "development"
+    },
+    "bug-08": {
+      "disposition": "qualified",
+      "severity": "cosmetic",
+      "split": "development"
+    },
+    "bug-09": {
+      "disposition": "qualified",
+      "severity": "minor",
+      "split": "development"
+    },
+    "bug-10": {
+      "disposition": "qualified",
+      "severity": "major",
+      "split": "development"
+    },
+    "bug-11": {
+      "disposition": "qualified",
+      "severity": "critical",
+      "split": "development"
+    },
+    "bug-12": {
+      "disposition": "qualified",
+      "severity": "cosmetic",
+      "split": "holdout"
+    },
+    "bug-13": {
+      "disposition": "qualified",
+      "severity": "minor",
+      "split": "holdout"
+    },
+    "bug-14": {
+      "disposition": "qualified",
+      "severity": "major",
+      "split": "holdout"
+    },
+    "bug-15": {
+      "disposition": "qualified",
+      "severity": "critical",
+      "split": "holdout"
+    },
+    "bug-16": {
+      "disposition": "qualified",
+      "severity": "cosmetic",
+      "split": "holdout"
+    },
+    "bug-17": {
+      "disposition": "qualified",
+      "severity": "minor",
+      "split": "holdout"
+    },
+    "bug-18": {
+      "disposition": "qualified",
+      "severity": "major",
+      "split": "holdout"
+    },
+    "bug-19": {
+      "disposition": "qualified",
+      "severity": "critical",
+      "split": "holdout"
+    },
+    "bug-20": {
+      "disposition": "qualified",
+      "severity": "cosmetic",
+      "split": "holdout"
+    },
+    "bug-21": {
+      "disposition": "qualified",
+      "severity": "minor",
+      "split": "holdout"
+    },
+    "bug-22": {
+      "disposition": "qualified",
+      "severity": "major",
+      "split": "holdout"
+    },
+    "bug-23": {
+      "disposition": "qualified",
+      "severity": "critical",
+      "split": "holdout"
+    },
+    "bug-24": {
+      "disposition": "qualified",
+      "severity": "cosmetic",
+      "split": "holdout"
+    },
+    "bug-25": {
+      "disposition": "qualified",
+      "severity": "minor",
+      "split": "holdout"
+    },
+    "bug-26": {
+      "disposition": "qualified",
+      "severity": "major",
+      "split": "holdout"
+    },
+    "bug-27": {
+      "disposition": "qualified",
+      "severity": "critical",
+      "split": "holdout"
+    },
+    "bug-28": {
+      "disposition": "qualified",
+      "severity": "cosmetic",
+      "split": "holdout"
+    },
+    "bug-29": {
+      "disposition": "qualified",
+      "severity": "minor",
+      "split": "holdout"
+    },
+    "bug-30": {
+      "disposition": "qualified",
+      "severity": "major",
+      "split": "holdout"
+    },
+    "bug-31": {
+      "disposition": "qualified",
+      "severity": "critical",
+      "split": "holdout"
+    }
+  },
+  "effort": [
+    {
+      "id": "literal",
+      "prompt": "Return only the third word in: amber birch cobalt denim.",
+      "expected": "cobalt"
+    },
+    {
+      "id": "negation",
+      "prompt": "Return YES if every integer in [2, 4, 7, 8] is even, otherwise NO. Return only the answer.",
+      "expected": "NO"
+    },
+    {
+      "id": "boundary",
+      "prompt": "A retry is permitted only if attempts < 4 and status is 429 or 503. With attempts=4 and status=503, return RETRY or STOP only.",
+      "expected": "STOP"
+    },
+    {
+      "id": "logic",
+      "prompt": "Exactly one of A and B is true. If A is true then C is false. C is true. Return the true member of A and B only.",
+      "expected": "B"
+    },
+    {
+      "id": "count",
+      "prompt": "Count the letter r in strawberry. Return only the integer.",
+      "expected": "3"
+    },
+    {
+      "id": "arithmetic",
+      "prompt": "Return only the integer product of 37 and 43.",
+      "expected": "1591"
+    },
+    {
+      "id": "date",
+      "prompt": "A synthetic event started on February 28, 2024. What date is two days later? Return YYYY-MM-DD only.",
+      "expected": "2024-03-01"
+    },
+    {
+      "id": "ordering",
+      "prompt": "Sort these version tuples numerically, not lexically: (1,9), (1,10), (1,2). Return only comma-separated major.minor versions in ascending order without spaces.",
+      "expected": "1.2,1.9,1.10"
+    },
+    {
+      "id": "trace",
+      "prompt": "Python: x=[1,2]; y=x; y += [3]; x=x+[4]. Return only len(y).",
+      "expected": "3"
+    },
+    {
+      "id": "modulo",
+      "prompt": "Return only the remainder when 1234567 is divided by 97.",
+      "expected": "48"
+    },
+    {
+      "id": "ambiguity",
+      "prompt": "Choose a release version, but the requirements and available versions have not been supplied. Return only UNKNOWN if this cannot be determined.",
+      "expected": "UNKNOWN"
+    },
+    {
+      "id": "scope",
+      "prompt": "There are two projects. Cedar has task 7 marked done; Pine has task 7 pending. For Pine, return DONE or PENDING only.",
+      "expected": "PENDING"
+    }
+  ],
+  "audit": [
+    {
+      "id": "step-00",
+      "text": "Draft a new paragraph explaining the incident to the customer.",
+      "expected": "create"
+    },
+    {
+      "id": "step-01",
+      "text": "Compute whether the observed timestamp is older than the 60-second TTL.",
+      "expected": "exact"
+    },
+    {
+      "id": "step-02",
+      "text": "Choose the most relevant source passage from eight already retrieved passages.",
+      "expected": "bounded"
+    },
+    {
+      "id": "step-03",
+      "text": "Send the prepared email to the external recipient.",
+      "expected": "effect"
+    },
+    {
+      "id": "step-04",
+      "text": "Write a patch for the failing parser implementation.",
+      "expected": "create"
+    },
+    {
+      "id": "step-05",
+      "text": "Compare the current file SHA-256 with the saved SHA-256.",
+      "expected": "exact"
+    },
+    {
+      "id": "step-06",
+      "text": "Classify each supplied issue into bug, feature request, or question.",
+      "expected": "bounded"
+    },
+    {
+      "id": "step-07",
+      "text": "Delete all expired backups from the storage service.",
+      "expected": "effect"
+    },
+    {
+      "id": "step-08",
+      "text": "Explain why the two architectural approaches have different tradeoffs.",
+      "expected": "create"
+    },
+    {
+      "id": "step-09",
+      "text": "Check the test runner's exit status and count failed tests from its structured report.",
+      "expected": "exact"
+    },
+    {
+      "id": "step-10",
+      "text": "Rank the five supplied skills by relevance to this request.",
+      "expected": "bounded"
+    },
+    {
+      "id": "step-11",
+      "text": "Publish the signed release package to the public registry.",
+      "expected": "effect"
+    },
+    {
+      "id": "step-12",
+      "text": "Handle the thing we discussed earlier; no previous context is available.",
+      "expected": "unknown"
+    },
+    {
+      "id": "step-13",
+      "text": "Select a recipient and send the message; this combines judgment and execution.",
+      "expected": "unknown"
+    },
+    {
+      "id": "step-14",
+      "text": "Return a cached result only after exact identity, freshness, scope and completeness checks all pass.",
+      "expected": "exact"
+    },
+    {
+      "id": "step-15",
+      "text": "Determine whether this supplied passage supports this specific claim.",
+      "expected": "bounded"
+    }
+  ],
+  "audit_options": {
+    "create": "Generate new text, code, or a plan.",
+    "exact": "An exact rule, arithmetic calculation, identity check, or structured status inspection can decide this in code.",
+    "bounded": "A semantic judgment selects among supplied existing alternatives, without executing an external side effect.",
+    "effect": "Execute an external or destructive side effect; existing permissions and confirmations govern it.",
+    "unknown": "Insufficient context or mixed operations prevent one reliable category."
+  }
+}

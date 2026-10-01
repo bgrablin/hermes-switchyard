@@ -12,6 +12,21 @@ Input is up to 64 public or synthetic bug-report records: `id`, `title`, `body`,
 4. **Deterministic consumer.** It acts only on accepted decisions, and only when local policy also allows it: `qualified` needs a `component` from the code-defined set, otherwise the consumer rejects it. Actions are `queue_qualified`, `request_info`, and `close_out_of_scope`, written as files plus a `manifest.json` with SHA-256 hashes and per-component priority queues.
 5. **Independent check.** `verify_artifact(out_dir, records)` re-reads the artifact from disk and re-derives the local rules, thresholds, routability, hashes, queue order, and stray files. `run_record_triage` itself always returns `verified: false`.
 
+## Severity rubric
+
+The Score criteria describe observable impact, in the existing index order:
+
+| Index / level | Evidence boundary | Priority |
+| --- | --- | --- |
+| 0 / cosmetic | Appearance or wording only; intended operations work and no data is lost | p3 |
+| 1 / minor | Functional degradation while the intended task still completes, or a failed operation with an explicit usable workaround; no data loss or unauthorized access | p2 |
+| 2 / major | Intended operation blocked with no usable workaround, without reported permanent loss or unauthorized access | p1 |
+| 3 / critical | Permanent loss/corruption, unauthorized access, or confirmed exposed secrets | p0 |
+
+These are this demonstration workflow's categories, not a universal incident-severity standard. Code selects the modal Score category from its probability vector, not the possibly fractional expected score. The four index mappings and all acceptance thresholds are unchanged.
+
+The reviewed rubric was confirmed on 24 concrete synthetic reports, twice per arm: it produced 42 correctly rated priorities versus 18 on main, out of 48 observations per arm. The candidate accepted zero wrong priorities; main accepted two. All 24 work-queue artifacts passed on-disk verification. Mean batch latency was 232.169 ms versus 195.525 ms (+18.74%); the median was nearly unchanged, while the tail and reported cost increased. Six candidate records still abstained. In this demonstration taxonomy, a functional slowdown that still completes is minor regardless of magnitude; it is not a universal incident severity policy. The [complete evaluation](https://github.com/bgrablin/hermes-switchyard/tree/main/evaluation/decision_quality) retains the initial rubric's results, an explicitly disclosed pilot label correction, the new confirmation, and rejected candidates. These small synthetic workloads do not establish calibrated real-report accuracy.
+
 ## Four separate stages
 
 Every record reports these separately: `attempt` (was a provider request made, did its batch complete), `decision` (accepted, abstained, or unassessed, and from `jev` or `local_rule`), `consumer` (acted, rejected, skipped, or failed), and, only after you call `verify_artifact`, the verified outcome.
@@ -30,7 +45,7 @@ Every record reports these separately: `attempt` (was a provider request made, d
 
 - The offline tests use a synthetic transport. They show plumbing and fail-closed behaviour; they do not show that Jev's judgements are correct, calibrated, or cheaper than another approach.
 - `verify_artifact` checks that actions follow policy and match the recorded decisions. It cannot tell whether an accepted decision was right.
-- No live provider, native Hermes runtime, or GUI evidence is claimed here.
+- The live rubric evidence is limited to synthetic public reports and the library workflow. It does not establish real-report accuracy, automatic normal-prompt integration, or GUI behavior.
 
 ## Use
 
