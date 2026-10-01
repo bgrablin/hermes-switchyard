@@ -17,5 +17,10 @@
       "revision": "afee8afdec3967201ff6c24d29dc892e6311e6a4",
       "tree": "fca43b68d6f78b7dc027d90486d7a881b058f26a"
     }
+  },
+  "baseline_helper": {
+    "revision": "b9b6d76640fc14721d329efb9150e9933c182b9d",
+    "path": "evaluation/decision_quality/baseline_source.py",
+    "sha256": "efe87efa591b33ee9703c1f4ebd1a70b602ad63ae8e1476a019262a31cafb595"
   }
 }

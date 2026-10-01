@@ -35,7 +35,7 @@ def main():
         "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "files": {
             p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in (Path(__file__), ROOT / "cases.json")
+            for p in (Path(__file__), ROOT / "baseline_source.py", ROOT / "cases.json")
         },
         "screen_only": True,
         "effort_gate": {"confidence": 0.8, "winning_probability": 0.8},

@@ -54,6 +54,8 @@ This is a deliberately narrow, synthetic test. The gate's lack of benefit here d
 
 Workflow replay also re-derives every decision from preserved provider answers using the frozen parser and thresholds, then checks deterministic consumer actions/payload hashes and provider request/cost accounting. The parser and consumer function bodies must match the archived implementation. Altering a derived severity, action, payload digest, or cost cannot change the published totals while the provider evidence remains unchanged.
 
+The edge pilot and confirmation also bind their exact baseline-loader helper bytes to the helper in commit `b9b6d76640fc14721d329efb9150e9933c182b9d`; replay checks both the archived helper digest and the Git blob. Their original pre-call manifests omitted this helper, so this is explicitly a retrospective source binding. Initial archived screens/workflows predate the helper and import the pinned checkout directly. Every maintained helper-using runner now freezes `baseline_source.py` before calls as well.
+
 Every historical run is explicitly bound in the provenance manifests to the complete plugin checkout tree at `afee8afdec3967201ff6c24d29dc892e6311e6a4`, including client, routing, effort adapter, triage, and their plugin dependencies. This is a source binding added during review, not a claim that the original pre-call screen manifests already contained that field. The initial screens ran before product edits; the later workflow runners load a clean archive of that revision. The frozen runner code records the specific rubric or effort-patch overrides. Replay verifies every required run binding against the Git tree; maintained runners also emit the implementation identity in future pre-call freezes.
 
 ## Reproduce and inspect

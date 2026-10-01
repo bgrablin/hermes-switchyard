@@ -275,6 +275,27 @@ def validate_confirmation(root):
     validate_implementations(
         root, manifest["run_implementations"], {"pilot", "confirmation"}
     )
+    helper = manifest["baseline_helper"]
+    require(
+        set(helper) == {"revision", "path", "sha256"},
+        "incomplete baseline helper binding",
+    )
+    require(
+        helper["revision"] == "b9b6d76640fc14721d329efb9150e9933c182b9d"
+        and helper["path"] == "evaluation/decision_quality/baseline_source.py",
+        "baseline helper source drift",
+    )
+    archived_helper = (root / "frozen/baseline_source.py").read_bytes()
+    require(
+        archived_helper.startswith(ARCHIVE_HEADER.encode()),
+        "baseline helper archive header drift",
+    )
+    archived_helper = archived_helper[len(ARCHIVE_HEADER.encode()) :]
+    require(digest(archived_helper) == helper["sha256"], "baseline helper hash drift")
+    recorded_helper = subprocess.check_output(
+        ["git", "show", helper["revision"] + ":" + helper["path"]], cwd=root.parents[1]
+    )
+    require(recorded_helper == archived_helper, "baseline helper Git source drift")
     raw = (root / "confirmation-observations.json").read_bytes()
     require(
         digest(raw) == manifest["observations_sha256"], "confirmation observation drift"

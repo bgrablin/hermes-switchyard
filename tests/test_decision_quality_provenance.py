@@ -55,6 +55,12 @@ class ProvenanceTests(unittest.TestCase):
             if command[:2] == ["git", "rev-parse"]:
                 return trees[command[2].removesuffix("^{tree}")] + "\n"
             if command[:2] == ["git", "show"]:
+                if command[2].endswith(
+                    ":evaluation/decision_quality/baseline_source.py"
+                ):
+                    return (SOURCE / "frozen/baseline_source.py").read_bytes()[
+                        len(ARCHIVE_HEADER.encode()) :
+                    ]
                 return baseline
             raise AssertionError(command)
 
@@ -280,4 +286,22 @@ class ProvenanceTests(unittest.TestCase):
             lambda b: b["rows"][0]["result"]["accounting"].update(total_cost=0)
         )
         with self.assertRaisesRegex(ValueError, "accounting cost drift"):
+            validate(self.root)
+
+    def test_baseline_helper_snapshot_drift_is_refused(self):
+        path = self.root / "frozen/baseline_source.py"
+        path.write_text(path.read_text() + "\n# changed loader\n")
+        with self.assertRaisesRegex(ValueError, "baseline helper hash drift"):
+            validate(self.root)
+
+    def test_baseline_helper_rebound_hash_still_requires_git_source(self):
+        path = self.root / "frozen/baseline_source.py"
+        path.write_text(path.read_text() + "\n# changed loader\n")
+        manifest_path = self.root / "confirmation-provenance.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["baseline_helper"]["sha256"] = hashlib.sha256(
+            path.read_bytes()[len(ARCHIVE_HEADER.encode()) :]
+        ).hexdigest()
+        manifest_path.write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, "baseline helper Git source drift"):
             validate(self.root)

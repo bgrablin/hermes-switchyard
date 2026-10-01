@@ -38,6 +38,7 @@ def main():
                     p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                     for p in [
                         Path(__file__),
+                        ROOT / "baseline_source.py",
                         ROOT / "followup-cases.json",
                         ROOT / "cases.json",
                         Path(triage.__file__),
