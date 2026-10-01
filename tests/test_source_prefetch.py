@@ -77,6 +77,20 @@ class PrefetchTests(unittest.TestCase):
         self.locate.assert_not_called()
         self.factory.assert_not_called()
 
+    def test_envelope_refusal_covers_changed_or_malformed_message_in_same_turn(self):
+        for field in ("turn_egress_policy", "egress_policy"):
+            for initial in ("In notes.md, find the timeout.", "  In notes.md, find the retry limit.  ",
+                            None, [], "\ud800"):
+                with self.subTest(field=field, initial=initial):
+                    hook = prefetch.build_hook(enabled=True, root="/fixture", standing_ack=True,
+                                               client_factory=self.factory)
+                    self.assertIsNone(hook(**{**self.kwargs, "user_message": initial,
+                                             field: {"decision": "deny"}}))
+                    self.assertIsNone(hook(**self.kwargs))
+        self.locate.assert_not_called()
+        self.factory.assert_not_called()
+        self.assertIsNotNone(hook(**{**self.kwargs, "turn_id": "next-turn"}))
+
     def test_envelope_refusals_survive_capacity_and_replay(self):
         hook = prefetch.build_hook(enabled=True, root="/fixture", standing_ack=True,
                                    client_factory=self.factory)
@@ -107,6 +121,20 @@ class PrefetchTests(unittest.TestCase):
             self.assertIsNone(self.hook(**{**self.kwargs, "user_message":
                 "In notes.md, find the retry limit " + action + " it in simpler language."}))
         self.locate.assert_not_called()
+
+
+    def test_mutating_action_inflections_skip_before_lookup(self):
+        for action in ("edits", "edited", "editing", "updates", "updated", "updating",
+                       "modifies", "modified", "modifying", "deletes", "deleted", "deleting",
+                       "removes", "removed", "removing", "replaces", "replaced", "replacing",
+                       "executes", "executed", "executing", "runs", "ran", "running",
+                       "installs", "installed", "installing", "deploys", "deployed", "deploying",
+                       "sends", "sent", "sending", "uploads", "uploaded", "uploading"):
+            with self.subTest(action=action):
+                self.assertIsNone(self.hook(**{**self.kwargs, "user_message":
+                    "In notes.md, find the retry limit before " + action + " it."}))
+        self.locate.assert_not_called()
+        self.factory.assert_not_called()
 
     def test_disabled_and_refused_ack_skip(self):
         for enabled, ack in [(False, True), (True, False)]:
@@ -204,3 +232,4 @@ class PrefetchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

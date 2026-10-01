@@ -71,7 +71,9 @@ and five interleaved arms, with serial main-model requests:
 
 The candidate was built on source-finder commit `9fda6b3`; the PR was subsequently
 recovered onto `149e16ce332c68c039fc18d0b6432dfc2a02a01e`, retaining that branch's
-newer scoped-refusal guards. Do not attribute measured timings to the later base.
+newer scoped-refusal guards. The dependency was subsequently merged through
+`424ed3ab107282e91887bcca37d6ed37ebc5a855`, which strengthens whole-turn refusal
+and mutating-action checks. Do not attribute measured timings to these later bases.
 
 Main inference used native Hermes with Codex `gpt-6-sol`, requested high effort,
 six main calls maximum, a 90-second conversation budget, isolated fixture cwd,
