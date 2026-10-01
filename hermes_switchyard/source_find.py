@@ -182,10 +182,10 @@ def locate(*, root: str | Path, source: str, query: str, client_factory: Any,
         if _request_size(state, ballot) > MAX_REQUEST_BYTES - 1024:
             raise SourceError("request_too_large")
         client = client_factory()
-        result.update(request_count=1, accounting="unknown")
         remaining = DEADLINE_SECONDS - (time.monotonic() - started)
         if remaining <= 0:
             raise SourceError("deadline_exceeded")
+        result.update(request_count=1, accounting="unknown")
         with request_budget_scope(client, max_requests=1, deadline_seconds=remaining):
             response = client.decide(state, ballot, public_or_sanitized_data_ack=True)
         result.update(_decision_metadata(response))
@@ -203,6 +203,8 @@ def locate(*, root: str | Path, source: str, query: str, client_factory: Any,
             raise ValueError("invalid_exists")
         # Reopen from the root after inference. Replacements, edits and symlinks invalidate it.
         current, current_identity = read_source(root, source)
+        if time.monotonic() - started > DEADLINE_SECONDS:
+            raise SourceError("deadline_exceeded")
         if current_identity != identity or current != raw:
             raise SourceError("source_changed")
         result.update(confidence=confidence, winning_probability=probabilities[choice], exists=exists)
@@ -227,5 +229,9 @@ def locate(*, root: str | Path, source: str, query: str, client_factory: Any,
                 client.close()
             except Exception:
                 pass
-        result["wall_ms"] = (time.monotonic() - started) * 1000
+        elapsed = time.monotonic() - started
+        result["wall_ms"] = elapsed * 1000
+        if elapsed > DEADLINE_SECONDS and result["status"] in {"found", "not_found"}:
+            result.update(status="defer", reason="deadline_exceeded", evidence=None,
+                          next_action="Continue with normal Hermes search/read tools; do not repeat this failed lookup.")
     return result

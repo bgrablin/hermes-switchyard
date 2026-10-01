@@ -101,3 +101,13 @@ class PrefetchTests(unittest.TestCase):
         self.assertIsNone(self.hook(**{**self.kwargs, "user_message":
             "In notes.md, find the retry limit.\nReturn JSON using local tools only."}))
         self.locate.assert_not_called()
+
+    def test_format_suffix_must_be_a_complete_supported_request(self):
+        for suffix in ["Return JSON and compare another file", "Return JSON with answer and then compare other.md",
+                       "Return JSON with answer (read another file)", "Return JSON; summarize other.md"]:
+            self.assertIsNone(self.hook(**{**self.kwargs, "user_message":
+                "In notes.md, find the retry limit.\n" + suffix}))
+        self.locate.assert_not_called()
+        for suffix in ["Return JSON", "Return only a JSON object with status (found or not_found), source (relative path), and evidence (an exact source quotation, or null when absent).",
+                       "Return JSON with answer, confidence (number), and source (relative path)."]:
+            self.assertEqual(prefetch.request_source("In notes.md, find the retry limit.\n" + suffix), "notes.md")

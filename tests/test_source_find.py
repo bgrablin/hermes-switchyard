@@ -64,6 +64,48 @@ class EvidenceFindTests(unittest.TestCase):
         self.assertEqual(out["request_count"], 1)
         self.assertTrue(self.client.closed)
 
+    def test_late_verification_defers_and_retains_provider_accounting(self):
+        clock = [0.0]
+        read = finder.read_source
+        calls = []
+        def verification(*args):
+            value = read(*args)
+            calls.append(True)
+            if len(calls) == 2:
+                clock[0] = finder.DEADLINE_SECONDS + 0.1
+            return value
+        with mock.patch.object(finder.time, "monotonic", side_effect=lambda: clock[0]), \
+                mock.patch.object(finder, "read_source", side_effect=verification):
+            out = self.run_find()
+        self.assertEqual((out["status"], out["reason"]), ("defer", "deadline_exceeded"))
+        self.assertIsNone(out["evidence"])
+        self.assertEqual(out["usage"]["cost"], 0.001)
+        self.assertEqual(out["request_count"], 1)
+
+    def test_expired_budget_before_dispatch_does_not_count_a_request(self):
+        clock = [0.0]
+        def slow_factory():
+            clock[0] = finder.DEADLINE_SECONDS + 0.1
+            return self.client
+        self.factory.side_effect = slow_factory
+        with mock.patch.object(finder.time, "monotonic", side_effect=lambda: clock[0]):
+            out = self.run_find()
+        self.assertEqual(out["reason"], "deadline_exceeded")
+        self.assertEqual(out["request_count"], 0)
+        self.assertEqual(out["accounting"], "no_request")
+        self.assertEqual(self.client.calls, [])
+
+    def test_late_cleanup_cannot_publish_accepted_evidence(self):
+        clock = [0.0]
+        def close():
+            clock[0] = finder.DEADLINE_SECONDS + 0.1
+        self.client.close = close
+        with mock.patch.object(finder.time, "monotonic", side_effect=lambda: clock[0]):
+            out = self.run_find()
+        self.assertEqual((out["status"], out["reason"]), ("defer", "deadline_exceeded"))
+        self.assertIsNone(out["evidence"])
+        self.assertEqual(out["usage"]["cost"], 0.001)
+
     def test_source_changed_during_inference_defers_with_accounting(self):
         def mutate(response):
             self.path.write_text("Different instructions.")

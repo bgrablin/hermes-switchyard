@@ -23,6 +23,33 @@ _CHANGE = re.compile(r"\b(?:edit|update|modify|delete|remove|replace|execute|run
 _INTERACTIVE = frozenset({"cli", "tui", "telegram", "discord", "slack", "signal", "whatsapp"})
 
 
+_FORMAT_FIELD = r"[a-z_][a-z0-9_]*(?:\s+\([a-z0-9_, ]+\))?"
+_FORMAT_FIELDS = re.compile(_FORMAT_FIELD + r"(?:(?:,\s*(?:and\s+)?|\s+and\s+)" + _FORMAT_FIELD + r")*", re.I)
+_FORMAT_DESCRIPTORS = frozenset({
+    "a", "an", "the", "exact", "contiguous", "source", "quotation", "relative", "path",
+    "integer", "integers", "string", "strings", "boolean", "booleans", "number", "numbers",
+    "float", "floats", "null", "or", "and", "both", "also", "when", "absent", "found", "not_found",
+    "true", "false",
+})
+
+
+def _format_only(text: str) -> bool:
+    """Accept a complete JSON-format request, never an arbitrary trailing clause."""
+    text = text.strip().removesuffix(".")
+    match = re.fullmatch(r"Return (?:only )?(?:a )?JSON(?: object)?(?: with (.+))?", text, re.I)
+    if not match:
+        return False
+    fields = match.group(1)
+    if fields is None or fields.casefold() == "the answer":
+        return True
+    if not _FORMAT_FIELDS.fullmatch(fields):
+        return False
+    # Field identifiers are arbitrary; parenthetical type/absence descriptors
+    # use a closed vocabulary, so prose instructions cannot hide in them.
+    return all(set(re.findall(r"[a-z0-9_]+", description.casefold())) <= _FORMAT_DESCRIPTORS
+               for description in re.findall(r"\(([^()]*)\)", fields))
+
+
 def request_source(message: Any) -> str | None:
     """Recognize complete, explicit location requests, never history or inferred paths.
 
@@ -41,7 +68,7 @@ def request_source(message: Any) -> str | None:
         if len(lines) != 2:
             return None
         formatting = lines[1].removesuffix("Do not modify files.").strip()
-        if (not re.match(r"^Return (?:only )?(?:a )?JSON\b", formatting)
+        if (not _format_only(formatting)
                 or _CHANGE.search(formatting)
                 or source_lookup_needs_local_handling(formatting)
                 or re.search(r"\btool\b", formatting, re.I)):

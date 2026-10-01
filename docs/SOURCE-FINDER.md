@@ -27,7 +27,7 @@ first. On `defer`, Hermes uses normal search/read tools instead of repeating the
 No fallback main-model request is made inside the tool itself.
 
 Prefetch requires explicit session, task, turn, foreground, and interactive-platform identity.
-Missing information skips it. It never reads conversation history or reuses an earlier source
+Missing information skips it. A second line may contain a complete JSON-format request (optional field identifiers and closed type/absence descriptors); compound or unsupported formatting stays with normal tools. It never reads conversation history or reuses an earlier source
 result. Repeated hook invocations for the same scope skip work without reinjecting evidence;
 a new scope or query makes a fresh lookup. Host egress envelopes are not interpreted as
 permission to upload extra file text, so any supplied envelope skips this prefetch path.
@@ -45,7 +45,7 @@ promise that the file will remain unchanged.
 - Descriptor-relative no-follow reads are required. Linux/macOS support this pilot;
   unsupported filesystems/platforms return `defer` and Hermes keeps normal tools.
 - A single logical Jev decision combines passage choice with answer-existence scoring,
-  within a three-second operation deadline. Existing bounded transport retry rules apply.
+  with a three-second acceptance deadline. Late inference, verification reads, or cleanup return `defer`; blocking filesystem calls cannot be forcibly interrupted by this synchronous hook. Existing bounded transport retry rules apply.
 - Source text and query pass the Hermes egress scrubber. Unavailable scrubbing or any
   required masking causes local deferral. The scrubber is not a complete data classifier.
 - Before returning evidence, reopen the file and compare bytes, identity, and metadata.
