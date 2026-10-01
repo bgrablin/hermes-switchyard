@@ -73,7 +73,7 @@ def verify_live(run, freeze, rows):
 
 def verify_sources(freeze, source_root):
     """Do not apply the measured result to a different candidate or driver."""
-    actual = {str(path.relative_to(source_root)): hashlib.sha256(path.read_bytes()).hexdigest()
+    actual = {path.relative_to(source_root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
               for path in sorted((source_root / "hermes_switchyard").rglob("*.py"))}
     assert actual == freeze["sources"]["candidate"], "candidate source drift; rerun benchmark"
     driver = source_root / "evaluation" / "hotpath" / "planning.py"

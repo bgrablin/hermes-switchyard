@@ -1,0 +1,258 @@
+{
+  "scope": "Synthetic pilots only. No production registration or default enablement.",
+  "archival_limit": "Two historical runner copies redact the host runtime path; their original-byte hashes cannot be re-derived from the public portable copies. Runtime evidence retains aggregate fingerprints and file counts.",
+  "interrupted_run": {
+    "rows": 79,
+    "missing": 17,
+    "qualified": false
+  },
+  "decision_screen": {
+    "arms": {
+      "split": {
+        "n": 48,
+        "median_ms": 392.1683444932569,
+        "total_ms": 19238.136477943044,
+        "p95_nearest_rank_ms": 498.4094629762694,
+        "skill_label_matches": 41,
+        "unsafe_lowering": 0,
+        "errors": 0,
+        "jev_calls": 96
+      },
+      "merged": {
+        "n": 48,
+        "median_ms": 190.25177098228596,
+        "total_ms": 10050.957816711161,
+        "p95_nearest_rank_ms": 274.2484000045806,
+        "skill_label_matches": 33,
+        "unsafe_lowering": 0,
+        "errors": 0,
+        "jev_calls": 48
+      },
+      "cap_matrix": {
+        "n": 48,
+        "median_ms": 203.4685384714976,
+        "total_ms": 10017.961554869544,
+        "p95_nearest_rank_ms": 266.98341697920114,
+        "skill_label_matches": 33,
+        "unsafe_lowering": 0,
+        "errors": 0,
+        "jev_calls": 48
+      }
+    },
+    "release_qualified": false
+  },
+  "decision_confirmation": {
+    "arms": {
+      "split": {
+        "n": 48,
+        "median_ms": 366.62262451136485,
+        "total_ms": 18175.765145162586,
+        "p95_nearest_rank_ms": 452.48246600385755,
+        "skill_label_matches": 38,
+        "unsafe_lowering": 0,
+        "errors": 0,
+        "jev_calls": 96
+      },
+      "merged": {
+        "n": 48,
+        "median_ms": 186.6216080088634,
+        "total_ms": 9401.030990004074,
+        "p95_nearest_rank_ms": 242.06342798424885,
+        "skill_label_matches": 41,
+        "unsafe_lowering": 0,
+        "errors": 0,
+        "jev_calls": 48
+      },
+      "cap_matrix": {
+        "n": 48,
+        "median_ms": 190.3671584732365,
+        "total_ms": 10481.23792221304,
+        "p95_nearest_rank_ms": 349.61700899293646,
+        "skill_label_matches": 41,
+        "unsafe_lowering": 0,
+        "errors": 0,
+        "jev_calls": 48
+      }
+    },
+    "release_qualified": false
+  },
+  "native_routing": {
+    "arms": {
+      "off": {
+        "n": 24,
+        "median_ms": 6939.784618996782,
+        "total_ms": 148387.4612628715,
+        "p95_nearest_rank_ms": 13104.290336021222,
+        "semantic_correct_completed": 24,
+        "raw_exact_correct": 24,
+        "legacy_receipts_removed": 0,
+        "physical_main_dispatches": 24,
+        "jev_calls": 0,
+        "known_jev_cost": 0,
+        "unknown_jev_cost_calls": 0,
+        "pilot_consumed": 0,
+        "model_switched": 0,
+        "wire_effort_counts": {
+          "high": 24
+        }
+      },
+      "release": {
+        "n": 24,
+        "median_ms": 2093.9228320203256,
+        "total_ms": 57200.85789001314,
+        "p95_nearest_rank_ms": 5784.925216983538,
+        "semantic_correct_completed": 24,
+        "raw_exact_correct": 0,
+        "legacy_receipts_removed": 24,
+        "physical_main_dispatches": 24,
+        "jev_calls": 46,
+        "known_jev_cost": 0.001072932,
+        "unknown_jev_cost_calls": 1,
+        "pilot_consumed": 0,
+        "model_switched": 0,
+        "wire_effort_counts": {
+          "low": 23,
+          "high": 1
+        }
+      },
+      "main": {
+        "n": 24,
+        "median_ms": 2198.9115755131934,
+        "total_ms": 58342.5923960167,
+        "p95_nearest_rank_ms": 3635.3608760400675,
+        "semantic_correct_completed": 24,
+        "raw_exact_correct": 24,
+        "legacy_receipts_removed": 0,
+        "physical_main_dispatches": 24,
+        "jev_calls": 47,
+        "known_jev_cost": 0.001068312,
+        "unknown_jev_cost_calls": 2,
+        "pilot_consumed": 0,
+        "model_switched": 0,
+        "wire_effort_counts": {
+          "low": 22,
+          "high": 2
+        }
+      },
+      "candidate": {
+        "n": 24,
+        "median_ms": 1856.0474629921373,
+        "total_ms": 47522.5530982716,
+        "p95_nearest_rank_ms": 2413.2010330213234,
+        "semantic_correct_completed": 24,
+        "raw_exact_correct": 24,
+        "legacy_receipts_removed": 0,
+        "physical_main_dispatches": 24,
+        "jev_calls": 70,
+        "known_jev_cost": 0.001527498,
+        "unknown_jev_cost_calls": 0,
+        "pilot_consumed": 24,
+        "model_switched": 22,
+        "wire_effort_counts": {
+          "low": 24
+        }
+      }
+    },
+    "runtime_unchanged": true,
+    "pilot_gate": {
+      "quality": true,
+      "speed": true,
+      "used": true,
+      "supported_wire_models": true,
+      "pass": true
+    },
+    "release_qualified": false,
+    "median_reduction_vs_main_pct": 15.592446569436824,
+    "total_reduction_vs_main_pct": 18.54569509750449
+  },
+  "native_consolidation": {
+    "arms": {
+      "off": {
+        "n": 24,
+        "median_ms": 9712.830129021313,
+        "total_ms": 264377.5470550754,
+        "p95_nearest_rank_ms": 25523.791863990482,
+        "semantic_correct_completed": 24,
+        "raw_exact_correct": 24,
+        "legacy_receipts_removed": 0,
+        "physical_main_dispatches": 44,
+        "jev_calls": 0,
+        "known_jev_cost": 0,
+        "unknown_jev_cost_calls": 0,
+        "pilot_consumed": 0,
+        "model_switched": 0,
+        "wire_effort_counts": {
+          "high": 44
+        }
+      },
+      "release": {
+        "n": 24,
+        "median_ms": 5533.941532979952,
+        "total_ms": 130302.84501903225,
+        "p95_nearest_rank_ms": 7850.797094986774,
+        "semantic_correct_completed": 24,
+        "raw_exact_correct": 24,
+        "legacy_receipts_removed": 0,
+        "physical_main_dispatches": 44,
+        "jev_calls": 47,
+        "known_jev_cost": 0.0023039939999999997,
+        "unknown_jev_cost_calls": 0,
+        "pilot_consumed": 0,
+        "model_switched": 0,
+        "wire_effort_counts": {
+          "high": 40,
+          "low": 4
+        }
+      },
+      "main": {
+        "n": 24,
+        "median_ms": 5612.157389521599,
+        "total_ms": 142361.88382701948,
+        "p95_nearest_rank_ms": 12091.128246975131,
+        "semantic_correct_completed": 24,
+        "raw_exact_correct": 24,
+        "legacy_receipts_removed": 0,
+        "physical_main_dispatches": 44,
+        "jev_calls": 47,
+        "known_jev_cost": 0.0023039939999999997,
+        "unknown_jev_cost_calls": 0,
+        "pilot_consumed": 0,
+        "model_switched": 0,
+        "wire_effort_counts": {
+          "high": 40,
+          "low": 4
+        }
+      },
+      "candidate": {
+        "n": 24,
+        "median_ms": 4539.269383472856,
+        "total_ms": 115130.30615478056,
+        "p95_nearest_rank_ms": 7666.398920002393,
+        "semantic_correct_completed": 24,
+        "raw_exact_correct": 24,
+        "legacy_receipts_removed": 0,
+        "physical_main_dispatches": 44,
+        "jev_calls": 24,
+        "known_jev_cost": 0.002219196,
+        "unknown_jev_cost_calls": 0,
+        "pilot_consumed": 23,
+        "model_switched": 0,
+        "wire_effort_counts": {
+          "low": 30,
+          "high": 14
+        }
+      }
+    },
+    "runtime_unchanged": true,
+    "pilot_gate": {
+      "quality": true,
+      "speed": true,
+      "used": true,
+      "supported_wire_models": true,
+      "pass": true
+    },
+    "release_qualified": false,
+    "median_reduction_vs_main_pct": 19.117211645773168,
+    "total_reduction_vs_main_pct": 19.12841902635074
+  }
+}

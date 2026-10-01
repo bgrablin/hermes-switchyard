@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parent
 
 
 class Worker:
-    def __init__(self, arm, out, source, *, hermes_root=None):
+    def __init__(self, arm, out, source):
         prefix = json.loads(
             subprocess.check_output(["hermes", "--print-runtime-command"], text=True)
         )
@@ -30,11 +30,6 @@ class Worker:
         )
         env = os.environ.copy()
         env["HERMES_DISABLE_LAZY_INSTALLS"] = "1"
-        extra_args = (
-            ["--hermes-root", str(hermes_root.resolve())]
-            if hermes_root is not None
-            else []
-        )
         self.proc = subprocess.Popen(
             prefix
             + [
@@ -44,8 +39,7 @@ class Worker:
                 str(out / ("home-" + arm)),
                 "--source",
                 str(source),
-            ]
-            + extra_args,
+            ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -65,7 +59,6 @@ class Worker:
         line = self.q.get(timeout=90)
         if not line.startswith("READY "):
             raise RuntimeError(line)
-        self.ready = json.loads(line[6:])
 
     def ask(self, job):
         self.proc.stdin.write(json.dumps(job) + "\n")
