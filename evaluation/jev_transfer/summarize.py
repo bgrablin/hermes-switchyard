@@ -164,7 +164,8 @@ def native_summary(run):
             "known_jev_cost": sum(costs),
             "unknown_jev_cost_calls": unknown,
             "pilot_consumed": sum(
-                bool(r.get("route")) if routing else (r["arm"], r["id"]) in shared_turns
+                (r["arm"], r["id"])
+                in (routed_decision_turns if routing else shared_turns)
                 for r in subset
             ),
             "model_switched": sum(

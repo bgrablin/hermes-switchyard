@@ -95,6 +95,23 @@ class JevTransferEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "route is not bound"):
             native_summary(run)
 
+    def test_unbound_kept_routes_do_not_count_as_consumed(self):
+        run = copy.deepcopy(self.evidence["runs"]["native_routing"])
+        baseline = native_summary(run)["arms"]["candidate"]
+        self.assertEqual(baseline["pilot_consumed"], 24)
+        unbound = 0
+        for row in run["rows"]:
+            if row["arm"] == "candidate" and row["route"] and not any(
+                receipt["applied"] for receipt in row["route"]
+            ):
+                for receipt in row["route"]:
+                    receipt["decision"]["request_id"] = "not-an-observed-call"
+                unbound += 1
+        self.assertEqual(unbound, 2)
+        metrics = native_summary(run)["arms"]["candidate"]
+        self.assertEqual(metrics["pilot_consumed"], 22)
+        self.assertEqual(metrics["model_switched"], baseline["model_switched"])
+
     def test_receipt_normalization_is_terminal_and_exact(self):
         receipt = "\n\nswitchyard: effort high→low · Jev 180 ms"
         self.assertEqual(LEGACY_RECEIPT.sub("", "Rome" + receipt), "Rome")
