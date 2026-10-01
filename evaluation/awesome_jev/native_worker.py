@@ -21,7 +21,7 @@ def main(arm, name, source):
     from agent.secret_scope import build_profile_secret_scope, set_secret_scope
     from hermes_cli.runtime_provider import resolve_runtime_provider
 
-    template = Path("/home/brian/.hermes-eval/switchyard-abc")
+    template = Path(os.environ.get("SWITCHYARD_EVAL_TEMPLATE", str(Path.home() / ".hermes-eval/switchyard-abc")))
     assert os.environ["HERMES_HOME"] == str(template)
     hydrate_profile_secret_sources(template)
     scope = build_profile_secret_scope(template)

@@ -15,11 +15,13 @@ from holdout_cases import cases
 
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parents[1]
-OUT = Path("/home/brian/.hermes-eval/awesome-jev-native-v2")
+OUT = Path(os.environ.get("SWITCHYARD_EVAL_OUTPUT", str(Path.home() / ".hermes-eval/awesome-jev-native-v2")))
+TEMPLATE = Path(os.environ.get("SWITCHYARD_EVAL_TEMPLATE", str(Path.home() / ".hermes-eval/switchyard-abc")))
+HERMES_SOURCE = Path(os.environ.get("HERMES_SOURCE", str(Path.home() / ".hermes/hermes-agent")))
 
 
 def runtime_fingerprint():
-    runtime = Path("/home/brian/.hermes/hermes-agent")
+    runtime = HERMES_SOURCE
     names = subprocess.check_output(["git", "ls-files", "-z"], cwd=runtime).decode().split("\0")
     return {
         name: hashlib.sha256((runtime / name).read_bytes()).hexdigest()
@@ -41,7 +43,7 @@ class Worker:
         )
         env = os.environ.copy()
         env.update(
-            HERMES_HOME="/home/brian/.hermes-eval/switchyard-abc",
+            HERMES_HOME=str(TEMPLATE),
             HERMES_DISABLE_LAZY_INSTALLS="1",
             SWITCHYARD_EVAL_HOME=str(OUT / ("home-" + arm)),
         )
@@ -127,7 +129,9 @@ def main():
             for arm in arms:
                 jobs.append((rep, case, arm))
     frozen_scripts = OUT / "scripts"
-    shutil.copytree(ROOT, frozen_scripts, ignore=shutil.ignore_patterns("__pycache__"))
+    frozen_scripts.mkdir()
+    for name in ("native_compare.py", "native_worker.py", "holdout_cases.py"):
+        shutil.copy2(ROOT / name, frozen_scripts / name)
     runtime_before = runtime_fingerprint()
     freeze = {
         "started_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -164,7 +168,7 @@ def main():
         },
         "hermes_sha": subprocess.check_output(
             ["git", "rev-parse", "HEAD"],
-            cwd="/home/brian/.hermes/hermes-agent",
+            cwd=HERMES_SOURCE,
             text=True,
         ).strip(),
     }
