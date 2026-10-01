@@ -85,6 +85,16 @@ def digest(p):
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
+def source_hashes():
+    paths = [
+        Path(__file__),
+        ROOT / "pilot.py",
+        ROOT / "native_worker.py",
+        REPO / "evaluation/decision_quality/native_compare.py",
+    ]
+    return {p.relative_to(REPO).as_posix(): digest(p) for p in paths}
+
+
 def runtime_hashes():
     root = Path("/home/brian/.hermes/hermes-agent")
     names = subprocess.check_output(
@@ -137,10 +147,7 @@ def main():
         "acceptance": "Candidate correctness no lower than every control; median and total latency at least 5% below disabled and main; no unsupported provider mutation; a live routed wire request must occur. Not sufficient for general-release qualification.",
         "routing_deadline_ms": 400,
         "concurrent_provider_calls": 1,
-        "files": {
-            p.name: digest(p)
-            for p in [Path(__file__), ROOT / "pilot.py", ROOT / "native_worker.py"]
-        },
+        "files": source_hashes(),
         "runtime_revision": subprocess.check_output(
             ["git", "rev-parse", "HEAD"],
             cwd="/home/brian/.hermes/hermes-agent",

@@ -51,7 +51,7 @@ Run the offline replay and tests from the repository root:
 
 ```sh
 python3 evaluation/jev_transfer/summarize.py
-python3 -m unittest discover -s tests -p 'test_jev_transfer_evidence.py' -v
+python3 -m unittest discover -s tests -p 'test_jev_transfer*.py' -v
 ```
 
 observations.json contains the unmodified per-run freezes, ordered raw rows, and deduplicated runtime fingerprints. frozen/ retains the original evaluated Python source bytes before formatting cleanup; source-snapshots.json maps them to paths and digests. provenance.json binds those exports. The confirmation wrapper and shared native worker launcher were not included in the original pre-call hashes; their archived bytes are explicitly retrospective bindings, not a claim of a complete pre-call dependency freeze.
@@ -59,3 +59,5 @@ observations.json contains the unmodified per-run freezes, ordered raw rows, and
 The maintained live runners are evaluation/model_routing/compare.py and evaluation/turn_consolidation/native_compare.py. Set HERMES_HOME to an authorized evaluation profile with working Codex and OpenRouter credentials, then pass --output with a new directory. They invoke hermes --print-runtime-command, use pinned Git snapshots, and make live provider calls. Their runtime fingerprint path is currently specific to Silver. The smaller screen.py and confirmation.py require the installed Hermes Python environment.
 
 The checked-in code has formatting/import cleanup after the runs; the original hashes match the Python files under frozen/, not those maintained files. Local profile directories, plugin snapshots, databases, logs, and credential sources are excluded from the publication. The release archive's existing allowlist excludes evaluation code and data.
+
+Review hardened the maintained runners without rerunning or relabeling historical observations: non-string and non-text routing inputs are rejected; shared receipts must bind to a real call and wire effort; new native freezes include the shared launcher, and consolidation freezes include task definitions and each copied fixture tree. The original pre-call omissions remain disclosed for the recorded studies.

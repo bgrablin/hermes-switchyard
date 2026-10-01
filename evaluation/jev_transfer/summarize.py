@@ -84,12 +84,18 @@ def native_summary(run):
     freeze, rows = run["freeze"], run["rows"]
     complete_rows(freeze, rows, True)
     expected = {case["id"]: case["expected"] for case in freeze["cases"]}
+    routing = freeze["candidate_model"] != freeze["source_model"]
+    shared_turns = set()
     for row in rows:
         call_ids = {
             call.get("request_id") for call in row["jev"] if call.get("request_id")
         }
         for receipt in row.get("route", []):
+            if not isinstance(receipt, dict):
+                raise ValueError("invalid decision receipt")
             shared = receipt.get("shared_request_id")
+            if not routing and (not isinstance(shared, str) or not shared):
+                raise ValueError("unbound shared decision receipt")
             if shared is not None:
                 if (
                     shared not in call_ids
@@ -99,6 +105,7 @@ def native_summary(run):
                     raise ValueError(
                         "shared decision is not bound to its call and wire effort"
                     )
+                shared_turns.add((row["arm"], row["id"]))
             elif receipt.get("applied"):
                 decision_id = (receipt.get("decision") or {}).get("request_id")
                 if decision_id not in call_ids or not any(
@@ -137,7 +144,10 @@ def native_summary(run):
             "jev_calls": sum(len(r["jev"]) for r in subset),
             "known_jev_cost": sum(costs),
             "unknown_jev_cost_calls": unknown,
-            "pilot_consumed": sum(bool(r.get("route")) for r in subset),
+            "pilot_consumed": sum(
+                bool(r.get("route")) if routing else (r["arm"], r["id"]) in shared_turns
+                for r in subset
+            ),
             "model_switched": sum(
                 any(w["model"] != freeze["source_model"] for w in r["wire"])
                 for r in subset

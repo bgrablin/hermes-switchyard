@@ -43,6 +43,8 @@ class PilotRouter:
             or platform != "cli"
         ):
             return
+        if not isinstance(user_message, str):
+            return
         text, reason = _task_scan(user_message)
         if not text or reason or len(user_message) > 1200:
             return
@@ -68,6 +70,19 @@ class PilotRouter:
         if not isinstance(content, list) or len(content) != 1:
             return request
         if not isinstance(content[0], dict) or content[0].get("role") != "user":
+            return request
+        parts = content[0].get("content")
+        text_only = isinstance(parts, str) or (
+            isinstance(parts, list)
+            and bool(parts)
+            and all(
+                isinstance(part, dict)
+                and part.get("type") in {"text", "input_text"}
+                and isinstance(part.get("text"), str)
+                for part in parts
+            )
+        )
+        if not text_only:
             return request
         if len(str(content)) > 8000 or request.get("previous_response_id"):
             return request
