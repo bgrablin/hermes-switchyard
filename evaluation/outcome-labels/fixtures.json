@@ -1,0 +1,199 @@
+{
+  "schema": "switchyard-outcome-fixtures/1",
+  "receipt_defaults": {
+    "terminal_state": "hosted_skipped", "source": "none", "selected": null,
+    "hosted_attempted": false, "hosted_succeeded": false, "hosted_error": null,
+    "hosted_skip_reason": "local_confident", "abstention_reason": null,
+    "jev_model": null, "request_id": null, "request_count": 0,
+    "latency_ms": 0.0, "total_latency_ms": 0.0, "total_usage": {},
+    "candidate_count": 0, "offered_count": 0, "excluded_count": 0,
+    "shortlist_policy": null, "verified": false, "advisory_only": true,
+    "plugin_identity": {"plugin": "hermes-switchyard", "version": "0.5.6", "source_sha": "unavailable"},
+    "source_sha": "unavailable"
+  },
+  "loaded_override": {
+    "terminal_state": "local_selection", "source": "local", "selected": "docker-management",
+    "hosted_skip_reason": null, "advisory_only": false,
+    "consumer_status": "loaded", "loaded_skill": "docker-management", "loaded_source": "local",
+    "skill_load_verified": true, "delivery_status": "delivered",
+    "adoption_status": "adopted", "outcome_status": "unverified"
+  },
+  "failed_override": {
+    "terminal_state": "local_selection", "source": "local", "selected": "docker-management",
+    "hosted_skip_reason": null, "consumer_status": "load_failed", "loaded_skill": null,
+    "loaded_source": null, "skill_load_verified": false
+  },
+  "cases": [
+    {
+      "name": "explicit-correction-with-same-arm-adjacent-reply",
+      "records": [
+        {"session_id": "s-positive", "turn_id": "a-correction", "receipt_override": "loaded"},
+        {"session_id": "s-positive", "turn_id": "h-retry"}
+      ],
+      "evidence": [
+        {"session_id": "s-positive", "turn_id": "a-correction", "turn_completed": true,
+         "tool_trace_complete": true, "tool_events": [{"session_id": "s-positive", "turn_id": "a-correction", "status": "ok"}],
+         "assistant_message_id": "m-positive"},
+        {"session_id": "s-positive", "turn_id": "h-retry", "user_message": {
+          "reply_to_message_id": "m-positive", "text": "No, I asked for the local report PRIVATE_SYNTHETIC_TEXT."
+        }}
+      ],
+      "expected": [
+        {"split": "holdout", "skill_loaded_after_selection": true, "tool_error_in_turn": false,
+         "next_turn_user_correction": true, "turn_completed": true},
+        {"split": "holdout", "skill_loaded_after_selection": "UNKNOWN", "tool_error_in_turn": "UNKNOWN",
+         "next_turn_user_correction": "UNKNOWN", "turn_completed": "UNKNOWN"}
+      ]
+    },
+    {
+      "name": "load-failed-tool-error-retry-and-benign-reply",
+      "records": [
+        {"session_id": "s-benign", "turn_id": "b-no-correction", "receipt_override": "failed"},
+        {"session_id": "s-benign", "turn_id": "f-error"}
+      ],
+      "evidence": [
+        {"session_id": "s-benign", "turn_id": "b-no-correction", "turn_completed": true,
+         "tool_trace_complete": true, "tool_events": [
+           {"session_id": "s-benign", "turn_id": "b-no-correction", "status": "error"},
+           {"session_id": "s-benign", "turn_id": "b-no-correction", "status": "ok"}
+         ], "assistant_message_id": "m-benign"},
+        {"session_id": "s-benign", "turn_id": "f-error", "user_message": {
+          "reply_to_message_id": "m-benign", "text": "Thanks. Please continue with the tests."
+        }}
+      ],
+      "expected": [
+        {"split": "train", "skill_loaded_after_selection": false, "tool_error_in_turn": true,
+         "next_turn_user_correction": false, "turn_completed": true},
+        {"split": "train", "skill_loaded_after_selection": "UNKNOWN", "tool_error_in_turn": "UNKNOWN",
+         "next_turn_user_correction": "UNKNOWN", "turn_completed": "UNKNOWN"}
+      ]
+    },
+    {
+      "name": "missing-identity-censors-every-label",
+      "records": [{"session_id": null, "turn_id": "c-missing-ids", "receipt_override": "loaded"}],
+      "evidence": [],
+      "expected": [{"split": "UNKNOWN", "skill_loaded_after_selection": "UNKNOWN",
+                    "tool_error_in_turn": "UNKNOWN", "next_turn_user_correction": "UNKNOWN", "turn_completed": "UNKNOWN"}]
+    },
+    {
+      "name": "duplicate-session-turn-censors-both",
+      "records": [
+        {"session_id": "s-dup", "turn_id": "d-duplicate", "receipt_override": "loaded"},
+        {"session_id": "s-dup", "turn_id": "d-duplicate", "receipt_override": "failed"}
+      ],
+      "evidence": [{"session_id": "s-dup", "turn_id": "d-duplicate", "turn_completed": true}],
+      "expected": [
+        {"split": "UNKNOWN", "skill_loaded_after_selection": "UNKNOWN", "tool_error_in_turn": "UNKNOWN", "next_turn_user_correction": "UNKNOWN", "turn_completed": "UNKNOWN"},
+        {"split": "UNKNOWN", "skill_loaded_after_selection": "UNKNOWN", "tool_error_in_turn": "UNKNOWN", "next_turn_user_correction": "UNKNOWN", "turn_completed": "UNKNOWN"}
+      ]
+    },
+    {
+      "name": "missing-following-turn-is-not-negative",
+      "records": [{"session_id": "s-missing-follow", "turn_id": "e-no-follow"}],
+      "evidence": [{"session_id": "s-missing-follow", "turn_id": "e-no-follow", "turn_completed": true,
+                    "tool_trace_complete": false, "tool_events": []}],
+      "expected": [{"split": "train", "skill_loaded_after_selection": "UNKNOWN", "tool_error_in_turn": "UNKNOWN",
+                    "next_turn_user_correction": "UNKNOWN", "turn_completed": true}]
+    },
+    {
+      "name": "mismatched-tool-and-reply-target",
+      "records": [
+        {"session_id": "s-mismatch", "turn_id": "g-mismatch"},
+        {"session_id": "s-mismatch", "turn_id": "l-holdout"}
+      ],
+      "evidence": [
+        {"session_id": "s-mismatch", "turn_id": "g-mismatch", "turn_completed": true,
+         "tool_trace_complete": true, "tool_events": [{"session_id": "s-mismatch", "turn_id": "other", "status": "error"}],
+         "assistant_message_id": "m-mismatch"},
+        {"session_id": "s-mismatch", "turn_id": "l-holdout", "user_message": {
+          "reply_to_message_id": "m-other", "text": "No, I asked for the result."
+        }}
+      ],
+      "expected": [
+        {"split": "train", "skill_loaded_after_selection": "UNKNOWN", "tool_error_in_turn": "UNKNOWN", "next_turn_user_correction": "UNKNOWN", "turn_completed": true},
+        {"split": "train", "skill_loaded_after_selection": "UNKNOWN", "tool_error_in_turn": "UNKNOWN", "next_turn_user_correction": "UNKNOWN", "turn_completed": "UNKNOWN"}
+      ]
+    },
+    {
+      "name": "retry-ambiguous-even-with-explicit-correction",
+      "records": [{"session_id": "s-retry", "turn_id": "h-retry"}, {"session_id": "s-retry", "turn_id": "j-reaction"}],
+      "evidence": [
+        {"session_id": "s-retry", "turn_id": "h-retry", "turn_completed": true, "assistant_message_id": "m-retry"},
+        {"session_id": "s-retry", "turn_id": "j-reaction", "retried": true,
+         "user_message": {"reply_to_message_id": "m-retry", "text": "No, I asked you to stop."}}
+      ],
+      "expected": [
+        {"split": "holdout", "skill_loaded_after_selection": "UNKNOWN", "tool_error_in_turn": "UNKNOWN", "next_turn_user_correction": "UNKNOWN", "turn_completed": true},
+        {"split": "holdout", "skill_loaded_after_selection": "UNKNOWN", "tool_error_in_turn": "UNKNOWN", "next_turn_user_correction": "UNKNOWN", "turn_completed": "UNKNOWN"}
+      ]
+    },
+    {
+      "name": "undo-ambiguous-even-with-explicit-correction",
+      "records": [{"session_id": "s-undo", "turn_id": "i-undo"}, {"session_id": "s-undo", "turn_id": "k-rotated"}],
+      "evidence": [
+        {"session_id": "s-undo", "turn_id": "i-undo", "turn_completed": true, "assistant_message_id": "m-undo"},
+        {"session_id": "s-undo", "turn_id": "k-rotated", "undone": true,
+         "user_message": {"reply_to_message_id": "m-undo", "text": "No, I asked for three items."}}
+      ],
+      "expected": [
+        {"split": "train", "skill_loaded_after_selection": "UNKNOWN", "tool_error_in_turn": "UNKNOWN", "next_turn_user_correction": "UNKNOWN", "turn_completed": true},
+        {"split": "train", "skill_loaded_after_selection": "UNKNOWN", "tool_error_in_turn": "UNKNOWN", "next_turn_user_correction": "UNKNOWN", "turn_completed": "UNKNOWN"}
+      ]
+    },
+    {
+      "name": "wrong-message-negative-reaction-is-not-correction",
+      "records": [{"session_id": "s-reaction", "turn_id": "j-reaction"}],
+      "evidence": [{"session_id": "s-reaction", "turn_id": "j-reaction", "turn_completed": true,
+                    "assistant_message_id": "m-correct", "reactions": [{"target_message_id": "m-other", "kind": "negative"}]}],
+      "expected": [{"split": "holdout", "skill_loaded_after_selection": "UNKNOWN", "tool_error_in_turn": "UNKNOWN",
+                    "next_turn_user_correction": "UNKNOWN", "turn_completed": true}]
+    },
+    {
+      "name": "rotated-partial-history-has-no-negative-correction",
+      "records": [{"session_id": "s-rotated", "turn_id": "k-rotated"}],
+      "evidence": [{"session_id": "s-rotated", "turn_id": "k-rotated", "turn_completed": true,
+                    "assistant_message_id": "m-rotated"}],
+      "expected": [{"split": "train", "skill_loaded_after_selection": "UNKNOWN", "tool_error_in_turn": "UNKNOWN",
+                    "next_turn_user_correction": "UNKNOWN", "turn_completed": true}]
+    },
+    {
+      "name": "adjacent-cross-arm-reply-censored",
+      "records": [{"session_id": "s-leak", "turn_id": "a-correction"}, {"session_id": "s-leak", "turn_id": "b-no-correction"}],
+      "evidence": [
+        {"session_id": "s-leak", "turn_id": "a-correction", "turn_completed": true, "assistant_message_id": "m-leak"},
+        {"session_id": "s-leak", "turn_id": "b-no-correction", "user_message": {
+          "reply_to_message_id": "m-leak", "text": "No, I asked for a report."
+        }}
+      ],
+      "expected": [
+        {"split": "holdout", "skill_loaded_after_selection": "UNKNOWN", "tool_error_in_turn": "UNKNOWN", "next_turn_user_correction": "UNKNOWN", "turn_completed": true},
+        {"split": "train", "skill_loaded_after_selection": "UNKNOWN", "tool_error_in_turn": "UNKNOWN", "next_turn_user_correction": "UNKNOWN", "turn_completed": "UNKNOWN"}
+      ]
+    },
+    {
+      "name": "mismatched-loaded-skill-is-unknown",
+      "records": [{"session_id": "s-loaded", "turn_id": "o-loaded", "receipt_override": "loaded",
+                   "receipt_patch": {"loaded_skill": "network-printer-operations"}}],
+      "evidence": [],
+      "expected": [{"split": "train", "skill_loaded_after_selection": "UNKNOWN", "tool_error_in_turn": "UNKNOWN",
+                    "next_turn_user_correction": "UNKNOWN", "turn_completed": "UNKNOWN"}]
+    },
+    {
+      "name": "advisory-with-no-selection-is-unknown",
+      "records": [{"session_id": "s-advisory", "turn_id": "p-not-loaded"}],
+      "evidence": [],
+      "expected": [{"split": "train", "skill_loaded_after_selection": "UNKNOWN", "tool_error_in_turn": "UNKNOWN",
+                    "next_turn_user_correction": "UNKNOWN", "turn_completed": "UNKNOWN"}]
+    },
+    {
+      "name": "explicit-completion-with-empty-complete-tool-trace",
+      "records": [{"session_id": "s-completion", "turn_id": "q-complete"}, {"session_id": "s-completion", "turn_id": "r-incomplete"}],
+      "evidence": [{"session_id": "s-completion", "turn_id": "q-complete", "turn_completed": true,
+                    "tool_trace_complete": true, "tool_events": []}],
+      "expected": [
+        {"split": "train", "skill_loaded_after_selection": "UNKNOWN", "tool_error_in_turn": false, "next_turn_user_correction": "UNKNOWN", "turn_completed": true},
+        {"split": "train", "skill_loaded_after_selection": "UNKNOWN", "tool_error_in_turn": "UNKNOWN", "next_turn_user_correction": "UNKNOWN", "turn_completed": "UNKNOWN"}
+      ]
+    }
+  ]
+}
