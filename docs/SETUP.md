@@ -210,7 +210,7 @@ For text fields, `jev_computer_use` uses only values the caller supplies in `tex
 
 This flag is your attestation, not a scanner. It doesn't redact anything, doesn't act as DLP, and doesn't override any other control. Hermes owns data classification.
 
-For desktop computer use, Switchyard builds a bounded snapshot from the goal, target app, window title, safe controls, visible context, and recent actions. Text entry may also use the selected field's context with your configured Hermes text model. **Before calling it, make sure none of that contains** private, employer, regulated, credential, password, API-key, token, payment, or verification-code data.
+For desktop computer use, Switchyard builds a bounded snapshot from the goal, target app, window title, safe controls, visible context, and recent actions. Text entry types only the values the caller supplies in `text_inputs`. No Hermes text model is asked to compose field text. **Before calling it, make sure none of that contains** private, employer, regulated, credential, password, API-key, token, payment, or verification-code data.
 
 ## If your key is missing
 

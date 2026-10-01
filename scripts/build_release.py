@@ -58,6 +58,7 @@ RELEASE_FILES = (
     "docs/MODEL-ROUTING.md",
     "docs/OUTCOME-LABELS.md",
     "docs/TEST-MATRIX.md",
+    "docs/CI.md",
     "docs/FIRST-RUN.md",
     "docs/WOW-LOCAL-REPORT.md",
     "docs/benchmarks/awesome-jev-native-v2.json",

@@ -23,7 +23,7 @@ If these terms are unfamiliar, here is the 30-second version. The [Concepts prim
 
 | Feature | What you'll notice | On by default? |
 | --- | --- | --- |
-| **Adaptive reasoning effort** | Easy turns like "hi" or "thanks" go out at lower effort. Your `/reasoning` level stays the maximum. A short line under each reply shows what was sent. | Yes |
+| **Adaptive reasoning effort** | Easy turns like "hi" or "thanks" go out at lower effort. Your `/reasoning` level stays the maximum. On turns where Switchyard decides something, a short line under the reply shows what was sent. | Yes |
 | **Automatic skill routing** | Hermes picks and loads the right skill from your catalog at the start of a turn, without you naming it. | Yes |
 | **Computer use** | The main model can call `jev_computer_use` to click through a public web page in a fresh, private browser, or drive a desktop app. | Available as a tool |
 | **Decision tools** | Tools for typed multiple-choice checks, multi-skill picks, model recommendations, and re-ranking past-session search. | Available as tools |

@@ -19,8 +19,8 @@ That's it. No other configuration is needed.
 ## What is now on
 
 - Adaptive reasoning effort: easy turns may go out at lower effort.
-  Your `/reasoning` level is always the cap. A short `Reasoning: …` line under
-  each reply shows what was sent. This needs Hermes 0.21.4 or newer.
+  Your `/reasoning` level is always the cap. On turns where Switchyard decides
+  something, a short `Reasoning: …` line under the reply shows what was sent. This needs Hermes 0.21.4 or newer.
 - Automatic skill routing: Switchyard may pick and load one matching skill
   per turn.
 - Seven Jev tools the model can call, including `jev_computer_use`.
