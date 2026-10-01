@@ -2,7 +2,7 @@
 
 **What it does:** at the start of each turn, Switchyard looks at the skills in your active Hermes profile, works out which one (if any) fits your request, and loads it through Hermes' normal skill loader. You don't have to remember skill names or say "use the docker skill."
 
-**How it decides:** by default it asks Jev, after a local privacy scan and secret scrubbing. You can switch it to on-device word matching only.
+**How it decides:** by default it asks Jev, after secret scrubbing. Unless Hermes has already authorized the turn, a local privacy scan runs first. You can switch it to on-device word matching only.
 
 **It's on by default.** Once you've installed the plugin and saved a key, there's nothing else to turn on. This page shows how to try it, tune it, make it more private, or turn it off. For the full internals, see [how automatic routing works](AUTOMATIC-INTEGRATION.md).
 
@@ -12,7 +12,7 @@
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `automatic_skill_routing_mode` | `hosted_sanitized` | May ask Jev when the local scan is clean |
+| `automatic_skill_routing_mode` | `hosted_sanitized` | May ask Jev when the local scan is clean, or when Hermes authorizes the turn |
 | `automatic_skill_consumer_mode` | `load` | Loads the chosen skill (instead of just suggesting it) |
 | `automatic_skill_public_or_sanitized_data_ack` | `true` | Your standing agreement that turns sent to Jev are public or sanitized |
 
@@ -112,7 +112,7 @@ With the defaults (`hosted_sanitized` + `load` + acknowledgement `true`):
 
 | Situation | Result |
 | --- | --- |
-| Hermes forwards an **allow** policy for the turn | Allowed (`egress_authority: host_envelope`) |
+| Hermes forwards an **allow** policy for the turn | Allowed (`egress_authority: host_envelope`). The policy's payload is scrubbed but not re-scanned locally |
 | No policy from Hermes, and the local scan is clean | Allowed, using the scanned and scrubbed text (`egress_authority: standing_ack`) |
 | Hermes forwards a **deny**, unknown, malformed, or restricted policy | Blocked before any Jev client is created |
 | The local scan finds restricted content | Blocked before any Jev client is created |

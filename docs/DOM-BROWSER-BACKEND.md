@@ -22,7 +22,7 @@
 
 **Typing into forms.** The model supplies each value in `text_inputs`, keyed by the field's label. Jev decides *which* field to type into, but never sees *what* is typed. Switchyard masks copies of those values that echo back in page text and URLs. This is best-effort: values in a host name, or transformed by the page (hashed, encoded, translated, or partly copied), are not caught. See [how caller values are protected](#typing-how-caller-values-are-checked-and-protected).
 
-**"Done" needs two signals.** When the loop finishes, it returns a *completion candidate*. The receipt shows whether the stop came from a local check (`completion_condition`, such as "the title contains *Analytical Engine*") or from Jev deciding it was done. It's marked `verified: true` only when both agree: Jev said `DONE` **and** the local condition is satisfied. Everything else stays `verified: false`, so verify the result yourself. See [Action evidence](#action-evidence).
+**"Done" needs two signals.** When the loop finishes, it returns a *completion candidate*. The receipt shows whether the stop came from a local check (`completion_condition`, such as "the title contains *Analytical Engine*") or from Jev deciding it was done. Either way, the result is `verified: false`, so verify it yourself. See [Action evidence](#action-evidence).
 
 **Settings:** `browser_executable` (optional browser path) and `computer_max_steps` (default 100). See the [Configuration reference](CONFIGURATION.md#computer-use).
 
@@ -141,9 +141,10 @@ Unquoted URLs and free-form wording are never mined. When no safe predicate is
 supplied or derived, the loop falls back to a provider `DONE` decision.
 
 A predicate stop and a provider `DONE` both return `status: completion_candidate`.
-A predicate stop alone keeps `verified: false`, and so does a provider `DONE`
-without a satisfied condition. Only a provider `DONE` with a satisfied local
-condition is verified (see [Action evidence](#action-evidence)). The receipt records `completion_source` as
+Both keep `verified: false` in the normal loop. The predicate is checked after
+every action, so a satisfied condition stops the loop as `local_predicate`
+before Jev is asked again, and a provider `DONE` only arrives on a page where
+the condition was not satisfied. The receipt records `completion_source` as
 `local_predicate` or `provider_decision` and reports each predicate check, so the
 difference between "the caller's condition matched" and "the model believed it was
 done" stays visible. Independent verification remains coordinator-owned.
@@ -339,7 +340,7 @@ Each action record separates three claims that are not interchangeable:
 | `effect_observed` | a URL, title, document, or focus change was observed afterwards |
 | `goal_verified` | always false inside the loop; receipt-level verification is separate |
 
-Action records do not carry a top-level `verified` field. Receipt-level dual-gate verification sets `goal_verified` / `verified` true only when the provider (Jev) decided `DONE` (`completion_source: provider_decision`) **and** a local completion condition is satisfied; `verification_owner` is then `hermes_and_url`. A `local_predicate` early-stop (caller-supplied or derived) may still be `completion_candidate` but keeps both flags false. Provider `DONE` without a satisfied condition stays unverified (`verification_owner: coordinator`).
+Action records do not carry a top-level `verified` field. Receipt-level dual-gate verification sets `goal_verified` / `verified` true only when the provider (Jev) decided `DONE` (`completion_source: provider_decision`) **and** a local completion condition is satisfied; `verification_owner` is then `hermes_and_url`. A `local_predicate` early-stop (caller-supplied or derived) may still be `completion_candidate` but keeps both flags false. Provider `DONE` without a satisfied condition stays unverified (`verification_owner: coordinator`). The current loop always checks the predicate before asking Jev again (see [Completion predicates](#completion-predicates)), so the dual-gate verified state is not reached in normal runs; treat every completion candidate as unverified.
 
 `effect_confirmed` repeats `effect_observed` for compatibility and is never true
 without an observed delta, so a click that changes nothing reports

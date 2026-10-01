@@ -198,7 +198,7 @@ On a Hermes without `register_middleware`, the feature records `noop_seam_unavai
 - **`jev_assess`** asks Jev typed questions, Choice (pick one), Score (rate on a scale), or Noul (yes/no), and validates the answers. Large sets of independent questions are split into bounded batches.
 - **`jev_skill_select`** searches the whole catalog you give it and returns the best skill. It does **not** load the skill.
 - **`jev_model_route`** filters and ranks model candidates you supply. It does **not** change the active model or use a fallback provider.
-- **`jev_computer_use`** runs bounded steps toward a goal: in a fresh browser for public web pages, or through Hermes' Cua Driver for desktop apps. It rechecks targets before acting. A finished run is a *completion candidate*. Desktop runs always return `verified: false`. A browser run is marked verified only when Jev's `DONE` and a local completion check agree.
+- **`jev_computer_use`** runs bounded steps toward a goal: in a fresh browser for public web pages, or through Hermes' Cua Driver for desktop apps. It rechecks targets before acting. A finished run is a *completion candidate* with `verified: false`, until something else independently checks the result.
 
 Jev may abstain. A confidence number is not a correctness guarantee.
 

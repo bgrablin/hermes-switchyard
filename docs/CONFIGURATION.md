@@ -67,14 +67,14 @@ Picks and loads a matching skill at the start of a turn. Full guides: [setup](AU
 | Key | Default | What it does |
 | --- | --- | --- |
 | `automatic_skill_recommendation` | `true` | Master switch for automatic skill routing. |
-| `automatic_skill_routing_mode` | `hosted_sanitized` | `hosted_sanitized` may ask Jev (after a local privacy scan), `local_only` uses only on-device matching, and `off` disables routing. |
+| `automatic_skill_routing_mode` | `hosted_sanitized` | `hosted_sanitized` may ask Jev: after a local privacy scan when Hermes supplies no policy for the turn, or directly (redacted, not re-scanned) when Hermes authorizes the text. `local_only` uses only on-device matching, and `off` disables routing. |
 | `automatic_skill_consumer_mode` | `load` | `load` loads the chosen skill through Hermes' normal loader. `advisory` only adds a suggestion to the context, and never calls Jev. |
 | `automatic_skill_public_or_sanitized_data_ack` | `true` | Your standing agreement that turns sent for hosted routing are public or sanitized. `false` stops hosted routing. This is not a data classifier. |
 | `automatic_skill_candidates` | `[]` | Empty uses every skill in the active profile. Otherwise, an explicit list of names or `{name, description}` objects to choose from. |
 | `automatic_skill_mandatory_skills` | `[]` | Exact skill IDs that an automatic load must never displace. A conflicting pick is recorded as `mandatory_conflict` and not loaded. |
 | `automatic_skill_platforms` | `[]` | Empty covers interactive platforms and skips API-server, batch, cron, webhook, and Kanban worker turns. `[all]` covers every platform; `[cli, telegram]` covers just those. |
 | `automatic_skill_hosted_detail` | `names` | What Jev sees about finalist skills. `names` sends names only. `descriptions` adds short descriptions, and `excerpt` also adds short `SKILL.md` excerpts. Only send more if you have approved it. |
-| `automatic_skill_light_turn_bypass` | `true` | Skips hosted routing for obvious no-skill turns ("thanks", a greeting, "list this folder"). |
+| `automatic_skill_light_turn_bypass` | `true` | Skips hosted routing for obvious no-skill turns ("thanks", a greeting, or "List the files in the current directory. Do not modify anything."). Listings of other paths still use Jev. |
 
 ## Automatic skill routing: tuning (advanced)
 
