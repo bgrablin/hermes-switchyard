@@ -47,3 +47,7 @@ Find the right page for what you want to do. Pages near the top are for everyone
 | [Changelog](../CHANGELOG.md) | What changed in each version |
 | [Security](../SECURITY.md) | How to report a vulnerability |
 | [Third-party references](../THIRD_PARTY.md) | Upstream guidance this plugin follows |
+
+## Experimental 0.6.0 candidates
+
+[Tool review, retrieval screening, output handling, browser plan caching, and catalog review](FEATURE-EXPANSION.md) describes the opt-in candidates and their limits. Native context compression remains unchanged.

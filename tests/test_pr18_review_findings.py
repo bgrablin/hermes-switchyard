@@ -467,6 +467,29 @@ class ReceiptContractTests(HermesHomeTestCase):
             os.environ.pop("HERMES_HOME", None)
             harness.close()
 
+    def test_receipt_read_rejects_swap_before_open(self):
+        harness = _MemoryFileHarness()
+        try:
+            path = Path(harness._tmp.name) / "checked.json"
+            outside = Path(harness._tmp.name) / "external.json"
+            path.write_text(json.dumps(_base_advisory()), encoding="utf-8")
+            outside.write_text(json.dumps(_base_advisory()), encoding="utf-8")
+            original = os.open
+            def replace_at_open(target, *args, **kwargs):
+                path.unlink()
+                try:
+                    path.symlink_to(outside)
+                except OSError:
+                    self.skipTest("symlinks unavailable")
+                return original(target, *args, **kwargs)
+            with mock.patch.object(receipt_state.os, "open", replace_at_open), mock.patch.object(
+                receipt_state.os, "fdopen", side_effect=AssertionError("external content was read")
+            ):
+                with self.assertRaises((OSError, ValueError)):
+                    receipt_state._read_json_receipt(path)
+        finally:
+            harness.close()
+
     def test_symlinked_new_receipt_cannot_retire_legacy(self):
         harness = _MemoryFileHarness()
         try:
@@ -490,6 +513,59 @@ class ReceiptContractTests(HermesHomeTestCase):
         finally:
             os.environ.pop("HERMES_HOME", None)
             harness.close()
+
+    def test_reader_rechecks_record_published_after_initial_read(self):
+        harness = _MemoryFileHarness()
+        try:
+            os.environ["HERMES_HOME"] = harness._tmp.name
+            current = receipt_state._receipt_state_file()
+            legacy = Path(harness._tmp.name) / "plugins" / receipt_state.PLUGIN_NAME / "receipt.json"
+            canonical = receipt_state.canonicalize_receipt(_base_advisory())
+            def publish_between_checks():
+                current.parent.mkdir(parents=True, exist_ok=True)
+                current.write_text(json.dumps(canonical), encoding="utf-8")
+                return legacy
+            with mock.patch.object(receipt_state, "_legacy_receipt_state_file", side_effect=publish_between_checks):
+                self.assertEqual(receipt_state.read_latest_receipt(), canonical)
+        finally:
+            os.environ.pop("HERMES_HOME", None)
+            harness.close()
+
+    def test_migration_returns_winning_current_record(self):
+        for timing in ("legacy_read", "publication"):
+            with self.subTest(timing=timing):
+                harness = _MemoryFileHarness()
+                try:
+                    os.environ["HERMES_HOME"] = harness._tmp.name
+                    current = receipt_state._receipt_state_file()
+                    legacy = Path(harness._tmp.name) / "plugins" / receipt_state.PLUGIN_NAME / "receipt.json"
+                    legacy.parent.mkdir(parents=True)
+                    old = _base_advisory()
+                    legacy.write_text(json.dumps(old), encoding="utf-8")
+                    winner = receipt_state.canonicalize_receipt({**old, "total_usage": {"cost": 0.77}})
+                    self.assertNotEqual(winner, receipt_state.canonicalize_receipt(old))
+                    read = receipt_state._read_json_receipt
+                    write = receipt_state._write_canonical_receipt
+                    def publish():
+                        current.parent.mkdir(parents=True, exist_ok=True)
+                        current.write_text(json.dumps(winner), encoding="utf-8")
+                    def observe_read(path):
+                        value = read(path)
+                        if timing == "legacy_read" and path == legacy:
+                            publish()
+                        return value
+                    def observe_write(path, value, **kwargs):
+                        if timing == "publication":
+                            publish()
+                        return write(path, value, **kwargs)
+                    with mock.patch.object(receipt_state, "_read_json_receipt", observe_read), mock.patch.object(
+                        receipt_state, "_write_canonical_receipt", observe_write
+                    ):
+                        self.assertEqual(receipt_state.read_latest_receipt(), winner)
+                    self.assertTrue(legacy.is_file(), "distinct legacy record must be retained")
+                finally:
+                    os.environ.pop("HERMES_HOME", None)
+                    harness.close()
 
     def test_migration_publication_is_atomically_non_clobbering_under_race(self):
         import threading

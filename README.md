@@ -152,10 +152,10 @@ The complete list of what Switchyard adds to Hermes:
 | Surface | Available now | Default |
 | --- | --- | --- |
 | Tools (7) | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, `jev_session_search_rerank`, `jev_computer_use` | Callable when the matching toolset is selected (see [Toolsets](#toolsets-and-session-exposure)) |
-| Hooks (5) | `pre_llm_call` (skill routing and effort capture), `post_llm_call` (clears that capture), `post_tool_call` (reconsiders effort), `transform_llm_output` (adds the receipt line), `post_api_request` (token counts) | On after install |
+| Hooks (7) | `pre_llm_call` (skill routing and effort capture), `post_llm_call` (clears capture), `post_tool_call` (reconsiders effort), `transform_llm_output` (receipt line), `post_api_request` (token counts); optional `pre_tool_call` (requests approval) and `transform_tool_result` (output handling and stuck advice) | First five on after install; new tool hooks opt-in |
 | Middleware (1) | `llm_request` sets the reasoning effort for each request | On when your Hermes version supports it (0.21.4+) |
 | CLI | `hermes switchyard setup`, `status`, `test`, `receipt`, `stats`, `guide`, `ensure-toolsets` | Run when you want |
-| CLI (offline, new in 0.6.0) | `hermes switchyard lint-skills [--json]` flags skills whose descriptions are hard to tell apart ([guide](docs/LINT-SKILLS.md)) | Explicit only; no network, no edits |
+| CLI (offline, 0.6.0 candidates) | `hermes switchyard lint-skills [--json]` flags ambiguous descriptions ([guide](docs/LINT-SKILLS.md)); `hermes switchyard scan-catalog PATH` reviews package/MCP content with hashes and coverage gaps ([guide](docs/FEATURE-EXPANSION.md)) | Explicit only; no network, no edits |
 | Local report (0.6.0 candidate; not in 0.5.6) | `hermes switchyard wow` and `/switchyard wow` summarize what Switchyard recorded locally ([guide](docs/WOW-LOCAL-REPORT.md)) | Last 7 days; read-only |
 
 What each tool is for:
@@ -166,7 +166,7 @@ What each tool is for:
 - **`jev_session_search_rerank`** reorders Hermes' past-session search results for recall questions.
 - **`jev_computer_use`** drives a public web page or a desktop app, one Jev decision per step.
 
-`hermes plugins doctor` reports six hook registrations, or seven with source prefetch enabled. That is more than five because several handlers share `pre_llm_call`.
+`hermes plugins doctor` reports six hook registrations by default, or seven with source prefetch enabled, because several handlers share `pre_llm_call`. The manifest lists seven distinct kinds, including two optional tool hooks. Jev `DONE` alone does not verify a browser goal; Switchyard also needs its local completion condition. An early local stop is a candidate, not verified success. [Browser receipts](docs/DOM-BROWSER-BACKEND.md) keep action, effect, and goal evidence separate.
 
 ### Automatic source prefetch (opt-in pilot)
 

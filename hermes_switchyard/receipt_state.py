@@ -198,7 +198,7 @@ def resolve_source_sha(repo_dir: Path | str | None = None) -> str:
     """Return the exact source SHA from a validated release manifest."""
     path = _plugin_root(repo_dir) / SOURCE_MANIFEST_NAME
     try:
-        manifest = json.loads(path.read_text(encoding="utf-8"))
+        manifest = _read_json_receipt(path)
     except (OSError, TypeError, ValueError):
         return RECEIPT_SOURCE_SHA_UNAVAILABLE
     if not isinstance(manifest, dict):
@@ -561,6 +561,29 @@ def store_latest_receipt(receipt: dict[str, Any]) -> bool:
     return stored
 
 
+def _read_json_receipt(path: Path) -> Any:
+    """Read one bound regular-file descriptor; never follow a replaced symlink."""
+    before = path.lstat()
+    if not stat.S_ISREG(before.st_mode) or getattr(before, "st_file_attributes", 0) & _WINDOWS_REPARSE_POINT:
+        raise ValueError("receipt is not a regular file")
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    try:
+        opened = os.fstat(fd)
+        after = path.lstat()
+        if (not stat.S_ISREG(opened.st_mode) or not stat.S_ISREG(after.st_mode)
+                or getattr(after, "st_file_attributes", 0) & _WINDOWS_REPARSE_POINT
+                or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)
+                or (opened.st_dev, opened.st_ino) != (after.st_dev, after.st_ino)):
+            raise ValueError("receipt changed during open")
+        with os.fdopen(fd, "r", encoding="utf-8", closefd=False) as handle:
+            text = handle.read(1_000_001)
+        if len(text) > 1_000_000:
+            raise ValueError("receipt exceeds read budget")
+        return json.loads(text)
+    finally:
+        os.close(fd)
+
+
 def _retire_legacy_receipt(legacy_path: Path, current_path: Path, expected: dict[str, Any] | None = None) -> None:
     """Remove only a regular legacy record after a valid new-file readback."""
     try:
@@ -569,10 +592,10 @@ def _retire_legacy_receipt(legacy_path: Path, current_path: Path, expected: dict
             return  # never unlink a symlink or directory
         if not stat.S_ISREG(current_path.lstat().st_mode):
             return  # a symlink is not a verified profile-owned migration target
-        current = canonicalize_receipt(json.loads(current_path.read_text(encoding="utf-8")))
+        current = canonicalize_receipt(_read_json_receipt(current_path))
         if current is None or (expected is not None and current != expected):
             return
-        legacy = canonicalize_receipt(json.loads(legacy_path.read_text(encoding="utf-8")))
+        legacy = canonicalize_receipt(_read_json_receipt(legacy_path))
         if legacy != current:
             return  # a distinct or invalid legacy record was not migrated
         now = legacy_path.lstat()
@@ -595,7 +618,7 @@ def read_latest_receipt() -> dict[str, Any] | None:
         except Exception:  # noqa: BLE001 -- cleanup must never break readback
             pass
         try:
-            record = json.loads(path.read_text(encoding="utf-8"))
+            record = _read_json_receipt(path)
         except (OSError, TypeError, ValueError):
             record = None
         canonical = canonicalize_receipt(record)
@@ -606,16 +629,25 @@ def read_latest_receipt() -> dict[str, Any] | None:
             return canonical
 
     legacy_path = _legacy_receipt_state_file()
-    if legacy_path is None or (path is not None and path.exists()):
+    if legacy_path is None:
+        return None
+    if path is not None and path.exists():
+        # A concurrent reader may publish after our first read but before this
+        # existence check. Return its validated record instead of losing it.
+        try:
+            if stat.S_ISREG(path.lstat().st_mode):
+                return canonicalize_receipt(_read_json_receipt(path))
+        except (OSError, TypeError, ValueError):
+            pass
         return None
     try:
-        record = json.loads(legacy_path.read_text(encoding="utf-8"))
+        record = _read_json_receipt(legacy_path)
     except (OSError, TypeError, ValueError):
         # Another reader may have migrated and retired the legacy file after
         # our first new-file check. Return its verified profile-owned record.
         if path is not None:
             try:
-                return canonicalize_receipt(json.loads(path.read_text(encoding="utf-8")))
+                return canonicalize_receipt(_read_json_receipt(path))
             except (OSError, TypeError, ValueError):
                 pass
         return None
@@ -626,9 +658,18 @@ def read_latest_receipt() -> dict[str, Any] | None:
     # Never replace an unrelated or malformed new file. Publish with atomic
     # no-clobber semantics; delete the regular legacy artifact only after the
     # new profile-owned record is read back and matches this migration.
-    if path is not None and not path.exists():
+    if path is not None:
         if _write_canonical_receipt(path, canonical, no_clobber=True):
             _retire_legacy_receipt(legacy_path, path, canonical)
+        else:
+            # A concurrent publisher owns the current record. Never return a
+            # distinct stale legacy record after losing the atomic publication.
+            try:
+                return canonicalize_receipt(_read_json_receipt(path))
+            except FileNotFoundError:
+                pass  # A write failure without a winner retains valid legacy data.
+            except (OSError, TypeError, ValueError):
+                return None
     return canonical
 
 

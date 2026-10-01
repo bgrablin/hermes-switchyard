@@ -22,7 +22,12 @@ class HotpathReportTests(unittest.TestCase):
             cls.rows = [json.loads(line) for line in archive.extractfile("live-v2/observations.jsonl")]
 
     def test_retained_accounting_and_summaries(self):
-        verify.main()
+        # Historical measurements bind their exact measured source, not every
+        # future feature branch. The default CLI still rejects current drift.
+        with tempfile.TemporaryDirectory() as tmp:
+            with tarfile.open(ROOT / "frozen" / "measured-source-v2.tar.gz") as archive:
+                archive.extractall(tmp, filter="data")
+            verify.main(source_root=Path(tmp))
 
     def test_source_and_driver_drift_are_rejected(self):
         files = {"hermes_switchyard/client.py": b"client source",

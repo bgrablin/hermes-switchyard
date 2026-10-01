@@ -100,11 +100,11 @@ Offline tests prove registry validation, expiry, cheapest-qualified selection, p
 
 ## Hermes model-selection apply seam
 
-> **For maintainers.** The rest of this page explains why Switchyard can't apply a recommendation yet, and what Hermes would need to add.
+> **For maintainers.** The rest of this page describes the available middleware seam, why application remains tabled, and the evidence needed before a future routing mode.
 
 ### Checked upstream status
 
-The repository's reviewed Hermes Agent pin is commit `8503ee4459316ce092b5d69b7d396c27aa03d0be`. The official upstream `main` head checked for this change is commit `71a2fe399bbd7a219c71f9d9fca2b313b01f2057`. At both commits, `PluginContext` exposes registration for tools, hooks, middleware, skills, and providers, but no public model-selection registration or apply callback. Hermes has an internal `apply_model_selection` configuration helper for callers that already own the model-switch workflow. That helper is not a plugin seam. The checked upstream commits therefore have no model-selection apply seam for Switchyard to use.
+The repository's reviewed Hermes Agent pin is commit `dad0057271f14da3278a91afd438c901b2fcc5f3`. Hermes exposes `llm_request` middleware that can change a request's model string on the existing provider connection. This is a possible application seam for a future evaluated router, including cross-vendor models on OpenRouter; it does not by itself select another provider connection. Switchyard still returns `applied: false` and does not use the seam for model switching. The model-routing follow-up is tabled in #165. Its first candidate should preserve the parent conversation and prefix cache, consider delegated children only through supported public interfaces, and evaluate shadow/replay evidence before application.
 
 ### Required host contract
 

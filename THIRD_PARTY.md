@@ -5,8 +5,8 @@ This repository is original plugin work under the MIT license. It uses the docum
 The Hermes guidance reviewed for this plugin is:
 
 - [Hermes plugin catalog guidance](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugin-catalog)
-- [Hermes Agent catalog policy at the reviewed upstream commit](https://github.com/NousResearch/hermes-agent/blob/8503ee4459316ce092b5d69b7d396c27aa03d0be/plugin-catalog/README.md)
-- [Hermes plugin authoring guidance at the reviewed upstream commit](https://github.com/NousResearch/hermes-agent/blob/8503ee4459316ce092b5d69b7d396c27aa03d0be/plugins/AGENTS.md)
+- [Hermes Agent catalog policy at the reviewed upstream commit](https://github.com/NousResearch/hermes-agent/blob/dad0057271f14da3278a91afd438c901b2fcc5f3/plugin-catalog/README.md)
+- [Hermes plugin authoring guidance at the reviewed upstream commit](https://github.com/NousResearch/hermes-agent/blob/dad0057271f14da3278a91afd438c901b2fcc5f3/plugins/AGENTS.md)
 - [Hermes example plugin using the host-owned `ctx.llm` API](https://github.com/NousResearch/hermes-example-plugins/tree/main/plugin-llm-example)
 
 Switchyard follows the native general-plugin contract: root `plugin.yaml`, root `__init__.py`, `register(ctx)`, explicit tool declarations, and documented host context APIs. Registered CUA dispatch uses the native `computer_use` tool directly and does not place `ctx.llm` between Jev decisions. Catalog admission remains a separate human-reviewed exact-SHA process.

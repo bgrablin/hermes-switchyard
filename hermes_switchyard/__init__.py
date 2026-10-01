@@ -990,6 +990,11 @@ def _exposure_lines(exposure: dict[str, Any]) -> list[str]:
 
 def _cli_handler(args):
     command = getattr(args, "switchyard_command", None) or getattr(args, "jev_command", None)
+    if command == "scan-catalog":
+        from .catalog_scan import scan_catalog
+        report = scan_catalog(args.path)
+        print(json.dumps(report, sort_keys=True))
+        return 0 if report["coverage_complete"] and not report["findings"] else 1
     if command == "lint-skills":
         from .skill_lint import CatalogError, SCHEMA, discover_report, format_report
 
@@ -1289,6 +1294,8 @@ def _cli_handler(args):
 
 def _setup_cli(parser):
     commands = parser.add_subparsers(dest="switchyard_command")
+    scan = commands.add_parser("scan-catalog", help="Read-only package/MCP review with content hashes and coverage gaps")
+    scan.add_argument("path", help="Local package directory to inspect without executing it")
     lint = commands.add_parser("lint-skills", help="Report local skill-description routability hints")
     lint.add_argument("--json", action="store_true", dest="json_output", help="Emit versioned JSON")
     setup = commands.add_parser("setup", help="Save one Jev provider key through a masked prompt")
@@ -1581,7 +1588,28 @@ def register(ctx):
         value = ctx_get_config(ctx, key, default=default)
         return value if type(value) is bool else default
 
+    from .browser_plan import BrowserPlanCache
+    browser_plan_cache = BrowserPlanCache()
+
     standing_ack = setting_bool("public_or_sanitized_data_ack", True)
+    if setting_bool("smart_approval_provider", False) and standing_ack:
+        from .approval_review import register_approval_provider
+        register_approval_provider(lambda: setting_bool("smart_approval_provider", False) and setting_bool("public_or_sanitized_data_ack", True))
+    if setting_bool("consequential_tool_gate", False) and callable(getattr(ctx, "register_hook", None)):
+        from .approval_review import pre_tool_gate
+        ctx.register_hook("pre_tool_call", pre_tool_gate)
+
+    from .output_pruning import prune_terminal_result
+    from .stuck_detection import StuckDetector
+    if callable(getattr(ctx, "register_hook", None)):
+        pruning = setting_bool("repeated_output_compaction", False)
+        stuck = StuckDetector(client) if standing_ack and setting_bool("cross_tool_stuck_detection", False) else None
+        if pruning or stuck:
+            def transform_result(**kwargs):
+                advice = stuck(**kwargs) if stuck is not None and setting_bool("cross_tool_stuck_detection", False) and setting_bool("public_or_sanitized_data_ack", True) else None
+                return advice if advice is not None else prune_terminal_result(**kwargs) if pruning else None
+            ctx.register_hook("transform_tool_result", transform_result)
+
     session_search_choice_confidence = _config_float(
         ctx_get_config(ctx, "session_search_rerank_choice_confidence_threshold", default=0.8),
         default=0.8,
@@ -1764,6 +1792,9 @@ def register(ctx):
             if start_url:
                 def run_dom(active_client):
                     return browser_use.run_browser_goal(
+                        retrieved_screen_enabled=setting_bool("retrieved_screen_enabled", False),
+                        plan_cache=browser_plan_cache if setting_bool("browser_plan_cache", False) else None,
+                        cache_scope=cache_identity() if setting_bool("browser_plan_cache", False) else None,
                         goal=args.get("goal") or "",
                         start_url=start_url,
                         client=active_client,
@@ -1882,6 +1913,7 @@ def register(ctx):
             except Exception:  # noqa: BLE001 -- missing key/route fails open to FTS
                 return json.dumps(
                     rerank_session_search(
+                        retrieved_screen_enabled=setting_bool("retrieved_screen_enabled", False),
                         candidates=candidates,
                         query=query,
                         client=None,
@@ -1896,6 +1928,7 @@ def register(ctx):
             try:
                 return json.dumps(
                     rerank_session_search(
+                        retrieved_screen_enabled=setting_bool("retrieved_screen_enabled", False),
                         query=query,
                         candidates=candidates,
                         client=active_client,

@@ -22,6 +22,7 @@ import re
 from typing import Any, Mapping, Sequence
 
 from . import receipt_state
+from .retrieved_screen import anchor_preview, card_anchors, screen_shortlist
 from .client import (
     DEFAULT_OPERATION_DEADLINE_SECONDS,
     MAX_DECISION_REQUESTS,
@@ -160,7 +161,7 @@ def _parse_anchors(raw: Any, *, index: int) -> list[dict[str, str]]:
             add(_validate_message_id(item))
         elif isinstance(item, Mapping):
             mid = _validate_message_id(item.get("message_id") or item.get("id"))
-            preview = _coerce_text(item.get("preview") or item.get("snippet") or "", MAX_ANCHOR_PREVIEW_CHARS)
+            preview = _coerce_text(anchor_preview(item), MAX_ANCHOR_PREVIEW_CHARS)
             add(mid, preview)
         else:
             raise ValueError(f"candidates[{index}] anchor entries must be strings or objects")
@@ -190,11 +191,7 @@ def _normalize_candidates(
         body = snippet or title
         if len(body) > max_card_chars:
             body = body[:max_card_chars]
-        anchors_raw = raw.get("match_anchors")
-        if anchors_raw is None:
-            anchors_raw = raw.get("match_message_ids")
-        if anchors_raw is None:
-            anchors_raw = raw.get("match_message_id")
+        anchors_raw = card_anchors(raw)
         anchors = _parse_anchors(anchors_raw, index=index)
         normalized.append(
             {
@@ -248,12 +245,15 @@ def fail_open_to_fts(
     metadata: Mapping[str, Any] | None = None,
     confidence: float = 0.0,
     winning_probability: float | None = None,
+    retrieved_screen_enabled: bool = False,
 ) -> dict[str, Any]:
     """Return the first FTS candidate with an explicit fail-open reason.
 
     Used by the tool handler when the Jev client cannot be constructed, and by
     the re-rank path when Jev is down or low-confidence.
     """
+    if retrieved_screen_enabled:
+        candidates, _screen = screen_shortlist(candidates)
     query_text = (query or "").strip()[:MAX_QUERY_CHARS]
     if not candidates:
         return _empty_result(query=query_text, max_card_chars=max_card_chars)
@@ -448,7 +448,7 @@ def _merge_call_metadata(base: dict[str, Any], extra: Mapping[str, Any]) -> None
         pass
 
 
-def rerank_session_search(
+def _rerank_session_search(
     *,
     query: str,
     candidates: Sequence[Any],
@@ -629,3 +629,19 @@ def rerank_session_search(
             pick_match_message=pick_match_message,
             metadata=metadata,
         )
+
+
+def rerank_session_search(*, retrieved_screen_enabled=False, **kwargs):
+    """Screen retrieved cards locally before selection, even with no provider."""
+    candidates, screening = screen_shortlist(kwargs.get("candidates"))
+    flagged = screening["withheld"]
+    if not retrieved_screen_enabled:
+        candidates = kwargs.get("candidates")
+        screening["withheld"] = 0
+    screening.update(mode="enforce" if retrieved_screen_enabled else "shadow", flagged=flagged)
+    result = _rerank_session_search(**{**kwargs, "candidates": candidates})
+    result["retrieved_screen"] = screening
+    if screening["withheld"] and not candidates:
+        result["status"] = "blocked"
+        result["fail_open_reason"] = "retrieved_instruction_screen"
+    return result

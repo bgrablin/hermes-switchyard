@@ -24,7 +24,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  HERMES_UPSTREAM_SHA: 8503ee4459316ce092b5d69b7d396c27aa03d0be
+  HERMES_UPSTREAM_SHA: dad0057271f14da3278a91afd438c901b2fcc5f3
   TRUSTED_REPOSITORY: bgrablin/hermes-switchyard
 
 jobs:

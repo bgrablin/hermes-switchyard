@@ -191,7 +191,7 @@ class WindowsInstalledArchiveTests(unittest.TestCase):
                 "--artifact-dir", str(self.folder / "download"),
                 "--source-root", str(ROOT), "--source-sha", self.source_sha,
                 "--upstream-root", str(ROOT),
-                "--upstream-sha", "8503ee4459316ce092b5d69b7d396c27aa03d0be",
+                "--upstream-sha", "dad0057271f14da3278a91afd438c901b2fcc5f3",
                 "--hermes-home", str(self.folder / "nonexistent-home"),
                 "--report", str(report),
             ])
@@ -207,7 +207,7 @@ class WindowsInstalledArchiveTests(unittest.TestCase):
 
         args = argparse.Namespace(
             source_sha=self.source_sha,
-            upstream_sha="8503ee4459316ce092b5d69b7d396c27aa03d0be",
+            upstream_sha="dad0057271f14da3278a91afd438c901b2fcc5f3",
             hermes_home=self.folder / "outside",
             artifact_dir=self.folder / "download",
             source_root=ROOT,
@@ -226,7 +226,7 @@ class WindowsInstalledArchiveTests(unittest.TestCase):
         home = self.folder / "runner-temp" / "candidate-home"
         args = argparse.Namespace(
             source_sha=self.source_sha,
-            upstream_sha="8503ee4459316ce092b5d69b7d396c27aa03d0be",
+            upstream_sha="dad0057271f14da3278a91afd438c901b2fcc5f3",
             hermes_home=home,
             artifact_dir=self.folder / "download",
             source_root=ROOT,
