@@ -104,4 +104,5 @@ source-root boundary, acknowledgement, sanitization and foreground scope gates
 also apply. Unknown list syntax continues through ordinary Hermes tools.
 
 This extends an opt-in pilot. See [the experiment record](AWESOME-JEV-EVALUATION.md)
-for positive component results and the unresolved full-conversation evaluation.
+for component results, the passed 80-conversation native pilot, and its bounded
+qualification limits.

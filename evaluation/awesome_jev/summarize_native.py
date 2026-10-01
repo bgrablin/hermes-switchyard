@@ -20,7 +20,9 @@ def summarize(run, grades, output):
     assert len(rows) == len(expected) and observed == expected, "incomplete or duplicate run"
     assert set(grades) == {f"{i}:{a}" for i, a in expected}, "every answer needs review"
     after = json.loads((run / "runtime-after.json").read_text())
-    assert after["unchanged"], "runtime changed during measurement"
+    before_hashes = freeze.get("runtime_file_hashes")
+    runtime_unchanged = isinstance(before_hashes, dict) and bool(before_hashes) and before_hashes == after.get("hashes")
+    assert runtime_unchanged, "runtime changed during measurement"
     for name, sha in freeze["scripts"].items():
         assert digest(run / "scripts" / name) == sha, name
     for name, sha in freeze["hashes"].items():
@@ -94,7 +96,7 @@ def summarize(run, grades, output):
         "public_synthetic": True, "run": run.name, "planned_conversations": len(expected),
         "candidate_runtime": freeze["candidate_base"], "versions": freeze["versions"],
         "model": freeze["model"], "provider": freeze["provider"], "jev": freeze["jev"],
-        "hermes_sha": freeze["hermes_sha"], "runtime_unchanged": after["unchanged"],
+        "hermes_sha": freeze["hermes_sha"], "runtime_unchanged": runtime_unchanged,
         "artifacts_sha256": {name: digest(run / name) for name in ["freeze.json", "cases.json", "raw.jsonl", "runtime-after.json"]},
         "measured_scripts": freeze["scripts"], "candidate_file_hashes": freeze["hashes"],
         "summaries": summaries, "relative_changes": comparisons,

@@ -57,6 +57,7 @@ RELEASE_FILES = (
     "docs/TEST-MATRIX.md",
     "docs/FIRST-RUN.md",
     "docs/WOW-LOCAL-REPORT.md",
+    "docs/benchmarks/awesome-jev-native-v2.json",
     "docs/benchmarks/live-selector-c6d9b28.json",
     "docs/benchmarks/live-selector-c8e6008.json",
     "docs/benchmarks/live-selector-7dc77c8.json",

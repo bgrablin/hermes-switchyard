@@ -8,7 +8,7 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 
 ### Added
 
-- Extend the opt-in source finder with bounded multi-file evidence bundles, exact per-file citations, keyed relevance questions, duplicate citation preservation, and whole-lookup fallback; native performance qualification remains pending.
+- Extend the opt-in source finder with bounded multi-file evidence bundles, exact per-file citations, keyed relevance questions, duplicate citation preservation, and whole-lookup fallback. The complete 80-conversation synthetic native pilot passes its correctness and efficiency gates; the feature remains opt-in. See [results and limits](docs/AWESOME-JEV-EVALUATION.md).
 
 - Automatic source-prefetch pilot for simple natural-language requests naming a file. Exact evidence can reach Hermes before its first main-model call; unsupported requests use ordinary tools. No finder tool, schema, or discovery round. Opt-in with an absolute approved root, bounded reads, original-request guards, sanitization, and freshness verification. See [setup and limits](docs/SOURCE-FINDER.md).
 
