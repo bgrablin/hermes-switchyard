@@ -122,6 +122,13 @@ class BundleTests(unittest.TestCase):
                 self.assertEqual(self.lookup()["status"], "defer")
         self.factory.assert_not_called()
 
+    def test_invalid_query_encoding_is_input_failure_before_source_io(self):
+        with mock.patch.object(bundle.source, "read_source") as read:
+            result = self.lookup(query="\ud800")
+        self.assertEqual((result["status"], result["reason"]), ("defer", "invalid_query"))
+        read.assert_not_called()
+        self.factory.assert_not_called()
+
     def test_close_over_deadline_discards_evidence(self):
         clock = [0.0]
         def close():

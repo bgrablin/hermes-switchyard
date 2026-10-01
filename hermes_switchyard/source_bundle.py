@@ -36,7 +36,10 @@ def locate_many(*, root, sources, query, client_factory,
             raise source.SourceError("invalid_sources")
         if type(query) is not str or not query.strip() or len(query) > source.MAX_QUERY_CHARS:
             raise source.SourceError("invalid_query")
-        query.encode("utf-8")
+        try:
+            query.encode("utf-8")
+        except UnicodeEncodeError:
+            raise source.SourceError("invalid_query") from None
         if source.source_lookup_needs_local_handling(query):
             raise source.SourceError("local_handling_required")
         captured, passages, total = {}, {}, 0
@@ -125,7 +128,7 @@ def locate_many(*, root, sources, query, client_factory,
                                "Read further with normal tools if context or requested evidence is missing.")
     except source.SourceError as exc:
         out["reason"] = str(exc)
-    except (ValueError, TypeError, KeyError, UnicodeError):
+    except (ValueError, TypeError, KeyError):
         out["reason"] = "invalid_response"
     except Exception:  # noqa: BLE001 -- provider exception text may contain source or credentials
         out["reason"] = "provider_unavailable"
