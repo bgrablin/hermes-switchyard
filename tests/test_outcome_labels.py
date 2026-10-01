@@ -233,87 +233,83 @@ class OutcomeLabelTests(unittest.TestCase):
                 result = generate(records, evidence)
                 self.assertEqual(result["labels"][0]["next_turn_user_correction"], "UNKNOWN")
 
-    def test_cli_protects_before_writing_and_closes_before_failed_protection_cleanup(self):
+    def test_atomic_report_protection_cleanup_and_no_clobber(self):
         from hermes_switchyard import outcome_labels
-
-        for denied in (False, True):
-            with self.subTest(denied=denied), tempfile.TemporaryDirectory(prefix="outcome-label-test-") as temporary:
-                root = Path(temporary)
-                data = root / "retained"
-                data.mkdir()
-                records, evidence, expected = frozen_case("explicit-correction-with-same-arm-adjacent-reply")
-                history = receipt_history.history_path(data)
-                assert history is not None
-                history.write_text(
-                    "".join(json.dumps(record) + "\n" for record in records), encoding="utf-8",
-                )
-                input_path = root / "evidence.json"
-                input_path.write_text(json.dumps(evidence), encoding="utf-8")
-                output = root / "labels.json"
-                args = ["--history-dir", str(data), "--evidence", str(input_path), "--output", str(output)]
+        payload = '{"schema":"test","labels":[]}\n'
+        for failure in (None, "protect", "flush", "race"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as root:
+                output = Path(root) / "labels.json"
+                real_link = os.link
+                real_protect = receipt_state._apply_private_permissions
                 events = []
-                descriptors = []
-                real_open, real_fdopen, real_unlink = os.open, os.fdopen, Path.unlink
-
-                def capture_open(path, flags, mode):
-                    descriptor = real_open(path, flags, mode)
-                    descriptors.append(descriptor)
-                    return descriptor
-
                 def protect(path):
-                    self.assertEqual(path, output)
+                    self.assertFalse(output.exists())
                     self.assertEqual(path.read_bytes(), b"")
                     events.append("protect")
-                    if denied:
-                        raise OSError("synthetic protection failure")
-
-                class TrackedOutput:
-                    def __init__(self, descriptor, *args, **kwargs):
-                        self.handle = real_fdopen(descriptor, *args, **kwargs)
-
-                    def __enter__(self):
-                        return self
-
-                    def __exit__(self, *args):
-                        return self.handle.__exit__(*args)
-
-                    def write(self, payload):
-                        if events != ["protect"] or denied:
-                            raise AssertionError("payload written before successful protection")
-                        events.append("write")
-                        return self.handle.write(payload)
-
-                def remove(path, *args, **kwargs):
-                    self.assertEqual(path, output)
+                    if failure == "protect":
+                        raise OSError("protection failed")
+                    real_protect(path)
+                def sync(descriptor):
+                    self.assertFalse(output.exists())
                     self.assertEqual(events, ["protect"])
-                    self.assertEqual(path.read_bytes(), b"")
-                    with self.assertRaises(OSError):
-                        os.fstat(descriptors[0])
-                    events.append("remove")
-                    return real_unlink(path, *args, **kwargs)
-
-                with mock.patch.object(outcome_labels.os, "open", side_effect=capture_open), \
-                        mock.patch.object(outcome_labels.os, "fdopen", side_effect=TrackedOutput), \
-                        mock.patch.object(receipt_state, "_apply_private_permissions", side_effect=protect), \
-                        mock.patch.object(Path, "unlink", autospec=True, side_effect=remove):
-                    if denied:
-                        with self.assertRaisesRegex(OSError, "synthetic protection failure"):
-                            outcome_labels.main(args)
+                    self.assertGreater(os.fstat(descriptor).st_size, 0)
+                    events.append("sync")
+                    if failure == "flush":
+                        raise OSError("flush failed")
+                def publish(source, destination):
+                    self.assertEqual(events, ["protect", "sync"])
+                    self.assertEqual(Path(source).read_text(), payload)
+                    self.assertFalse(output.exists())
+                    if failure == "race":
+                        output.write_text("concurrent writer")
+                    return real_link(source, destination)
+                with mock.patch.object(receipt_state, "_apply_private_permissions", side_effect=protect), \
+                        mock.patch.object(outcome_labels.os, "fsync", side_effect=sync), \
+                        mock.patch.object(outcome_labels.os, "link", side_effect=publish):
+                    if failure:
+                        with self.assertRaises(OSError):
+                            outcome_labels._publish_report(output, payload)
                     else:
-                        self.assertEqual(outcome_labels.main(args), 0)
-                self.assertEqual(events, ["protect", "remove"] if denied else ["protect", "write"])
-                if denied:
+                        outcome_labels._publish_report(output, payload)
+                self.assertEqual(list(Path(root).glob(".outcome-labels-*.tmp")), [])
+                if failure == "race":
+                    self.assertEqual(output.read_text(), "concurrent writer")
+                elif failure:
                     self.assertFalse(output.exists())
                 else:
-                    self.assertEqual(json.loads(output.read_text(encoding="ascii"))["labels"], expected)
+                    self.assertEqual(output.read_text(), payload)
                     if os.name != "nt":
                         self.assertEqual(output.stat().st_mode & 0o777, 0o600)
-                    original = output.read_bytes()
-                    with mock.patch.object(receipt_state, "_apply_private_permissions") as protection:
-                        with self.assertRaises(FileExistsError):
-                            outcome_labels.main(args)
-                        protection.assert_not_called()
-                    self.assertEqual(output.read_bytes(), original)
+                    with self.assertRaises(FileExistsError):
+                        outcome_labels._publish_report(output, "replacement")
+                    self.assertEqual(output.read_text(), payload)
+
+    def test_strict_history_refuses_unreadable_or_linked_source_but_accepts_empty(self):
+        from hermes_switchyard import outcome_labels
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            history = root / receipt_history.HISTORY_FILE_NAME
+            history.write_text("")
+            self.assertEqual(outcome_labels._read_retained_history(history), [])
+            with mock.patch.object(outcome_labels.os, "open", side_effect=PermissionError("denied")):
+                with self.assertRaises(PermissionError):
+                    outcome_labels._read_retained_history(history)
+            evidence = root / "evidence.json"
+            evidence.write_text("[]")
+            output = root / "labels.json"
+            with mock.patch.object(outcome_labels, "_read_retained_history", side_effect=OSError("read failed")):
+                with self.assertRaises(OSError):
+                    outcome_labels.main(["--history-dir", str(root), "--evidence", str(evidence), "--output", str(output)])
+            self.assertFalse(output.exists())
+            linked = root / "linked.jsonl"
+            os.link(history, linked)
+            with self.assertRaises(OSError):
+                outcome_labels._read_retained_history(history)
+            linked.unlink()
+            if os.name != "nt":
+                linked.symlink_to(history)
+                with self.assertRaises(OSError):
+                    outcome_labels._read_retained_history(linked)
 
     def test_offline_cli_reads_only_explicit_synthetic_history_and_writes_private_output(self):
         with tempfile.TemporaryDirectory(prefix="outcome-label-test-") as temporary:

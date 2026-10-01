@@ -10,6 +10,8 @@ import hashlib
 import json
 import os
 import re
+import stat
+import tempfile
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -191,6 +193,57 @@ def generate(records: Sequence[Mapping], evidence: Sequence[Mapping]) -> dict:
     }
 
 
+def _read_retained_history(path: Path) -> list[dict]:
+    """Read the bounded canonical tail, raising on source refusal or I/O failure."""
+    before = path.lstat()
+    if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+        raise OSError("history must be a regular single-link file")
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        with os.fdopen(descriptor, "rb") as handle:
+            descriptor = None
+            opened = os.fstat(handle.fileno())
+            current = path.lstat()
+            if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1
+                    or (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino)
+                    or (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino)):
+                raise OSError("history changed while opening")
+            start = max(0, opened.st_size - receipt_history.DEFAULT_MAX_BYTES)
+            handle.seek(start)
+            data = handle.read(receipt_history.DEFAULT_MAX_BYTES)
+            after = os.fstat(handle.fileno())
+            if (after.st_size, after.st_mtime_ns) != (opened.st_size, opened.st_mtime_ns):
+                raise OSError("history changed while reading")
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    if start:
+        newline = data.find(b"\n")
+        data = data[newline + 1:] if newline >= 0 else b""
+    return receipt_history._parse_records(data.decode("ascii", errors="replace").splitlines())
+
+
+def _publish_report(path: Path, payload: str) -> None:
+    """Protect and flush a temporary file, then publish without replacing a file."""
+    if path.exists() or path.is_symlink():
+        raise FileExistsError("output already exists")
+    descriptor, name = tempfile.mkstemp(prefix=".outcome-labels-", suffix=".tmp", dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="ascii") as handle:
+            descriptor = None
+            receipt_state._apply_private_permissions(temporary)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        # Atomic no-clobber publication, including a destination-creation race.
+        os.link(temporary, path)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        temporary.unlink()
+
+
 def main(argv: list[str] | None = None) -> int:
     """Explicit local-file entry point; no default profile, hook, or network."""
     parser = argparse.ArgumentParser(description="Generate local offline labels from retained receipts")
@@ -203,23 +256,11 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("receipt history file is absent")
     if args.output.resolve() in (source.resolve(), args.evidence.resolve()):
         parser.error("output cannot replace an input")
-    records = receipt_history.read_history(data_dir=args.history_dir)
+    records = _read_retained_history(source)
     supplied = json.loads(args.evidence.read_text(encoding="utf-8"))
     report = generate(records, supplied)
     payload = json.dumps(report, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(args.output, flags, 0o600)
-    try:
-        with os.fdopen(fd, "w", encoding="ascii") as handle:
-            fd = None  # The file object now owns and closes the descriptor.
-            receipt_state._apply_private_permissions(args.output)
-            handle.write(payload)
-    except BaseException:
-        # Close before unlink so failed protection can be cleaned up on Windows.
-        if fd is not None:
-            os.close(fd)
-        args.output.unlink()
-        raise
+    _publish_report(args.output, payload)
     return 0
 
 
