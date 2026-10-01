@@ -1,0 +1,58 @@
+{
+  "evaluation/model_routing/pilot.py": {
+    "archive_path": "frozen/evaluation/model_routing/pilot.py",
+    "sha256": "5cd5e2148ba7aded389017b0b13d0a0b3e5289f574294308a89451f0b6cf1144"
+  },
+  "evaluation/model_routing/native_worker.py": {
+    "archive_path": "frozen/evaluation/model_routing/native_worker.py",
+    "sha256": "175c610f970dcbd4e5a7c5cfddacd4cc356ca4c87e6e9fd28cca427343467b1f"
+  },
+  "evaluation/model_routing/summarize.py": {
+    "archive_path": "frozen/evaluation/model_routing/summarize.py",
+    "sha256": "0751454ffd955c8a33e6d997410d80cc482ce0dfa51c4e965f5e4eb8a89fba2e"
+  },
+  "evaluation/model_routing/compare.py": {
+    "archive_path": "frozen/evaluation/model_routing/compare.py",
+    "sha256": "02ee103bd44de4262eb14ec2c7402c410cc2641f81dcb4b85e2e9d30d841c088",
+    "recorded_sha256": "e42ed611dc6fd0b75185b8379bc3caa77a81135badef7c0cb81aa1536fda4e2b",
+    "redaction": "host-runtime-root"
+  },
+  "evaluation/turn_consolidation/confirmation.py": {
+    "archive_path": "frozen/evaluation/turn_consolidation/confirmation.py",
+    "sha256": "3f23cf2cf7c7f1b95f38fe4b01db7503707cda9005d280febe1506cbd6e5c958"
+  },
+  "evaluation/turn_consolidation/pilot.py": {
+    "archive_path": "frozen/evaluation/turn_consolidation/pilot.py",
+    "sha256": "6ed8602de819841d325284f028807646f43165f0e6e4f85423bf7cdf82394365"
+  },
+  "evaluation/turn_consolidation/native_compare.py": {
+    "archive_path": "frozen/evaluation/turn_consolidation/native_compare.py",
+    "sha256": "a20578b195a808d82b411373ed1c737e06e3d9b889d6117b5951f8783b7c7cc0",
+    "recorded_sha256": "b4099d69980fb7c154ae273937a2734a7320d8187bc35b94e5d16a1b954c4e95",
+    "redaction": "host-runtime-root"
+  },
+  "evaluation/turn_consolidation/native_worker.py": {
+    "archive_path": "frozen/evaluation/turn_consolidation/native_worker.py",
+    "sha256": "9eb960d2c989db40b54a0baa647b7bd48062f61494bc381f693eec2e1c4b0e37"
+  },
+  "evaluation/turn_consolidation/screen.py": {
+    "archive_path": "frozen/evaluation/turn_consolidation/screen.py",
+    "sha256": "5fad76fdcf0c9052b6f560dd3ce1d14747f8c7634f9ae98c1e29a20eb355ccbf"
+  },
+  "hermes_switchyard/client.py": {
+    "archive_path": "frozen/hermes_switchyard/client.py",
+    "sha256": "5c953626aecdac20a9535d51e1b4aad2586188b3842c35ad06f33baa055bb107"
+  },
+  "hermes_switchyard/routing.py": {
+    "archive_path": "frozen/hermes_switchyard/routing.py",
+    "sha256": "dab627c054f37e8f6ca1fdf2457f4f9e496f1e955d6647b98022ea1a260ac07f"
+  },
+  "hermes_switchyard/reasoning_effort_adapter.py": {
+    "archive_path": "frozen/hermes_switchyard/reasoning_effort_adapter.py",
+    "sha256": "afb15872e6b946b80166bd32deed56e554a4efeac61d83ce1dbf4457cc3ca421"
+  },
+  "evaluation/decision_quality/native_compare.py": {
+    "archive_path": "frozen/evaluation/decision_quality/native_compare.py",
+    "sha256": "cef807629ea4de955eefc2cdd8b9d46ac7ba7e33f862e31cdafb7ef3be4a8211"
+  }
+}

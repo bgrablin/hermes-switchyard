@@ -1,0 +1,15 @@
+{
+  "files": {
+    "observations.json": "4cd893b8f648d291627f4aeddb1d4621b7cb2679b1c3af6a719b4c50b6602192",
+    "source-snapshots.json": "88bed0b892600425911b49c95cefe0a0b0203cf3eb2d9502aea05b05c2960f54"
+  },
+  "notes": [
+    "Export and source dependency bindings are retrospective; per-run freezes remain unmodified.",
+    "Confirmation wrapper and shared native worker launcher were not hashed by the original freezes. Their preserved bytes are retrospective bindings.",
+    "Interrupted consolidation is retained for disclosure and excluded from the complete-trial gate.",
+    "Runtime maps cover tracked Python files, not all machine state or installed dependencies.",
+    "Two historical runner snapshots redact only the host-specific runtime path. Their original and public hashes are distinct; exact original-byte verification of those two files requires the locally retained originals.",
+    "Published runtime records retain canonical SHA-256 fingerprints and file counts. Detailed original path/hash inventories remain with the local trial outputs.",
+    "All provider rows and pre-call freezes remain unchanged."
+  ]
+}
