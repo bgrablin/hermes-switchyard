@@ -988,6 +988,28 @@ def _exposure_lines(exposure: dict[str, Any]) -> list[str]:
 
 def _cli_handler(args):
     command = getattr(args, "switchyard_command", None) or getattr(args, "jev_command", None)
+    if command == "lint-skills":
+        from .skill_lint import CatalogError, SCHEMA, discover_report, format_report
+
+        try:
+            report = discover_report()
+        except Exception as exc:  # noqa: BLE001 -- registry/provider text must not reach output
+            reason = "catalog_unavailable"
+            if isinstance(exc, CatalogError) and str(exc) in {
+                "invalid_catalog", "catalog_too_large", "catalog_too_confusable",
+            }:
+                reason = str(exc)
+            failure = {"schema": SCHEMA, "status": "unavailable", "reason": reason}
+            if getattr(args, "json_output", False):
+                print(json.dumps(failure, sort_keys=True))
+            else:
+                print(f"Skill catalog unavailable ({reason}).")
+            return 1
+        if getattr(args, "json_output", False):
+            print(json.dumps(report, sort_keys=True))
+        else:
+            print(format_report(report))
+        return 0
     if command == "status":
         credential_presence = {}
         for provider in ("typesafe", "openrouter"):
@@ -1160,6 +1182,16 @@ def _cli_handler(args):
         indent = None if getattr(args, "json_output", False) else 2
         print(json.dumps(stats, ensure_ascii=False, sort_keys=True, indent=indent, allow_nan=False))
         return 0
+    if command == "wow":
+        from .wow import build_report, format_text
+
+        days = args.days
+        if days <= 0 or days > 3650:
+            print("--days requires an integer between 1 and 3650.")
+            return 2
+        report = build_report(days=days, plugin_registered=_RUNTIME_STATUS["plugin_loaded"])
+        print(json.dumps(report, sort_keys=True, allow_nan=False) if args.json_output else format_text(report))
+        return 0
     if command == "ensure-toolsets":
         result = ensure_platform_toolsets()
         if getattr(args, "json_output", False):
@@ -1210,7 +1242,7 @@ def _cli_handler(args):
     if command != "setup":
 
         print(
-            "Usage: hermes switchyard <status|cleanup|guide|setup|ensure-toolsets|receipt|stats|test> "
+            "Usage: hermes switchyard <status|cleanup|guide|setup|ensure-toolsets|receipt|stats|wow|test> "
             "[--provider ...|--json]"
         )
         return 2
@@ -1254,6 +1286,8 @@ def _cli_handler(args):
 
 def _setup_cli(parser):
     commands = parser.add_subparsers(dest="switchyard_command")
+    lint = commands.add_parser("lint-skills", help="Report local skill-description routability hints")
+    lint.add_argument("--json", action="store_true", dest="json_output", help="Emit versioned JSON")
     setup = commands.add_parser("setup", help="Save one Jev provider key through a masked prompt")
     setup.add_argument("--provider", required=True, choices=("typesafe", "openrouter"))
     receipt = commands.add_parser("receipt", help="Show the latest automatic-routing receipt")
@@ -1279,6 +1313,9 @@ def _setup_cli(parser):
         help="Only count records newer than this window, e.g. 30m, 24h, 7d, or 2w",
     )
     stats.add_argument("--json", action="store_true", dest="json_output", help="Emit compact JSON")
+    wow = commands.add_parser("wow", help="Summarize retained local observations only")
+    wow.add_argument("--days", type=int, default=7, metavar="N", help="Trailing whole days (default: 7)")
+    wow.add_argument("--json", action="store_true", dest="json_output", help="Emit schema-versioned JSON")
     status = commands.add_parser("status", help="Show local readiness without network access")
     status.add_argument("--json", action="store_true", dest="json_output")
     status.add_argument(
@@ -1616,7 +1653,9 @@ def register(ctx):
         ),
         honor_no_skill_gate=setting_bool("automatic_skill_honor_no_skill_gate", False),
         light_turn_bypass=setting_bool("automatic_skill_light_turn_bypass", True),
-        cheap_hosted_select=setting_bool("automatic_skill_cheap_hosted_select", False),
+        early_light_bypass_before_discover=setting_bool(
+            "automatic_skill_early_light_bypass_before_discover", False
+        ),
         two_stage=TwoStageConfig.from_mapping(
             {
                 key: ctx_get_config(ctx, key, default=None)
@@ -1687,6 +1726,10 @@ def register(ctx):
     if isinstance(defer_status, dict):
         defer_status = {k: v for k, v in defer_status.items() if k != "callback"}
     _RUNTIME_STATUS["defer_tool_schemas"] = defer_status
+    if defer_status.get("registered") and defer_status.get("composed_with_prior"):
+        _RUNTIME_STATUS["reasoning_effort_adapter"] = (
+            _effort_mod.mark_composed_llm_request_registered()
+        )
 
     def assess_handler(args, **kwargs):
         try:

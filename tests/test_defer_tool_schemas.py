@@ -275,5 +275,80 @@ class ComposeMiddlewareTests(unittest.TestCase):
         self.assertEqual(last["request"].get("reasoning_effort"), "high")
 
 
+class ProviderBoundaryTests(unittest.TestCase):
+    def test_anthropic_tool_result_preserves_original_explicit_request(self):
+        request = _skill_route_request(user="Use jev_model_route after reading the file.")
+        request["messages"].extend([
+            {"role": "assistant", "content": [{"type": "tool_use", "id": "read-1", "name": "read_file", "input": {}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "read-1", "content": "read result"}]},
+        ])
+        self.assertIn("jev_model_route", latest_user_text(request))
+        self.assertIsNone(build_defer_tool_schemas_middleware(enabled=True)(request=request))
+
+    def test_anthropic_prior_tool_use_preserves_schema(self):
+        request = _skill_route_request(user="Continue.")
+        request["messages"].insert(0, {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "jev-1", "name": "jev_assess", "input": {}},
+        ]})
+        self.assertTrue(history_has_switchyard_tool_call(request))
+        self.assertIsNone(build_defer_tool_schemas_middleware(enabled=True)(request=request))
+
+    def test_forced_tool_choices_and_unknown_input_fail_open(self):
+        callback = build_defer_tool_schemas_middleware(enabled=True)
+        for choice in ({"type": "function", "function": {"name": "jev_assess"}},
+                       {"type": "function", "name": "jev_assess"},
+                       {"type": "tool", "name": "jev_assess"}):
+            request = {**_skill_route_request(), "tool_choice": choice}
+            self.assertIsNone(callback(request=request))
+        request = _skill_route_request()
+        request["messages"] = [{"role": "user", "content": [{"type": "image", "source": {}}]}]
+        self.assertIsNone(callback(request=request))
+
+    def test_real_registration_composes_and_reports_effective_effort_seam(self):
+        import json
+        import tempfile
+        from unittest.mock import patch
+        import hermes_switchyard as plugin
+        from hermes_switchyard import reasoning_effort_adapter as adapter
+        from test_readme_capabilities import _RecordingContext
+
+        class Context(_RecordingContext):
+            def __init__(self):
+                super().__init__()
+                self.callbacks = []
+                self.hook_callbacks = []
+
+            def get_config(self, key, default=None):
+                if key == "defer_switchyard_tool_schemas":
+                    return True
+                return default
+
+            def register_middleware(self, name, callback, **kwargs):
+                super().register_middleware(name, callback, **kwargs)
+                self.callbacks.append((name, callback))
+
+            def register_hook(self, name, callback):
+                super().register_hook(name, callback)
+                self.hook_callbacks.append((name, callback))
+
+        with tempfile.TemporaryDirectory() as home, patch.dict("os.environ", {"HERMES_HOME": home}):
+            ctx = Context()
+            plugin.register(ctx)
+            callbacks = [cb for name, cb in ctx.callbacks if name == "llm_request"]
+            self.assertEqual(len(callbacks), 1)
+            self.assertTrue(plugin._RUNTIME_STATUS["reasoning_effort_adapter"]["llm_request_registered"])
+            self.assertTrue(adapter.last_registration()["llm_request_registered"])
+            json.dumps(plugin._RUNTIME_STATUS)
+            # Exercise the real effort controller and composition, not a fake rewrite.
+            capture = [cb for name, cb in ctx.hook_callbacks if name == "pre_llm_call"][-1]
+            capture(session_id="schema-test", turn_id="turn-1", user_message="thanks")
+            request = _skill_route_request(user="thanks")
+            request["reasoning_effort"] = "high"
+            updated = callbacks[0](request=request, session_id="schema-test", turn_id="turn-1")["request"]
+            self.assertEqual(updated["reasoning_effort"], "minimal")
+            self.assertNotIn("jev_assess", [tool_definition_name(t) for t in updated["tools"]])
+            self.assertEqual(request["reasoning_effort"], "high")
+
+
 if __name__ == "__main__":
     unittest.main()

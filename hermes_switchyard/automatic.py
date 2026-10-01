@@ -18,7 +18,7 @@ descriptions, and full skill bodies stay local. Before hosted partition
 fan-out, a confidence-bounded shortlist may reduce the candidate set, and
 ``uncertain_only`` may apply a cheap local no-skill gate; insufficient margin
 fails closed to the full catalog. Receipts record whether
-``local_no_skill_gate``, ``local_prefilter_shortlist``, ``cheap_hosted_shortlist``, ``cheap_hosted_fail_open``, or full recall ran.
+``local_no_skill_gate``, ``local_prefilter_shortlist``, or full recall ran.
 
 Every automatic turn records delivery, adoption, and outcome separately.
 Outcome stays ``unverified`` at the plugin boundary so delivery is never claimed
@@ -37,6 +37,7 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any
 
 from . import egress_redaction, receipt_history, receipt_state
@@ -51,8 +52,6 @@ from .client import (
     _validate_deadline_seconds,
     hosted_error_detail as classify_hosted_error,
     host_cancel_scope,
-    operation_deadline_scope,
-    operation_remaining_deadline,
 )
 from .egress import (
     DEFAULT_CONSUMER_MODE,
@@ -100,16 +99,22 @@ _CATALOG_FEATURE_CACHE_SIZE = 16
 SHORTLIST_POLICY_NO_SKILL_GATE = "local_no_skill_gate"
 SHORTLIST_POLICY_PREFILTER = "local_prefilter_shortlist"
 SHORTLIST_POLICY_FULL_FAN_OUT = "full_partition_fan_out"
-# Opt-in cheap hosted select (automatic_skill_cheap_hosted_select): receipts
-# distinguish a decisive shortlist accept from a fail-open full-catalog expand.
-SHORTLIST_POLICY_CHEAP_HOSTED = "cheap_hosted_shortlist"
-SHORTLIST_POLICY_CHEAP_FAIL_OPEN = "cheap_hosted_fail_open"
 # Re-export for callers; kept below the typical Hermes ~30s callback budget.
 DEFAULT_AUTOMATIC_DEADLINE_SECONDS = DEFAULT_AUTOMATIC_ROUTING_DEADLINE_SECONDS
 
 # Catalog token-feature cache keyed by catalog hash (names + descriptions).
 _CATALOG_FEATURE_CACHE: OrderedDict[str, tuple[frozenset[str], ...]] = OrderedDict()
 _CATALOG_FEATURE_LOCK = threading.Lock()
+
+# In-process skill registry discovery cache. skills_list() is fail-open and can
+# be expensive on large profiles; automatic routing may also call discovery twice
+# in one turn (catalog + explicit-override pool). Invalidate when any observed
+# registry input changes (home/project/external roots, disabled set, platform,
+# cwd, config) or when the entry exceeds the max age. Behavior is identical to
+# uncached discovery aside from avoiding repeat registry scans.
+_DISCOVERY_CACHE_LOCK = threading.Lock()
+_DISCOVERY_CACHE: tuple[str, float, tuple[dict[str, str], ...]] | None = None
+_DISCOVERY_CACHE_MAX_AGE_SECONDS = 30.0
 
 # Stable, privacy-safe terminal states for the routing-receipt surface. These
 # names identify every automatic-routing outcome without carrying task text,
@@ -352,7 +357,208 @@ def _validate_candidates(raw: Any, *, limit: int | None) -> tuple[dict[str, str]
     return tuple(result)
 
 
-def discover_available_skill_candidates() -> tuple[dict[str, str], ...]:
+def _active_hermes_home() -> Path | None:
+    """Resolve the active Hermes home the same way ``skills_list`` does.
+
+    Prefer ``hermes_constants.get_hermes_home()`` so context-local / multiplexed
+    profile overrides are honored. Fall back to ``HERMES_HOME`` only when the
+    helper is unavailable. Never logs or serializes the path into receipts.
+    """
+    try:
+        from hermes_constants import get_hermes_home
+    except (ImportError, AttributeError):
+        get_hermes_home = None  # type: ignore[assignment]
+    if callable(get_hermes_home):
+        try:
+            resolved = get_hermes_home()
+        except Exception:  # noqa: BLE001 -- fingerprint must stay fail-open
+            resolved = None
+        if resolved is not None:
+            try:
+                return Path(resolved).expanduser()
+            except (TypeError, ValueError):
+                pass
+    configured = os.environ.get("HERMES_HOME")
+    if isinstance(configured, str) and configured.strip():
+        return Path(configured.strip()).expanduser()
+    return None
+
+
+def _skills_registry_roots() -> tuple[Path, ...]:
+    """Return skill roots used only for discovery-cache invalidation.
+
+    Paths are never logged or written into receipts. Missing roots are fine:
+    the fingerprint records absence so a later create invalidates the cache.
+    Roots are keyed off the *active* Hermes home (``get_hermes_home()``), not
+    process env alone, so multiplexed profiles do not cross-cache catalogs.
+
+    When Hermes skill_utils helpers are importable, also include trusted project
+    dirs, configured external dirs, and create_dir — the same extra roots
+    ``skills_list()`` consults beyond the profile home.
+    """
+    roots: list[Path] = []
+    seen: set[str] = set()
+
+    def _add(path: Path | None) -> None:
+        if path is None:
+            return
+        try:
+            key = str(path.resolve())
+        except OSError:
+            key = str(path)
+        if key in seen:
+            return
+        seen.add(key)
+        roots.append(path)
+
+    base = _active_hermes_home()
+    if base is not None:
+        _add(base / "skills")
+        # Profile-scoped skills (when HERMES_PROFILE is set) live beside the
+        # shared tree; include both so an install under either root refreshes.
+        profile = os.environ.get("HERMES_PROFILE")
+        if isinstance(profile, str) and profile.strip():
+            _add(base / "profiles" / profile.strip() / "skills")
+    # Extra registry inputs Hermes skills_list() merges in (fail-open).
+    try:
+        from agent.skill_utils import (  # type: ignore[import-not-found]
+            get_external_skills_dirs,
+            get_project_skills_dirs,
+            get_skill_create_dir,
+        )
+
+        for getter in (get_project_skills_dirs, get_external_skills_dirs):
+            try:
+                for entry in getter() or ():
+                    if isinstance(entry, (str, os.PathLike)):
+                        _add(Path(entry))
+            except Exception:  # noqa: BLE001 -- fingerprint must stay cheap
+                continue
+        try:
+            create_dir = get_skill_create_dir()
+        except Exception:  # noqa: BLE001
+            create_dir = None
+        if create_dir is not None:
+            _add(Path(create_dir))
+    except Exception:  # noqa: BLE001 -- plugin stays usable without Hermes internals
+        pass
+    return tuple(roots)
+
+
+def _discovery_policy_parts() -> list[str]:
+    """Non-path registry inputs that change skills_list() without an mtime bump.
+
+    Covers disabled skill names, platform eligibility context, and config.yaml
+    identity so a config-only disable / platform switch invalidates the cache.
+    Never embeds absolute paths into the returned strings (hashed later).
+    """
+    parts: list[str] = []
+    platform = (
+        os.environ.get("HERMES_PLATFORM")
+        or os.environ.get("HERMES_SESSION_PLATFORM")
+        or ""
+    )
+    if isinstance(platform, str) and platform.strip():
+        parts.append(f"platform:{platform.strip()}")
+    try:
+        import sys as _sys
+
+        parts.append(f"sys_platform:{getattr(_sys, 'platform', '')}")
+    except Exception:  # noqa: BLE001
+        parts.append("sys_platform:unknown")
+    # cwd identity: project skills vary by working directory.
+    try:
+        cwd = Path.cwd().resolve()
+        parts.append(f"cwd:{cwd}")
+    except OSError:
+        parts.append("cwd:unknown")
+    try:
+        from agent.skill_utils import get_disabled_skill_names  # type: ignore[import-not-found]
+
+        disabled = sorted(str(name) for name in (get_disabled_skill_names() or set()) if name)
+        parts.append("disabled:" + ",".join(disabled))
+    except Exception:  # noqa: BLE001
+        parts.append("disabled:unavailable")
+    # Plugin skills are merged by skills_list outside Hermes' filesystem cache.
+    # Registration/removal need not touch any skill root or config file.
+    try:
+        from hermes_cli.plugins import get_plugin_manager
+
+        metadata = get_plugin_manager().list_plugin_skill_metadata()
+        encoded = json.dumps(metadata, sort_keys=True, default=str).encode("utf-8")
+        parts.append("plugins:" + hashlib.sha256(encoded).hexdigest())
+    except Exception:  # noqa: BLE001 -- no plugin registry on standalone hosts
+        parts.append("plugins:unavailable")
+    # Config mtime so disabled / external_dirs edits without skills-dir churn refresh.
+    try:
+        from hermes_cli.config import get_config_path  # type: ignore[import-not-found]
+
+        cfg_path = get_config_path()
+        if cfg_path is not None:
+            try:
+                st = Path(cfg_path).stat()
+                parts.append(f"config:{st.st_mtime_ns}:{st.st_ino}:{st.st_size}")
+            except OSError:
+                parts.append("config:missing")
+    except Exception:  # noqa: BLE001
+        # Fall back to HERMES_HOME/config.yaml when the helper is unavailable.
+        base = _active_hermes_home()
+        if base is not None:
+            cfg = base / "config.yaml"
+            try:
+                st = cfg.stat()
+                parts.append(f"config:{st.st_mtime_ns}:{st.st_ino}:{st.st_size}")
+            except OSError:
+                parts.append("config:missing")
+        else:
+            parts.append("config:unavailable")
+    return parts
+
+
+def _discovery_fingerprint() -> str:
+    """Cheap fingerprint of all skills_list() registry inputs we can observe.
+
+    Includes profile/project/external skill roots (path + mtime + children),
+    disabled set, platform, cwd, and config identity — not only the active home
+    skills tree — so two turns that differ only by project dir, disable list, or
+    platform do not reuse each other's catalog.
+    """
+    parts: list[str] = []
+    for root in _skills_registry_roots():
+        try:
+            st = root.stat()
+            parts.append(f"{root.resolve()}:{st.st_mtime_ns}:{st.st_ino}")
+            if not root.is_dir():
+                continue
+            try:
+                children = sorted(root.iterdir(), key=lambda p: p.name)
+            except OSError:
+                continue
+            # Cap directory walk so a huge skills tree cannot dominate the turn.
+            for child in children[:512]:
+                try:
+                    cst = child.stat()
+                    parts.append(f"{child.name}:{cst.st_mtime_ns}:{cst.st_ino}")
+                except OSError:
+                    parts.append(f"{child.name}:unreadable")
+        except OSError:
+            parts.append(f"{root}:missing")
+    parts.extend(_discovery_policy_parts())
+    if not parts:
+        parts.append("no_hermes_home")
+    return hashlib.sha256("\n".join(parts).encode("utf-8", "backslashreplace")).hexdigest()
+
+
+def clear_skill_discovery_cache() -> None:
+    """Drop the in-process skills_list discovery cache (tests / forced refresh)."""
+    global _DISCOVERY_CACHE
+    with _DISCOVERY_CACHE_LOCK:
+        _DISCOVERY_CACHE = None
+
+
+def discover_available_skill_candidates(
+    *, force_refresh: bool = False
+) -> tuple[dict[str, str], ...]:
     """Discover the active profile's skills through Hermes' public skills API.
 
     ``pre_llm_call`` receives the conversation messages before Hermes prepends
@@ -360,7 +566,24 @@ def discover_available_skill_candidates() -> tuple[dict[str, str], ...]:
     ``tools.skills_tool.skills_list()`` is the supported profile-scoped registry
     surface and already filters disabled/platform-ineligible skills. Descriptions
     remain local ranking metadata and are bounded before use.
+
+    Results are cached in-process and invalidated when any observed registry
+    input changes (profile/project/external skill-root mtimes, disabled set,
+    platform, cwd, config identity) or after ``_DISCOVERY_CACHE_MAX_AGE_SECONDS``.
+    Pass ``force_refresh=True`` to bypass the cache. Failures are not cached.
     """
+    global _DISCOVERY_CACHE
+    fingerprint = _discovery_fingerprint()
+    now = time.monotonic()
+    with _DISCOVERY_CACHE_LOCK:
+        cached = _DISCOVERY_CACHE
+        if (
+            not force_refresh
+            and cached is not None
+            and cached[0] == fingerprint
+            and (now - cached[1]) <= _DISCOVERY_CACHE_MAX_AGE_SECONDS
+        ):
+            return tuple(dict(candidate) for candidate in cached[2])
     try:
         from tools.skills_tool import skills_list
 
@@ -384,10 +607,15 @@ def discover_available_skill_candidates() -> tuple[dict[str, str], ...]:
             except ValueError:
                 continue
             candidates.append(candidate)
-        return tuple(candidates)
+        result = tuple(candidates)
     except Exception as exc:  # noqa: BLE001 -- catalog discovery is fail-open
         logger.debug("skill registry discovery failed: %s", type(exc).__name__)
         return ()
+    with _DISCOVERY_CACHE_LOCK:
+        _DISCOVERY_CACHE = (
+            fingerprint, time.monotonic(), tuple(dict(candidate) for candidate in result)
+        )
+    return result
 
 
 def _catalog_identity(candidates: tuple[dict[str, str], ...]) -> str:
@@ -509,47 +737,6 @@ def plan_hosted_prefilter(
     return SHORTLIST_POLICY_PREFILTER, shortlist
 
 
-def plan_cheap_hosted_shortlist(
-    ranked: list[tuple[float, int, dict[str, str]]],
-    *,
-    catalog_size: int,
-    no_skill_threshold: float = DEFAULT_PREFILTER_NO_SKILL_THRESHOLD,
-    shortlist_size: int = DEFAULT_PREFILTER_SHORTLIST_SIZE,
-    min_score: float = DEFAULT_PREFILTER_MIN_SCORE,
-) -> tuple[str, tuple[dict[str, str], ...] | None]:
-    """Plan an opt-in cheap hosted shortlist (fail-open when not decisive).
-
-    Decisiveness (documented thresholds):
-
-    - Same no-skill gate as ``plan_hosted_prefilter`` (top score below
-      ``no_skill_threshold`` → ``local_no_skill_gate``).
-    - Catalog already ≤ ``shortlist_size`` → not a cheap rewrite; callers keep
-      full recall (``full_partition_fan_out``).
-    - Top score must be ≥ ``min_score`` (default 0.15).
-    - Eligible band = ranked rows with score ≥ ``min_score``, capped at
-      ``shortlist_size`` (default 32). Must be non-empty.
-    - Cutoff margin is **not** required: a thin margin between the last
-      eligible and the next row still shortlists. This raises shortlist
-      hit-rate versus the default prefilter; capability is preserved by the
-      caller's fail-open to full catalog when the hosted shortlist abstains
-      or returns a winner outside the offered set.
-
-    Returns ``(policy, subset)`` with ``local_prefilter_shortlist`` + subset
-    when decisive, otherwise ``full_partition_fan_out`` / ``local_no_skill_gate``.
-    """
-    # Reuse the default planner with cutoff_margin=0 so any non-increasing
-    # eligible band is accepted; a zero margin never trips the
-    # floor - next_score < margin check for descending scores.
-    return plan_hosted_prefilter(
-        ranked,
-        catalog_size=catalog_size,
-        no_skill_threshold=no_skill_threshold,
-        shortlist_size=shortlist_size,
-        min_score=min_score,
-        cutoff_margin=0.0,
-    )
-
-
 class AutomaticSkillRecommender:
     """Bounded recommender with explicit local/hosted routing and safe caching."""
 
@@ -576,7 +763,6 @@ class AutomaticSkillRecommender:
         prefilter_cutoff_margin: float = DEFAULT_PREFILTER_CUTOFF_MARGIN,
         honor_no_skill_gate: bool = False,
         light_turn_bypass: bool = True,
-        cheap_hosted_select: bool = False,
         two_stage: TwoStageConfig | None = None,
         excerpt_loader: Callable[[str], Any] | None = None,
     ) -> None:
@@ -627,10 +813,6 @@ class AutomaticSkillRecommender:
         # (short opaque tasks such as ``fix ci``). Opt in to cut needless tax.
         self.honor_no_skill_gate = honor_no_skill_gate is True
         self.light_turn_bypass = light_turn_bypass is True
-        # Opt-in: when local shortlist is decisive, host only that shortlist;
-        # abstention / winner outside the shortlist fail-opens to full catalog.
-        # Default false preserves today's full-catalog fail-closed prefilter.
-        self.cheap_hosted_select = cheap_hosted_select is True
         self._cache: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
         self._lock = threading.RLock()
         self._client: Any | None = None
@@ -959,30 +1141,17 @@ class AutomaticSkillRecommender:
             result.update(evaluation.metadata)
 
         should_host = self.hosted_mode == "always" or local_selected is None
-        full_hosted_candidates = [{"name": item["name"]} for item in candidate_set]
-        hosted_candidates = list(full_hosted_candidates)
+        hosted_candidates = [{"name": item["name"]} for item in candidate_set]
         prefilter_policy = SHORTLIST_POLICY_FULL_FAN_OUT
-        cheap_shortlist_attempt = False
         if should_host and self.routing_mode == "hosted_sanitized":
-            if self.cheap_hosted_select:
-                # Opt-in: raise shortlist hit-rate (no cutoff margin) and later
-                # fail-open to full catalog when the shortlist look is uncertain.
-                prefilter_policy, prefilter_subset = plan_cheap_hosted_shortlist(
-                    ranked,
-                    catalog_size=len(candidate_set),
-                    no_skill_threshold=self.prefilter_no_skill_threshold,
-                    shortlist_size=self.prefilter_shortlist_size,
-                    min_score=self.prefilter_min_score,
-                )
-            else:
-                prefilter_policy, prefilter_subset = plan_hosted_prefilter(
-                    ranked,
-                    catalog_size=len(candidate_set),
-                    no_skill_threshold=self.prefilter_no_skill_threshold,
-                    shortlist_size=self.prefilter_shortlist_size,
-                    min_score=self.prefilter_min_score,
-                    cutoff_margin=self.prefilter_cutoff_margin,
-                )
+            prefilter_policy, prefilter_subset = plan_hosted_prefilter(
+                ranked,
+                catalog_size=len(candidate_set),
+                no_skill_threshold=self.prefilter_no_skill_threshold,
+                shortlist_size=self.prefilter_shortlist_size,
+                min_score=self.prefilter_min_score,
+                cutoff_margin=self.prefilter_cutoff_margin,
+            )
             # ``always`` historically forced full fan-out even on near-zero local
             # overlap (opaque identifiers). Default honor_no_skill_gate=False keeps
             # that always override; set true to skip needless zero-overlap tax.
@@ -995,7 +1164,6 @@ class AutomaticSkillRecommender:
                 prefilter_subset = None
             if prefilter_policy == SHORTLIST_POLICY_PREFILTER and prefilter_subset is not None:
                 hosted_candidates = [{"name": item["name"]} for item in prefilter_subset]
-                cheap_shortlist_attempt = self.cheap_hosted_select is True
         outbound_scan_reason = (
             _hosted_payload_scan_reason(
                 evaluation.allowed_payload if evaluation is not None and evaluation.allowed_payload is not None else "",
@@ -1068,207 +1236,100 @@ class AutomaticSkillRecommender:
             # Intervention timeout is separate from the 60s explicit-tool /
             # computer-use deadline and from the per-request provider I/O timeout.
             result["intervention_deadline_seconds"] = self.deadline_seconds
-
-            def _hosted_deadline_seconds() -> float:
-                # Prefer remaining outer budget so shortlist + expand share one
-                # end-to-end automatic deadline (never a fresh 20s on expand).
-                try:
-                    remaining = operation_remaining_deadline()
-                except (DeadlineExceeded, HostCancelled):
-                    raise
-                if remaining is not None and remaining > 0:
-                    return float(remaining)
-                return float(self.deadline_seconds)
-
-            def _run_hosted(candidates_for_host: list[dict[str, str]]) -> Any:
-                deadline = _hosted_deadline_seconds()
-                if self.two_stage is not None and self.two_stage.enabled:
-                    # Stage 1 sends names only. Local descriptions reach
-                    # stage 2 only when hosted_detail opts in, and only
-                    # for the top-K finalists after a local scan.
-                    by_name = {item["name"]: item for item in candidate_set}
-                    return run_two_stage(
-                        task=outbound_task,
-                        candidates=[by_name[item["name"]] for item in candidates_for_host],
-                        client=self._pooled_client(),
-                        client_pool=self._extra_pooled_clients(
-                            self.two_stage.parallel_requests - 1
-                        ),
-                        config=self.two_stage,
-                        excerpt_loader=self.excerpt_loader,
-                        deadline_seconds=deadline,
-                    )
-                return select_skill(
-                    task=outbound_task,
-                    candidates=candidates_for_host,
-                    client=self._pooled_client(),
-                    public_or_sanitized_data_ack=True,
-                    deadline_seconds=deadline,
-                )
-
-            def _invoke(candidates_for_host: list[dict[str, str]], *, aggregate: bool = False) -> Any:
-                try:
-                    with host_cancel_scope(self.cancel_check), _defer_hosted_warning():
-                        return _run_hosted(candidates_for_host)
-                except PartialAccountingError as exc:
-                    logger.debug(
-                        "automatic Jev skill recommendation unavailable: %s",
-                        type(exc).__name__,
-                    )
-                    result["hosted_error"] = _hosted_error_code(exc)
-                    result["hosted_error_code"] = result["hosted_error"]
-                    result["hosted_error_detail"] = classify_hosted_error(exc)
-                    meta = _partial_accounting_metadata(exc.partial)
-                    if aggregate:
-                        _aggregate_redacted_jev_metadata(result, meta)
-                    else:
-                        _copy_redacted_jev_metadata(result, meta)
-                    _warn_hosted_failure(result["hosted_error_detail"])
-                    return None
-                except Exception as exc:  # noqa: BLE001 -- automatic hook must fail open
-                    logger.debug(
-                        "automatic Jev skill recommendation unavailable: %s",
-                        type(exc).__name__,
-                    )
-                    result["hosted_error"] = _hosted_error_code(exc)
-                    result["hosted_error_code"] = result["hosted_error"]
-                    result["hosted_error_detail"] = classify_hosted_error(exc)
-                    _warn_hosted_failure(result["hosted_error_detail"])
-                    return None
-
-            # One shared outer deadline for shortlist + optional fail-open expand.
-            with operation_deadline_scope(self.deadline_seconds):
-                hosted = _invoke(hosted_candidates)
-                receipt_policy = prefilter_policy
-                if isinstance(hosted, dict):
-                    _copy_redacted_jev_metadata(result, hosted)
-
-                offered_names = {item["name"] for item in hosted_candidates}
-                shortlist_selected = (
-                    isinstance(hosted, dict) and hosted.get("selected") in offered_names
-                )
-
-                # Opt-in cheap path: shortlist look that does not validate a winner
-                # (abstention / miss / transport failure) fail-opens to full catalog.
-                expand_blocked_by_scan = False
-                if (
-                    cheap_shortlist_attempt
-                    and not shortlist_selected
-                    and len(full_hosted_candidates) > len(hosted_candidates)
-                ):
-                    expand_scan = _hosted_payload_scan_reason(
-                        outbound_task, full_hosted_candidates
-                    )
-                    if expand_scan is not None:
-                        # Do not send newly added catalog names the shortlist
-                        # outbound scan never covered (restricted/contact/…).
-                        result["hosted_skipped"] = expand_scan
-                        result["routing_status"] = "hosted_skipped"
-                        result["routing_reason"] = expand_scan
-                        receipt_policy = SHORTLIST_POLICY_CHEAP_HOSTED
-                        expand_blocked_by_scan = True
-                    else:
-                        # Clear shortlist-only error so a successful expand is not
-                        # stamped with the prior failure; expand still fail-opens.
-                        for key_name in (
-                            "hosted_error",
-                            "hosted_error_code",
-                            "hosted_error_detail",
-                        ):
-                            result.pop(key_name, None)
-                        hosted_candidates = list(full_hosted_candidates)
-                        hosted = _invoke(hosted_candidates, aggregate=True)
-                        if isinstance(hosted, dict):
-                            _aggregate_redacted_jev_metadata(result, hosted)
-                        offered_names = {item["name"] for item in hosted_candidates}
-                        shortlist_selected = (
-                            isinstance(hosted, dict)
-                            and hosted.get("selected") in offered_names
+            try:
+                with host_cancel_scope(self.cancel_check), _defer_hosted_warning():
+                    if self.two_stage is not None and self.two_stage.enabled:
+                        # Stage 1 sends names only. Local descriptions reach
+                        # stage 2 only when hosted_detail opts in, and only
+                        # for the top-K finalists after a local scan.
+                        by_name = {item["name"]: item for item in candidate_set}
+                        hosted = run_two_stage(
+                            task=outbound_task,
+                            candidates=[by_name[item["name"]] for item in hosted_candidates],
+                            client=self._pooled_client(),
+                            client_pool=self._extra_pooled_clients(
+                                self.two_stage.parallel_requests - 1
+                            ),
+                            config=self.two_stage,
+                            excerpt_loader=self.excerpt_loader,
+                            deadline_seconds=self.deadline_seconds,
                         )
-                        receipt_policy = SHORTLIST_POLICY_CHEAP_FAIL_OPEN
-                elif cheap_shortlist_attempt and shortlist_selected:
-                    receipt_policy = SHORTLIST_POLICY_CHEAP_HOSTED
-                elif prefilter_policy == SHORTLIST_POLICY_PREFILTER:
-                    receipt_policy = SHORTLIST_POLICY_PREFILTER
-
-                if receipt_policy in {
-                    SHORTLIST_POLICY_CHEAP_HOSTED,
-                    SHORTLIST_POLICY_CHEAP_FAIL_OPEN,
-                }:
-                    offered = len(hosted_candidates)
-                    excluded = max(0, len(candidate_set) - offered)
-                    result["shortlist_policy"] = receipt_policy
-                    result["jev_shortlist_policy"] = receipt_policy
-                    result["offered_count"] = offered
-                    result["excluded_count"] = excluded
-                    result["jev_offered_count"] = offered
-                    result["jev_excluded_count"] = excluded
-                elif prefilter_policy == SHORTLIST_POLICY_PREFILTER:
-                    # Default (flag off) prefilter path — preserve historical policy name.
-                    offered = len(hosted_candidates)
-                    excluded = max(0, len(candidate_set) - offered)
-                    result["shortlist_policy"] = SHORTLIST_POLICY_PREFILTER
-                    result["jev_shortlist_policy"] = SHORTLIST_POLICY_PREFILTER
-                    result["offered_count"] = offered
-                    result["excluded_count"] = excluded
-                    result["jev_offered_count"] = offered
-                    result["jev_excluded_count"] = excluded
-                elif self.cheap_hosted_select and receipt_policy == SHORTLIST_POLICY_FULL_FAN_OUT:
-                    # Flag on but shortlist was not decisive: record full path for
-                    # prove-value without inventing a shortlist rewrite.
-                    result["shortlist_policy"] = SHORTLIST_POLICY_FULL_FAN_OUT
-                    result["jev_shortlist_policy"] = SHORTLIST_POLICY_FULL_FAN_OUT
-
-                if expand_blocked_by_scan:
-                    # Keep scan-skip receipt; do not rewrite to abstention/failure.
-                    pass
-                elif shortlist_selected:
-                    result.update(
-                        {
-                            "status": "selected",
-                            "selected": hosted["selected"],
-                            "source": "jev",
-                            "abstention_reason": None,
-                            "routing_status": "hosted_selection",
-                            "routing_reason": "hosted_selection",
-                        }
-                    )
-                elif hosted is None:
-                    # Preserve the categorized failure code (deadline / cancel / late
-                    # discard / transport). A local winner may still be kept.
-                    error_code = result.get("hosted_error")
-                    if error_code not in HOSTED_ERROR_CODES:
-                        error_code = "transport_or_execution_failure"
-                    result["hosted_error"] = error_code
-                    result["hosted_error_code"] = error_code
-                    result["routing_status"] = (
-                        "hosted_failure_local_fallback" if local_selected else "hosted_failure"
-                    )
-                    if error_code in {
-                        "deadline_exceeded",
-                        "host_cancelled",
-                        "late_result_discarded",
-                    }:
-                        result["routing_reason"] = error_code
                     else:
-                        result["routing_reason"] = "hosted_request_failed"
-                    if local_selected:
-                        result["status"] = "selected"
-                        result["source"] = "local"
-                        result["abstention_reason"] = None
+                        hosted = select_skill(
+                            task=outbound_task,
+                            candidates=hosted_candidates,
+                            client=self._pooled_client(),
+                            public_or_sanitized_data_ack=True,
+                            deadline_seconds=self.deadline_seconds,
+                        )
+            except PartialAccountingError as exc:
+                logger.debug("automatic Jev skill recommendation unavailable: %s", type(exc).__name__)
+                result["hosted_error"] = _hosted_error_code(exc)
+                result["hosted_error_code"] = result["hosted_error"]
+                result["hosted_error_detail"] = classify_hosted_error(exc)
+                _copy_redacted_jev_metadata(result, _partial_accounting_metadata(exc.partial))
+                _warn_hosted_failure(result["hosted_error_detail"])
+                hosted = None
+            except Exception as exc:  # noqa: BLE001 -- automatic hook must fail open
+                logger.debug("automatic Jev skill recommendation unavailable: %s", type(exc).__name__)
+                result["hosted_error"] = _hosted_error_code(exc)
+                result["hosted_error_code"] = result["hosted_error"]
+                result["hosted_error_detail"] = classify_hosted_error(exc)
+                _warn_hosted_failure(result["hosted_error_detail"])
+                hosted = None
+            if isinstance(hosted, dict):
+                _copy_redacted_jev_metadata(result, hosted)
+            if prefilter_policy == SHORTLIST_POLICY_PREFILTER:
+                offered = len(hosted_candidates)
+                excluded = len(candidate_set) - offered
+                result["shortlist_policy"] = SHORTLIST_POLICY_PREFILTER
+                result["jev_shortlist_policy"] = SHORTLIST_POLICY_PREFILTER
+                result["offered_count"] = offered
+                result["excluded_count"] = excluded
+                result["jev_offered_count"] = offered
+                result["jev_excluded_count"] = excluded
+            offered_names = {item["name"] for item in hosted_candidates}
+            if isinstance(hosted, dict) and hosted.get("selected") in offered_names:
+                result.update(
+                    {
+                        "status": "selected",
+                        "selected": hosted["selected"],
+                        "source": "jev",
+                        "abstention_reason": None,
+                        "routing_status": "hosted_selection",
+                        "routing_reason": "hosted_selection",
+                    }
+                )
+            elif hosted is None:
+                # Preserve the categorized failure code (deadline / cancel / late
+                # discard / transport). A local winner may still be kept.
+                error_code = result.get("hosted_error")
+                if error_code not in HOSTED_ERROR_CODES:
+                    error_code = "transport_or_execution_failure"
+                result["hosted_error"] = error_code
+                result["hosted_error_code"] = error_code
+                result["routing_status"] = "hosted_failure_local_fallback" if local_selected else "hosted_failure"
+                if error_code in {"deadline_exceeded", "host_cancelled", "late_result_discarded"}:
+                    result["routing_reason"] = error_code
                 else:
-                    # Any structurally valid hosted response without an offered
-                    # selection is a deliberate hosted abstention.
-                    result.update(
-                        {
-                            "status": "abstained",
-                            "selected": None,
-                            "source": "none",
-                            "abstention_reason": "hosted_abstention",
-                            "routing_status": "hosted_abstention",
-                            "routing_reason": "hosted_abstention",
-                        }
-                    )
+                    result["routing_reason"] = "hosted_request_failed"
+                if local_selected:
+                    result["status"] = "selected"
+                    result["source"] = "local"
+                    result["abstention_reason"] = None
+            else:
+                # Any structurally valid hosted response without an offered
+                # selection is a deliberate hosted abstention.
+                result.update(
+                    {
+                        "status": "abstained",
+                        "selected": None,
+                        "source": "none",
+                        "abstention_reason": "hosted_abstention",
+                        "routing_status": "hosted_abstention",
+                        "routing_reason": "hosted_abstention",
+                    }
+                )
 
         if result["selected"] is not None:
             result["status"] = "selected"
@@ -1295,58 +1356,6 @@ def _copy_redacted_jev_metadata(result: dict[str, Any], hosted: Mapping[str, Any
             bounded_usage = receipt_state.safe_usage(usage)
             if bounded_usage:
                 result[f"jev_{field}"] = bounded_usage
-
-
-def _aggregate_redacted_jev_metadata(result: dict[str, Any], hosted: Mapping[str, Any]) -> None:
-    """Merge a second hosted attempt into existing jev_* counters (fail-open expand).
-
-    Shortlist + expand both incur requests/latency/cost; receipts must sum them
-    rather than overwrite the shortlist attempt.
-    """
-    if "jev_request_count" not in result and "jev_total_latency_ms" not in result:
-        _copy_redacted_jev_metadata(result, hosted)
-        return
-    add_requests = hosted.get("request_count")
-    if isinstance(add_requests, int) and not isinstance(add_requests, bool) and add_requests > 0:
-        prior = result.get("jev_request_count")
-        prior_n = prior if isinstance(prior, int) and not isinstance(prior, bool) and prior > 0 else 0
-        result["jev_request_count"] = prior_n + add_requests
-    add_latency = hosted.get("total_latency_ms", hosted.get("latency_ms"))
-    if (
-        isinstance(add_latency, (int, float))
-        and not isinstance(add_latency, bool)
-        and math.isfinite(add_latency)
-        and add_latency >= 0
-    ):
-        prior = result.get("jev_total_latency_ms")
-        prior_n = (
-            float(prior)
-            if isinstance(prior, (int, float)) and not isinstance(prior, bool) and math.isfinite(prior)
-            else 0.0
-        )
-        result["jev_total_latency_ms"] = prior_n + float(add_latency)
-    latency = hosted.get("latency_ms")
-    if (
-        isinstance(latency, (int, float))
-        and not isinstance(latency, bool)
-        and math.isfinite(latency)
-        and latency >= 0
-    ):
-        result["jev_latency_ms"] = latency
-    for field in ("model", "request_id"):
-        value = hosted.get(field)
-        if isinstance(value, str) and 0 < len(value) <= 128 and value.isprintable():
-            result[f"jev_{field}"] = value
-    for field in ("usage", "total_usage"):
-        usage = hosted.get(field)
-        if not isinstance(usage, Mapping):
-            continue
-        key = f"jev_{field}"
-        bucket = result.get(key)
-        if not isinstance(bucket, dict):
-            bucket = {}
-            result[key] = bucket
-        receipt_state.merge_usage(bucket, usage)
 
 
 def _partial_accounting_metadata(partial: Any) -> dict[str, Any]:
@@ -1671,6 +1680,33 @@ def _format_recommendation(name: str) -> str:
     )
 
 
+# Text-only explicit-skill intent (no catalog). Used to refuse early light bypass
+# when the turn looks like "Use greeter …" / "/greeter" so discover still runs and
+# `_explicit_skill_override` can honor a matching registry skill.
+_EXPLICIT_SKILL_INTENT_RE = re.compile(
+    r"(?:^|\s)/[a-z][\w.-]{1,63}(?:\s|$|[.,!?])"
+    r"|"
+    r"\b(?:use|load)\s+(?:the\s+)?[`'\"]?[a-z][\w:.-]*",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_explicit_skill_request(task: Any) -> bool:
+    """True when the turn text looks like an explicit skill use/load/slash request.
+
+    Catalog-free and conservative: any use/load target may be a skill name.
+    The closed no-tools constraint is not an override. Errors force discovery.
+    """
+    try:
+        text = _coerce_bounded_text(task, MAX_TASK_CHARS)
+    except Exception:  # noqa: BLE001
+        return True
+    if not text:
+        return False
+    text = re.sub(r"\b(?:do\s+not|don't)\s+use\s+tools\b", "", text, flags=re.IGNORECASE)
+    return _EXPLICIT_SKILL_INTENT_RE.search(text) is not None
+
+
 def _explicit_skill_override(task: Any, candidates: Any) -> str | None:
     """Return an explicitly requested candidate, if the turn names one."""
     text = _coerce_bounded_text(task, MAX_TASK_CHARS).lower()
@@ -1799,7 +1835,7 @@ def build_pre_llm_call_hook(
     mandatory_skills: Any = (),
     honor_no_skill_gate: bool = False,
     light_turn_bypass: bool = True,
-    cheap_hosted_select: bool = False,
+    early_light_bypass_before_discover: bool = False,
     two_stage: TwoStageConfig | None = None,
     excerpt_loader: Callable[[str], Any] | None = None,
     environ: Mapping[str, str] | None = None,
@@ -1829,7 +1865,6 @@ def build_pre_llm_call_hook(
             adoption_capable=(consumer_mode == "load"),
             honor_no_skill_gate=honor_no_skill_gate,
             light_turn_bypass=light_turn_bypass,
-            cheap_hosted_select=cheap_hosted_select,
             two_stage=two_stage,
             excerpt_loader=excerpt_loader,
         )
@@ -1837,6 +1872,9 @@ def build_pre_llm_call_hook(
         logger.warning("automatic skill recommendation disabled by invalid configuration: %s", type(exc).__name__)
         return None
 
+    # Default OFF: preserve discover-then-recommend. When ON with light_turn_bypass,
+    # a text-only probe may skip catalog discover for light turns (fail-open).
+    early_before_discover = early_light_bypass_before_discover is True
     configured = bool(recommender.configured_candidates)
     consumed_turns: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
 
@@ -1920,7 +1958,72 @@ def build_pre_llm_call_hook(
         # Light-turn bypass runs inside recommend() *after* routing_mode==off and
         # *after* the explicit-skill override below, so disabled-mode and
         # explicit-override receipts keep their established precedence.
+        # Optional early probe (flag default OFF) may skip discover when the same
+        # text-only light predicate already fires and the turn does not look like an
+        # explicit skill use/load; fail-open on probe errors.
         del conversation_history  # local-only input; never part of an egress payload
+        if (
+            early_before_discover
+            and recommender.light_turn_bypass
+            and recommender.routing_mode != "off"
+        ):
+            early_reason = None
+            try:
+                task_text = _coerce_text(user_message)
+                if task_text:
+                    early_reason = _hosted_skill_bypass_reason(task_text)
+            except Exception:  # noqa: BLE001 -- fail open to discover path
+                early_reason = None
+            if early_reason is not None and not _looks_like_explicit_skill_request(
+                user_message
+            ):
+                # Same light path as recommend(); empty candidates never reached.
+                # Explicit-use phrasing falls through so discover + override run.
+                result = recommender.recommend(
+                    user_message,
+                    candidates=(),
+                    candidates_from_prompt=False,
+                    turn_egress_policy=turn_egress_policy,
+                    egress_policy=egress_policy,
+                )
+                setattr(on_pre_llm_call, "last_result", dict(result))
+                setattr(
+                    on_pre_llm_call, "last_receipt", dict(recommender.last_receipt or {})
+                )
+                metadata = redacted_routing_metadata(result)
+                setattr(on_pre_llm_call, "last_metadata", dict(metadata))
+                setattr(on_pre_llm_call, "last_routing_metadata", dict(metadata))
+                contract = build_consumption_contract(
+                    delivery_status="not_delivered",
+                    adoption_status="not_applicable",
+                )
+                receipt = _attach_consumption_contract(
+                    dict(recommender.last_receipt or {}), contract
+                )
+                recommender.last_receipt = receipt
+                persist_failed = not _persist_receipt(receipt)
+                record_history(receipt)
+                _mark_persist_failure(metadata, persist_failed)
+                setattr(on_pre_llm_call, "last_receipt", dict(receipt))
+                metadata["skill_recommendation"] = {
+                    "status": "abstained",
+                    "selected": None,
+                    "source": result.get("source", "none"),
+                    "loaded_once": False,
+                    **contract,
+                }
+                for name in ("last_metadata", "last_routing_metadata"):
+                    snapshot = dict(getattr(on_pre_llm_call, name, None) or {})
+                    _mark_persist_failure(
+                        snapshot, bool(metadata.get(RECEIPT_PERSIST_FAILED_KEY))
+                    )
+                    setattr(on_pre_llm_call, name, snapshot)
+                response = {"metadata": metadata}
+                if turn_key is not None:
+                    consumed_turns[turn_key] = dict(response)
+                    while len(consumed_turns) > DEFAULT_CACHE_SIZE:
+                        consumed_turns.popitem(last=False)
+                return response
         catalog_candidates = (
             ()
             if configured or recommender.routing_mode == "off"

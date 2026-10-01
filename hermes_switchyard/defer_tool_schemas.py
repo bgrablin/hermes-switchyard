@@ -114,7 +114,9 @@ def latest_user_text(request: Mapping[str, Any] | None) -> str:
         # Responses API may use type=message with role
         item_type = str(item.get("type") or "").strip().lower()
         if role == "user" or (item_type == "message" and role == "user"):
-            return _text_from_content(item.get("content")).strip()
+            text = _text_from_content(item.get("content")).strip()
+            if text:
+                return text
     return ""
 
 
@@ -134,6 +136,14 @@ def _tool_call_names_from_item(item: Mapping[str, Any]) -> set[str]:
             name = call.get("name")
             if isinstance(name, str) and name.strip():
                 names.add(name.strip())
+    # Anthropic assistant tool_use content blocks.
+    content = item.get("content")
+    if item.get("role") == "assistant" and isinstance(content, list):
+        for block in content:
+            if isinstance(block, Mapping) and block.get("type") == "tool_use":
+                name = block.get("name")
+                if isinstance(name, str) and name.strip():
+                    names.add(name.strip())
     # Responses function_call items
     if str(item.get("type") or "").strip().lower() == "function_call":
         name = item.get("name")
@@ -195,7 +205,13 @@ def should_omit_switchyard_tool_schemas(
     if not isinstance(tools, list) or not tools:
         # Nothing to omit, or tools live under another key we do not rewrite.
         return False
+    # Explicit provider tool choices must remain satisfiable.
+    choice = request.get("tool_choice")
+    if isinstance(choice, Mapping) and tool_definition_name(choice) in DEFERRED_SWITCHYARD_TOOL_NAMES:
+        return False
     text = latest_user_text(request) if user_text is None else (user_text or "")
+    if not text:
+        return False  # Unknown or non-text request shapes fail open.
     if user_requests_switchyard_tools(text):
         return False
     if history_has_switchyard_tool_call(request):
