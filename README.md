@@ -79,7 +79,7 @@ The two default-on automatic paths have different data rules:
 - **Skill routing:** the current branch scans the whole task locally for restricted markings, injection shapes, control characters, and structured payloads. It then passes clean text through Hermes `redact_for_egress` plus bounded masks before sending up to 4,000 characters and exact candidate names. Without the Hermes redactor, it skips hosted routing and uses local matching. Ordinary words such as `password` and `confidential`, email addresses, and phone numbers are not restricted shapes. They do not authorize private content. Bounded descriptions or skill excerpts require a separate opt-in.
 - **Explicit tools and DOM browser:** only submit public or deliberately sanitized inputs. The browser cannot log in to your existing session or upload a private file. A public URL alone will not make a private goal safe.
 
-TypeSafe and OpenRouter are external providers. Default automatic routing and effort requests do not read raw tool output or files; recognized secret values are scrubbed before the bounded text excerpt. A new secret shape in the current message can still escape a pattern-based scrubber. Do not submit secrets or private content; explicit tools send caller-supplied inputs under their own policy. The opt-in source finder additionally sends one bounded file from the approved source directory. The acknowledgement flags are not data loss prevention. Switchyard does not authorize private, employer, regulated, credential, payment, or verification content for hosted decisions. To stop automatic hosted skill routing, use `local_only`. To stop adaptive message-text egress, set adaptive effort to `false`:
+TypeSafe and OpenRouter are external providers. Default routing and effort requests do not read raw tool output or files; recognized secret values are scrubbed before the bounded text excerpt. A new secret shape in the current message can still escape a pattern-based scrubber. Do not submit secrets or private content; explicit tools send caller-supplied inputs under their own policy. The optional source-prefetch pilot sends one bounded file from its configured source directory. The acknowledgement flags are not data loss prevention. Switchyard does not authorize private, employer, regulated, credential, payment, or verification content for hosted decisions. To stop automatic hosted skill routing, use `local_only`. To stop adaptive message-text egress, set adaptive effort to `false`:
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode local_only
@@ -92,24 +92,22 @@ You can also set `public_or_sanitized_data_ack` and `automatic_skill_public_or_s
 
 | Surface | Available now | Default |
 | --- | --- | --- |
-| Tools (8) | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, `jev_session_search_rerank`, `switchyard_find`, `jev_computer_use` | Callable when the corresponding toolset is selected; `switchyard_find` also requires explicit opt-in and an absolute source root |
+| Tools (7) | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, `jev_session_search_rerank`, `jev_computer_use` | Callable when the corresponding toolset is selected |
 | Hooks (5) | `pre_llm_call` for automatic skill routing and effort capture; `post_llm_call` to clear that capture; `post_tool_call` for reconsideration; `transform_llm_output` for the visible effort line; `post_api_request` for usage counts | On after install |
-| Middleware (2) | `llm_request` for request-scoped reasoning effort; `tool_execution` enforces source-finder turn policy | On when supported by Hermes |
+| Middleware (1) | `llm_request` for request-scoped reasoning effort | On when supported by Hermes |
 | Local report (0.6.0 candidate; not in 0.5.6) | `hermes switchyard wow` and `/switchyard wow` summarize retained observations without a provider call; [limits and JSON schema](docs/WOW-LOCAL-REPORT.md) | Trailing 7 days; read-only |
 | CLI (offline) | `hermes switchyard lint-skills [--json]` checks description routability; see [limits](docs/LINT-SKILLS.md) | Explicit only; no provider calls or edits |
 
-Doctor reports six hook registrations by default and seven when the source finder is enabled; the manifest lists five distinct kinds. `jev_skill_select_many` recommends several skills but does not load them. The automatic hook can load one accepted skill per identified turn. The model-routing tools do not apply a model switch. Jev `DONE` alone does not verify a browser goal; Switchyard also needs its local completion condition. An early local stop is a candidate, not verified success. [Browser receipts](docs/DOM-BROWSER-BACKEND.md) show the separate action, effect, and goal fields.
+Doctor reports six hook registrations by default, or seven with source prefetch enabled, because multiple handlers use `pre_llm_call`; the manifest lists five distinct kinds. `jev_skill_select_many` recommends several skills but does not load them. The automatic hook can load one accepted skill per identified turn. The model-routing tools do not apply a model switch. Jev `DONE` alone does not verify a browser goal; Switchyard also needs its local completion condition. An early local stop is a candidate, not verified success. [Browser receipts](docs/DOM-BROWSER-BACKEND.md) show the separate action, effect, and goal fields.
 
-### Automatic semantic evidence finder (opt-in pilot)
+### Automatic source prefetch (opt-in pilot)
 
-Ask Hermes normally, for example: "In README.md, find the setting that keeps skill routing local."
-With `evidence_finder_enabled: true` and an explicit `evidence_finder_root`, Hermes can select
-`switchyard_find` and return an exact source passage with line citations. No slash command is needed.
-For a clearly named file, a bounded pre-turn lookup can remove the tool round; otherwise Hermes
-selects the finder normally. `evidence_finder_prefetch: false` selects tool-only operation.
-The tool is registered but hidden when disabled; enabling its toolset alone does not enable it.
-If Jev is uncertain or the file changes, Hermes continues with normal search/read tools.
-See [setup, limits, and evaluation boundaries](docs/SOURCE-FINDER.md).
+Ask Hermes normally: "In notes.md, find the retry limit."
+With evidence_finder_enabled set to true and an absolute evidence_finder_root,
+Switchyard can retrieve an exact passage before the first main-model call.
+No slash command or finder tool is involved. Unknown files, unsupported wording,
+and uncertain evidence retain ordinary Hermes search/read behavior.
+See [setup and limits](docs/SOURCE-FINDER.md).
 
 ## Automatic skill recommendations
 
@@ -121,14 +119,14 @@ Switchyard reads the active profile's skills at the beginning of an eligible tur
 
 ## Toolsets and session exposure
 
-Hermes exposes a plugin tool only when its toolset is selected. Switchyard registers its eight tools under two toolsets:
+Hermes exposes a plugin tool only when its toolset is selected. Switchyard registers its seven tools under two toolsets:
 
 | Toolset | Tools |
 | --- | --- |
 | `computer_use` | `jev_computer_use` |
-| `hermes_switchyard` | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, `jev_session_search_rerank`, `switchyard_find` |
+| `hermes_switchyard` | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, `jev_session_search_rerank` |
 
-An explicit `-t` pin replaces the default selection. Pinning only `computer_use` leaves out the seven decision tools; pinning only `hermes_switchyard` leaves out computer use. A pin naming neither exposes none of the eight tools. To expose all eight in one CLI session:
+An explicit `-t` pin replaces the default selection. Pinning only `computer_use` leaves out the six decision tools; pinning only `hermes_switchyard` leaves out computer use. A pin naming neither exposes none of the seven tools. To expose all seven in one CLI session:
 
 ```text
 hermes -t computer_use,hermes_switchyard chat
@@ -150,9 +148,8 @@ All current settings live under `plugins.entries.hermes-switchyard.settings`. Th
 | `approved_model_registry` | `[]` | Profile-approved model records for advisory routing. An empty registry supplies no approved candidate. |
 | `approved_model_registry_version` | `""` | Required operator version for that registry. |
 | `approved_model_registry_valid_until` | `""` | Registry expiry as a timezone-aware ISO-8601 value. |
-| `evidence_finder_enabled` | `false` | Opt in to the semantic source finder. Requires an explicit absolute source root. |
-| `evidence_finder_prefetch` | `true` | Prefetch simple named-file requests before the main-model call when the finder is enabled. `false` keeps native tool selection. |
-| `evidence_finder_root` | `""` | Operator-owned absolute directory containing eligible source files. Empty disables finder availability. |
+| `evidence_finder_enabled` | `false` | Opt in to automatic source prefetch. Requires an explicit absolute source root. |
+| `evidence_finder_root` | `""` | Operator-approved absolute directory of public or sanitized source files. Empty disables prefetch. |
 | `automatic_skill_recommendation` | `true` | Enable automatic local skill matching in `pre_llm_call`. |
 | `automatic_skill_consumer_mode` | `load` | Load one accepted skill; `advisory` does not load and skips hosted automatic routing. |
 | `automatic_skill_candidates` | `[]` | Empty uses the active profile's full skill registry; otherwise supply explicit candidates. |

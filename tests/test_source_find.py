@@ -281,74 +281,34 @@ class WiringTests(unittest.TestCase):
             register(ctx)
         return ctx
 
-    def test_default_has_no_exposure_or_routing_prompt(self):
+    def source_hooks(self, ctx):
+        return [cb for name, cb in ctx.hooks if cb.__module__.endswith(".source_prefetch")]
+
+    def test_default_has_no_finder_tool_prompt_or_hook(self):
         ctx = self.context({})
-        tool = ctx.tools["switchyard_find"]
-        self.assertFalse(tool["check_fn"]())
+        self.assertNotIn("switchyard_find", ctx.tools)
         self.assertNotIn("hermes-switchyard.find", ctx.sections)
-        self.assertEqual(json.loads(tool["handler"]({}))["reason"], "feature_disabled")
+        self.assertFalse(self.source_hooks(ctx))
 
-    def test_enabled_natural_language_guidance_and_runtime_guard(self):
-        with tempfile.TemporaryDirectory() as root:
-            ctx = self.context({"evidence_finder_enabled": True, "evidence_finder_root": root})
-            self.assertTrue(ctx.tools["switchyard_find"]["check_fn"]())
-            self.assertIn("natural-language", ctx.sections["hermes-switchyard.find"])
-            self.assertNotIn(root, ctx.sections["hermes-switchyard.find"])
-            self.assertIn("local-only", ctx.sections["hermes-switchyard.find"])
-            out = json.loads(ctx.tools["switchyard_find"]["handler"]({"source": "x", "query": "y", "public_or_sanitized_data_ack": False}))
-            self.assertEqual(out["reason"], "ack_required")
-
-    def test_original_turn_denial_survives_model_rewritten_query(self):
-        ctx = self.context({"evidence_finder_enabled": True, "evidence_finder_root": "/fixture",
-                            "evidence_finder_prefetch": False})
-        capture = next(cb for name, cb in ctx.hooks if cb.__module__.endswith(".source_prefetch"))
-        handler = ctx.tools["switchyard_find"]["handler"]
-        dispatch = ctx.middleware["tool_execution"]
-        ids = dict(session_id="session", task_id="task", turn_id="turn")
-        capture(**ids, user_message="Find the retry limit using local tools only.",
-                parent_session_id="", platform="cli")
-        args = {"source": "notes.md", "query": "Find the retry limit",
-                "public_or_sanitized_data_ack": True, "user_message": "Find the retry limit"}
-        with mock.patch("hermes_switchyard.locate_evidence") as locate:
-            result = json.loads(dispatch(**ids, tool_name="switchyard_find", args=args, next_call=handler))
-            self.assertEqual(result["reason"], "local_handling_required")
-            self.assertEqual(result["request_count"], 0)
-            locate.assert_not_called()
-
-    def test_native_lookup_requires_exact_captured_turn_and_middleware(self):
-        ctx = self.context({"evidence_finder_enabled": True, "evidence_finder_root": "/fixture",
-                            "evidence_finder_prefetch": False})
-        capture = next(cb for name, cb in ctx.hooks if cb.__module__.endswith(".source_prefetch"))
-        handler = ctx.tools["switchyard_find"]["handler"]
-        dispatch = ctx.middleware["tool_execution"]
-        ids = dict(session_id="session", task_id="task", turn_id="turn")
-        capture(**ids, user_message="Find the retry limit.", parent_session_id="", platform="cli")
-        args = {"source": "notes.md", "query": "Find the retry limit"}
-        with mock.patch("hermes_switchyard.locate_evidence", return_value={"status": "found"}) as locate:
-            self.assertEqual(json.loads(dispatch(**ids, tool_name="switchyard_find", args=args,
-                                                 next_call=handler))["status"], "found")
-            self.assertEqual(json.loads(handler(args))["reason"], "turn_policy_unavailable")
-            for key in ids:
-                other = {**ids, key: "other"}
-                result = json.loads(dispatch(**other, tool_name="switchyard_find", args=args, next_call=handler))
-                self.assertEqual(result["reason"], "turn_policy_unavailable")
+    def test_enabled_prefetch_is_automatic_without_tool_or_middleware(self):
+        ctx = self.context({"evidence_finder_enabled": True, "evidence_finder_root": "/fixture"})
+        self.assertEqual(len(self.source_hooks(ctx)), 1)
+        self.assertNotIn("switchyard_find", ctx.tools)
+        self.assertNotIn("hermes-switchyard.find", ctx.sections)
+        self.assertNotIn("tool_execution", ctx.middleware)
+        with mock.patch("hermes_switchyard.source_prefetch.locate", return_value={"status": "found", "evidence": "retry twice"}) as locate:
+            out = self.source_hooks(ctx)[0](user_message="In notes.md, find the retry limit.",
+                session_id="s", task_id="t", turn_id="u", parent_session_id="", platform="cli")
+            self.assertIn("retry twice", out["context"])
             self.assertEqual(locate.call_count, 1)
 
-    def test_relative_root_is_not_advertised(self):
-        ctx = self.context({"evidence_finder_enabled": True, "evidence_finder_root": "relative/source"})
-        self.assertFalse(ctx.tools["switchyard_find"]["check_fn"]())
-        self.assertNotIn("hermes-switchyard.find", ctx.sections)
-
-    def test_invalid_provider_has_no_routing_prompt(self):
-        ctx = self.context({"evidence_finder_enabled": True, "evidence_finder_root": "/fixture",
-                            "jev_provider": "not-a-provider"})
-        self.assertFalse(ctx.tools["switchyard_find"]["check_fn"]())
-        self.assertNotIn("hermes-switchyard.find", ctx.sections)
-
-    def test_standing_denial_cannot_be_overridden_by_model(self):
-        ctx = self.context({"evidence_finder_enabled": True, "evidence_finder_root": "/fixture", "public_or_sanitized_data_ack": False})
-        out = json.loads(ctx.tools["switchyard_find"]["handler"]({"source": "x", "query": "y", "public_or_sanitized_data_ack": True}))
-        self.assertEqual(out["reason"], "ack_required")
+    def test_invalid_or_refused_configuration_does_not_register_prefetch(self):
+        for extra in [{"evidence_finder_enabled": False}, {"evidence_finder_enabled": "true"},
+                      {"evidence_finder_root": "relative/source"}, {"evidence_finder_root": ""},
+                      {"jev_provider": "not-a-provider"}, {"public_or_sanitized_data_ack": False}]:
+            ctx = self.context({"evidence_finder_enabled": True, "evidence_finder_root": "/fixture", **extra})
+            self.assertFalse(self.source_hooks(ctx), extra)
+            self.assertNotIn("switchyard_find", ctx.tools)
 
     def test_unsupported_filesystem_defers(self):
         with mock.patch.object(finder.os, "supports_dir_fd", set()):

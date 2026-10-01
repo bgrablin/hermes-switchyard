@@ -175,7 +175,7 @@ def tools_are_switchyard_primary(tools: Sequence[Any] | None) -> bool:
     concrete = [n for n in named if n]
     if not concrete:
         return False
-    primary_names = DEFERRED_SWITCHYARD_TOOL_NAMES | {"switchyard_find", "jev_computer_use", "computer_use"}
+    primary_names = DEFERRED_SWITCHYARD_TOOL_NAMES | {"jev_computer_use", "computer_use"}
     return (len(concrete) == len(named)
             and bool(set(concrete) & DEFERRED_SWITCHYARD_TOOL_NAMES)
             and all(n in primary_names for n in concrete))

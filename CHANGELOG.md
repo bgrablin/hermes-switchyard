@@ -8,7 +8,7 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 
 ### Added
 
-- Opt-in automatic semantic evidence finder (`switchyard_find`). Hermes may select it from normal location questions after an operator configures `evidence_finder_enabled` and `evidence_finder_root`. A bounded foreground prefetch can supply known-file evidence before the first main-model call; unknown wording and filenames retain normal tool selection. It returns exact bounded source passages and line citations, rechecks source identity after inference, and defers to normal tools on uncertainty or failure. Off by default; no automatic cache reuse or #139 outcome-gain claim.
+- Automatic source-prefetch pilot for simple natural-language requests naming a file. Exact evidence can reach Hermes before its first main-model call; unsupported requests use ordinary tools. No finder tool, schema, or discovery round. Opt-in with an absolute approved root, bounded reads, original-request guards, sanitization, and freshness verification. See [setup and limits](docs/SOURCE-FINDER.md).
 
 - [#152](https://github.com/bgrablin/hermes-switchyard/issues/152): `hermes switchyard wow` and `/switchyard wow` show read-only, offline aggregates from retained routing and effort receipts. The default is 7 days; `--days N` and versioned `--json` are available. Every metric shows its observed denominator and window. Partial or unavailable sources remain explicit; the report makes no savings, outcome, or complete-coverage claim.
 - Synthetic routing-value fixtures for paired plugin-off comparisons: deterministic 25-, 150-, and 600-skill catalogs, hidden-fact answer checks, and offline validation (refs #130). No comparative result has been measured.

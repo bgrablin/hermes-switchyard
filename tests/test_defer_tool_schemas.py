@@ -69,13 +69,12 @@ class ToolDefHelpersTests(unittest.TestCase):
             _openai_tool("terminal"),
             _openai_tool("jev_assess"),
             _openai_tool("jev_computer_use"),
-            _openai_tool("switchyard_find"),
             _openai_tool("jev_skill_select"),
             _responses_tool("web_search"),
         ]
         kept = filter_switchyard_tool_schemas(tools)
         names = [tool_definition_name(t) for t in kept]
-        self.assertEqual(names, ["terminal", "jev_computer_use", "switchyard_find", "web_search"])
+        self.assertEqual(names, ["terminal", "jev_computer_use", "web_search"])
 
 
 class PredicateTests(unittest.TestCase):
@@ -145,19 +144,6 @@ class PredicateTests(unittest.TestCase):
         self.assertFalse(
             should_omit_switchyard_tool_schemas(enabled=True, request=request)
         )
-
-
-    def test_enabled_finder_in_plugin_only_catalog_keeps_all_decision_schemas(self):
-        from hermes_switchyard import PLUGIN_TOOLSET, TOOL_TOOLSETS
-
-        names = [name for name, toolset in TOOL_TOOLSETS.items() if toolset == PLUGIN_TOOLSET]
-        self.assertIn("switchyard_find", names)
-        callback = build_defer_tool_schemas_middleware(enabled=True)
-        for definition in (_openai_tool, _responses_tool):
-            request = {"messages": [{"role": "user", "content": "pick a skill"}],
-                       "tools": [definition(name) for name in names]}
-            self.assertIsNone(callback(request=request))
-            self.assertEqual([tool_definition_name(tool) for tool in request["tools"]], names)
 
 
 class MiddlewareTests(unittest.TestCase):

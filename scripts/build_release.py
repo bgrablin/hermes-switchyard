@@ -47,6 +47,7 @@ RELEASE_FILES = (
     "docs/ADAPTIVE-REASONING-EFFORT.md",
     "docs/SESSION-SEARCH-RERANK.md",
     "docs/SOURCE-FINDER.md",
+    "docs/VALUE-EVALUATION.md",
     "docs/BENCHMARKS.md",
     "docs/DOM-BROWSER-BACKEND.md",
     "docs/LINT-SKILLS.md",

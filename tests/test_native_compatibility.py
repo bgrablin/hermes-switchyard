@@ -26,7 +26,7 @@ class NativeCompatibilityTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["hermes_source_sha"], sha)
         self.assertEqual(result["python"], ".".join(str(x) for x in sys.version_info[:3]))
-        self.assertEqual(len(result["registered_tools"]), 8)
+        self.assertEqual(len(result["registered_tools"]), 7)
         self.assertIsInstance(result["python_in_declared_range"], bool)
         self.assertEqual(result["registered_tools"], result["manifest_tools"])
 

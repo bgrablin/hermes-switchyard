@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import sys
 import tempfile
@@ -164,8 +163,6 @@ class _SyntheticNativeDispatcher:
 # exercise the real registered handler; each result is checked against a
 # successful, meaningful terminal contract, not just a non-error JSON envelope.
 _CASES: tuple[dict[str, Any], ...] = (
-    {"tool": "switchyard_find", "arguments": {"source": "tests/fixtures/source-finder.md",
-        "query": "When do cache entries expire?", "public_or_sanitized_data_ack": True}},
     {
         "tool": "jev_skill_select",
         "arguments": {
@@ -251,9 +248,6 @@ def _load_registered_tools(plugin_root: Path) -> tuple[Any, dict[str, Any], set[
     plugin_root = Path(plugin_root).resolve()
     manager = PluginManager()
     synthetic_settings = {
-        "evidence_finder_enabled": True,
-        "evidence_finder_prefetch": False,
-        "evidence_finder_root": str(plugin_root),
         "approved_model_registry": [{
             "id": "synthetic-approved-browser-model",
             "provider": "synthetic-provider",
@@ -355,13 +349,6 @@ def _validate_success(tool: str, parsed: dict[str, Any]) -> str:
             )
         raise NativeInvocationError(f"{tool} returned a structured error against synthetic input: {reason}")
     status = parsed.get("status")
-    if tool == "switchyard_find":
-        if os.open not in os.supports_dir_fd or not hasattr(os, "O_NOFOLLOW"):
-            if status == "defer" and parsed.get("reason") == "unsupported_filesystem":
-                return "unsupported_filesystem_with_fallback"
-        if status != "found" or parsed.get("evidence") != "Cache entries expire after 45 seconds.\n" or parsed.get("start_line") != 1:
-            raise NativeInvocationError("switchyard_find did not return the exact fixture evidence")
-        return "found"
     if tool in {"jev_skill_select", "jev_skill_select_many", "jev_model_route", "jev_session_search_rerank"}:
         if status != "selected":
             raise NativeInvocationError(f"{tool} did not reach selected terminal state (status={status!r})")
@@ -408,22 +395,6 @@ def _validate_success(tool: str, parsed: dict[str, Any]) -> str:
     raise NativeInvocationError(f"no success contract is defined for registered tool {tool!r}")
 
 
-
-def _invoke_source_case(manager, entry, arguments):
-    """Exercise the real captured-turn and execution-middleware boundary."""
-    hooks = [cb for cb in getattr(manager, "_hooks", {}).get("pre_llm_call", [])
-             if cb.__module__.endswith(".source_prefetch")]
-    guards = [cb for cb in getattr(manager, "_middleware", {}).get("tool_execution", [])
-              if cb.__module__.endswith(".source_prefetch")]
-    if len(hooks) != 1 or len(guards) != 1:
-        raise NativeInvocationError("switchyard_find missing native turn-policy callbacks")
-    ids = {"session_id": "synthetic-source-session", "task_id": "synthetic-source-task",
-           "turn_id": "synthetic-source-turn"}
-    hooks[0](**ids, user_message="Find the cache expiration duration.",
-             parent_session_id="", platform="cli")
-    return guards[0](**ids, tool_name="switchyard_find", args=arguments, next_call=entry.handler)
-
-
 def run_invocation_checks(plugin_root: Path) -> dict[str, Any]:
     """Call each registered tool's real handler with a synthetic Jev transport."""
     _manager, entries, expected_names, registry = _load_registered_tools(plugin_root)
@@ -443,8 +414,7 @@ def run_invocation_checks(plugin_root: Path) -> dict[str, Any]:
         for case in _CASES:
             entry = entries[case["tool"]]
             try:
-                raw = (_invoke_source_case(_manager, entry, dict(case["arguments"]))
-                       if case["tool"] == "switchyard_find" else entry.handler(dict(case["arguments"])))
+                raw = entry.handler(dict(case["arguments"]))
             except Exception as exc:  # noqa: BLE001 -- surfaced as a case failure, not a crash
                 failures.append(f"{case['tool']} handler raised {type(exc).__name__} on a valid call")
                 continue

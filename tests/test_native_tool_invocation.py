@@ -106,7 +106,6 @@ class CaseTableTests(unittest.TestCase):
             "jev_model_route",
             "jev_model_route_approved",
             "jev_session_search_rerank",
-            "switchyard_find",
         }
         self.assertEqual({case["tool"] for case in _CASES}, expected)
 
@@ -125,22 +124,6 @@ class CaseTableTests(unittest.TestCase):
             with self.subTest(payload=payload):
                 with self.assertRaisesRegex(NativeInvocationError, "jev_assess returned no valid typed fit score"):
                     module._validate_success("jev_assess", payload)
-
-    def test_finder_missing_nofollow_uses_unsupported_fallback(self):
-        from scripts.ci import check_native_tool_invocation as module
-
-        filesystem = mock.Mock(spec=["open", "supports_dir_fd"])
-        filesystem.supports_dir_fd = {filesystem.open}
-        fallback = {"status": "defer", "reason": "unsupported_filesystem"}
-        with mock.patch.object(module, "os", filesystem):
-            self.assertEqual(module._validate_success("switchyard_find", fallback),
-                             "unsupported_filesystem_with_fallback")
-            with self.assertRaises(NativeInvocationError):
-                module._validate_success("switchyard_find", {"status": "defer", "reason": "source_unavailable"})
-        filesystem.O_NOFOLLOW = 1
-        with mock.patch.object(module, "os", filesystem):
-            with self.assertRaises(NativeInvocationError):
-                module._validate_success("switchyard_find", fallback)
 
     def test_non_error_without_a_success_terminal_state_is_rejected(self):
         from scripts.ci import check_native_tool_invocation as module
@@ -215,8 +198,7 @@ class HandlerFailureReportingTests(unittest.TestCase):
         with mock.patch.object(module, "_load_registered_tools", return_value=(None, entries, {case["tool"] for case in _CASES}, mock.Mock())):
             with self.assertRaisesRegex(NativeInvocationError, "jev_skill_select.*RuntimeError"):
                 module.run_invocation_checks(plugin_root=None)  # type: ignore[arg-type]
-        # The None-manager fixture has no source-policy callbacks to invoke.
-        self.assertEqual(set(calls), {case["tool"] for case in _CASES} - {"jev_skill_select", "switchyard_find"})
+        self.assertEqual(set(calls), {case["tool"] for case in _CASES} - {"jev_skill_select"})
 
     def test_a_handler_exception_is_reported_by_tool_name_not_swallowed(self):
         from scripts.ci import check_native_tool_invocation as module

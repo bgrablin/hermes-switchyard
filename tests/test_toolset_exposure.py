@@ -116,7 +116,7 @@ class _PluginContext:
 
     def __init__(self, stand_in, settings=None):
         self.stand_in = stand_in
-        self.settings = {"evidence_finder_enabled": True, "evidence_finder_root": str(ROOT), **(settings or {})}
+        self.settings = dict(settings or {})
         self.toolsets = {}
 
     def get_config(self, key, default=None):
@@ -133,9 +133,6 @@ class _PluginContext:
         pass
 
     def register_hook(self, *_args, **_kwargs):
-        pass
-
-    def register_middleware(self, *_args, **_kwargs):
         pass
 
 
@@ -165,16 +162,6 @@ class ToolsetExposureReportTests(unittest.TestCase):
         for name, toolset in TOOL_TOOLSETS.items():
             if name != "jev_computer_use":
                 self.assertEqual(toolset, PLUGIN_TOOLSET, name)
-
-    def test_default_disabled_finder_does_not_prevent_readiness(self):
-        context = _PluginContext(self.hermes, {"evidence_finder_enabled": False})
-        hermes_switchyard.register(context)
-        report = self.report(f"{COMPUTER_USE_TOOLSET},{PLUGIN_TOOLSET}")
-        state = report["tools"]["switchyard_find"]
-        self.assertFalse(state["callable"])
-        self.assertFalse(state["required"])
-        self.assertEqual(state["reason"], "feature_disabled")
-        self.assertEqual(self.status(report), "ready")
 
     def test_selecting_both_toolsets_makes_every_tool_registered_and_callable(self):
         report = self.report(f"{COMPUTER_USE_TOOLSET},{PLUGIN_TOOLSET}")
@@ -633,7 +620,6 @@ class RealHermesExposureTests(unittest.TestCase):
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
                 )
                 config = "plugins:\n  enabled:\n    - hermes-switchyard\n"
-                settings = {"evidence_finder_enabled": "true", "evidence_finder_root": json.dumps(str(ROOT)), **(settings or {})}
                 if settings:
                     config += "  entries:\n    hermes-switchyard:\n      settings:\n"
                     config += "".join(f"        {key}: {value}\n" for key, value in settings.items())
@@ -751,18 +737,6 @@ class RealHermesExposureTests(unittest.TestCase):
         self.assertEqual(set(outcome.registry), set(TOOL_TOOLSETS))
         self.assertTrue(all(entry is not None for entry in outcome.registry.values()))
         self.assertEqual(outcome.status["status"], "tools_not_callable")
-
-    def test_default_disabled_finder_keeps_real_loader_status_ready(self):
-        pin = f"{COMPUTER_USE_TOOLSET},{PLUGIN_TOOLSET}"
-        outcome = self.run_hermes(pin=pin, catalog_pins=(pin,), credential=True,
-                                  settings={"evidence_finder_enabled": "false"})
-        catalog = set(outcome.catalogs[pin]["tools"])
-        self.assert_status_agrees_with_hermes(outcome.status, catalog)
-        self.assertNotIn("switchyard_find", catalog)
-        state = outcome.status["tool_exposure"]["tools"]["switchyard_find"]
-        self.assertFalse(state["required"])
-        self.assertEqual(state["reason"], "feature_disabled")
-        self.assertEqual(outcome.status["status"], "ready")
 
     def test_the_documented_composition_is_ready_with_a_credential_and_needs_one(self):
         pin = f"{COMPUTER_USE_TOOLSET},{PLUGIN_TOOLSET}"
