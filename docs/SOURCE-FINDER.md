@@ -3,7 +3,7 @@
 Ask Hermes normally: "In notes.md, find the retry limit."
 When enabled, a pre-turn hook can retrieve an exact supporting passage before the
 first main-model request. There is no slash command or callable finder tool.
-Unsupported wording, unknown filenames, compound requests, and declined lookups
+Unsupported wording, unknown filenames, recognized compound requests, and declined lookups
 continue through ordinary Hermes search/read tools without finder discovery.
 
 ## Enable the pilot
@@ -26,17 +26,17 @@ evidence_finder_prefetch switch and switchyard_find tool have been removed.
 
 The original user message must name one file in a supported form: "In file.md, find
 ..." or "Find ... in file.md". Quoted paths are accepted. A second line may request
-a complete supported JSON format; other multiline and compound work stays with
+a complete supported JSON format; other multiline and recognized compound work stays with
 Hermes. Explicit printable, nonblank session, task, and turn identities, a foreground
 parent identity, and a supported interactive platform are required. Missing or
 malformed identity skips prefetch before source I/O or provider work.
 
 Privacy and network constraints in the original request skip lookup. Any supplied
 host egress envelope also skips lookup because it may authorize a smaller payload.
-The cue scanner is deliberately conservative, can skip benign mentions, and is not
+The privacy and compound-action cue scanners are conservative heuristics. They can skip benign mentions, do not recognize every possible natural-language constraint or second action, and are not
 a general intent parser or data-loss-prevention system. The hook never reads history
 or model-generated tool arguments. Repeated callbacks for the same scope and message
-skip work without reinjecting previous evidence. A new scope or query reads afresh.
+skip work without reinjecting previous evidence. Observing a host envelope consumes that scoped message, so a later duplicate cannot broaden the refusal by omitting the envelope. A new scope or query reads afresh.
 
 Only exact positive evidence is supplied for direct answering. Missing, uncertain,
 invalid, or late results keep normal file tools. There is no internal main-model

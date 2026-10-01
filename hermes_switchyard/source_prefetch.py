@@ -109,7 +109,7 @@ def request_source(message: Any) -> str | None:
     # A single location question only. Conjunctions, extra sentences, dotted
     # file/identifier references, and additional actions stay with normal tools.
     # Conservative false positives only forgo the optional prefetch.
-    if re.search(r"\b(?:and|then|also|compare|summarize|explain|calculate|count|translate)\b|[,;:&.!?…—–]|\s-\s",
+    if re.search(r"\b(?:and|then|also|compare|summarize|explain|calculate|count|translat(?:e|es|ed|ing)|rewrit(?:e|es|ing|ten)|rewrote|renam(?:e|es|ed|ing)|cop(?:y|ies|ied|ying)|simplif(?:y|ies|ied|ying)|paraphras(?:e|es|ed|ing)|rephras(?:e|es|ed|ing))\b|[,;:&.!?…—–]|\s-\s",
                  query.strip().rstrip(".!?"), re.I):
         return None
     # Require a concrete filename, not a directory or a pronoun like "that".
@@ -121,28 +121,32 @@ def build_hook(*, enabled: bool, root: str, standing_ack: bool, client_factory: 
     consumed: OrderedDict[tuple[str, ...], None] = OrderedDict()
     lock = threading.Lock()
 
+    def consume(key):
+        with lock:
+            if key in consumed:
+                return False
+            consumed[key] = None
+            while len(consumed) > 256:
+                consumed.popitem(last=False)
+            return True
+
     def hook(*, user_message=None, session_id=None, task_id=None, turn_id=None,
              parent_session_id=None, platform=None, turn_egress_policy=None,
              egress_policy=None, **_kwargs):
         if not enabled or standing_ack is not True or parent_session_id != "" or type(platform) is not str or platform not in _INTERACTIVE:
             return None
-        # A supplied host envelope may grant only a smaller payload. Do not
-        # reinterpret that envelope as permission to send an entire local file.
-        if turn_egress_policy is not None or egress_policy is not None:
-            return None
         scope = _scope_key(session_id, task_id, turn_id)
-        if scope is None:
-            return None
-        source = request_source(user_message)
-        if source is None:
+        if scope is None or not _valid_message(user_message):
             return None
         key = (*scope, hashlib.sha256(user_message.encode()).hexdigest())
-        with lock:
-            if key in consumed:
-                return None
-            consumed[key] = None
-            while len(consumed) > 256:
-                consumed.popitem(last=False)
+        # A duplicate callback without an earlier envelope cannot broaden it.
+        # Store only scope and a message hash, never the message or source text.
+        if turn_egress_policy is not None or egress_policy is not None:
+            consume(key)
+            return None
+        source = request_source(user_message)
+        if source is None or not consume(key):
+            return None
         try:
             result = locate(root=root, source=source, query=user_message.strip().splitlines()[0].strip(),
                             client_factory=client_factory, public_or_sanitized_data_ack=True)

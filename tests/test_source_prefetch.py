@@ -66,6 +66,26 @@ class PrefetchTests(unittest.TestCase):
                 self.assertIsNone(self.hook(**{**self.kwargs, name: policy}))
         self.locate.assert_not_called()
 
+    def test_envelope_denial_survives_duplicate_callback_without_envelope(self):
+        for field in ("turn_egress_policy", "egress_policy"):
+            for envelope in ({"decision": "allow"}, {"decision": "deny"}, {}, "invalid"):
+                with self.subTest(field=field, envelope=envelope):
+                    hook = prefetch.build_hook(enabled=True, root="/fixture", standing_ack=True,
+                                               client_factory=self.factory)
+                    self.assertIsNone(hook(**{**self.kwargs, field: envelope}))
+                    self.assertIsNone(hook(**self.kwargs))
+        self.locate.assert_not_called()
+        self.factory.assert_not_called()
+
+    def test_compound_rewrite_copy_rename_inflections_skip(self):
+        for action in ("rewrite", "rewrites", "rewriting", "rewritten", "rewrote", "rename",
+                       "renames", "renamed", "renaming", "copy", "copies", "copied", "copying",
+                       "translate", "translates", "translated", "translating", "simplify",
+                       "simplifies", "simplified", "simplifying", "paraphrase", "rephrase"):
+            self.assertIsNone(self.hook(**{**self.kwargs, "user_message":
+                "In notes.md, find the retry limit " + action + " it in simpler language."}))
+        self.locate.assert_not_called()
+
     def test_disabled_and_refused_ack_skip(self):
         for enabled, ack in [(False, True), (True, False)]:
             hook = prefetch.build_hook(enabled=enabled, root="/fixture", standing_ack=ack, client_factory=self.factory)
