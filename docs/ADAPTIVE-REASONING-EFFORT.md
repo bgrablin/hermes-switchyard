@@ -77,7 +77,7 @@ Reasoning: not adapted — this level cannot be adapted on this route · no Jev 
 
 A route-only turn (`no_host_effort` or `no_room`) shows one `not adapted` line in `auto` and `always`. Switchyard doesn't invent a level or call Jev for it, and if both reasons apply, the line names both. A turn that included a user-selected bypass isn't route-only.
 
-Pinned sessions (including missing host effort), excluded models, disabled adaptation, and unsupported routes are quiet in `auto` and show the known level in `always`.
+Pinned sessions and excluded models stay quiet in auto. In always, they show a receipt only when Hermes supplied an effort level. Disabled adaptation, unsupported routes, and pinned sessions without an effort level stay quiet in both modes.
 
 The receipt command **saves** your choice to `adaptive_reasoning_effort_receipt_mode`, so it survives restarts. Legacy `receipt work` and `receipt on` mean `auto`. The line is produced by Hermes' `transform_llm_output` hook.
 
