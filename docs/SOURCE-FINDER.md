@@ -24,8 +24,10 @@ evidence_finder_prefetch switch and switchyard_find tool have been removed.
 
 ## Eligibility and fallback
 
-The original user message must name one file in a supported form: "In file.md, find
-..." or "Find ... in file.md". Quoted paths are accepted. A second line may request
+For a single-file lookup, the original user message must name one file in a supported
+form: "In file.md, find ..." or "Find ... in file.md". Quoted paths are accepted.
+An explicit list of two to eight files uses the [multi-file form below](#multiple-named-files).
+A second line may request
 a complete supported JSON format; other multiline and recognized compound work stays with
 Hermes. Explicit printable, nonblank session, task, and turn identities, an empty
 parent-session identity (foreground work), and a supported interactive platform are required. Missing or
@@ -54,7 +56,8 @@ instruction. A final Hermes answer can still be wrong; provenance is not correct
 
 ## Contract and limits
 
-- One relative file beneath the configured absolute root; maximum 80,000 bytes,
+- Single-file lookup reads one relative file beneath the configured absolute root;
+  multi-file lookup uses the tighter aggregate limits below. Maximum 80,000 bytes,
   strict UTF-8, no hidden components, traversal, symlinks, or nonregular files.
 - Descriptor-relative no-follow reads are required. Unsupported hosts defer.
 - At most 240 passages, 24 lines and 2,400 characters per passage; no silent truncation.
@@ -81,7 +84,7 @@ savings) or capability (better outcomes within a bounded latency budget) before 
 See [the prospective evaluation policy](VALUE-EVALUATION.md).
 
 
-## Multiple named files (draft extension)
+## Multiple named files
 
 The same opt-in settings also recognize an explicit list of two to eight
 backtick-quoted filenames, for example:
