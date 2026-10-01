@@ -108,6 +108,20 @@ class PrefetchTests(unittest.TestCase):
                 "In notes.md, find the retry limit " + action + " it in simpler language."}))
         self.locate.assert_not_called()
 
+
+    def test_mutating_action_inflections_skip_before_lookup(self):
+        for action in ("edits", "edited", "editing", "updates", "updated", "updating",
+                       "modifies", "modified", "modifying", "deletes", "deleted", "deleting",
+                       "removes", "removed", "removing", "replaces", "replaced", "replacing",
+                       "executes", "executed", "executing", "runs", "ran", "running",
+                       "installs", "installed", "installing", "deploys", "deployed", "deploying",
+                       "sends", "sent", "sending", "uploads", "uploaded", "uploading"):
+            with self.subTest(action=action):
+                self.assertIsNone(self.hook(**{**self.kwargs, "user_message":
+                    "In notes.md, find the retry limit before " + action + " it."}))
+        self.locate.assert_not_called()
+        self.factory.assert_not_called()
+
     def test_disabled_and_refused_ack_skip(self):
         for enabled, ack in [(False, True), (True, False)]:
             hook = prefetch.build_hook(enabled=enabled, root="/fixture", standing_ack=ack, client_factory=self.factory)
