@@ -57,8 +57,9 @@ SEVERITY_LEVELS = ("cosmetic", "minor", "major", "critical")
 SEVERITY_CRITERIA = {
     "cosmetic": "Appearance or wording defect only; all intended operations still work and no data is lost.",
     "minor": (
-        "An operation is degraded or fails, but an explicitly stated usable workaround "
-        "completes the same task without data loss."
+        "An operation still completes the intended task despite functional degradation, "
+        "or an explicitly stated usable workaround completes a failed operation; "
+        "no data loss or unauthorized access is reported."
     ),
     "major": (
         "An intended operation is blocked with no usable workaround; no permanent data loss "

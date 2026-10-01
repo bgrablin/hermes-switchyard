@@ -27,6 +27,10 @@ class ProvenanceTests(unittest.TestCase):
             "provenance.json",
             "cases.json",
             "workflow-cases.json",
+            "confirmation-cases.json",
+            "confirmation-provenance.json",
+            "confirmation-observations.json",
+            "followup-pilot.json",
         ]:
             shutil.copy2(SOURCE / name, self.root / name)
         shutil.copytree(SOURCE / "frozen", self.root / "frozen")
@@ -189,3 +193,25 @@ class ProvenanceTests(unittest.TestCase):
             **{key: book[key] for key in ["screen", "workflow", "native"]}
         )
         self.assertEqual(changed["native"]["main"]["strict_format_correct"], 23)
+
+    def test_confirmation_tampering_is_refused(self):
+        path = self.root / "confirmation-observations.json"
+        data = json.loads(path.read_text())
+        data["rows"].pop()
+        path.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, "confirmation observation drift"):
+            validate(self.root)
+
+    def test_confirmation_missing_arm_is_refused_after_rebinding(self):
+        path = self.root / "confirmation-observations.json"
+        data = json.loads(path.read_text())
+        data["rows"] = [r for r in data["rows"] if r["arm"] == "candidate"]
+        path.write_text(json.dumps(data))
+        manifest_path = self.root / "confirmation-provenance.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["observations_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        manifest_path.write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(
+            ValueError, "missing, duplicate, or extra confirmation rows"
+        ):
+            validate(self.root)

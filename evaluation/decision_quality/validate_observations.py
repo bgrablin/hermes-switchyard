@@ -148,7 +148,9 @@ def validate(root: Path):
     )
     require(
         [literals["SEVERITY_CRITERIA"][level] for level in literals["SEVERITY_LEVELS"]]
-        == cases["severity_rubric"],
+        == json.loads((root / "confirmation-cases.json").read_text())[
+            "severity_rubric"
+        ],
         "production rubric differs from evaluated candidate",
     )
     expected_screen = []
@@ -230,4 +232,84 @@ def validate(root: Path):
                 row["expected"] == {s["id"]: s["expected"] for s in cases["audit"]},
                 "audit label drift",
             )
+    book["confirmation"] = validate_confirmation(root)
     return book
+
+
+def validate_confirmation(root):
+    """Check the reviewed rubric's new confirmation and retain the imperfect pilot."""
+    manifest = json.loads((root / "confirmation-provenance.json").read_text())
+    raw = (root / "confirmation-observations.json").read_bytes()
+    require(
+        digest(raw) == manifest["observations_sha256"], "confirmation observation drift"
+    )
+    require(
+        digest((root / "followup-pilot.json").read_bytes()) == manifest["pilot_sha256"],
+        "pilot observation drift",
+    )
+    require(manifest["main_revision"] == BASE_SHA, "confirmation source revision drift")
+    book = json.loads(raw)
+    require(set(book) == {"freeze", "rows"}, "unexpected confirmation sections")
+    names = {
+        "confirmation_compare.py",
+        "confirmation-cases.json",
+        "cases.json",
+        "record_triage.py",
+    }
+    require(
+        set(book["freeze"]["files"]) == names and set(manifest["files"]) == names,
+        "incomplete confirmation source set",
+    )
+    require(
+        book["freeze"]["model"] == "typesafe/jev-1.13-20260917",
+        "confirmation model drift",
+    )
+    require(
+        book["freeze"]["repeats"] == 2
+        and book["freeze"]["thresholds"] == {"disposition": 0.8, "severity": 0.8},
+        "confirmation policy drift",
+    )
+    for name in names:
+        data = (root / "frozen" / name).read_bytes()
+        if name.endswith(".py"):
+            require(
+                data.startswith(ARCHIVE_HEADER.encode()),
+                "confirmation archive header drift",
+            )
+            data = data[len(ARCHIVE_HEADER.encode()) :]
+        require(
+            digest(data) == manifest["files"][name] == book["freeze"]["files"][name],
+            "confirmation source drift: " + name,
+        )
+    cases = json.loads((root / "confirmation-cases.json").read_text())
+    require(
+        digest((root / "confirmation-cases.json").read_bytes())
+        == manifest["files"]["confirmation-cases.json"],
+        "confirmation fixture drift",
+    )
+    require(
+        len(cases["records"]) == 24 and len(cases["expected"]) == 24,
+        "confirmation case count drift",
+    )
+    expected_rows = {
+        (arm, f"{arm}-{offset}-{repeat}")
+        for arm in ["main", "candidate"]
+        for offset in range(0, 24, 4)
+        for repeat in range(2)
+    }
+    require(
+        Counter((r["arm"], r["id"]) for r in book["rows"]) == Counter(expected_rows),
+        "missing, duplicate, or extra confirmation rows",
+    )
+    for row in book["rows"]:
+        offset = int(row["id"].split("-")[1])
+        ids = [r["id"] for r in cases["records"][offset : offset + 4]]
+        require(
+            row["expected"] == {rid: cases["expected"][rid] for rid in ids},
+            "confirmation label drift",
+        )
+        require(
+            [r["id"] for r in row["result"]["records"]] == ids,
+            "confirmation record drift",
+        )
+    return book["rows"]

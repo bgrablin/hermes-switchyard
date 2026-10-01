@@ -4,7 +4,19 @@ Source idea: [the supplied Polydao post](https://x.com/polydao/status/2104783226
 
 Only the descriptive severity rubric qualified for this PR. It is always used by the existing `record_triage` library workflow. This change does not register a new tool or enable a new routing path.
 
-## Results
+## Confirmation of the reviewed rubric
+
+Review identified a gap for degraded operations that still complete without a workaround. The final minor criterion explicitly covers that case; major still means blocked, and cosmetic means presentation-only. In this demonstration taxonomy, a still-completing functional slowdown is minor regardless of its magnitude. Projects needing incident escalation by latency or resource impact should use their own rubric.
+
+The final confirmation froze 24 reports and two repeats per arm before calls: the original 16 concrete reports, four edge reports, and four additional previously untested functional-degradation reports. The final rubric produced **42/48 correct rated priorities and zero wrong accepted priorities**, versus **18/48 correct and two wrong accepted priorities** on main. Candidate: six abstentions, no qualified-but-unrated records. Main: five abstentions and 23 qualified-but-unrated records. All 24 work-queue artifacts verified. Each arm made 12 requests.
+
+Mean batch latency was **232.169 ms versus 195.525 ms (+18.74%)**; medians were **195.038 versus 194.349 ms (+0.35%)**. The nearest-rank p95 was 388.656 versus 218.907 ms (12 batches per arm). Reported cost was $0.000891996 versus $0.000728700. This quality improvement carries a worse observed mean/tail and higher cost; it is not a latency-saving claim or a guarantee within a 15% mean-latency budget.
+
+An earlier 20-report edge pilot contained a grading error: the visual-only `noisy-output` report had been labeled minor even though the cosmetic criterion applied. Its original labels, two apparent candidate errors, source freeze, and observations remain in `followup-pilot.json`. The label was corrected **before** the 24-report confirmation calls, which also introduced four new functional-degradation cases. The initial evidence below is unchanged and belongs to the earlier rubric. This is disclosed post-screen development, not an untouched holdout or calibrated real-world accuracy claim.
+
+`confirmation-provenance.json` binds the final observations, cases, source snapshots and retained pilot. Replay validates exact source sets, policy, row identities, labels, and the current production rubric before emitting `review_confirmation` in `summary.json`. The `followup_compare.py` and `confirmation_compare.py` runners exercise the same complete library workflow; use fresh output directories as below.
+
+## Initial candidate results (before review expansion)
 
 Measurements ran on 2026-10-01 UTC with OpenRouter `typesafe/jev-1.13-20260917`. Native Hermes controls used `openai-codex` / `gpt-6-sol`, a requested effort of high, no fallback, no tools or memory, isolated profiles, and at most two concurrent main requests. No Sonnet was used.
 
@@ -48,4 +60,4 @@ This is a deliberately narrow, synthetic test. The gate's lack of benefit here d
 - `native_compare.py --output <fresh-directory>` uses `hermes --print-runtime-command`, snapshots the pinned release/main, constructs the evaluated confidence-gate candidate, and owns four isolated workers. Set `HERMES_HOME` to the authorized test profile before invoking it. This makes paid/live model calls.
 - Every live output directory must be new. Local profiles, snapshots, and queue artifacts stay untracked. The committed observation export contains synthetic text and portable artifact references only.
 
-The winning rubric is byte-for-byte the four criteria tested in the frozen cases. Severity names, score indices, priority mappings, workflow schema, confidence gates, and request budgets are preserved. Existing request-size planning accounts for the longer criteria automatically.
+The final winning rubric is byte-for-byte the four criteria tested in `confirmation-cases.json`. Severity names, score indices, priority mappings, workflow schema, confidence gates, and request budgets are preserved. Existing request-size planning accounts for the longer criteria automatically.

@@ -140,5 +140,39 @@
       "p95_ms": 246.347
     },
     "scope": "Already implemented batching; conditional severity screen only. Dispositions abstained in this initial screen."
+  },
+  "review_confirmation": {
+    "main": {
+      "records": 48,
+      "rated_correct": 18,
+      "rated_wrong": 2,
+      "abstained": 5,
+      "qualified_unrated": 23,
+      "verified_artifacts": 12,
+      "latency": {
+        "n": 12,
+        "mean_ms": 195.525,
+        "p50_ms": 194.349,
+        "p95_ms": 218.907
+      },
+      "cost_usd": 0.0007287,
+      "requests": 12
+    },
+    "candidate": {
+      "records": 48,
+      "rated_correct": 42,
+      "rated_wrong": 0,
+      "abstained": 6,
+      "qualified_unrated": 0,
+      "verified_artifacts": 12,
+      "latency": {
+        "n": 12,
+        "mean_ms": 232.169,
+        "p50_ms": 195.038,
+        "p95_ms": 388.656
+      },
+      "cost_usd": 0.0008919959999999999,
+      "requests": 12
+    }
   }
 }

@@ -1,0 +1,11 @@
+{
+  "main_revision": "afee8afdec3967201ff6c24d29dc892e6311e6a4",
+  "observations_sha256": "64dc3e960939831f122bba24a56adbc84cda5260f476bdb4de608c9bf4d4f831",
+  "pilot_sha256": "86f7f66886fecf520567a6e3b494220a22b686b0e5b3f73eb2b9ed1538c11c9f",
+  "files": {
+    "confirmation_compare.py": "eb19c27a7e2ee434a7f16cef131356ed3830e82057b74a2b0a0bc386660da2b5",
+    "confirmation-cases.json": "76a8885e32cc8ec616335b748e940feba4b5a14a374175c920657d8d23ad60bc",
+    "cases.json": "97be2d4a9105f1e8d76bc8996ebf4a9b4690d417e9a53d49599f98638025c973",
+    "record_triage.py": "e40347789b861687fc69edc5e1acdb709284a7f822830d4e7dea78965522ff95"
+  }
+}

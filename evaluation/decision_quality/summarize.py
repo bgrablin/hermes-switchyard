@@ -173,6 +173,9 @@ def main():
 
     book = validate(ROOT)
     summary = summarize(**{key: book[key] for key in ["screen", "workflow", "native"]})
+    summary["review_confirmation"] = summarize(
+        screen=book["screen"], workflow=book["confirmation"], native=book["native"]
+    )["workflow"]
     (ROOT / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(json.dumps(summary, indent=2))
 
