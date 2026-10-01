@@ -306,6 +306,7 @@ def child(arm, name):
                 **binding,
                 "arm": arm,
                 "job_id": job["job_id"],
+                "order_index": job["order_index"],
                 "id": job["id"],
                 "repeat": job.get("repeat", 0),
                 "cap": job["cap"],

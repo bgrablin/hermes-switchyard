@@ -11,7 +11,7 @@ import sys
 import threading
 import time
 from read_workload import CASES
-from provenance import validate_receipt
+from provenance import validate_receipt, validate_job_receipt
 
 ROOT = pathlib.Path(__file__).resolve().parent
 PY = os.environ.get("SWITCHYARD_C2_PYTHON", sys.executable)
@@ -205,11 +205,11 @@ def main():
         for i, job in enumerate(order):
             assert time.monotonic() - start < 1800
             p = children[job["arm"]]
-            p.stdin.write(json.dumps(job) + "\n")
+            p.stdin.write(json.dumps({**job, "order_index": i}) + "\n")
             p.stdin.flush()
             row = receive(p, "EVAL_ROW ", 120, logs[job["arm"]])
             validate_receipt(row, freeze, freeze_digest)
-            row["order_index"] = i
+            validate_job_receipt(row, job, i)
             row["success"] = score(row)
             rows.append(row)
             dump(ROOT / "rows.json", rows)

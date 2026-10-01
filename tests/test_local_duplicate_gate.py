@@ -81,11 +81,23 @@ class SafeguardTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 6)
 
     def test_full_server_and_source_identity_are_mandatory(self):
-        self.run_read(name="mcp__one__read_file")
-        self.run_read(name="mcp__two__read_file")
-        self.ev = replace(self.ev, source_identity="other/account/workspace/resource")
-        self.run_read(name="mcp__one__read_file")
-        self.assertEqual(len(self.calls), 3)
+        original = self.ev
+        self.run_read(name="read_file")
+        for source in (
+            "other/account/workspace/resource",
+            "server/other/workspace/resource",
+            "server/account/other/resource",
+            "server/account/workspace/other",
+        ):
+            self.ev = replace(original, source_identity=source)
+            self.run_read(name="read_file")
+        self.assertEqual(len(self.calls), 5)
+        self.ev = original
+        self.assertEqual(
+            self.run_read(name="read_file", body="must not dispatch"), "complete"
+        )
+        self.assertEqual(len(self.calls), 5)
+        self.assertEqual(g.gate_counters()["reused"], 1)
         self.assertIsNone(
             g.fingerprint_for(
                 "read_file", self.args, evidence=replace(self.ev, source_identity="")
@@ -370,7 +382,12 @@ class SafeguardTests(unittest.TestCase):
             _middleware={"tool_execution": [self.mid, rewrite]},
             _report_hook_failure=lambda *a, **k: self.fail("middleware exception"),
         )
-        with patch.object(plugins, "_delivery_manager", return_value=manager):
+        with (
+            patch.object(
+                plugins, "_delivery_manager", return_value=manager, create=True
+            ),
+            patch.object(plugins, "get_plugin_manager", return_value=manager),
+        ):
             for _ in range(2):
                 run_tool_execution_middleware(
                     "read_file",
@@ -405,7 +422,12 @@ class SafeguardTests(unittest.TestCase):
             _report_hook_failure=lambda *a, **k: self.fail("middleware exception"),
         )
         calls = []
-        with patch.object(plugins, "_delivery_manager", return_value=manager):
+        with (
+            patch.object(
+                plugins, "_delivery_manager", return_value=manager, create=True
+            ),
+            patch.object(plugins, "get_plugin_manager", return_value=manager),
+        ):
             for _ in range(2):
                 result = run_tool_execution_middleware(
                     "browser_snapshot",

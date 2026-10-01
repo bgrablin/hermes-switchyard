@@ -32,3 +32,24 @@ def validate_freeze_bytes(raw, expected_sha256):
     if hashlib.sha256(raw).hexdigest() != expected_sha256:
         raise ValueError("freeze bytes do not match completion digest")
     return json.loads(raw)
+
+
+def validate_job_receipt(row, job, order_index):
+    """Bind a returned receipt to the exact submitted frozen job and index."""
+    for key, expected in {**job, "order_index": order_index}.items():
+        if (
+            key not in row
+            or type(row[key]) is not type(expected)
+            or row[key] != expected
+        ):
+            raise ValueError("receipt does not match frozen job: " + key)
+
+
+def validate_campaign_receipts(rows, freeze, freeze_sha256):
+    """Reject missing, duplicated, reordered, or foreign campaign receipts."""
+    order = freeze["order"]
+    if len(rows) != len(order):
+        raise ValueError("receipt count does not match frozen campaign")
+    for index, (row, job) in enumerate(zip(rows, order)):
+        validate_receipt(row, freeze, freeze_sha256)
+        validate_job_receipt(row, job, index)

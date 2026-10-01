@@ -5,7 +5,7 @@ import json
 import pathlib
 import statistics
 from campaign import normalize, score
-from provenance import validate_receipt, validate_freeze_bytes
+from provenance import validate_campaign_receipts, validate_freeze_bytes
 
 ROOT = pathlib.Path(__file__).resolve().parent
 rows = json.loads((ROOT / "rows.json").read_text())
@@ -14,8 +14,7 @@ freeze = validate_freeze_bytes(
     (ROOT / "freeze.json").read_bytes(), completion["freeze_sha256"]
 )
 assert len(rows) == len(freeze["order"]) == 60 and completion["unchanged_runtime"]
-for row in rows:
-    validate_receipt(row, freeze, completion["freeze_sha256"])
+validate_campaign_receipts(rows, freeze, completion["freeze_sha256"])
 stats = {}
 mismatches = []
 for arm in ["off", "release", "candidate"]:

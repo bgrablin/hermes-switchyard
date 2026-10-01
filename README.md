@@ -174,7 +174,7 @@ All current settings live under `plugins.entries.hermes-switchyard.settings`. Th
 | `session_search_rerank_choice_confidence_threshold` | `0.8` | Minimum Jev Choice confidence to change FTS order. |
 | `session_search_rerank_winning_probability_threshold` | `0.8` | Minimum winning probability to change FTS order. |
 | `session_search_rerank_max_card_chars` | `360` | Maximum text in a redacted FTS candidate card. |
-| `local_duplicate_tool_gate` | `false` | Experimental exact reuse requires both session and task, a trusted per-call source verifier, and a digest of the complete result. Arguments and snapshot IDs alone do not prove freshness. Stock Hermes lacks the verifier and dispatches. Payload is bounded to 4 Mi characters. |
+| `local_duplicate_tool_gate` | `false` | Experimental exact reuse requires both session and task, a trusted per-call source verifier, and a digest of the complete result. Arguments and snapshot IDs alone do not prove freshness. Stock Hermes lacks the verifier and dispatches. Each result is limited to 32 Ki characters; the aggregate cache is bounded to 4 Mi characters (8 scopes × 16 results). |
 | `defer_switchyard_tool_schemas` | `false` | Opt-in schema deferral for uncued decision tools. Automatic routing remains active; explicit requests, tool history, and forced tool choices keep schemas. Keep off unless this capability tradeoff is acceptable. |
 | `public_or_sanitized_data_ack` | `true` | Standing acknowledgement for explicit Jev tools and adaptive effort; callers can refuse one call. |
 
