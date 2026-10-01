@@ -19,7 +19,9 @@ inert adversarial fixtures in this repository.
 
 Enforcement needs explicit `retrieved_screen_enabled: true`. By default, search
 receipts report shadow indicators without withholding cards, and DOM runs keep
-the existing behavior. The screen recognizes a bounded set of warning patterns. It does not establish
+the existing behavior. The screen recognizes a bounded set of warning patterns.
+DOM coverage includes page/link URL components, with up to three local percent/form
+decoding passes. URLs and matched text are not added to screening receipts. It does not establish
 that content is trustworthy, scan unobserved page text, or replace the host's
 instruction boundary. Search receipts contain warning codes and withheld counts,
 not matched text. Benign documents demonstrating an attack may be withheld.

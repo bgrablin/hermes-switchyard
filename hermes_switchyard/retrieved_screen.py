@@ -10,6 +10,7 @@ import re
 import unicodedata
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import unquote_plus
 
 MAX_TEXT = 96_000
 _PATTERNS = (
@@ -73,6 +74,8 @@ def screen_card(card: Any) -> tuple[str, ...]:
         if len(anchors) > 32:
             return ("screen_limit",)
         fields.extend(anchor_preview(a) for a in anchors if isinstance(a, Mapping))
+    if sum(len(field) for field in fields if isinstance(field, str)) > MAX_TEXT:
+        return ("screen_limit",)
     return tuple(sorted({reason for field in fields for reason in screen_text(field)}))
 
 
@@ -94,11 +97,37 @@ def screen_shortlist(candidates: Any) -> tuple[Any, dict[str, Any]]:
     }
 
 
+def screen_url(value: Any) -> tuple[str, ...]:
+    """Screen URL components locally, including three common decoding layers."""
+    if not isinstance(value, str):
+        return ()
+    if len(value) > MAX_TEXT:
+        return ("screen_limit",)
+    reasons = set()
+    current = value
+    for attempt in range(4):
+        for part in (current, *re.split(r"[/?&#=]", current)):
+            reasons.update(screen_text(part))
+        if attempt == 3:
+            break
+        decoded = unquote_plus(current)
+        if decoded == current:
+            break
+        current = decoded
+    return tuple(sorted(reasons))
+
+
 def screen_page(page: Mapping[str, Any]) -> tuple[str, ...]:
     fields = [page.get("title"), page.get("text")]
+    urls = [page.get("url")]
     elements = page.get("elements")
     if isinstance(elements, list):
         if len(elements) > 2000:
             return ("screen_limit",)
         fields.extend(e.get("label") for e in elements if isinstance(e, Mapping))
-    return tuple(sorted({reason for field in fields for reason in screen_text(field)}))
+        urls.extend(e.get("href") for e in elements if isinstance(e, Mapping))
+    if sum(len(value) for value in fields + urls if isinstance(value, str)) > MAX_TEXT:
+        return ("screen_limit",)
+    reasons = {reason for field in fields for reason in screen_text(field)}
+    reasons.update(reason for url in urls for reason in screen_url(url))
+    return tuple(sorted(reasons))

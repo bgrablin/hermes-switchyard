@@ -12,7 +12,7 @@ from hermes_switchyard.output_pruning import (
     compact_repeated_lines,
     prune_terminal_result,
 )
-from hermes_switchyard.retrieved_screen import screen_text
+from hermes_switchyard.retrieved_screen import screen_text, screen_card, screen_page
 from hermes_switchyard.session_search_rerank import (
     rerank_session_search,
     fail_open_to_fts,
@@ -43,6 +43,16 @@ class RetrievedScreenTests(unittest.TestCase):
         ]:
             with self.subTest(text=text):
                 self.assertFalse(screen_text(text))
+
+    def test_aggregate_screen_budget_includes_all_visible_fields(self):
+        self.assertEqual(
+            screen_card({"title": "a" * 50000, "snippet": "b" * 50000}),
+            ("screen_limit",),
+        )
+        self.assertEqual(
+            screen_page({"text": "a" * 50000, "elements": [{"href": "b" * 50000}]}),
+            ("screen_limit",),
+        )
 
     def test_provider_down_does_not_reintroduce_attack(self):
         cards = [
