@@ -114,7 +114,11 @@ def summarize(screen, workflow, native):
             )
         result["native"][arm] = {
             "n": len(selected),
-            "strict_format_correct": sum(r["correct"] for r in selected),
+            "strict_format_correct": sum(
+                (r.get("final") or "").strip().strip("`").strip().casefold()
+                == r["expected"].casefold()
+                for r in selected
+            ),
             "answer_correct_after_receipt_removal": sum(semantic),
             "latency": latency([r["wall_ms"] for r in selected]),
             "main_requests": sum(len(r["wire"]) for r in selected),

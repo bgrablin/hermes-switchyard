@@ -9,6 +9,7 @@ import unittest
 from unittest import mock
 
 from evaluation.decision_quality.validate_observations import ARCHIVE_HEADER, validate
+from evaluation.decision_quality.summarize import summarize
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "evaluation/decision_quality"
@@ -147,3 +148,44 @@ class ProvenanceTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "production rubric differs"):
             validate(self.root)
+
+    def test_missing_revision_arm_is_refused(self):
+        self.alter_observations(
+            lambda b: b["freezes"]["native-run"]["revisions"].pop("release"),
+            rebind=True,
+        )
+        with self.assertRaisesRegex(ValueError, "incomplete revision set"):
+            validate(self.root)
+
+    def test_missing_frozen_file_binding_is_refused(self):
+        self.alter_observations(
+            lambda b: b["freezes"]["screen-run"]["files"].clear(), rebind=True
+        )
+        with self.assertRaisesRegex(ValueError, "incomplete frozen file set"):
+            validate(self.root)
+
+    def test_missing_manifest_arm_is_refused(self):
+        path = self.root / "provenance.json"
+        data = json.loads(path.read_text())
+        data["arm_sources"].pop("release")
+        path.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, "incomplete source arm set"):
+            validate(self.root)
+
+    def test_native_correctness_is_recomputed_from_final_text(self):
+        book = validate(self.root)
+        original = summarize(
+            **{key: book[key] for key in ["screen", "workflow", "native"]}
+        )
+        for row in book["native"]:
+            row["correct"] = not row["correct"]
+        altered = summarize(
+            **{key: book[key] for key in ["screen", "workflow", "native"]}
+        )
+        self.assertEqual(original["native"], altered["native"])
+        row = next(row for row in book["native"] if row["arm"] == "main")
+        row["final"] = "WRONG"
+        changed = summarize(
+            **{key: book[key] for key in ["screen", "workflow", "native"]}
+        )
+        self.assertEqual(changed["native"]["main"]["strict_format_correct"], 23)

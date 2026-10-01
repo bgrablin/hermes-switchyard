@@ -34,6 +34,24 @@ def validate(root: Path):
         set(book) == {"screen", "workflow", "native", "freezes"},
         "unexpected observation sections",
     )
+    expected_files = {
+        "screen-run": {"screen.py", "cases.json"},
+        "workflow-run": {
+            "workflow_compare.py",
+            "workflow-cases.json",
+            "cases.json",
+            "record_triage.py",
+        },
+        "native-run": {"native_compare.py", "native_worker.py", "cases.json"},
+    }
+    require(
+        set(manifest["frozen_sources"]) == set.union(*expected_files.values()),
+        "incomplete frozen source set",
+    )
+    require(
+        set(manifest["arm_sources"]) == {"main", "release", "candidate"},
+        "incomplete source arm set",
+    )
     frozen = {}
     for name, entry in manifest["frozen_sources"].items():
         path = root / entry["path"]
@@ -50,6 +68,9 @@ def validate(root: Path):
         frozen[name] = entry["sha256"]
     for name, freeze in book["freezes"].items():
         require(name in {"screen-run", "workflow-run", "native-run"}, "unknown freeze")
+        require(
+            set(freeze["files"]) == expected_files[name], "incomplete frozen file set"
+        )
         for filename, sha in freeze["files"].items():
             require(
                 frozen.get(filename) == sha, "pre-call source mismatch: " + filename
@@ -59,6 +80,10 @@ def validate(root: Path):
         "missing freeze",
     )
     native_freeze = book["freezes"]["native-run"]
+    require(
+        set(native_freeze["revisions"]) == {"main", "release"},
+        "incomplete revision set",
+    )
     require(native_freeze["revisions"]["main"] == BASE_SHA, "wrong main revision")
     require(
         native_freeze["model"] == "gpt-6-sol"
