@@ -71,6 +71,15 @@ def verify_live(run, freeze, rows):
     return total_requests, total_cost
 
 
+def verify_sources(freeze, source_root):
+    """Do not apply the measured result to a different candidate or driver."""
+    actual = {str(path.relative_to(source_root)): hashlib.sha256(path.read_bytes()).hexdigest()
+              for path in sorted((source_root / "hermes_switchyard").rglob("*.py"))}
+    assert actual == freeze["sources"]["candidate"], "candidate source drift; rerun benchmark"
+    driver = source_root / "evaluation" / "hotpath" / "planning.py"
+    assert hashlib.sha256(driver.read_bytes()).hexdigest() == freeze["driver_sha256"], "benchmark driver drift; rerun benchmark"
+
+
 def main():
     root = Path(__file__).parent / "frozen"
     for name, expected in json.loads((root / "sha256.json").read_text()).items():
@@ -82,6 +91,8 @@ def main():
 
         for run in ("offline", "live", "offline-v2", "live-v2"):
             freeze = json.loads(read(run + "/freeze.json"))
+            if run.endswith("v2"):
+                verify_sources(freeze, Path(__file__).resolve().parents[2])
             rows = [json.loads(line) for line in read(run + "/observations.jsonl").splitlines()]
             summary = json.loads(read(run + "/summary.json"))
             expected_jobs = [(rep, freeze["cases"][idx]["id"], freeze["cases"][idx]["kind"], arm) for rep, idx, arm in freeze["jobs"]]

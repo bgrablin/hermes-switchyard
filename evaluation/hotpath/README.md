@@ -107,7 +107,11 @@ both source patches. `frozen/sha256.json` binds the archives and visible summari
 No credentials, user tasks, or private source text are included.
 
 Run `python evaluation/hotpath/verify.py` to check retained evidence, completeness,
-payload agreement and recomputed timing summaries. Run the boundary tests with
+payload agreement and recomputed timing summaries. It also requires the complete
+checked-out plugin Python source set and benchmark driver to match both v2 freezes.
+Changed, missing or added source files invalidate these results for the current
+tree; rerun the benchmark on changed source before claiming its performance.
+Run the boundary tests with
 `python -m unittest discover -s tests -p test_request_planning.py`.
 Run `planning.py --baseline BASE --candidate CANDIDATE --output NEW_DIRECTORY`
 for a new offline measurement. Live measurements additionally require `--live

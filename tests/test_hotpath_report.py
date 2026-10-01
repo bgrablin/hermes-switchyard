@@ -1,8 +1,10 @@
 """Reject changed live-provider claims independently of archive checksums."""
 import copy
+import hashlib
 import importlib.util
 import json
 import tarfile
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -21,6 +23,35 @@ class HotpathReportTests(unittest.TestCase):
 
     def test_retained_accounting_and_summaries(self):
         verify.main()
+
+    def test_source_and_driver_drift_are_rejected(self):
+        files = {"hermes_switchyard/client.py": b"client source",
+                 "hermes_switchyard/routing.py": b"routing source",
+                 "evaluation/hotpath/planning.py": b"benchmark source"}
+        freeze = {"sources": {"candidate": {name: hashlib.sha256(data).hexdigest()
+                                            for name, data in files.items()
+                                            if name.startswith("hermes_switchyard/")}},
+                  "driver_sha256": hashlib.sha256(files["evaluation/hotpath/planning.py"]).hexdigest()}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name, data in files.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+            verify.verify_sources(freeze, root)
+            for name, data in files.items():
+                with self.subTest(changed=name):
+                    (root / name).write_bytes(data + b" changed")
+                    with self.assertRaises(AssertionError):
+                        verify.verify_sources(freeze, root)
+                    (root / name).write_bytes(data)
+            (root / "hermes_switchyard/extra.py").write_bytes(b"extra source")
+            with self.assertRaises(AssertionError):
+                verify.verify_sources(freeze, root)
+            (root / "hermes_switchyard/extra.py").unlink()
+            (root / "hermes_switchyard/client.py").unlink()
+            with self.assertRaises(AssertionError):
+                verify.verify_sources(freeze, root)
 
     def test_altered_provider_fields_are_rejected(self):
         for field, value in (("resolved_model", "unrecorded-model"), ("request_count", 99),
