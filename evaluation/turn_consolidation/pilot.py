@@ -87,6 +87,9 @@ class Broker:
         ):
             return None
         result = copy.deepcopy(record["result"])
+        request_id = result.get("request_id")
+        if not isinstance(request_id, str) or not request_id.strip():
+            return None
         result["answers"]["reasoning_effort"] = result["answers"][
             "reasoning_effort_" + requested
         ]
@@ -103,7 +106,7 @@ class Broker:
             return None
         self.receipts.append(
             {
-                "shared_request_id": result.get("request_id"),
+                "shared_request_id": request_id,
                 "cap": requested,
                 "effort": choice["effort"],
                 "shared_latency_ms": record["wall_ms"],

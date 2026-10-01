@@ -4,6 +4,8 @@ import hashlib
 import importlib.util
 from pathlib import Path
 import tempfile
+import time
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -23,6 +25,12 @@ PILOT = load(
 ROUTING = load("evaluation/model_routing/compare.py", "transfer_routing_driver")
 CONSOLIDATION = load(
     "evaluation/turn_consolidation/native_compare.py", "transfer_consolidation_driver"
+)
+
+
+CONSOLIDATION_PILOT = load(
+    "evaluation/turn_consolidation/pilot.py",
+    "hermes_switchyard._transfer_consolidation_test",
 )
 
 
@@ -95,6 +103,32 @@ class JevTransferHarnessTests(unittest.TestCase):
             CONSOLIDATION.source_hashes()[tasks],
             hashlib.sha256((ROOT / tasks).read_bytes()).hexdigest(),
         )
+
+    def test_shared_decision_without_usable_id_falls_back(self):
+        broker = CONSOLIDATION_PILOT.Broker()
+        controller = SimpleNamespace(
+            public_or_sanitized_data_ack=True, deadline_seconds=0.4
+        )
+        key = ("session", "task", "turn")
+        for request_id in [None, "", "  ", 12]:
+            broker.store(
+                key,
+                {
+                    "task": "public sample",
+                    "wall_ms": 1,
+                    "at": time.monotonic(),
+                    "result": {"request_id": request_id},
+                },
+            )
+            result = broker.consume(
+                key,
+                {"excerpt": "public sample"},
+                "high",
+                ["low", "medium", "high"],
+                controller,
+            )
+            self.assertIsNone(result)
+        self.assertEqual(broker.receipts, [])
 
     def test_fixture_hashes_cover_actual_arm_copies(self):
         with tempfile.TemporaryDirectory() as temp:
