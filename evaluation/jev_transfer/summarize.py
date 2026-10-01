@@ -80,7 +80,7 @@ def latency(rows):
     }
 
 
-def routing_decision_matches(decision, calls):
+def routing_decision_matches(decision, calls, expected_model):
     if not isinstance(decision, dict):
         return False
     request_id = decision.get("request_id")
@@ -96,9 +96,9 @@ def routing_decision_matches(decision, calls):
         or len(questions) != 2
         or any(not isinstance(q, str) for q in questions)
         or set(questions) != {"routine", "stakes"}
-        or not isinstance(call.get("model"), str)
-        or not call["model"]
-        or decision.get("model") != call["model"]
+        or call.get("error_type")
+        or call.get("model") != expected_model
+        or decision.get("model") != expected_model
     ):
         return False
     raw_answers, answers = call.get("answers"), decision.get("answers")
@@ -132,6 +132,69 @@ def routing_decision_matches(decision, calls):
     return True
 
 
+def bounded_number(value, upper):
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(value)
+        and 0 <= value <= upper
+    )
+
+
+def shared_decision_matches(receipt, calls, freeze):
+    matches = [
+        call
+        for call in calls
+        if call.get("request_id") == receipt["shared_request_id"]
+    ]
+    if len(matches) != 1:
+        return False
+    call = matches[0]
+    required = {
+        "skill", "needs_skill", "reasoning_effort_medium",
+        "reasoning_effort_high", "stakes",
+    }
+    questions = call.get("questions")
+    if (
+        call.get("error_type")
+        or call.get("model") != freeze["jev"]
+        or not isinstance(questions, list)
+        or any(not isinstance(q, str) for q in questions)
+        or len(questions) != len(required)
+        or set(questions) != required
+        or not bounded_number(
+            receipt.get("shared_latency_ms"), freeze["routing_deadline_ms"]
+        )
+    ):
+        return False
+    cap = receipt.get("cap")
+    levels = {"medium": ["low", "medium"], "high": ["low", "medium", "high"]}.get(cap)
+    answers = call.get("answers")
+    if levels is None or not isinstance(answers, dict):
+        return False
+    choice = answers.get("reasoning_effort_" + cap)
+    stakes = answers.get("stakes")
+    if (
+        not isinstance(choice, dict)
+        or choice.get("type") != "choice"
+        or choice.get("choice") not in levels
+        or not bounded_number(choice.get("confidence"), 1)
+        or not isinstance(choice.get("probabilities"), dict)
+        or set(choice["probabilities"]) != set(levels)
+        or not all(bounded_number(v, 1) for v in choice["probabilities"].values())
+        or not math.isclose(sum(choice["probabilities"].values()), 1, abs_tol=0.01)
+        or not isinstance(stakes, dict)
+        or set(stakes) != {"type", "noul"}
+        or stakes["type"] != "noul"
+        or not bounded_number(stakes["noul"], 1)
+    ):
+        return False
+    # Frozen pilot: no prior tool failures; stakes at 0.5 veto any lowering.
+    selected = choice["choice"]
+    expected = cap if selected != cap and stakes["noul"] >= 0.5 else selected
+    return receipt.get("effort") == expected
+
+
 def native_summary(run):
     freeze, rows = run["freeze"], run["rows"]
     complete_rows(freeze, rows, True)
@@ -140,9 +203,12 @@ def native_summary(run):
     shared_turns = set()
     routed_decision_turns = set()
     for row in rows:
-        call_ids = {
-            call.get("request_id") for call in row["jev"] if call.get("request_id")
-        }
+        for call in row["jev"]:
+            if call.get("error_type"):
+                if any(call.get(key) is not None for key in ("model", "answers", "request_id")):
+                    raise ValueError("failed Jev call includes successful response metadata")
+            elif call.get("model") != freeze["jev"]:
+                raise ValueError("Jev call model differs from frozen model")
         validated_models = set()
         for receipt in row.get("route", []):
             if not isinstance(receipt, dict):
@@ -156,16 +222,27 @@ def native_summary(run):
                 ):
                     raise ValueError("invalid routing receipt")
                 valid_routing_decision = routing_decision_matches(
-                    receipt.get("decision"), row["jev"]
+                    receipt.get("decision"), row["jev"], freeze["jev"]
                 )
+                if receipt["applied"] != (receipt["to"] == freeze["candidate_model"]):
+                    raise ValueError("routing receipt has inconsistent application state")
                 if valid_routing_decision:
                     routed_decision_turns.add((row["arm"], row["id"]))
+                    answers = receipt["decision"]["answers"]
+                    if receipt["applied"] and (
+                        answers["routine"]["noul"] < 0.8
+                        or answers["stakes"]["noul"] >= 0.5
+                        or not bounded_number(
+                            receipt.get("wall_ms"), freeze["routing_deadline_ms"]
+                        )
+                    ):
+                        raise ValueError("applied route did not qualify within its deadline")
             shared = receipt.get("shared_request_id")
-            if not routing and (not isinstance(shared, str) or not shared):
+            if not routing and (not isinstance(shared, str) or not shared.strip()):
                 raise ValueError("unbound shared decision receipt")
             if shared is not None:
                 if (
-                    shared not in call_ids
+                    not shared_decision_matches(receipt, row["jev"], freeze)
                     or not row["wire"]
                     or row["wire"][0]["effort"] != receipt["effort"]
                 ):

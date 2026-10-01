@@ -152,6 +152,69 @@ class JevTransferEvidenceTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "route is not bound"):
                     native_summary(run)
 
+    def test_native_calls_must_use_frozen_jev_model(self):
+        for name in ["native_routing", "native_consolidation"]:
+            with self.subTest(name=name):
+                run = copy.deepcopy(self.evidence["runs"][name])
+                row = next(
+                    r for r in run["rows"] if r["arm"] == "candidate" and r["route"]
+                )
+                for call in row["jev"]:
+                    call["model"] = "different-but-matching-model"
+                for receipt in row["route"]:
+                    if "decision" in receipt:
+                        receipt["decision"]["model"] = "different-but-matching-model"
+                with self.assertRaisesRegex(ValueError, "differs from frozen model"):
+                    native_summary(run)
+
+    def test_applied_routing_requires_qualifying_answers_and_deadline(self):
+        for changed in ["routine", "stakes", "deadline"]:
+            with self.subTest(changed=changed):
+                run = copy.deepcopy(self.evidence["runs"]["native_routing"])
+                row = next(
+                    r for r in run["rows"]
+                    if r["arm"] == "candidate" and any(x["applied"] for x in r["route"])
+                )
+                receipt = next(x for x in row["route"] if x["applied"])
+                call = next(
+                    c for c in row["jev"]
+                    if c["request_id"] == receipt["decision"]["request_id"]
+                )
+                if changed == "deadline":
+                    receipt["wall_ms"] = run["freeze"]["routing_deadline_ms"] + 1
+                else:
+                    score = 0 if changed == "routine" else 1
+                    call["answers"][changed]["noul"] = score
+                    receipt["decision"]["answers"][changed]["noul"] = score
+                with self.assertRaisesRegex(ValueError, "did not qualify"):
+                    native_summary(run)
+
+    def test_shared_effort_requires_combined_answers_and_deadline(self):
+        for changed in ["questions", "effort", "stakes", "deadline"]:
+            with self.subTest(changed=changed):
+                run = copy.deepcopy(self.evidence["runs"]["native_consolidation"])
+                row = next(
+                    r for r in run["rows"]
+                    if r["arm"] == "candidate"
+                    and any(x["effort"] == "low" for x in r["route"])
+                )
+                receipt = next(x for x in row["route"] if x["effort"] == "low")
+                call = next(
+                    c for c in row["jev"]
+                    if c["request_id"] == receipt["shared_request_id"]
+                )
+                if changed == "questions":
+                    call["questions"].remove("reasoning_effort_high")
+                elif changed == "effort":
+                    choice = call["answers"]["reasoning_effort_" + receipt["cap"]]
+                    choice["choice"] = receipt["cap"]
+                elif changed == "stakes":
+                    call["answers"]["stakes"]["noul"] = 1
+                else:
+                    receipt["shared_latency_ms"] = run["freeze"]["routing_deadline_ms"] + 1
+                with self.assertRaisesRegex(ValueError, "shared decision is not bound"):
+                    native_summary(run)
+
     def test_receipt_normalization_is_terminal_and_exact(self):
         receipt = "\n\nswitchyard: effort high→low · Jev 180 ms"
         self.assertEqual(LEGACY_RECEIPT.sub("", "Rome" + receipt), "Rome")
