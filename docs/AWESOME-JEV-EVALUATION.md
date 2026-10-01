@@ -58,43 +58,58 @@ and unrelated-source cases each deferred twice. These are component observations
 they do not prove final-answer accuracy or useful end-to-end latency. In particular,
 all deferred cases must stay in the native evaluation denominator.
 
-## Native evaluation and interruption
+## Native evaluation: original interrupted run
 
-An 80-conversation plan was frozen before dispatch: eight cases, two repetitions,
-and five interleaved arms, with serial main-model requests:
+Native v1 froze 80 conversations: eight cases, two repetitions, and five
+interleaved arms, with serial main-model requests. The arms were disabled,
+release v0.5.6 (`552940b8`), main `a0fd0ad6`, candidate source with only multi-file
+recognition disabled, and candidate source with multi-file recognition enabled.
+The measured candidate was based on `9fda6b3`; later refusal guards were not part
+of this run and must not inherit its timings.
 
-- Hermes with Switchyard disabled;
-- release v0.5.6;
-- main `a0fd0ad670bec53a72d2fa2a6ef851382f5e46c0`;
-- candidate source with only multi-file recognition disabled;
-- candidate source with multi-file recognition enabled.
+The command channel failed during execution. Recovery found 15 completed rows
+(three per arm), and no surviving driver or worker. Those observations remain a
+separate interrupted run; they do not establish a performance win and are not
+pooled with the replacement. Recovered native v1 scripts match all three frozen
+hashes; the driver's original import line was reconstructed and verified against
+its pre-run SHA-256. The earlier development screen and keyed scripts have
+post-freeze formatting differences; those mismatches are disclosed in recovery
+manifests. Their numbers remain development observations, not qualification.
 
-The candidate was built on source-finder commit `9fda6b3`; the PR was subsequently
-recovered onto `149e16ce332c68c039fc18d0b6432dfc2a02a01e`, retaining that branch's
-newer scoped-refusal guards. The dependency was subsequently merged through
-`424ed3ab107282e91887bcca37d6ed37ebc5a855`, which strengthens whole-turn refusal
-and mutating-action checks. Do not attribute measured timings to these later bases.
+## Native evaluation: complete replacement plan
 
-Main inference used native Hermes with Codex `gpt-6-sol`, requested high effort,
-six main calls maximum, a 90-second conversation budget, isolated fixture cwd,
-and only read/search file tools. The normal adaptive-effort setting stayed enabled
-in plugin arms; automatic skill recommendation was disabled in all arms. The
-same-source control isolates the multi-file change. No Sonnet was used.
+Native v2 was separately frozen before dispatch on October 1, 2026. It repeats
+all 80 conversations in the same randomized order. Its release arm is unchanged;
+its main arm is `d50c724b31bb2cb945495637ba40a1ce6504ccd1`. Its candidate runtime
+is `350ee5a6b8d50ba7b2b2364a4b339e6e94336800`, including source-finder dependency
+`ddbdac67`. The same-source control disables only multi-file recognition. Source
+files, fixtures, job order, runner scripts, and tracked Hermes runtime files are
+hashed before dispatch. Runtime hashes are checked again at completion.
 
-The predeclared efficiency gate requires preserved correct completions, no new
-errors, at least 10% lower median and total wall time than disabled and main,
-and no greater than 10% p95 regression. Release and toggle results must also be
-reported. Final answers require factual coverage and source-verifiable quotations.
+Both runs use native Hermes with Codex `gpt-6-sol`, requested high effort, six main
+calls maximum, a 90-second conversation budget, isolated fixture cwd, and only
+read/search file tools. Adaptive effort stays enabled in plugin arms; automatic
+skill recommendation is disabled. Jev is pinned to `typesafe/jev-1.13-20260917`
+through OpenRouter. No Sonnet is used.
 
-The remote command channel stopped responding during the run. The complete
-observations, frozen scripts, hashes and final unit-suite output remain on the
-evaluation host and have not been retrieved into this PR. The full performance
-verdict is therefore **pending**, not passed. Partial rows are not used to claim
-a win. Do not promote this feature or merge this draft based on the component
-screen alone.
+The predeclared gate requires preserved correct completions, no new errors,
+at least 10% lower median and total wall time than disabled and main, and no
+more than 10% p95 regression. Release and same-source control results are also
+reported. All fallback cases stay in the denominator. Every final answer is
+checked for required facts, contradictions and source-verifiable quotations.
+Strict JSON formatting is recorded separately from factual correctness. Both
+nearest-rank and linearly interpolated p95 will be reported because the original
+plan did not specify a percentile convention; a win must survive both.
 
-Before promotion, recover the original raw observations and verify their script
-hashes; retain any failed/interrupted runs; grade every arm including fallbacks;
-publish the full totals and decision. If the run was interrupted, use a separately
-frozen replacement run rather than filling missing rows selectively. Source tests
-pass in the recovered checkout; CI is the full-suite gate for the published head.
+Other evaluations were running on the same host during v2; interleaving limits
+but does not eliminate this timing confound. The benchmark uses synthetic
+fixtures and does not qualify default enablement or broad workload claims.
+
+The checked-in runner subsequently made host paths configurable and restricted
+its script snapshot to the three runner files. Frozen v2 copies preserve the
+actual measured scripts, and the resolved paths and candidate runtime are
+unchanged. These are harness portability changes, not a restarted or retuned run.
+
+Native v2 is currently running. Full results, script provenance and the final
+merge-or-close decision will be recorded after all arms are graded. No partial
+performance verdict is used to promote the feature.
