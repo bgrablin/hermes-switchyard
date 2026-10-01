@@ -36,7 +36,7 @@ host egress envelope also skips lookup because it may authorize a smaller payloa
 The privacy and compound-action cue scanners are conservative heuristics. They can skip benign mentions, do not recognize every possible natural-language constraint or second action, and are not
 a general intent parser or data-loss-prevention system. The hook never reads history
 or model-generated tool arguments. Repeated callbacks for the same scope and message
-skip work without reinjecting previous evidence. Observing a host envelope consumes that scoped message, so a later duplicate cannot broaden the refusal by omitting the envelope. A new scope or query reads afresh.
+skip work without reinjecting previous evidence. Host-envelope refusals are retained separately from ordinary duplicate suppression and never evicted to admit another lookup. A later duplicate cannot broaden a refusal by omitting the envelope. If the bounded refusal store fills, prefetch stops for that hook instance until the plugin is reloaded; ordinary Hermes tools continue normally. A new scope or query reads afresh.
 
 Only exact positive evidence is supplied for direct answering. Missing, uncertain,
 invalid, or late results keep normal file tools. There is no internal main-model

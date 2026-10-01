@@ -77,6 +77,28 @@ class PrefetchTests(unittest.TestCase):
         self.locate.assert_not_called()
         self.factory.assert_not_called()
 
+    def test_envelope_refusals_survive_capacity_and_replay(self):
+        hook = prefetch.build_hook(enabled=True, root="/fixture", standing_ack=True,
+                                   client_factory=self.factory)
+        for n in range(257):
+            self.assertIsNone(hook(**{**self.kwargs, "turn_id": str(n),
+                                      "turn_egress_policy": {"decision": "deny"}}))
+        self.assertIsNone(hook(**{**self.kwargs, "turn_id": "0"}))
+        self.assertIsNone(hook(**{**self.kwargs, "turn_id": "256"}))
+        self.assertIsNone(hook(**{**self.kwargs, "turn_id": "new"}))
+        self.locate.assert_not_called()
+        self.factory.assert_not_called()
+
+    def test_successful_lookup_eviction_does_not_evict_refusal(self):
+        hook = prefetch.build_hook(enabled=True, root="/fixture", standing_ack=True,
+                                   client_factory=self.factory)
+        self.assertIsNone(hook(**{**self.kwargs, "egress_policy": {"decision": "deny"}}))
+        for n in range(257):
+            self.assertIsNotNone(hook(**{**self.kwargs, "turn_id": str(n)}))
+        before = self.locate.call_count
+        self.assertIsNone(hook(**self.kwargs))
+        self.assertEqual(self.locate.call_count, before)
+
     def test_compound_rewrite_copy_rename_inflections_skip(self):
         for action in ("rewrite", "rewrites", "rewriting", "rewritten", "rewrote", "rename",
                        "renames", "renamed", "renaming", "copy", "copies", "copied", "copying",

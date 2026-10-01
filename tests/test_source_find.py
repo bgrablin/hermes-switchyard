@@ -291,7 +291,7 @@ class WiringTests(unittest.TestCase):
         self.assertFalse(self.source_hooks(ctx))
 
     def test_enabled_prefetch_is_automatic_without_tool_or_middleware(self):
-        ctx = self.context({"evidence_finder_enabled": True, "evidence_finder_root": "/fixture"})
+        ctx = self.context({"evidence_finder_enabled": True, "evidence_finder_root": str(Path(tempfile.gettempdir()).resolve())})
         self.assertEqual(len(self.source_hooks(ctx)), 1)
         self.assertNotIn("switchyard_find", ctx.tools)
         self.assertNotIn("hermes-switchyard.find", ctx.sections)
@@ -306,7 +306,7 @@ class WiringTests(unittest.TestCase):
         for extra in [{"evidence_finder_enabled": False}, {"evidence_finder_enabled": "true"},
                       {"evidence_finder_root": "relative/source"}, {"evidence_finder_root": ""},
                       {"jev_provider": "not-a-provider"}, {"public_or_sanitized_data_ack": False}]:
-            ctx = self.context({"evidence_finder_enabled": True, "evidence_finder_root": "/fixture", **extra})
+            ctx = self.context({"evidence_finder_enabled": True, "evidence_finder_root": str(Path(tempfile.gettempdir()).resolve()), **extra})
             self.assertFalse(self.source_hooks(ctx), extra)
             self.assertNotIn("switchyard_find", ctx.tools)
 

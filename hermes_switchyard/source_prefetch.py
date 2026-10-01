@@ -119,11 +119,25 @@ def request_source(message: Any) -> str | None:
 def build_hook(*, enabled: bool, root: str, standing_ack: bool, client_factory: Any):
     """Never inject cached evidence. A duplicate invocation only skips work."""
     consumed: OrderedDict[tuple[str, ...], None] = OrderedDict()
+    refused: set[tuple[str, ...]] = set()
+    refusal_capacity_reached = False
     lock = threading.Lock()
+
+    def refuse(key):
+        nonlocal refusal_capacity_reached
+        with lock:
+            if key in refused:
+                return
+            if len(refused) >= 256:
+                # Never forget a refusal to make room. At capacity, leave all
+                # further work with Hermes until this hook is recreated.
+                refusal_capacity_reached = True
+            else:
+                refused.add(key)
 
     def consume(key):
         with lock:
-            if key in consumed:
+            if refusal_capacity_reached or key in refused or key in consumed:
                 return False
             consumed[key] = None
             while len(consumed) > 256:
@@ -142,7 +156,7 @@ def build_hook(*, enabled: bool, root: str, standing_ack: bool, client_factory: 
         # A duplicate callback without an earlier envelope cannot broaden it.
         # Store only scope and a message hash, never the message or source text.
         if turn_egress_policy is not None or egress_policy is not None:
-            consume(key)
+            refuse(key)
             return None
         source = request_source(user_message)
         if source is None or not consume(key):
