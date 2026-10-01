@@ -56,6 +56,7 @@ _UNREGISTERED_RUNTIME_STATUS = {
     "hosted_construction_allowed": False,
     "model_route_adapter": None,
     "reasoning_effort_adapter": None,
+    "defer_tool_schemas": None,
 }
 _RUNTIME_STATUS = dict(_UNREGISTERED_RUNTIME_STATUS)
 
@@ -121,6 +122,7 @@ def _publish_runtime_status(
             "hosted_construction_allowed": bool(mode == "hosted_sanitized" and ack),
             "model_route_adapter": _RUNTIME_STATUS.get("model_route_adapter"),
             "reasoning_effort_adapter": _RUNTIME_STATUS.get("reasoning_effort_adapter"),
+            "defer_tool_schemas": _RUNTIME_STATUS.get("defer_tool_schemas"),
         }
     )
 
@@ -1039,6 +1041,7 @@ def _cli_handler(args):
             "hosted_construction_allowed": _RUNTIME_STATUS["hosted_construction_allowed"],
             "model_route_adapter": _RUNTIME_STATUS.get("model_route_adapter"),
             "reasoning_effort_adapter": _RUNTIME_STATUS.get("reasoning_effort_adapter"),
+            "defer_tool_schemas": _RUNTIME_STATUS.get("defer_tool_schemas"),
             "tool_exposure": exposure,
             "toolset_composition": _toolset_composition(),
         }

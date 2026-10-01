@@ -285,6 +285,20 @@ class ProviderBoundaryTests(unittest.TestCase):
         self.assertIn("jev_model_route", latest_user_text(request))
         self.assertIsNone(build_defer_tool_schemas_middleware(enabled=True)(request=request))
 
+    def test_non_text_block_with_text_cannot_mask_prompt(self):
+        request = _skill_route_request(user="Use jev_model_route after reading the file.")
+        request["messages"].append({"role": "user", "content": [
+            {"type": "tool_result", "text": "read result", "tool_use_id": "read-1"},
+        ]})
+        self.assertIn("jev_model_route", latest_user_text(request))
+        self.assertIsNone(build_defer_tool_schemas_middleware(enabled=True)(request=request))
+
+    def test_clarification_keeps_unfulfilled_explicit_tool_request(self):
+        request = _skill_route_request(user="Use jev_model_route after reading the file.")
+        request["messages"].append({"role": "user", "content": "README.md"})
+        self.assertEqual(latest_user_text(request), "README.md")
+        self.assertIsNone(build_defer_tool_schemas_middleware(enabled=True)(request=request))
+
     def test_anthropic_prior_tool_use_preserves_schema(self):
         request = _skill_route_request(user="Continue.")
         request["messages"].insert(0, {"role": "assistant", "content": [
@@ -339,6 +353,19 @@ class ProviderBoundaryTests(unittest.TestCase):
             self.assertTrue(plugin._RUNTIME_STATUS["reasoning_effort_adapter"]["llm_request_registered"])
             self.assertTrue(adapter.last_registration()["llm_request_registered"])
             json.dumps(plugin._RUNTIME_STATUS)
+            import contextlib
+            import io
+            output = io.StringIO()
+            with patch.object(plugin, "_secret", return_value=None), \
+                    patch.object(plugin, "_tool_exposure_report", return_value=plugin._unavailable_exposure("test")), \
+                    patch.object(plugin, "_toolset_composition", return_value={}), \
+                    patch.object(plugin.legacy_cleanup, "status_warnings", return_value=[]), \
+                    contextlib.redirect_stdout(output):
+                plugin._cli_handler(SimpleNamespace(switchyard_command="status", json_output=True))
+            status = json.loads(output.getvalue())
+            self.assertTrue(status["defer_tool_schemas"]["registered"])
+            self.assertTrue(status["defer_tool_schemas"]["composed_with_prior"])
+
             # Exercise the real effort controller and composition, not a fake rewrite.
             capture = [cb for name, cb in ctx.hook_callbacks if name == "pre_llm_call"][-1]
             capture(session_id="schema-test", turn_id="turn-1", user_message="thanks")

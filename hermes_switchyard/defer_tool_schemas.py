@@ -88,14 +88,7 @@ def _text_from_content(content: Any) -> str:
         return ""
     parts: list[str] = []
     for part in content:
-        if isinstance(part, str):
-            parts.append(part)
-            continue
         if not isinstance(part, Mapping):
-            continue
-        text = part.get("text")
-        if isinstance(text, str):
-            parts.append(text)
             continue
         # Responses API input_text / output_text
         if part.get("type") in {"text", "input_text", "output_text"} and isinstance(
@@ -213,6 +206,12 @@ def should_omit_switchyard_tool_schemas(
     if not text:
         return False  # Unknown or non-text request shapes fail open.
     if user_requests_switchyard_tools(text):
+        return False
+    # Keep an explicit request through later clarifications, even before the
+    # decision tool has run. A prior actual call also keeps schemas below.
+    if any(isinstance(item, Mapping) and item.get("role") == "user"
+           and user_requests_switchyard_tools(_text_from_content(item.get("content")))
+           for item in iter_request_items(request)):
         return False
     if history_has_switchyard_tool_call(request):
         return False
