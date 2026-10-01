@@ -10,6 +10,10 @@ The [Switchyard branding image](docs/assets/hermes-switchyard-branding.png) is a
 
 **Release state:** version 0.5.6. It includes local decisions for trivial turns, visible effort receipts, a session summary, and a 0.4 s default decision deadline. Research Navigator (F1) and DOM Progress & Recovery (F2) are **not included**: both failed their frozen release evaluations on closed [PR #132](https://github.com/bgrablin/hermes-switchyard/pull/132) and [PR #135](https://github.com/bgrablin/hermes-switchyard/pull/135). [Issue #139](https://github.com/bgrablin/hermes-switchyard/issues/139) tracks follow-up work. Do not install those PRs as if they were shipped features. The [changelog](CHANGELOG.md) separates included work from the two evaluations. The [benchmark report](docs/BENCHMARKS.md) names the older source and limits of its measurements; it does not prove that Jev improves every task.
 
+| 0.6.0 candidate (not in 0.5.6) | Scope | Runtime default |
+| --- | --- | --- |
+| [Offline outcome labels](docs/OUTCOME-LABELS.md) | Local-only, evidence-censored labels and fixed hash split over retained routing receipts; no quality or satisfaction claim | No hook, on-device arm, or routing change |
+
 ## First-run quickstart
 
 You need a working Hermes installation, one TypeSafe or OpenRouter account key, and approval to send **public or sanitized** task data to that provider. Jev requests can incur charges beyond a ChatGPT or Codex subscription. The commands below use the active Hermes profile.

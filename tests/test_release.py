@@ -15,6 +15,7 @@ import unittest
 import zipfile
 from pathlib import Path
 from unittest import mock
+from urllib.parse import unquote, urlsplit
 
 from scripts.build_release import (
     RELEASE_FILES,
@@ -191,7 +192,9 @@ class ReleaseArchiveTests(unittest.TestCase):
             self.assertIn("plugin.yaml", names)
             self.assertIn("__init__.py", names)
             self.assertIn("hermes_switchyard/_win_acl.py", names)
+            self.assertIn("hermes_switchyard/outcome_labels.py", names)
             self.assertIn("docs/SETUP.md", names)
+            self.assertIn("docs/OUTCOME-LABELS.md", names)
             self.assertIn("docs/AUTOMATIC-SETUP.md", names)
             self.assertIn("docs/AUTOMATIC-INTEGRATION.md", names)
             self.assertIn("docs/assets/hermes-switchyard-branding.png", names)
@@ -228,6 +231,34 @@ class ReleaseArchiveTests(unittest.TestCase):
             source_sha = _commit_fixture(repo, "broken changelog reference")
             with self.assertRaises(ReleaseVerificationError):
                 build_release(repo, base / "dist", source_sha)
+
+    def test_packaged_outcome_labels_guide_references_resolve(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            repo, source_sha = _fixture_repo(base)
+            archive = build_release(repo, base / "dist", source_sha)
+            extracted = base / "extracted"
+            with zipfile.ZipFile(archive) as opened:
+                self.assertFalse(any(name.startswith(("tests/", "evaluation/")) for name in opened.namelist()))
+                opened.extractall(extracted)
+            guide = extracted / "docs" / "OUTCOME-LABELS.md"
+            references = re.findall(r"\[[^\]]*\]\(([^)]+)\)", guide.read_text(encoding="utf-8"))
+            self.assertTrue(references)
+            for reference in references:
+                parsed = urlsplit(reference)
+                if not parsed.scheme and not parsed.netloc and parsed.path:
+                    self.assertTrue((guide.parent / unquote(parsed.path)).is_file(), reference)
+
+    def test_outcome_labels_broken_relative_link_rejects_release_archive(self):
+        for reference in ("../evaluation/outcome-labels/PLAN.md", "not-packaged.md"):
+            with self.subTest(reference=reference), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                repo, _ = _fixture_repo(base)
+                guide = repo / "docs" / "OUTCOME-LABELS.md"
+                guide.write_text(f"# Outcome labels\n\n[reference]({reference})\n", encoding="utf-8")
+                source_sha = _commit_fixture(repo, "broken outcome label reference")
+                with self.assertRaisesRegex(ReleaseVerificationError, r"OUTCOME-LABELS\.md.*not packaged"):
+                    build_release(repo, base / "dist", source_sha)
 
     def test_archive_contains_importable_plugin_package(self):
         with tempfile.TemporaryDirectory() as directory:
