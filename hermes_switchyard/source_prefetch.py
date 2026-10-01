@@ -128,21 +128,21 @@ def build_hook(*, enabled: bool, root: str, standing_ack: bool, client_factory: 
     refusal_capacity_reached = False
     lock = threading.Lock()
 
-    def refuse(key):
+    def refuse(scope):
         nonlocal refusal_capacity_reached
         with lock:
-            if key in refused:
+            if scope in refused:
                 return
             if len(refused) >= 256:
                 # Never forget a refusal to make room. At capacity, leave all
                 # further work with Hermes until this hook is recreated.
                 refusal_capacity_reached = True
             else:
-                refused.add(key)
+                refused.add(scope)
 
-    def consume(key):
+    def consume(scope, key):
         with lock:
-            if refusal_capacity_reached or key in refused or key in consumed:
+            if refusal_capacity_reached or scope in refused or key in consumed:
                 return False
             consumed[key] = None
             while len(consumed) > 256:
@@ -152,19 +152,22 @@ def build_hook(*, enabled: bool, root: str, standing_ack: bool, client_factory: 
     def hook(*, user_message=None, session_id=None, task_id=None, turn_id=None,
              parent_session_id=None, platform=None, turn_egress_policy=None,
              egress_policy=None, **_kwargs):
-        if not enabled or standing_ack is not True or parent_session_id != "" or type(platform) is not str or platform not in _INTERACTIVE:
+        if not enabled or standing_ack is not True:
             return None
         scope = _scope_key(session_id, task_id, turn_id)
-        if scope is None or not _valid_message(user_message):
+        if scope is None:
             return None
-        key = (*scope, hashlib.sha256(user_message.encode()).hexdigest())
-        # A duplicate callback without an earlier envelope cannot broaden it.
-        # Store only scope and a message hash, never the message or source text.
+        # Envelopes constrain the entire turn, even if its message is malformed
+        # or a repeated callback changes the text or omits the envelope.
         if turn_egress_policy is not None or egress_policy is not None:
-            refuse(key)
+            refuse(scope)
             return None
+        if parent_session_id != "" or type(platform) is not str or platform not in _INTERACTIVE or not _valid_message(user_message):
+            return None
+        # Hashes belong only to ordinary duplicate suppression, not permission.
+        key = (*scope, hashlib.sha256(user_message.encode()).hexdigest())
         source = request_source(user_message)
-        if source is None or not consume(key):
+        if source is None or not consume(scope, key):
             return None
         try:
             result = locate(root=root, source=source, query=user_message.strip().splitlines()[0].strip(),

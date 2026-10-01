@@ -77,6 +77,20 @@ class PrefetchTests(unittest.TestCase):
         self.locate.assert_not_called()
         self.factory.assert_not_called()
 
+    def test_envelope_refusal_covers_changed_or_malformed_message_in_same_turn(self):
+        for field in ("turn_egress_policy", "egress_policy"):
+            for initial in ("In notes.md, find the timeout.", "  In notes.md, find the retry limit.  ",
+                            None, [], "\ud800"):
+                with self.subTest(field=field, initial=initial):
+                    hook = prefetch.build_hook(enabled=True, root="/fixture", standing_ack=True,
+                                               client_factory=self.factory)
+                    self.assertIsNone(hook(**{**self.kwargs, "user_message": initial,
+                                             field: {"decision": "deny"}}))
+                    self.assertIsNone(hook(**self.kwargs))
+        self.locate.assert_not_called()
+        self.factory.assert_not_called()
+        self.assertIsNotNone(hook(**{**self.kwargs, "turn_id": "next-turn"}))
+
     def test_envelope_refusals_survive_capacity_and_replay(self):
         hook = prefetch.build_hook(enabled=True, root="/fixture", standing_ack=True,
                                    client_factory=self.factory)
