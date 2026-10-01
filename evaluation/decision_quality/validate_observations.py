@@ -52,6 +52,11 @@ def validate(root: Path):
         set(manifest["arm_sources"]) == {"main", "release", "candidate"},
         "incomplete source arm set",
     )
+    validate_implementations(
+        root,
+        manifest["run_implementations"],
+        {"screen-run", "workflow-run", "native-run"},
+    )
     frozen = {}
     for name, entry in manifest["frozen_sources"].items():
         path = root / entry["path"]
@@ -239,6 +244,9 @@ def validate(root: Path):
 def validate_confirmation(root):
     """Check the reviewed rubric's new confirmation and retain the imperfect pilot."""
     manifest = json.loads((root / "confirmation-provenance.json").read_text())
+    validate_implementations(
+        root, manifest["run_implementations"], {"pilot", "confirmation"}
+    )
     raw = (root / "confirmation-observations.json").read_bytes()
     require(
         digest(raw) == manifest["observations_sha256"], "confirmation observation drift"
@@ -313,3 +321,22 @@ def validate_confirmation(root):
             "confirmation record drift",
         )
     return book["rows"]
+
+
+def validate_implementations(root, bindings, expected_runs):
+    """Bind every run to the complete plugin implementation, not selected files."""
+    require(set(bindings) == expected_runs, "incomplete run implementation set")
+    for run, identity in bindings.items():
+        require(
+            set(identity) == {"revision", "tree"},
+            "incomplete implementation identity: " + run,
+        )
+        require(
+            identity["revision"] == BASE_SHA, "implementation revision drift: " + run
+        )
+        tree = subprocess.check_output(
+            ["git", "rev-parse", identity["revision"] + "^{tree}"],
+            cwd=root.parents[1],
+            text=True,
+        ).strip()
+        require(tree == identity["tree"], "implementation tree drift: " + run)

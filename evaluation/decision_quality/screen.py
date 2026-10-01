@@ -9,7 +9,7 @@ import random
 import time
 from pathlib import Path
 
-from baseline_source import activate_baseline
+from baseline_source import activate_baseline, source_identity
 
 ROOT = Path(__file__).resolve().parent
 
@@ -29,6 +29,7 @@ def main():
     out.mkdir(parents=True, exist_ok=False)
     book = json.loads((ROOT / "cases.json").read_text())
     freeze = {
+        "implementation": source_identity(),
         "model": MODEL,
         "provider": "openrouter",
         "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

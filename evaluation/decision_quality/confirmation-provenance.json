@@ -7,5 +7,15 @@
     "confirmation-cases.json": "76a8885e32cc8ec616335b748e940feba4b5a14a374175c920657d8d23ad60bc",
     "cases.json": "97be2d4a9105f1e8d76bc8996ebf4a9b4690d417e9a53d49599f98638025c973",
     "record_triage.py": "e40347789b861687fc69edc5e1acdb709284a7f822830d4e7dea78965522ff95"
+  },
+  "run_implementations": {
+    "pilot": {
+      "revision": "afee8afdec3967201ff6c24d29dc892e6311e6a4",
+      "tree": "fca43b68d6f78b7dc027d90486d7a881b058f26a"
+    },
+    "confirmation": {
+      "revision": "afee8afdec3967201ff6c24d29dc892e6311e6a4",
+      "tree": "fca43b68d6f78b7dc027d90486d7a881b058f26a"
+    }
   }
 }

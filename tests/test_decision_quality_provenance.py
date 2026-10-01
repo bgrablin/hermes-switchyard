@@ -215,3 +215,27 @@ class ProvenanceTests(unittest.TestCase):
             ValueError, "missing, duplicate, or extra confirmation rows"
         ):
             validate(self.root)
+
+    def test_missing_screen_implementation_binding_is_refused(self):
+        path = self.root / "provenance.json"
+        data = json.loads(path.read_text())
+        data["run_implementations"].pop("screen-run")
+        path.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, "incomplete run implementation set"):
+            validate(self.root)
+
+    def test_screen_implementation_tree_drift_is_refused(self):
+        path = self.root / "provenance.json"
+        data = json.loads(path.read_text())
+        data["run_implementations"]["screen-run"]["tree"] = "0" * 40
+        path.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, "implementation tree drift"):
+            validate(self.root)
+
+    def test_confirmation_implementation_revision_drift_is_refused(self):
+        path = self.root / "confirmation-provenance.json"
+        data = json.loads(path.read_text())
+        data["run_implementations"]["confirmation"]["revision"] = "0" * 40
+        path.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, "implementation revision drift"):
+            validate(self.root)

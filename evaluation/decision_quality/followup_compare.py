@@ -8,7 +8,7 @@ import random
 import time
 from pathlib import Path
 
-from baseline_source import activate_baseline
+from baseline_source import activate_baseline, source_identity
 
 ROOT = Path(__file__).resolve().parent
 
@@ -30,6 +30,7 @@ def main():
     (out / "freeze.json").write_text(
         json.dumps(
             {
+                "implementation": source_identity(),
                 "model": MODEL,
                 "repeats": 2,
                 "thresholds": {"disposition": 0.8, "severity": 0.8},

@@ -23,3 +23,12 @@ def activate_baseline():
             handle.extractall(_SNAPSHOT.name, filter="data")
         sys.path.insert(0, _SNAPSHOT.name)
     return Path(_SNAPSHOT.name)
+
+
+def source_identity():
+    """The archive loader imports all plugin modules from this immutable tree."""
+    repo = Path(__file__).resolve().parents[2]
+    tree = subprocess.check_output(
+        ["git", "rev-parse", BASE_SHA + "^{tree}"], cwd=repo, text=True
+    ).strip()
+    return {"revision": BASE_SHA, "tree": tree}

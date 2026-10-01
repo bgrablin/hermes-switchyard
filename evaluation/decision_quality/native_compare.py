@@ -119,6 +119,12 @@ def main():
         "requested_effort": "high",
         "jev": "typesafe/jev-1.13-20260917",
         "revisions": revisions,
+        "implementation_trees": {
+            arm: subprocess.check_output(
+                ["git", "rev-parse", revision + "^{tree}"], cwd=repo, text=True
+            ).strip()
+            for arm, revision in revisions.items()
+        },
         "candidate_patch": new,
         "repeats": 2,
         "max_concurrent_main_requests": 2,

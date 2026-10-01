@@ -52,6 +52,8 @@ The frozen main revision is `afee8afdec3967201ff6c24d29dc892e6311e6a4`. Release 
 
 This is a deliberately narrow, synthetic test. The gate's lack of benefit here does not prove it can never help harder tasks. The audit failures do not justify an automatic optimizer. No C2 authorization, cache freshness, source, scope, or completeness behavior changed. Abstained records remain held for their existing caller to handle; this PR does not add an automatic main-model recovery stage.
 
+Every historical run is explicitly bound in the provenance manifests to the complete plugin checkout tree at `afee8afdec3967201ff6c24d29dc892e6311e6a4`, including client, routing, effort adapter, triage, and their plugin dependencies. This is a source binding added during review, not a claim that the original pre-call screen manifests already contained that field. The initial screens ran before product edits; the later workflow runners load a clean archive of that revision. The frozen runner code records the specific rubric or effort-patch overrides. Replay verifies every required run binding against the Git tree; maintained runners also emit the implementation identity in future pre-call freezes.
+
 ## Reproduce and inspect
 
 - `python evaluation/decision_quality/summarize.py` recomputes `summary.json` from the committed `observations.json` without a provider call.

@@ -43,5 +43,19 @@
       "base": "afee8afdec3967201ff6c24d29dc892e6311e6a4",
       "patch_sha256": "54c92624d59bd8d1a42738c0b6c476549cefe5e7f3d52c398951b2041b36df48"
     }
+  },
+  "run_implementations": {
+    "screen-run": {
+      "revision": "afee8afdec3967201ff6c24d29dc892e6311e6a4",
+      "tree": "fca43b68d6f78b7dc027d90486d7a881b058f26a"
+    },
+    "workflow-run": {
+      "revision": "afee8afdec3967201ff6c24d29dc892e6311e6a4",
+      "tree": "fca43b68d6f78b7dc027d90486d7a881b058f26a"
+    },
+    "native-run": {
+      "revision": "afee8afdec3967201ff6c24d29dc892e6311e6a4",
+      "tree": "fca43b68d6f78b7dc027d90486d7a881b058f26a"
+    }
   }
 }
