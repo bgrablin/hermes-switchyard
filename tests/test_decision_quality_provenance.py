@@ -121,7 +121,8 @@ class ProvenanceTests(unittest.TestCase):
 
     def test_frozen_source_edit_is_refused(self):
         path = self.root / "frozen/screen.py"
-        path.write_text(path.read_text() + "\n# altered\n")
+        # Preserve the archive header bytes on Windows while changing the body.
+        path.write_bytes(path.read_bytes() + b"\n# altered\n")
         with self.assertRaisesRegex(ValueError, "frozen source mismatch"):
             validate(self.root)
 
@@ -290,13 +291,15 @@ class ProvenanceTests(unittest.TestCase):
 
     def test_baseline_helper_snapshot_drift_is_refused(self):
         path = self.root / "frozen/baseline_source.py"
-        path.write_text(path.read_text() + "\n# changed loader\n")
+        # Text-mode writes would also translate the archive header to CRLF.
+        path.write_bytes(path.read_bytes() + b"\n# changed loader\n")
         with self.assertRaisesRegex(ValueError, "baseline helper hash drift"):
             validate(self.root)
 
     def test_baseline_helper_rebound_hash_still_requires_git_source(self):
         path = self.root / "frozen/baseline_source.py"
-        path.write_text(path.read_text() + "\n# changed loader\n")
+        # Text-mode writes would also translate the archive header to CRLF.
+        path.write_bytes(path.read_bytes() + b"\n# changed loader\n")
         manifest_path = self.root / "confirmation-provenance.json"
         manifest = json.loads(manifest_path.read_text())
         manifest["baseline_helper"]["sha256"] = hashlib.sha256(
