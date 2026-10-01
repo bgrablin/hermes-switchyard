@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import ast
 import collections
+import copy
+import functools
 import hashlib
 import json
 import math
@@ -391,7 +394,120 @@ def native_summary(run):
     }
 
 
-def decision_fields_from_calls(row, freeze):
+def frozen_expression(node, bindings):
+    """Read literal question templates without executing archived Python."""
+    if isinstance(node, ast.Name):
+        return bindings[node.id]
+    if isinstance(node, ast.Dict):
+        return {
+            frozen_expression(key, bindings): frozen_expression(value, bindings)
+            for key, value in zip(node.keys, node.values)
+        }
+    if isinstance(node, ast.IfExp):
+        branch = node.body if frozen_expression(node.test, bindings) else node.orelse
+        return frozen_expression(branch, bindings)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = frozen_expression(node.left, bindings)
+        right = frozen_expression(node.right, bindings)
+        if isinstance(left, str) and isinstance(right, str):
+            return left + right
+        raise ValueError("unsupported archived question expression")
+    return ast.literal_eval(node)
+
+
+def frozen_assignment(body, name):
+    values = [
+        node.value for node in body
+        if (
+            isinstance(node, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == name for t in node.targets)
+        ) or (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name) and node.target.id == name
+        )
+    ]
+    if len(values) != 1:
+        raise ValueError("missing or ambiguous archived assignment: " + name)
+    return values[0]
+
+
+@functools.lru_cache(maxsize=2)
+def frozen_request_templates(routing_source, effort_source):
+    routing = ast.parse(routing_source)
+    effort = ast.parse(effort_source)
+    skill_builder = next(
+        n for n in routing.body
+        if isinstance(n, ast.FunctionDef) and n.name == "_small_skill_request_parts"
+    )
+    effort_builder = next(
+        n for n in effort.body
+        if isinstance(n, ast.FunctionDef) and n.name == "choose_reasoning_effort"
+    )
+    bindings = {
+        "criteria": {}, "metadata_only": False,
+        "step_metadata": False, "raised_ceiling": False,
+    }
+    return (
+        frozen_expression(frozen_assignment(skill_builder.body, "questions"), bindings),
+        frozen_expression(frozen_assignment(effort_builder.body, "questions"), bindings),
+        ast.literal_eval(frozen_assignment(effort.body, "_EFFORT_CRITERIA")),
+    )
+
+
+def decision_request_hashes(row, freeze, templates):
+    skill_questions, effort_questions, effort_descriptions = copy.deepcopy(templates)
+    prompt = next(case[1] for case in freeze["cases"] if case[0] == row["id"])
+    catalog = freeze["catalog"]
+    if not isinstance(catalog, list) or not 1 <= len(catalog) <= 255:
+        raise ValueError("invalid frozen skill catalog")
+    criteria = {}
+    for item in catalog:
+        if not isinstance(item, dict):
+            raise ValueError("invalid frozen skill candidate")
+        name, description = item.get("name"), item.get("description", "")
+        if (
+            not isinstance(name, str) or not name or name != name.strip()
+            or name in criteria or not isinstance(description, str)
+        ):
+            raise ValueError("invalid frozen skill candidate")
+        criteria[name] = description or name
+    skill_questions["skill"]["criteria"] = criteria
+    skill_state = {
+        "task": prompt,
+        "skills": [{"name": key, "description": value} for key, value in criteria.items()],
+    }
+    effort_questions["reasoning_effort"]["criteria"] = {
+        level: effort_descriptions[level] for level in ["low", "medium", "high"]
+    }
+    effort_state = {
+        "current_request": prompt, "turn_phase": "new_turn",
+        "recent_tool_statuses": [], "latest_tool_failed": False,
+    }
+    if row["arm"] == "split":
+        requests = [(skill_state, skill_questions), (effort_state, effort_questions)]
+    else:
+        state = {**effort_state, "skills": skill_state["skills"], "task": prompt}
+        del state["current_request"]
+        questions = skill_questions
+        if row["arm"] == "merged":
+            questions.update(effort_questions)
+        else:
+            for cap, levels in [("medium", ["low", "medium"]), ("high", ["low", "medium", "high"])]:
+                choice = copy.deepcopy(effort_questions["reasoning_effort"])
+                choice["criteria"] = {level: effort_descriptions[level] for level in levels}
+                questions["reasoning_effort_" + cap] = choice
+            questions["stakes"] = effort_questions["stakes"]
+        for question in questions.values():
+            question["instructions"] = question["instructions"].replace("current_request", "task")
+        requests = [(state, questions)]
+    # Match the original screen's JSON separators, not the compact export encoding.
+    return [
+        sha(json.dumps({"state": state, "questions": questions}, sort_keys=True).encode())
+        for state, questions in requests
+    ]
+
+
+def decision_fields_from_calls(row, freeze, templates):
     """Cross-check screen selections using the frozen skill and effort policies."""
     skill_schema = {
         "skill": ("choice", {skill["name"] for skill in freeze["catalog"]}),
@@ -416,6 +532,7 @@ def decision_fields_from_calls(row, freeze):
         }]
     else:
         raise ValueError("unknown decision study arm")
+    request_hashes = decision_request_hashes(row, freeze, templates)
     calls = row.get("calls")
     if not isinstance(calls, list) or not 1 <= len(calls) <= len(schemas):
         raise ValueError("decision call count differs from frozen arm")
@@ -427,6 +544,8 @@ def decision_fields_from_calls(row, freeze):
         raise ValueError("decision calls exceed their enclosing row timing")
     answers = {}
     for index, call in enumerate(calls):
+        if call.get("request_sha256") != request_hashes[index]:
+            raise ValueError("decision request hash differs from frozen inputs")
         schema = schemas[index]
         questions = call.get("questions")
         if (
@@ -486,14 +605,19 @@ def decision_fields_from_calls(row, freeze):
     return selected, effort_result["effort"]
 
 
-def decision_summary(run):
+def decision_summary(run, root=ROOT):
     freeze, rows = run["freeze"], run["rows"]
     complete_rows(freeze, rows, False)
     cases = {c[0]: c for c in freeze["cases"]}
+    archive = root / "frozen/hermes_switchyard"
+    templates = frozen_request_templates(
+        (archive / "routing.py").read_text(encoding="utf-8"),
+        (archive / "reasoning_effort_adapter.py").read_text(encoding="utf-8"),
+    )
     arms = {}
     for arm in freeze["arms"]:
         subset = [r for r in rows if r["arm"] == arm]
-        derived = [decision_fields_from_calls(row, freeze) for row in subset]
+        derived = [decision_fields_from_calls(row, freeze, templates) for row in subset]
         arms[arm] = {
             **latency(subset),
             "skill_label_matches": sum(
@@ -592,7 +716,7 @@ def summarize(root=ROOT):
             name: (
                 native_summary(run)
                 if name.startswith("native_")
-                else decision_summary(run)
+                else decision_summary(run, root)
             )
             for name, run in evidence["runs"].items()
             if not run["interrupted"]

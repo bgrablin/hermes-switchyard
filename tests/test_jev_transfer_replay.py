@@ -77,6 +77,26 @@ class JevTransferEvidenceTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         decision_summary(run)
 
+    def test_decision_request_hashes_bind_every_call_and_frozen_input(self):
+        for name in ["decision_screen", "decision_confirmation"]:
+            for arm in ["split", "merged", "cap_matrix"]:
+                for changed in ["first_hash", "last_hash", "task", "description"]:
+                    with self.subTest(name=name, arm=arm, changed=changed):
+                        run = copy.deepcopy(self.evidence["runs"][name])
+                        case = run["freeze"]["cases"][0]
+                        row = next(
+                            r for r in run["rows"] if r["arm"] == arm and r["id"] == case[0]
+                        )
+                        if changed.endswith("hash"):
+                            index = 0 if changed == "first_hash" else -1
+                            row["calls"][index]["request_sha256"] = "0" * 64
+                        elif changed == "task":
+                            case[1] += " Changed task."
+                        else:
+                            run["freeze"]["catalog"][0]["description"] += " Changed criteria."
+                        with self.assertRaisesRegex(ValueError, "request hash differs"):
+                            decision_summary(run)
+
     def test_missing_duplicate_and_nonfinite_rows_are_rejected(self):
         run = self.evidence["runs"]["native_routing"]
         for rows in [run["rows"][:-1], run["rows"] + run["rows"][:1]]:
