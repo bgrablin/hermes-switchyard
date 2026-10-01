@@ -1,16 +1,15 @@
 """Opt-in local exact-duplicate tool-round gate (C2 / #139).
 
 When ``local_duplicate_tool_gate`` is on, successful **read** tool outcomes are
-fingerprinted per session. A later call with the same tool + canonical args +
+fingerprinted per explicit session/task pair. A later call with the same tool + canonical args +
 observation identity reuses the prior result via Hermes ``tool_execution``
 middleware (skip ``next_call``) — **0 Jev**, replace-not-add.
 
 Capability-first:
-- Flag default **off**.
-- Fail-open when unsure (non-read, missing observation identity, errors, writes).
-- Mutations and failed reads never skip; writes/exec clear the session store.
-- Empty observation identity never silently skips (except closed-set args-stable
-  read tools where identity is derived from args explicitly as ``args_stable:…``).
+- Flag default **off**; missing trusted evidence always dispatches a fresh call.
+- Both session and task, full source identity, current revision, and complete
+  result digest are mandatory. Caller arguments never establish freshness.
+- Mutations invalidate sibling tasks; complete cached results are never truncated.
 
 Plugin-only: uses existing ``tool_execution`` middleware + ``post_tool_call``.
 No Hermes core / hermes-agent changes.
@@ -21,31 +20,43 @@ import hashlib
 import json
 import threading
 from collections import OrderedDict
+from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
 from .reasoning_effort_adapter import classify_tool_kind, derive_tool_failure
 
-# Closed-set reads whose resource is fully named by args (mining: skill_view).
-# Observation identity is derived as args_stable:<digest>, never empty.
-ARGS_STABLE_READ_TOOLS = frozenset(
-    {
-        # Catalog / schema reads named entirely by args. Live-state integrations
-        # (HA entity lists, Kanban boards) are intentionally excluded — they need
-        # an explicit observation identity so a later mutation cannot stale-reuse.
-        "skill_view",
-        "skills_list",
-        "tool_search",
-        "tool_describe",
-    }
-)
+# No tool is fresh merely because its arguments are unchanged.
+ARGS_STABLE_READ_TOOLS = frozenset()
 
-# Explicit observation-id field names (first non-empty wins).
-_OBS_ARG_KEYS = (
-    "observation_id",
-    "obs_id",
-    "snapshot_id",
-    "state_hash",
-)
+
+@dataclass(frozen=True)
+class ReadEvidence:
+    """Trusted adapter evidence, recomputed independently of model/tool arguments.
+
+    source_identity includes server/account/workspace and canonical resource.
+    revision is an immutable version or a freshly revalidated content digest.
+    result_sha256 covers the COMPLETE serialized result, not a prefix/page.
+    The adapter must only attest side-effect-free reads and explicit completeness.
+    """
+
+    source_identity: str
+    revision: str
+    result_sha256: str
+    complete: bool = False
+    read_only: bool = False
+
+
+def _valid_evidence(evidence: Any) -> bool:
+    return (
+        isinstance(evidence, ReadEvidence)
+        and evidence.complete is True and evidence.read_only is True
+        and all(type(value) is str and value.strip() and len(value) <= 4096
+                for value in (evidence.source_identity, evidence.revision))
+        and type(evidence.result_sha256) is str
+        and len(evidence.result_sha256) == 64
+        and all(c in "0123456789abcdef" for c in evidence.result_sha256)
+    )
+
 
 # Combined hard ceiling: 8 sessions * 16 entries * 32 Ki characters = 4 Mi
 # characters (at most 16 MiB Unicode payload, plus bounded container overhead).
@@ -84,10 +95,11 @@ def _bump(name: str) -> None:
 
 
 def _scope_key(*, session_id: Any = None, task_id: Any = None) -> str | None:
-    for label, value in (("session", session_id), ("task", task_id)):
-        if isinstance(value, str) and value.strip() and len(value) <= 512:
-            return label + ":" + value.strip()
-    return None
+    # Both dimensions are mandatory; preserve exact identifiers without stripping.
+    if not all(type(value) is str and value.strip() and len(value) <= 512
+               for value in (session_id, task_id)):
+        return None
+    return json.dumps([session_id, task_id], ensure_ascii=False, separators=(",", ":"))
 
 
 def canonical_args(args: Any) -> str | None:
@@ -102,7 +114,7 @@ def canonical_args(args: Any) -> str | None:
         return False
 
     if args is None:
-        return "{}"
+        return None
     if not isinstance(args, Mapping):
         return None
     try:
@@ -117,83 +129,29 @@ def canonical_args(args: Any) -> str | None:
 def _normalize_tool_name(tool_name: Any) -> str:
     if not isinstance(tool_name, str):
         return ""
-    name = tool_name.strip()
-    return name
+    return tool_name if tool_name.strip() == tool_name else ""
 
 
-def observation_identity(
-    tool_name: Any,
-    args: Any = None,
-    *,
-    result: Any = None,
-) -> str | None:
-    """Return observation identity for fingerprinting, or None to fail-open.
+def observation_identity(tool_name: Any, args: Any = None, *,
+                         result: Any = None, evidence: ReadEvidence | None = None) -> str | None:
+    """Only a trusted adapter can establish freshness; arguments/results cannot."""
+    if canonical_args(args) is None or not _valid_evidence(evidence):
+        return None
+    return evidence.revision
 
-    Prefer explicit ids in args (and structured result metadata when recording).
-    Args-stable read tools derive ``args_stable:<16-hex>`` from canonical args so
-    empty transcript obs fields never become silent skips for other tools.
-    """
+
+def fingerprint_for(tool_name: Any, args: Any = None, *,
+                    observation_id: str | None = None, result: Any = None,
+                    evidence: ReadEvidence | None = None) -> str | None:
+    """Full tool, args, source identity, revision and complete-result digest."""
     name = _normalize_tool_name(tool_name)
     canonical = canonical_args(args)
-    if canonical is None:
+    if not name or classify_tool_kind(name) != "read" or canonical is None or not _valid_evidence(evidence):
         return None
-    if isinstance(args, Mapping):
-        for key in _OBS_ARG_KEYS:
-            value = args.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-            if value is not None and not isinstance(value, (str, bytes, bytearray, bool)):
-                text = str(value).strip()
-                if text:
-                    return text
-
-    if result is not None:
-        parsed: Any = result
-        if isinstance(result, str):
-            text = result.strip()
-            if text and text[0] in "{[":
-                try:
-                    parsed = json.loads(text)
-                except (TypeError, ValueError, json.JSONDecodeError):
-                    parsed = None
-        if isinstance(parsed, Mapping):
-            for key in _OBS_ARG_KEYS:
-                value = parsed.get(key)
-                if isinstance(value, str) and value.strip():
-                    return value.strip()
-
-    if name in ARGS_STABLE_READ_TOOLS:
-        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
-        return f"args_stable:{digest}"
-
-    return None
-
-
-def fingerprint_for(
-    tool_name: Any,
-    args: Any = None,
-    *,
-    observation_id: str | None = None,
-    result: Any = None,
-) -> str | None:
-    """Build ``kind:sha256(tool|args|obs)[:16]`` or None when identity is missing."""
-    name = _normalize_tool_name(tool_name)
-    if not name:
-        return None
-    kind = classify_tool_kind(name)
-    if kind != "read":
-        return None
-    canonical = canonical_args(args)
-    if canonical is None:
-        return None
-    obs = observation_id if isinstance(observation_id, str) and observation_id.strip() else None
-    if obs is None:
-        obs = observation_identity(name, args, result=result)
-    if not obs:
-        return None
-    payload = json.dumps([name, canonical, obs], ensure_ascii=False, separators=(",", ":"))
-    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
-    return f"{kind}:{digest}"
+    payload = json.dumps([name, canonical, evidence.source_identity,
+                          evidence.revision, evidence.result_sha256],
+                         ensure_ascii=False, separators=(",", ":"))
+    return "read:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def decide_local_duplicate(
@@ -203,6 +161,7 @@ def decide_local_duplicate(
     args: Any = None,
     session_id: Any = None,
     task_id: Any = None,
+    evidence: ReadEvidence | None = None,
 ) -> dict[str, Any]:
     """Decide whether to reuse a prior successful read (no side effects beyond lookup).
 
@@ -217,7 +176,7 @@ def decide_local_duplicate(
     if kind != "read":
         return {"action": "dispatch", "reason": "non_read", "fingerprint": None, "cached_result": None}
 
-    key = fingerprint_for(name, args)
+    key = fingerprint_for(name, args, evidence=evidence)
     if key is None:
         return {"action": "dispatch", "reason": "missing_observation_identity", "fingerprint": None, "cached_result": None}
 
@@ -257,6 +216,7 @@ def record_tool_outcome(
     ok: Any = None,
     session_id: Any = None,
     task_id: Any = None,
+    evidence: ReadEvidence | None = None,
     max_result_chars: int = DEFAULT_MAX_RESULT_CHARS,
     max_keys_per_session: int = DEFAULT_MAX_KEYS_PER_SESSION,
     max_sessions: int = DEFAULT_MAX_SESSIONS,
@@ -294,7 +254,7 @@ def record_tool_outcome(
         return {"recorded": False, "reason": "mutation_cleared_session", "kind": kind}
 
     # Use the same call-time identity for recording and lookup.
-    key = fingerprint_for(name, args)
+    key = fingerprint_for(name, args, evidence=evidence)
     if key is None:
         with _STORE_LOCK:
             _bump("fail_open")
@@ -311,7 +271,8 @@ def record_tool_outcome(
 
     # Reuse must preserve the complete host result and its type. Never truncate.
     max_result_chars = max(1, min(max_result_chars, DEFAULT_MAX_RESULT_CHARS))
-    if not isinstance(result, str) or len(result) > max_result_chars:
+    if (not isinstance(result, str) or len(result) > max_result_chars
+            or hashlib.sha256(result.encode("utf-8")).hexdigest() != evidence.result_sha256):
         with _STORE_LOCK:
             session = _SESSION_STORE.get(scope)
             if session is not None and key in session:
@@ -339,43 +300,63 @@ def record_tool_outcome(
     return {"recorded": True, "reason": "stored", "fingerprint": key, "chars": len(text)}
 
 
-def build_tool_execution_middleware(*, enabled: bool) -> Callable[..., Any]:
-    """Hermes ``tool_execution`` middleware: reuse on exact local_duplicate, else next_call."""
+def _invalidate_session(session_id: Any) -> None:
+    # A mutation can affect sibling tasks. Unknown scope invalidates everything.
+    with _STORE_LOCK:
+        keys = list(_SESSION_STORE)
+        for key in keys:
+            if not isinstance(session_id, str) or not session_id.strip() or json.loads(key)[0] == session_id:
+                del _SESSION_STORE[key]
+                _bump("cleared_sessions")
+                _bump("invalidated")
 
-    def on_tool_execution(
-        *,
-        tool_name: str = "",
-        args: Any = None,
-        next_call: Callable[..., Any] | None = None,
-        session_id: Any = None,
-        task_id: Any = None,
-        **_kwargs: Any,
-    ) -> Any:
+
+def build_tool_execution_middleware(*, enabled: bool) -> Callable[..., Any]:
+    """Reuse requires a trusted host adapter, never a proof in model arguments.
+
+    reuse_evidence_provider is a host-context callable. It must revalidate the
+    complete source on EACH invocation. Stock Hermes does not currently supply
+    it, so stock calls dispatch. The provider is checked before and after reads.
+    """
+    def on_tool_execution(*, tool_name: str = "", args: Any = None,
+                          next_call: Callable[..., Any] | None = None,
+                          session_id: Any = None, task_id: Any = None,
+                          reuse_evidence_provider: Any = None, **_kwargs: Any) -> Any:
         if not callable(next_call):
             return None
         if enabled is not True:
             return next_call(args)
-
+        if classify_tool_kind(tool_name) != "read":
+            _invalidate_session(session_id)
+            try:
+                return next_call(args)
+            finally:
+                _invalidate_session(session_id)
+        if _scope_key(session_id=session_id, task_id=task_id) is None or not callable(reuse_evidence_provider):
+            return next_call(args)
         try:
-            decision = decide_local_duplicate(
-                enabled=True,
-                tool_name=tool_name,
-                args=args,
-                session_id=session_id,
-                task_id=task_id,
-            )
-        except Exception:  # noqa: BLE001 -- fail-open
+            evidence = reuse_evidence_provider(tool_name, args)
+            decision = decide_local_duplicate(enabled=True, tool_name=tool_name, args=args,
+                        session_id=session_id, task_id=task_id, evidence=evidence)
+            if decision["action"] == "reuse":
+                # Do not return a hit if revalidation changed or became unavailable.
+                if reuse_evidence_provider(tool_name, args) == evidence:
+                    with _STORE_LOCK:
+                        _bump("reused")
+                    return decision["cached_result"]
+        except Exception:  # noqa: BLE001 -- uncertainty always dispatches
             with _STORE_LOCK:
                 _bump("fail_open")
-            return next_call(args)
-
-        if decision.get("action") == "reuse" and isinstance(decision.get("cached_result"), str):
+            evidence = None
+        result = next_call(args)  # outside the catch: dispatch exactly once
+        try:
+            if _valid_evidence(evidence) and reuse_evidence_provider(tool_name, args) == evidence:
+                record_tool_outcome(enabled=True, tool_name=tool_name, args=args, result=result,
+                                    session_id=session_id, task_id=task_id, evidence=evidence)
+        except Exception:  # noqa: BLE001 -- observer must not affect the live result
             with _STORE_LOCK:
-                _bump("reused")
-            return decision["cached_result"]
-
-        return next_call(args)
-
+                _bump("fail_open")
+        return result
     return on_tool_execution
 
 
@@ -397,6 +378,9 @@ def build_post_tool_call_hook(*, enabled: bool) -> Callable[..., Any]:
         if enabled is not True:
             return
         try:
+            if classify_tool_kind(tool_name) != "read":
+                _invalidate_session(session_id)
+                return
             record_tool_outcome(
                 enabled=True,
                 tool_name=tool_name,
