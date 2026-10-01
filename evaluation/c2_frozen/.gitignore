@@ -1,0 +1,8 @@
+runs/
+sources/
+*.json
+*.log
+*.zip
+*.html
+*.patch
+__pycache__/
