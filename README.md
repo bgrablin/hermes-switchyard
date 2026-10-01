@@ -117,10 +117,11 @@ Jev is an external service. Here is what each feature sends to it:
 | Feature | What goes to Jev | What never goes | How to keep it local |
 | --- | --- | --- | --- |
 | **Adaptive effort** (on) | Up to 1,200 characters of your **current message**, after secret scrubbing, plus simple status flags | Earlier messages, memory, tool output, files | `adaptive_reasoning_effort` → `false` |
-| **Skill routing** (on) | Up to 4,000 characters of your **current message**, after a local scan and secret scrubbing, plus your skill **names** | Skill descriptions (unless you opt in), skill bodies, history | `automatic_skill_routing_mode` → `local_only` |
+| **Skill routing** (on) | Up to 4,000 characters of your **current message**, after a local scan and secret scrubbing, plus your skill **names**. If you opt in with `automatic_skill_hosted_detail`, also short descriptions or `SKILL.md` excerpts for a few finalists | Full skill bodies, history | `automatic_skill_routing_mode` → `local_only` |
 | **Decision tools** | Exactly what the model passes to the tool | — | `public_or_sanitized_data_ack` → `false` |
-| **Computer use** | The goal and a bounded view of the page or window (labels, visible text, recent steps); **not** the values you ask it to type | Your logins, cookies, files | Don't call the tool |
-| **Source prefetch** (off) | Text from 1–8 files you name, 80,000 bytes max in total | Anything outside the folder you approve | Leave it off |
+| **Computer use: browser** | The goal and a bounded view of the page (labels, visible text, recent steps). Values you ask it to type are masked out | Your logins, cookies, files | Don't call the tool |
+| **Computer use: desktop** | The goal, app and window title, control labels, visible context, and recent actions on every step. This is **not** masked, so typed values or signed-in app content can reappear | — | Only use it on public or sanitized apps and values |
+| **Source prefetch** (off) | Your lookup question, plus text from 1–8 files you name (80,000 bytes max in total), both scrubbed | Anything outside the folder you approve | Leave it off |
 
 Some turns never reach Jev:
 
@@ -200,7 +201,7 @@ Hermes only lets a session call a plugin tool when that tool's **toolset** is tu
 | `computer_use` | `jev_computer_use` |
 | `hermes_switchyard` | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, `jev_session_search_rerank` |
 
-With Hermes' default selection, both are on, and `hermes switchyard setup` makes sure of it. Watch out when you pin toolsets with `-t`: a pin **replaces** the defaults.
+With Hermes' default selection, both are on, and `hermes switchyard setup` adds them to your CLI toolsets. One exception: if Hermes' coding focus mode (`agent.coding_context: focus`) is active, it overrides that list for sessions without `-t`. Check with `hermes switchyard status --json`. Watch out when you pin toolsets with `-t`: a pin **replaces** the defaults.
 
 - Pinning only `computer_use` leaves out the six decision tools.
 - Pinning only `hermes_switchyard` leaves out computer use.

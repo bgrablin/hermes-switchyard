@@ -51,7 +51,7 @@ hermes switchyard setup --provider typesafe
 hermes switchyard setup --provider openrouter
 ```
 
-Setup also runs `hermes switchyard ensure-toolsets`, which turns on the `computer_use` and `hermes_switchyard` toolsets for CLI sessions without enabling anything else.
+Setup also runs `hermes switchyard ensure-toolsets`, which adds the `computer_use` and `hermes_switchyard` toolsets to your CLI toolset list (`platform_toolsets.cli`) without enabling anything else. If Hermes' coding focus mode (`agent.coding_context: focus`) is active, it takes precedence for sessions started without `-t`. In that case, pin the toolsets with `-t`, or leave focus mode, and confirm with `hermes switchyard status --json` (it reports `source: coding_posture`).
 
 Never put a key in `hermes auth add`, a command argument, a URL, a test fixture, a repository file, or an issue report.
 

@@ -43,7 +43,7 @@ A hosted call sends only:
 - the authorized bounded text: the envelope's `allowed_payload`, or the scanned and scrubbed message under standing acknowledgement;
 - the exact candidate names.
 
-Candidate descriptions, conversation history, and full skill bodies stay local.
+By default, candidate descriptions stay local. Opting in with `automatic_skill_hosted_detail` sends bounded descriptions or excerpts for stage-two finalists (see [The two-stage selector](#the-two-stage-selector)). Conversation history and full skill bodies always stay local.
 
 **What the main model sees:**
 

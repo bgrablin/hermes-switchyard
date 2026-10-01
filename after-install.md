@@ -8,7 +8,9 @@
 
    Never put a key in a command argument, URL, or chat. Setup also turns on
    the `computer_use` and `hermes_switchyard` toolsets for you (it runs
-   `hermes switchyard ensure-toolsets`).
+   `hermes switchyard ensure-toolsets`). If Hermes' coding focus mode is on,
+   it overrides that list. Pin `-t computer_use,hermes_switchyard` instead,
+   and confirm with `hermes switchyard status --json`.
 
 2. Start a fresh Hermes session. If you use the messaging gateway, restart it:
 

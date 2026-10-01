@@ -169,7 +169,7 @@ Text is passed through Hermes' egress redactor before it's cut and sent, so secr
 - placeholders like `<your-password>` or `$OPENAI_API_KEY`
 - plain numbers like `MAX_TOKENS=4096`
 
-The scan is conservative, so some public text that looks like an assignment (such as `token: required`) also stays local.
+The scrubber is conservative, so some public text that looks like an assignment (such as `token: required`) may also be masked. The rest of the message is still sent.
 
 **This is not data loss prevention.** It checks values and markings, not topics, so a public question about password hashing is still sent. It can't detect unmarked private or employer text. Don't enter that kind of text in a session with adaptive effort on.
 
