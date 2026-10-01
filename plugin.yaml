@@ -24,6 +24,7 @@ provides_tools:
   - jev_model_route
   - jev_model_route_approved
   - jev_session_search_rerank
+  - switchyard_find
 provides_hooks:
   - pre_llm_call
   - post_llm_call
@@ -33,6 +34,9 @@ provides_hooks:
 provides_middleware:
   - llm_request
 config_schema:
+  evidence_finder_enabled: {type: bool, default: false, description: "Opt-in automatic semantic evidence finder. Hermes uses current-turn prefetch or selects switchyard_find from normal prompts; sends one bounded public or sanitized source file to the configured Jev provider. Requires evidence_finder_root. On uncertainty Hermes continues with normal tools."}
+  evidence_finder_prefetch: {type: bool, default: true, description: "When the evidence finder is enabled, prefetch evidence for narrowly recognized foreground requests naming a file before the first model call. Requires explicit session, task, and turn identity. Unknown wording, unknown files, delegated/background turns, and host egress envelopes retain normal tool selection. Set false for tool-only operation."}
+  evidence_finder_root: {type: str, default: "", description: "Operator-owned absolute source directory for switchyard_find. Read-only UTF-8 regular files, max 80000 bytes; no symlinks or hidden path components. Pilot requires descriptor-relative no-follow filesystem support (Linux/macOS); unsupported hosts defer."}
   jev_provider: {type: str, default: "auto", description: auto prefers direct TypeSafe when TYPESAFE_API_KEY is available; also accepts typesafe or openrouter}
   api_endpoint: {type: str, default: "https://openrouter.ai/api/alpha/decisions", description: Fixed TypeSafe or OpenRouter Jev endpoint; arbitrary endpoints fail closed}
   jev_model: {type: str, default: "", description: Provider-specific Jev alias; empty selects jev-latest for TypeSafe or typesafe/jev-1.13 for OpenRouter}

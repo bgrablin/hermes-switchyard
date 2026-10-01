@@ -106,6 +106,7 @@ class CaseTableTests(unittest.TestCase):
             "jev_model_route",
             "jev_model_route_approved",
             "jev_session_search_rerank",
+            "switchyard_find",
         }
         self.assertEqual({case["tool"] for case in _CASES}, expected)
 

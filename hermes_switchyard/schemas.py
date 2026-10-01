@@ -456,3 +456,26 @@ SESSION_SEARCH_RERANK = {
         "additionalProperties": False,
     },
 }
+
+
+EVIDENCE_FIND = {
+    "name": "switchyard_find",
+    "description": (
+        "Find the exact passage or implementation answering a natural-language query in one known "
+        "public/sanitized UTF-8 source file. Prefer this over reading an entire known file for a location "
+        "question. Returns source text and line citations, never generated evidence. On defer use normal "
+        "Hermes file search/read tools, without repeating the lookup. not_found applies only to this file. "
+        "Use file search first if the path is unknown. Not for edits, whole-repository absence claims, or synthesis."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "minLength": 1, "maxLength": 1200},
+            "source": {"type": "string", "minLength": 1, "maxLength": 512,
+                       "description": "Exact relative path under evidence_finder_root. No absolute paths, dot components, or symlinks."},
+            "public_or_sanitized_data_ack": _ACKNOWLEDGEMENT,
+        },
+        "required": ["query", "source"],
+        "additionalProperties": False,
+    },
+}

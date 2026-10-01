@@ -19,6 +19,7 @@ EXPECTED_PLUGIN = "hermes-switchyard"
 EXPECTED_MANIFEST_VERSION = 1
 EXPECTED_TOOLS = frozenset({
     "jev_assess",
+    "switchyard_find",
     "jev_computer_use",
     "jev_model_route",
     "jev_model_route_approved",
@@ -28,6 +29,7 @@ EXPECTED_TOOLS = frozenset({
 })
 EXPECTED_REQUIRED_FIELDS = {
     "jev_assess": {"state", "questions"},
+    "switchyard_find": {"query", "source"},
     "jev_computer_use": {"goal", "app"},
     "jev_model_route": {"task", "candidates"},
     "jev_model_route_approved": {"task"},

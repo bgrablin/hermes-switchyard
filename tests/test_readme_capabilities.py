@@ -124,7 +124,7 @@ class ReadmeCapabilityInventoryTests(unittest.TestCase):
             toolset = re.fullmatch(r"`([a-z_]+)`", cells[0])
             if toolset is None:
                 continue
-            for tool in re.findall(r"`(jev_[a-z_]+)`", cells[1]):
+            for tool in re.findall(r"`((?:jev_|switchyard_)[a-z_]+)`", cells[1]):
                 table[tool] = toolset.group(1)
         self.assertEqual(
             table,

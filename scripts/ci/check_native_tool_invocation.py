@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -163,6 +164,8 @@ class _SyntheticNativeDispatcher:
 # exercise the real registered handler; each result is checked against a
 # successful, meaningful terminal contract, not just a non-error JSON envelope.
 _CASES: tuple[dict[str, Any], ...] = (
+    {"tool": "switchyard_find", "arguments": {"source": "tests/fixtures/source-finder.md",
+        "query": "When do cache entries expire?", "public_or_sanitized_data_ack": True}},
     {
         "tool": "jev_skill_select",
         "arguments": {
@@ -248,6 +251,8 @@ def _load_registered_tools(plugin_root: Path) -> tuple[Any, dict[str, Any], set[
     plugin_root = Path(plugin_root).resolve()
     manager = PluginManager()
     synthetic_settings = {
+        "evidence_finder_enabled": True,
+        "evidence_finder_root": str(plugin_root),
         "approved_model_registry": [{
             "id": "synthetic-approved-browser-model",
             "provider": "synthetic-provider",
@@ -349,6 +354,13 @@ def _validate_success(tool: str, parsed: dict[str, Any]) -> str:
             )
         raise NativeInvocationError(f"{tool} returned a structured error against synthetic input: {reason}")
     status = parsed.get("status")
+    if tool == "switchyard_find":
+        if os.open not in os.supports_dir_fd:
+            if status == "defer" and parsed.get("reason") == "unsupported_filesystem":
+                return "unsupported_filesystem_with_fallback"
+        if status != "found" or parsed.get("evidence") != "Cache entries expire after 45 seconds.\n" or parsed.get("start_line") != 1:
+            raise NativeInvocationError("switchyard_find did not return the exact fixture evidence")
+        return "found"
     if tool in {"jev_skill_select", "jev_skill_select_many", "jev_model_route", "jev_session_search_rerank"}:
         if status != "selected":
             raise NativeInvocationError(f"{tool} did not reach selected terminal state (status={status!r})")
