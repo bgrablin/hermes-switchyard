@@ -29,6 +29,14 @@ class PrefetchTests(unittest.TestCase):
         self.assertIn("untrusted source data", out["context"])
         self.assertNotIn("evidence", out["metadata"]["switchyard_find"])
 
+    def test_leading_blank_lines_use_the_recognized_request_line(self):
+        for prefix in ["\n", "\r\n\r\n", " \n\t "]:
+            with self.subTest(prefix=prefix):
+                prompt = prefix + "In notes.md, find the retry limit.  \nReturn JSON."
+                self.assertIsNotNone(self.hook(**{**self.kwargs, "user_message": prompt}))
+                self.assertEqual(self.locate.call_args.kwargs["query"],
+                                 "In notes.md, find the retry limit.")
+
     def test_missing_scope_foreground_and_unknown_platform_skip(self):
         for field, value in [("session_id", None), ("task_id", ""), ("turn_id", None),
                              ("parent_session_id", None), ("parent_session_id", "parent"),

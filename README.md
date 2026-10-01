@@ -150,6 +150,9 @@ All current settings live under `plugins.entries.hermes-switchyard.settings`. Th
 | `approved_model_registry` | `[]` | Profile-approved model records for advisory routing. An empty registry supplies no approved candidate. |
 | `approved_model_registry_version` | `""` | Required operator version for that registry. |
 | `approved_model_registry_valid_until` | `""` | Registry expiry as a timezone-aware ISO-8601 value. |
+| `evidence_finder_enabled` | `false` | Opt in to the semantic source finder. Requires an explicit absolute source root. |
+| `evidence_finder_prefetch` | `true` | Prefetch simple named-file requests before the main-model call when the finder is enabled. `false` keeps native tool selection. |
+| `evidence_finder_root` | `""` | Operator-owned absolute directory containing eligible source files. Empty disables finder availability. |
 | `automatic_skill_recommendation` | `true` | Enable automatic local skill matching in `pre_llm_call`. |
 | `automatic_skill_consumer_mode` | `load` | Load one accepted skill; `advisory` does not load and skips hosted automatic routing. |
 | `automatic_skill_candidates` | `[]` | Empty uses the active profile's full skill registry; otherwise supply explicit candidates. |

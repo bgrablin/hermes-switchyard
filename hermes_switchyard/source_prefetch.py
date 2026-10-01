@@ -123,7 +123,7 @@ def build_hook(*, enabled: bool, root: str, standing_ack: bool, client_factory: 
             while len(consumed) > 256:
                 consumed.popitem(last=False)
         try:
-            result = locate(root=root, source=source, query=user_message.splitlines()[0],
+            result = locate(root=root, source=source, query=user_message.strip().splitlines()[0].strip(),
                             client_factory=client_factory, public_or_sanitized_data_ack=True)
             # This ephemeral block belongs to the current user turn. Source
             # evidence is data; neither provider text nor source instructions
