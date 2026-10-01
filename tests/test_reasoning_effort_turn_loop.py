@@ -191,11 +191,9 @@ def _child(plugin_dir: Path) -> None:
         def __init__(self):
             self.release = threading.Event()
             self.finished = threading.Event()
-            self.worker = None
             self.started = None
 
         def decide(self, state, questions, **kwargs):
-            self.worker = threading.current_thread()
             self.started = time.perf_counter()
             try:
                 assert self.release.wait(10), "test did not release blocked Jev"
@@ -214,6 +212,12 @@ def _child(plugin_dir: Path) -> None:
         controller.client_factory = lambda: blocked
         slow_agent = make_agent(route)
         waits = []
+        workers = []
+
+        def observed_thread(*args, **kwargs):
+            worker = threading.Thread(*args, **kwargs)
+            workers.append(worker)
+            return worker
 
         def observed_event():
             event = mock.Mock(wraps=threading.Event())
@@ -225,23 +229,28 @@ def _child(plugin_dir: Path) -> None:
         try:
             with mock.patch.object(effort_module, "threading", mock.Mock(wraps=threading)) as observed:
                 observed.Event.side_effect = observed_event
+                observed.Thread.side_effect = observed_thread
                 # Deliberate provider-boundary delay proves unrelated host work
                 # cannot make this decision-budget contract fail.
+                request_started = time.perf_counter()
                 row = run(route, SLOW_TASK, agent=slow_agent, provider_delay=0.1)
             pending_at_dispatch = not blocked.finished.is_set()
         finally:
             blocked.release.set()
-            if blocked.worker is not None:
-                blocked.worker.join(10)
-        assert blocked.worker is not None, "Jev worker never started"
-        assert not blocked.worker.is_alive(), "late Jev worker did not finish"
-        added = wire_clock[-1] - blocked.started
+            # A worker delayed past the deadline may skip decide() entirely.
+            # Track it at construction so that case still gets joined.
+            for worker in workers:
+                worker.join(10)
+        assert len(workers) == 1, "unexpected Jev worker count"
+        assert not workers[0].is_alive(), "late Jev worker did not finish"
+        added = wire_clock[-1] - request_started
         wait_budgets = [call.args[0] for wait in waits for call in wait.call_args_list]
         controller.client_factory = TextOnlyJev
         before = len(jev_states)
         after = run(route, CONSEQUENTIAL, agent=slow_agent)  # same session, after the late answer
         slow.append({**row, "added_s": added, "wait_budgets": wait_budgets,
-                     "jev_pending_at_dispatch": pending_at_dispatch, "after_sent": after["sent"],
+                     "jev_pending_at_dispatch": pending_at_dispatch, "jev_started": blocked.started is not None,
+                     "after_sent": after["sent"],
                      "after_jev_calls": len(jev_states) - before})
     os.environ["HERMES_SESSION_ID"] = slow[-1]["session"]
     slow_status = controller.handle_command("effort status")
@@ -366,7 +375,7 @@ class HermesTurnLoopEffortTests(unittest.TestCase):
             self.assertEqual((row["after_sent"], row["after_jev_calls"]), ("high", 1), row)
         self.assertIn("cloud over budget", proof["slow_status"])  # humanized; raw code stays in --json / receipts
         self.assertIn("deadline: 0.4 seconds", proof["slow_status"])
-        print("E2E worker-to-provider wall time (includes host work):", [round(row["added_s"] * 1000) for row in proof["slow"]], "ms;",
+        print("E2E request-to-provider wall time (includes host work):", [round(row["added_s"] * 1000) for row in proof["slow"]], "ms;",
               proof["slow"][0]["final"].splitlines()[-1])
 
 
