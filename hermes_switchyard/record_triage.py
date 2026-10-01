@@ -52,6 +52,23 @@ ACTION_FOR = {
     "out_of_scope": "close_out_of_scope",
 }
 SEVERITY_LEVELS = ("cosmetic", "minor", "major", "critical")
+# Score indices remain the public severity contract; descriptions give Jev observable
+# boundaries instead of asking it to infer a taxonomy from four short labels.
+SEVERITY_CRITERIA = {
+    "cosmetic": "Appearance or wording defect only; all intended operations still work and no data is lost.",
+    "minor": (
+        "An operation is degraded or fails, but an explicitly stated usable workaround "
+        "completes the same task without data loss."
+    ),
+    "major": (
+        "An intended operation is blocked with no usable workaround; no permanent data loss "
+        "or unauthorized access is reported."
+    ),
+    "critical": (
+        "Permanent loss or corruption of user data, unauthorized access, "
+        "or a confirmed exposure of secret values."
+    ),
+}
 PRIORITY_FOR = {"critical": "p0", "major": "p1", "minor": "p2", "cosmetic": "p3"}
 PRIORITY_RANK = {"p0": 0, "p1": 1, "p2": 2, "p3": 3, "unrated": 4}
 COMPONENTS = frozenset({"parser", "cli", "docs", "network"})
@@ -162,7 +179,7 @@ def build_assessment_request(records: Sequence[dict[str, Any]]) -> tuple[dict[st
         questions[f"severity__{rid}"] = {
             "type": "score",
             "instructions": f"For record {rid}: if the report is valid, how severe is its impact?",
-            "criteria": list(SEVERITY_LEVELS),
+            "criteria": [SEVERITY_CRITERIA[level] for level in SEVERITY_LEVELS],
         }
     return {"task": TASK, "records": state_records}, questions
 

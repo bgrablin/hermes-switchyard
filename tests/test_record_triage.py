@@ -55,7 +55,7 @@ def _score_answer(level, probability):
     score = sum(index * probabilities[str(index)] for index in range(len(SEVERITIES)))
     return {
         "score": score,
-        "legend": {str(i): name for i, name in enumerate(SEVERITIES)},
+        "legend": {str(i): record_triage.SEVERITY_CRITERIA[name] for i, name in enumerate(SEVERITIES)},
         "probabilities": probabilities,
         "confidence": probability,
     }
@@ -88,6 +88,7 @@ class Script:
             else:
                 level, probability = spec.get("severity", ("major", 0.9))
                 answers[name] = _score_answer(level, probability)
+                answers[name]["legend"] = {str(i): text for i, text in enumerate(question["criteria"])}
         usage = {"prompt_tokens": 10, "completion_tokens": 2}
         cost = self.cost[call] if isinstance(self.cost, list) else self.cost
         if cost is not None:
@@ -121,6 +122,23 @@ class TriageCase(unittest.TestCase):
 
 
 class SuccessTests(TriageCase):
+    def test_descriptive_score_legend_preserves_priority_indices(self):
+        records = [_record(level) for level in SEVERITIES]
+        script = Script(**{
+            level: {"severity": (level, 0.95)} for level in SEVERITIES
+        })
+        result = self.run_triage(records, script)
+        for entry, level in zip(result["records"], SEVERITIES):
+            self.assertEqual(entry["decision"]["severity"], level)
+            payload = json.loads((self.out / entry["consumer"]["file"]).read_text())
+            self.assertEqual(payload["priority"], record_triage.PRIORITY_FOR[level])
+        self.assertTrue(verify_artifact(self.out, records)["verified"])
+        # The hosted score sees evidence-based boundaries, not just labels.
+        criteria = script.payloads[0]["questions"]["severity__minor"]["criteria"]
+        self.assertIn("workaround", criteria[1])
+        self.assertIn("blocked", criteria[2])
+        self.assertIn("unauthorized access", criteria[3])
+
     def test_batch_is_assessed_acted_on_and_independently_verified(self):
         records = [
             _record("rec-001", component="parser"),
@@ -956,7 +974,10 @@ class JevAssessParityTests(unittest.TestCase):
         self.assertEqual(set(disposition["criteria"]), set(record_triage.DISPOSITIONS))
         severity = questions["severity__rec-001"]
         self.assertEqual(severity["type"], "score")
-        self.assertEqual(severity["criteria"], list(record_triage.SEVERITY_LEVELS))
+        self.assertEqual(
+            severity["criteria"],
+            [record_triage.SEVERITY_CRITERIA[level] for level in record_triage.SEVERITY_LEVELS],
+        )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,183 @@
+{
+  "records": [
+    {
+      "id": "help-typo",
+      "title": "Help banner misspells Options",
+      "component": "cli",
+      "body": "On version 1.0 Linux, run project --help. Expected heading: Options. Actual heading: Optoins. All documented commands work; only that spelling is wrong.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "format-workaround",
+      "title": "Short JSON format option fails",
+      "component": "cli",
+      "body": "On version 1.0 Linux, create a.txt containing hello. Run project convert a.txt -f json. Expected JSON output; actual Unknown option -f. Running project convert a.txt --format json outputs the correct identical JSON, with no loss.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "parser-blocked",
+      "title": "Valid empty JSON object cannot be parsed",
+      "component": "parser",
+      "body": "On version 1.0, save {} to input.json and run project parse input.json. Expected parsed empty object; actual parser exits 2 with Unsupported object. Both API parse('{}') and CLI fail. No supported parse path works. Source files are unchanged.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "overwrite",
+      "title": "Convert destroys unrelated source file",
+      "component": "cli",
+      "body": "On version 1.0, create a.txt containing alpha and b.txt containing beta. Run project convert a.txt --output c.txt. Expected c.txt only changes. Actual b.txt is overwritten with zeros, and the project's only backup of b.txt is overwritten too; original data cannot be recovered.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "docs-layout",
+      "title": "Command example has uneven indentation",
+      "component": "docs",
+      "body": "Open the bundled help with project help examples in version 1.0. Expected examples align. Actual the second example is indented one extra space. Copying and running either example succeeds; all operations work.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "env-workaround",
+      "title": "CLI endpoint option is ignored",
+      "component": "cli",
+      "body": "Version 1.0: run project fetch --endpoint https://example.test. Expected supplied endpoint; actual default endpoint is used. Setting PROJECT_ENDPOINT=https://example.test and running project fetch uses the supplied endpoint correctly and retrieves the same data intact.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "network-blocked",
+      "title": "Every local test server request fails",
+      "component": "network",
+      "body": "Version 1.0: start the documented test server on localhost:8123 and run project fetch http://localhost:8123/item. Expected item JSON; actual client fails before sending with invalid socket state. API fetch fails identically. No documented alternative works, and stored data is intact.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "access-control",
+      "title": "Unauthenticated read exposes another account",
+      "component": "network",
+      "body": "Version 1.0 test server: create user A and private item 42, then log out. Send GET /items/42 without an Authorization header. Expected 401; actual 200 containing A's private item. Reproduced from a fresh unauthenticated client.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "version-label",
+      "title": "Version output repeats a harmless word",
+      "component": "cli",
+      "body": "On version 1.0 run project --version. Expected project 1.0; actual project project 1.0. Exit is zero and every functional command behaves correctly. No data is changed.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "stdin-workaround",
+      "title": "Standard-input parse rejects valid document",
+      "component": "parser",
+      "body": "Version 1.0: pipe '{\"x\":1}' to project parse -. Expected parsed object; actual unsupported input stream. Saving the identical JSON to doc.json and running project parse doc.json returns the correct object. All original data is retained.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "export-blocked",
+      "title": "No interface can export the stored records",
+      "component": "cli",
+      "body": "Version 1.0: create two test records using project add, then run project export --all. Expected export of both; actual unsupported encoder. API export_all fails too. Every supported export format fails without a workaround. Existing records remain readable and intact.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "secret-log",
+      "title": "Ordinary users can download live secret tokens",
+      "component": "network",
+      "body": "Version 1.0 test server: log in as admin using a synthetic live access token, log out, then log in as an ordinary test user and GET /support.log. Expected log excludes credentials; actual response includes the complete usable admin token. That token grants admin access.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "punctuation",
+      "title": "Help example has inconsistent punctuation",
+      "component": "docs",
+      "body": "Version 1.0: run project help import. Expected a final period after the explanatory sentence; actual punctuation is absent. The documented example executes correctly and no operation is impaired.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "rename-workaround",
+      "title": "Short rename command is broken",
+      "component": "cli",
+      "body": "Version 1.0: create item old, run project mv old new. Expected rename; actual unknown subcommand mv. The documented project rename old new succeeds, preserving the same content and completing the requested rename.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "delete-blocked",
+      "title": "Delete cannot remove any selected record",
+      "component": "cli",
+      "body": "Version 1.0: create record r1 then run project delete r1 --yes. Expected r1 removed; actual error unsupported deletion. API delete('r1') also fails. No supported method can delete any record. No records are corrupted or lost.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "permission-escalation",
+      "title": "Viewer can grant itself administrator privileges",
+      "component": "network",
+      "body": "Version 1.0: create a viewer-only account. With that account's token send PATCH /accounts/self with role=admin. Expected 403 and no role change; actual 200, role becomes admin, and an admin-only endpoint is accessible. Reproduced twice on a clean test database.",
+      "data_class": "synthetic"
+    }
+  ],
+  "expected": {
+    "help-typo": {
+      "disposition": "qualified",
+      "severity": "cosmetic"
+    },
+    "format-workaround": {
+      "disposition": "qualified",
+      "severity": "minor"
+    },
+    "parser-blocked": {
+      "disposition": "qualified",
+      "severity": "major"
+    },
+    "overwrite": {
+      "disposition": "qualified",
+      "severity": "critical"
+    },
+    "docs-layout": {
+      "disposition": "qualified",
+      "severity": "cosmetic"
+    },
+    "env-workaround": {
+      "disposition": "qualified",
+      "severity": "minor"
+    },
+    "network-blocked": {
+      "disposition": "qualified",
+      "severity": "major"
+    },
+    "access-control": {
+      "disposition": "qualified",
+      "severity": "critical"
+    },
+    "version-label": {
+      "disposition": "qualified",
+      "severity": "cosmetic"
+    },
+    "stdin-workaround": {
+      "disposition": "qualified",
+      "severity": "minor"
+    },
+    "export-blocked": {
+      "disposition": "qualified",
+      "severity": "major"
+    },
+    "secret-log": {
+      "disposition": "qualified",
+      "severity": "critical"
+    },
+    "punctuation": {
+      "disposition": "qualified",
+      "severity": "cosmetic"
+    },
+    "rename-workaround": {
+      "disposition": "qualified",
+      "severity": "minor"
+    },
+    "delete-blocked": {
+      "disposition": "qualified",
+      "severity": "major"
+    },
+    "permission-escalation": {
+      "disposition": "qualified",
+      "severity": "critical"
+    }
+  },
+  "scope": "Synthetic project 1.0 reports with concrete reproduction and expected outcomes; not real user defects."
+}
