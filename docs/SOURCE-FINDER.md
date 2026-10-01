@@ -42,7 +42,8 @@ Host-envelope refusals apply to the entire session/task/turn scope, regardless o
 message changes or an initially malformed message. They are retained separately
 from ordinary duplicate suppression and never evicted to admit another lookup.
 A later callback cannot broaden a refusal by changing the text or omitting the
-envelope. If the bounded refusal store fills, prefetch stops for that hook instance
+envelope. A refusal recorded while a lookup is in flight suppresses its returned
+context; it cannot recall a provider request already dispatched. If the bounded refusal store fills, prefetch stops for that hook instance
 until the plugin is reloaded; ordinary Hermes tools continue normally. Within an
 unrefused scope, a new query reads afresh.
 

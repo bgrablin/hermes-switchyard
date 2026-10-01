@@ -192,7 +192,13 @@ def build_hook(*, enabled: bool, root: str, standing_ack: bool, client_factory: 
             metadata = {key: result[key] for key in (
                 "status", "reason", "request_count", "usage", "accounting", "wall_ms", "transport_retries"
             ) if key in result}
-            return {"context": context, "metadata": {"switchyard_find": metadata}}
+            output = {"context": context, "metadata": {"switchyard_find": metadata}}
+            # Publication and refusal share a linearization point. A refusal
+            # observed while locate was in flight must suppress its result.
+            with lock:
+                if refusal_capacity_reached or scope in refused:
+                    return None
+                return output
         except Exception:  # noqa: BLE001 -- optional prefetch must never block normal Hermes work
             return None
 
