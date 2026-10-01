@@ -129,7 +129,10 @@ class PrefetchTests(unittest.TestCase):
                        "removes", "removed", "removing", "replaces", "replaced", "replacing",
                        "executes", "executed", "executing", "runs", "ran", "running",
                        "installs", "installed", "installing", "deploys", "deployed", "deploying",
-                       "sends", "sent", "sending", "uploads", "uploaded", "uploading"):
+                       "sends", "sent", "sending", "uploads", "uploaded", "uploading",
+                       "write", "writes", "writing", "written", "wrote", "overwrite",
+                       "overwrites", "overwriting", "overwritten", "overwrote", "save",
+                       "saves", "saved", "saving", "append", "appends", "appended", "appending"):
             with self.subTest(action=action):
                 self.assertIsNone(self.hook(**{**self.kwargs, "user_message":
                     "In notes.md, find the retry limit before " + action + " it."}))

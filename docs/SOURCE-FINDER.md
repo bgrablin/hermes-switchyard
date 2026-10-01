@@ -27,8 +27,8 @@ evidence_finder_prefetch switch and switchyard_find tool have been removed.
 The original user message must name one file in a supported form: "In file.md, find
 ..." or "Find ... in file.md". Quoted paths are accepted. A second line may request
 a complete supported JSON format; other multiline and recognized compound work stays with
-Hermes. Explicit printable, nonblank session, task, and turn identities, a foreground
-parent identity, and a supported interactive platform are required. Missing or
+Hermes. Explicit printable, nonblank session, task, and turn identities, an empty
+parent-session identity (foreground work), and a supported interactive platform are required. Missing or
 malformed identity skips prefetch before source I/O or provider work.
 
 Privacy and network constraints in the original request skip lookup. Any supplied

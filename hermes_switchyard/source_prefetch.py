@@ -23,6 +23,8 @@ _CHANGE = re.compile(
     r"\b(?:edit(?:s|ed|ing)?|updat(?:e|es|ed|ing)|modif(?:y|ies|ied|ying)|"
     r"delet(?:e|es|ed|ing)|remov(?:e|es|ed|ing)|replac(?:e|es|ed|ing)|"
     r"execut(?:e|es|ed|ing)|run(?:s|ning)?|ran|install(?:s|ed|ing)?|"
+    r"writ(?:e|es|ing|ten)|wrote|overwrit(?:e|es|ing|ten)|overwrote|"
+    r"sav(?:e|es|ed|ing)|append(?:s|ed|ing)?|"
     r"deploy(?:s|ed|ing)?|send(?:s|ing)?|sent|upload(?:s|ed|ing)?)\b", re.IGNORECASE,
 )
 _INTERACTIVE = frozenset({"cli", "tui", "telegram", "discord", "slack", "signal", "whatsapp"})
