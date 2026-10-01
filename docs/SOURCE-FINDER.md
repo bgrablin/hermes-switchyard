@@ -29,7 +29,8 @@ No fallback main-model request is made inside the tool itself.
 Both source-finder paths require explicit session, task, turn, foreground, and interactive-platform identity.
 A pre-turn hook captures a bounded privacy decision from the original user message, even
 when prefetch is off. Tool-execution middleware binds that decision to the exact turn;
-the handler defers if capture or middleware context is missing. A declined turn also receives\nan early availability hint so Hermes can skip finder discovery and go straight to normal tools. A model rewriting the
+the handler defers if capture or middleware context is missing. A declined turn also receives
+an early availability hint so Hermes can skip finder discovery and go straight to normal tools. A model rewriting the
 tool query cannot remove a captured denial. Decisions store no message text and cannot
 cross turn identities. The pilot requires both host hook and execution-middleware seams.
 Prefetch additionally recognizes the narrow request grammar below.
