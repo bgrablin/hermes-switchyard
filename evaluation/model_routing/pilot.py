@@ -84,11 +84,16 @@ class PilotRouter:
         )
         if not text_only:
             return request
+        wire_text = (
+            parts
+            if isinstance(parts, str)
+            else "\n".join(part["text"] for part in parts)
+        )
         if len(str(content)) > 8000 or request.get("previous_response_id"):
             return request
         with self.lock:
             turn = self.turns.get(key)
-            if turn is None:
+            if turn is None or wire_text != turn["text"]:
                 return request
             if turn["model"] is not None:
                 return {**request, "model": turn["model"]}

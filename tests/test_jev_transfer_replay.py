@@ -79,6 +79,14 @@ class JevTransferEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unbound shared"):
             native_summary(run)
 
+    def test_switched_wire_without_receipt_is_rejected(self):
+        run = copy.deepcopy(self.evidence["runs"]["native_routing"])
+        for row in run["rows"]:
+            if row["arm"] == "candidate":
+                row["route"] = []
+        with self.assertRaisesRegex(ValueError, "switched wire is missing"):
+            native_summary(run)
+
     def test_route_without_matching_wire_is_rejected(self):
         run = copy.deepcopy(self.evidence["runs"]["native_routing"])
         for row in run["rows"]:

@@ -105,6 +105,43 @@ class JevTransferHarnessTests(unittest.TestCase):
             hashlib.sha256((ROOT / tasks).read_bytes()).hexdigest(),
         )
 
+    def test_changed_wire_text_cannot_decide_or_reuse_a_route(self):
+        router = PILOT.PilotRouter()
+        router.client = mock.Mock()
+        for cached in [None, PILOT.TARGET]:
+            router.turns[("s", "t", "u")] = {
+                "text": "Original public task",
+                "model": cached,
+            }
+            request = {
+                "model": PILOT.ORIGIN,
+                "input": [{"role": "user", "content": "Different public task"}],
+            }
+            result = router.apply(
+                request,
+                session_id="s",
+                task_id="t",
+                turn_id="u",
+                provider="openai-codex",
+                api_mode="codex_responses",
+                model=PILOT.ORIGIN,
+            )
+            self.assertIs(result, request)
+        router.client.decide.assert_not_called()
+        request["input"][0]["content"] = [
+            {"type": "input_text", "text": "Original public task"}
+        ]
+        result = router.apply(
+            request,
+            session_id="s",
+            task_id="t",
+            turn_id="u",
+            provider="openai-codex",
+            api_mode="codex_responses",
+            model=PILOT.ORIGIN,
+        )
+        self.assertEqual(result["model"], PILOT.TARGET)
+
     def test_model_route_without_identity_keeps_original_model(self):
         router = PILOT.PilotRouter()
         router.client = mock.Mock()

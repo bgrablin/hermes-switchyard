@@ -86,13 +86,26 @@ def native_summary(run):
     expected = {case["id"]: case["expected"] for case in freeze["cases"]}
     routing = freeze["candidate_model"] != freeze["source_model"]
     shared_turns = set()
+    routed_decision_turns = set()
     for row in rows:
         call_ids = {
             call.get("request_id") for call in row["jev"] if call.get("request_id")
         }
+        validated_models = set()
         for receipt in row.get("route", []):
             if not isinstance(receipt, dict):
                 raise ValueError("invalid decision receipt")
+            if routing:
+                if (
+                    not isinstance(receipt.get("applied"), bool)
+                    or receipt.get("from") != freeze["source_model"]
+                    or receipt.get("to")
+                    not in {freeze["source_model"], freeze["candidate_model"]}
+                ):
+                    raise ValueError("invalid routing receipt")
+                decision_id = (receipt.get("decision") or {}).get("request_id")
+                if decision_id in call_ids:
+                    routed_decision_turns.add((row["arm"], row["id"]))
             shared = receipt.get("shared_request_id")
             if not routing and (not isinstance(shared, str) or not shared):
                 raise ValueError("unbound shared decision receipt")
@@ -112,6 +125,12 @@ def native_summary(run):
                     w["model"] == receipt["to"] for w in row["wire"]
                 ):
                     raise ValueError("route is not bound to its call and wire model")
+                validated_models.add(receipt["to"])
+        switched_models = {
+            w["model"] for w in row["wire"] if w["model"] != freeze["source_model"]
+        }
+        if not switched_models.issubset(validated_models):
+            raise ValueError("switched wire is missing a validated routing receipt")
     arms = {}
     for arm in freeze["arms"]:
         subset = [row for row in rows if row["arm"] == arm]
