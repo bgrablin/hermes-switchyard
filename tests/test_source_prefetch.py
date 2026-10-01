@@ -171,6 +171,23 @@ class PrefetchTests(unittest.TestCase):
         self.locate.assert_not_called()
         self.factory.assert_not_called()
 
+    def test_create_move_publish_and_compound_adjuncts_skip_both_paths(self):
+        suffixes = [action + " the files" for action in (
+            "create", "creates", "created", "creating", "move", "moves", "moved", "moving",
+            "publish", "publishes", "published", "publishing",
+        )]
+        suffixes += [connector + " archiving the files" for connector in (
+            "while", "whilst", "before", "after", "alongside",
+        )]
+        with mock.patch.object(prefetch, "locate_many") as many:
+            for prefix in ("In `a.md`, find the limit ", "In `a.md` and `b.md`, find the limit "):
+                for suffix in suffixes:
+                    with self.subTest(prefix=prefix, suffix=suffix):
+                        self.assertIsNone(self.hook(**{**self.kwargs, "user_message": prefix + suffix + "."}))
+            many.assert_not_called()
+        self.locate.assert_not_called()
+        self.factory.assert_not_called()
+
     def test_disabled_and_refused_ack_skip(self):
         for enabled, ack in [(False, True), (True, False)]:
             hook = prefetch.build_hook(enabled=enabled, root="/fixture", standing_ack=ack, client_factory=self.factory)

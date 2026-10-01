@@ -26,6 +26,7 @@ _CHANGE = re.compile(
     r"execut(?:e|es|ed|ing)|run(?:s|ning)?|ran|install(?:s|ed|ing)?|"
     r"writ(?:e|es|ing|ten)|wrote|overwrit(?:e|es|ing|ten)|overwrote|"
     r"sav(?:e|es|ed|ing)|append(?:s|ed|ing)?|"
+    r"creat(?:e|es|ed|ing)|mov(?:e|es|ed|ing)|publish(?:es|ed|ing)?|"
     r"deploy(?:s|ed|ing)?|send(?:s|ing)?|sent|upload(?:s|ed|ing)?)\b", re.IGNORECASE,
 )
 _INTERACTIVE = frozenset({"cli", "tui", "telegram", "discord", "slack", "signal", "whatsapp"})
@@ -117,7 +118,7 @@ def request_source(message: Any) -> str | None:
     # A single location question only. Conjunctions, extra sentences, dotted
     # file/identifier references, and additional actions stay with normal tools.
     # Conservative false positives only forgo the optional prefetch.
-    if re.search(r"\b(?:and|then|also|compare|summarize|explain|calculate|count|translat(?:e|es|ed|ing)|rewrit(?:e|es|ing|ten)|rewrote|renam(?:e|es|ed|ing)|cop(?:y|ies|ied|ying)|simplif(?:y|ies|ied|ying)|paraphras(?:e|es|ed|ing)|rephras(?:e|es|ed|ing))\b|[,;:&.!?…—–]|\s-\s",
+    if re.search(r"\b(?:and|then|also|while|whilst|before|after|alongside|compare|summarize|explain|calculate|count|translat(?:e|es|ed|ing)|rewrit(?:e|es|ing|ten)|rewrote|renam(?:e|es|ed|ing)|cop(?:y|ies|ied|ying)|simplif(?:y|ies|ied|ying)|paraphras(?:e|es|ed|ing)|rephras(?:e|es|ed|ing))\b|[,;:&.!?…—–]|\s-\s",
                  query.strip().rstrip(".!?"), re.I):
         return None
     # Require a concrete filename, not a directory or a pronoun like "that".
