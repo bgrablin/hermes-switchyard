@@ -23,6 +23,7 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 
 ### Fixed
 
+- [#182](https://github.com/bgrablin/hermes-switchyard/pull/182) (fixes [#180](https://github.com/bgrablin/hermes-switchyard/issues/180)): show one `not adapted` receipt per foreground turn when every request passes through because the host sent no effort (`no_host_effort`) or the requested level cannot be adapted on the route (`no_room`). Visible in `auto` and `always`, with no added Jev calls or effort changes; `off` suppresses it. Pinned, excluded, disabled, delegated, and background behavior is unchanged. Receipt replay stripping, command help, and documentation match the new behavior.
 - Use the installed Hermes YAML parser dependency in compatibility tests instead of assuming PyYAML is installed on current Hermes.
 - Reject substantive follow-on work in light-turn detection, preserve single-word explicit skill overrides before early bypass, and prevent callers from mutating cached candidates.
 
