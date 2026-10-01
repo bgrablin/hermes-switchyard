@@ -22,7 +22,7 @@ _CREDENTIAL = re.compile(
     r"(?i)(?:\.ssh[/\\]|\.aws[/\\]credentials|(?:^|[/\\\s@])\.env(?:\b|[./])|\b(?:printenv|env)\b)"
 )
 _IRREVERSIBLE = re.compile(
-    r"(?i)\b(?:shred|truncate|unlink|rmdir|rm)\b|"
+    r"(?i)\b(?:shred|truncate|unlink|rmdir|rm|remove-item|clear-content)\b|"
     r"\bdd\b[^\n]{0,200}\bof=/dev/|\bdrop\s+(?:database|table)\b|"
     r"\bgit\s+(?:reset\b[^\n]{0,80}--hard|clean\b[^\n]{0,80}-[a-z]*f)|"
     r"\bfind\b[^\n]{0,200}-delete\b"
@@ -106,6 +106,7 @@ def review_command(
         "verdict": "ESCALATE",
         "reason": "review_unavailable",
         "request_count": 0,
+        "review_attempted": False,
         "usage": {},
     }
     local, reason = local_command_policy(command)
@@ -126,6 +127,7 @@ def review_command(
         with request_budget_scope(
             client, max_requests=1, deadline_seconds=deadline_seconds
         ):
+            result.update(review_attempted=True, request_count=None)
             response = client.decide(
                 {"command": safe, "operator_policy": policy},
                 QUESTIONS,
@@ -153,7 +155,7 @@ def review_command(
             verdict == "APPROVE"
             and confidence >= 0.9
             and probabilities[verdict] >= 0.9
-            and signals["safe"] >= 0.95
+            and signals["safe"] >= 0.9
             and signals["sends_outbound"] < 0.1
         ):
             return {**result, "verdict": "APPROVE", "reason": "clear_safe"}
@@ -288,17 +290,23 @@ class ApprovalClient:
         finally:
             client.close()
         usage = row.get("usage", {})
-        input_tokens = usage.get("prompt_tokens", usage.get("input_tokens", 0))
-        if type(input_tokens) not in (int, float) or not math.isfinite(input_tokens):
-            input_tokens = 0
-        output_tokens = usage.get("completion_tokens", usage.get("output_tokens", 0))
-        if (
-            type(output_tokens) not in (int, float)
-            or not math.isfinite(output_tokens)
-            or output_tokens < 0
-        ):
-            output_tokens = 0
-        input_tokens = max(0, input_tokens)
+        input_tokens = usage.get("prompt_tokens", usage.get("input_tokens"))
+        output_tokens = usage.get("completion_tokens", usage.get("output_tokens"))
+        if not row["review_attempted"]:
+            input_tokens = output_tokens = 0  # Code-only escalation made no request.
+        known = all(
+            type(value) in (int, float) and math.isfinite(value) and value >= 0
+            for value in (input_tokens, output_tokens)
+        )
+        native_usage = (
+            SimpleNamespace(
+                prompt_tokens=input_tokens,
+                completion_tokens=output_tokens,
+                total_tokens=input_tokens + output_tokens,
+            )
+            if known
+            else None
+        )
         return SimpleNamespace(
             id="switchyard-approval",
             model=model,
@@ -309,11 +317,13 @@ class ApprovalClient:
                     index=0,
                 )
             ],
-            usage=SimpleNamespace(
-                prompt_tokens=input_tokens,
-                completion_tokens=output_tokens,
-                total_tokens=input_tokens + output_tokens,
-            ),
+            usage=native_usage,
+            switchyard_review={
+                "review_attempted": row["review_attempted"],
+                "request_count": row["request_count"],
+                "usage_known": known,
+                "reason": row["reason"],
+            },
         )
 
 

@@ -2,6 +2,7 @@
 
 import copy
 import unittest
+from unittest.mock import patch
 
 from hermes_switchyard.browser_plan import BrowserPlanCache
 from hermes_switchyard.browser_use import run_browser_goal
@@ -135,3 +136,15 @@ class BrowserPlanTests(unittest.TestCase):
             receipt, client, _ = self.run_plan(BrowserPlanCache(), session=session)
             self.assertEqual(receipt["failure_phase"], "retrieved_instruction_screen")
             self.assertFalse(session.clicks)
+
+    def test_provider_cannot_claim_a_cache_hit(self):
+        decide = Choices.decide
+
+        def spoof(client, *args, **kwargs):
+            return {**decide(client, *args, **kwargs), "source": "plan_cache"}
+
+        with patch.object(Choices, "decide", spoof):
+            receipt, client, _ = self.run_plan(BrowserPlanCache())
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(receipt["plan_cache_hits"], 0)
+        self.assertEqual(receipt["attempted_request_count"], 1)

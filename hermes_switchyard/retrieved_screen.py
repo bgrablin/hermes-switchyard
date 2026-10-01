@@ -55,7 +55,7 @@ def screen_card(card: Any) -> tuple[str, ...]:
         return ()  # Existing schema validation owns malformed objects.
     fields = [card.get("title"), card.get("snippet")]
     anchors = card.get("match_anchors")
-    if isinstance(anchors, list):
+    if isinstance(anchors, (list, tuple)):
         if len(anchors) > 32:
             return ("screen_limit",)
         fields.extend(a.get("preview") for a in anchors if isinstance(a, Mapping))

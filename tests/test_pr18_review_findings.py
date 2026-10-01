@@ -491,6 +491,23 @@ class ReceiptContractTests(HermesHomeTestCase):
             os.environ.pop("HERMES_HOME", None)
             harness.close()
 
+    def test_reader_rechecks_record_published_after_initial_read(self):
+        harness = _MemoryFileHarness()
+        try:
+            os.environ["HERMES_HOME"] = harness._tmp.name
+            current = receipt_state._receipt_state_file()
+            legacy = Path(harness._tmp.name) / "plugins" / receipt_state.PLUGIN_NAME / "receipt.json"
+            canonical = receipt_state.canonicalize_receipt(_base_advisory())
+            def publish_between_checks():
+                current.parent.mkdir(parents=True, exist_ok=True)
+                current.write_text(json.dumps(canonical), encoding="utf-8")
+                return legacy
+            with mock.patch.object(receipt_state, "_legacy_receipt_state_file", side_effect=publish_between_checks):
+                self.assertEqual(receipt_state.read_latest_receipt(), canonical)
+        finally:
+            os.environ.pop("HERMES_HOME", None)
+            harness.close()
+
     def test_migration_publication_is_atomically_non_clobbering_under_race(self):
         import threading
 

@@ -116,6 +116,60 @@ def inspect_text(name: str, text: str) -> list[dict[str, Any]]:
     return findings[: MAX_FINDINGS + 1]
 
 
+class _ScanBudget(Exception):
+    pass
+
+
+def _walk(fd, directory, skipped, entries, depth=0):
+    # scandir consumes directory entries lazily, before the global limit. fwalk
+    # materializes the entire directory before yielding and cannot enforce it.
+    names = []
+    with os.scandir(fd) as iterator:
+        for entry in iterator:
+            entries[0] += 1
+            if entries[0] > MAX_ENTRIES:
+                raise _ScanBudget()
+            names.append(entry.name)
+    files, directories = [], []
+    for name in sorted(names):
+        rel = str(Path(directory, name))
+        try:
+            mode = os.stat(name, dir_fd=fd, follow_symlinks=False).st_mode
+        except OSError:
+            skipped.append({"path": rel, "reason": "entry_changed"})
+            continue
+        if stat.S_ISLNK(mode):
+            skipped.append({"path": rel, "reason": "symlink"})
+        elif stat.S_ISDIR(mode):
+            if name in SKIP_DIRS or depth >= 32:
+                skipped.append(
+                    {
+                        "path": rel,
+                        "reason": "excluded_directory"
+                        if name in SKIP_DIRS
+                        else "directory_depth",
+                    }
+                )
+            else:
+                directories.append(name)
+        else:
+            files.append(name)
+    yield directory, files, fd
+    for name in directories:
+        rel = str(Path(directory, name))
+        try:
+            child = os.open(
+                name, os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY, dir_fd=fd
+            )
+        except OSError:
+            skipped.append({"path": rel, "reason": "directory_changed"})
+            continue
+        try:
+            yield from _walk(child, rel, skipped, entries, depth + 1)
+        finally:
+            os.close(child)
+
+
 def scan_catalog(root: str | Path) -> dict[str, Any]:
     """Use descriptor-relative no-follow reads. Unavailable safety => no scan."""
     result: dict[str, Any] = {
@@ -131,7 +185,7 @@ def scan_catalog(root: str | Path) -> dict[str, Any]:
         "content_sha256": None,
     }
     if (
-        not hasattr(os, "fwalk")
+        os.scandir not in os.supports_fd
         or os.open not in os.supports_dir_fd
         or not getattr(os, "O_NOFOLLOW", 0)
     ):
@@ -146,41 +200,8 @@ def scan_catalog(root: str | Path) -> dict[str, Any]:
         return result
     exhausted = False
     visited = 0
-    entries = 0
     try:
-
-        def onerror(_error):
-            result["skipped"].append({"path": ".", "reason": "directory_unreadable"})
-
-        for directory, dirs, files, dirfd in os.fwalk(
-            ".", dir_fd=root_fd, follow_symlinks=False, onerror=onerror
-        ):
-            entries += 1 + len(dirs) + len(files)
-            if entries > MAX_ENTRIES:
-                result["skipped"].append({"path": ".", "reason": "scan_budget"})
-                break
-            dirs.sort()
-            files.sort()
-            for child in list(dirs):
-                rel = str(Path(directory, child))
-                try:
-                    mode = os.stat(child, dir_fd=dirfd, follow_symlinks=False).st_mode
-                except OSError:
-                    dirs.remove(child)
-                    result["skipped"].append(
-                        {"path": rel, "reason": "directory_changed"}
-                    )
-                    continue
-                if child in SKIP_DIRS or stat.S_ISLNK(mode):
-                    dirs.remove(child)
-                    result["skipped"].append(
-                        {
-                            "path": rel,
-                            "reason": "excluded_directory"
-                            if child in SKIP_DIRS
-                            else "symlink",
-                        }
-                    )
+        for directory, files, dirfd in _walk(root_fd, ".", result["skipped"], [0]):
             for name in files:
                 visited += 1
                 rel = str(Path(directory, name))
@@ -249,6 +270,8 @@ def scan_catalog(root: str | Path) -> dict[str, Any]:
             if exhausted:
                 result["skipped"].append({"path": ".", "reason": "scan_budget"})
                 break
+    except _ScanBudget:
+        result["skipped"].append({"path": ".", "reason": "scan_budget"})
     except OSError:
         result["skipped"].append({"path": ".", "reason": "directory_changed"})
     finally:

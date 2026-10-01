@@ -606,7 +606,16 @@ def read_latest_receipt() -> dict[str, Any] | None:
             return canonical
 
     legacy_path = _legacy_receipt_state_file()
-    if legacy_path is None or (path is not None and path.exists()):
+    if legacy_path is None:
+        return None
+    if path is not None and path.exists():
+        # A concurrent reader may publish after our first read but before this
+        # existence check. Return its validated record instead of losing it.
+        try:
+            if stat.S_ISREG(path.lstat().st_mode):
+                return canonicalize_receipt(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, TypeError, ValueError):
+            pass
         return None
     try:
         record = json.loads(legacy_path.read_text(encoding="utf-8"))

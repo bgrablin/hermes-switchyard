@@ -80,7 +80,7 @@ def verify_sources(freeze, source_root):
     assert hashlib.sha256(driver.read_bytes()).hexdigest() == freeze["driver_sha256"], "benchmark driver drift; rerun benchmark"
 
 
-def main():
+def main(source_root=None):
     root = Path(__file__).parent / "frozen"
     for name, expected in json.loads((root / "sha256.json").read_text()).items():
         assert hashlib.sha256((root / name).read_bytes()).hexdigest() == expected, name
@@ -92,7 +92,7 @@ def main():
         for run in ("offline", "live", "offline-v2", "live-v2"):
             freeze = json.loads(read(run + "/freeze.json"))
             if run.endswith("v2"):
-                verify_sources(freeze, Path(__file__).resolve().parents[2])
+                verify_sources(freeze, source_root or Path(__file__).resolve().parents[2])
             rows = [json.loads(line) for line in read(run + "/observations.jsonl").splitlines()]
             summary = json.loads(read(run + "/summary.json"))
             expected_jobs = [(rep, freeze["cases"][idx]["id"], freeze["cases"][idx]["kind"], arm) for rep, idx, arm in freeze["jobs"]]

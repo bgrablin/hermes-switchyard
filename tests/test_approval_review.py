@@ -1,7 +1,7 @@
 """Authorization regression tests; no command under review is executed."""
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 from hermes_switchyard.approval_review import (
     ApprovalClient,
@@ -76,7 +76,7 @@ class ApprovalTests(unittest.TestCase):
     def test_positive_review_requires_all_typed_gates(self):
         self.assertEqual(self.review(Client())["verdict"], "APPROVE")
         for signals in [
-            {"safe": 0.94},
+            {"safe": 0.89},
             {"reads_secrets": 0.2},
             {"sends_outbound": 0.1},
             {"irreversible": 0.2},
@@ -139,6 +139,39 @@ class ApprovalTests(unittest.TestCase):
         client.enabled = lambda: False
         with self.assertRaises(ValueError):
             client.create()
+
+    def test_failed_hosted_review_keeps_usage_unknown(self):
+        client = Mock(spec=["decide", "close"])
+        client.decide.side_effect = TimeoutError("synthetic timeout")
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a security reviewer for an AI coding agent.",
+            },
+            {"role": "user", "content": "<command>\npwd\n</command>"},
+        ]
+        with (
+            patch(
+                "hermes_switchyard.approval_review.DecisionClient", return_value=client
+            ),
+            patch(
+                "hermes_switchyard.approval_review.redact_for_jev", lambda x: (x, None)
+            ),
+        ):
+            result = ApprovalClient(enabled=lambda: True).create(messages=messages)
+        self.assertEqual(result.choices[0].message.content, "ESCALATE")
+        self.assertIsNone(result.usage)
+        self.assertTrue(result.switchyard_review["review_attempted"])
+        self.assertIsNone(result.switchyard_review["request_count"])
+        self.assertFalse(result.switchyard_review["usage_known"])
+
+    def test_unavailable_native_floor_never_calls_provider(self):
+        client = Client()
+        with patch(
+            "hermes_switchyard.approval_review.native_hardline", return_value=None
+        ):
+            self.assertEqual(self.review(client)["verdict"], "ESCALATE")
+        self.assertEqual(client.calls, 0)
 
     def test_provider_timeout_is_finite(self):
         for timeout in [float("nan"), float("inf"), -1]:

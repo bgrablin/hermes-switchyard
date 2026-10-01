@@ -82,8 +82,10 @@ One request asks independent questions about the verdict, sufficient evidence of
 safety, secret access, outbound transfer, irreversible effects, and manipulation
 of the review. Confidence/probability thresholds are conservative policy choices,
 not calibrated safety guarantees. This provider can require more human review
-than the native reviewer. Keep it opt-in until a workload-specific evaluation
-supports promotion. To restore native review, restore the previous
+than the native reviewer. A 16-case development holdout approved only 3 of 7
+clearly safe commands and approved none of the 9 unsafe/uncertain cases. This
+did not qualify it for default use; the provider remains experimental. Keep it
+opt-in until a workload-specific evaluation supports promotion. To restore native review, restore the previous
 `auxiliary.approval` provider/model and disable `smart_approval_provider`.
 
 ## Output preservation and compaction
@@ -137,8 +139,8 @@ whitelist, approve, or override Hermes' existing install scanner.
 
 The report includes per-file SHA-256, a manifest digest, rule IDs and locations,
 and skipped coverage. Limits: 512 files, 1,024 directory entries, 256 KB per file,
-4 MB total, and 4,096 findings. Symlinks, excluded directories, unsupported types,
-changed/unreadable files, and exhausted budgets are explicit gaps. File reads
+4 MB total, 32 directory levels, and 4,096 findings. Symlinks, excluded
+directories, unsupported types, changed/unreadable files, and exhausted budgets are explicit gaps. File reads
 use descriptor-relative no-follow operations; platforms lacking those primitives
 return `safe_scan_unavailable` instead of scanning unsafely. Windows currently
 falls into this case. Exit zero requires complete supported-text coverage and

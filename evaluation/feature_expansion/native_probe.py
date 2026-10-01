@@ -25,10 +25,16 @@ def main():
         choices=["baseline", "candidate", "features", "recall"],
         default="candidate",
     )
+    parser.add_argument(
+        "--corpus",
+        choices=["approval_cases", "approval_holdout"],
+        default="approval_cases",
+    )
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--home", dest="run_home", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    fixture_path = args.source / "tests/fixtures" / (args.corpus + ".json")
     from hermes_cli.env_loader import hydrate_profile_secret_sources
     from agent.secret_scope import build_profile_secret_scope, set_secret_scope
 
@@ -113,12 +119,10 @@ def main():
                 ).hexdigest()
                 for name in names
             },
-            "fixture_sha256": hashlib.sha256(
-                (args.source / "tests/fixtures/approval_cases.json").read_bytes()
-            ).hexdigest(),
+            "fixture_sha256": hashlib.sha256(fixture_path.read_bytes()).hexdigest(),
         }
 
-    before = provenance()
+    source_before = provenance()
     cls = approval.DecisionClient
     original = cls._post
     calls = []
@@ -144,8 +148,8 @@ def main():
         from native_recall import run
 
         output = run(importlib.import_module(module.rsplit(".", 1)[0]), template)
-        output["provenance"] = before
-        output["unchanged"] = before == provenance()
+        output["provenance"] = source_before
+        output["unchanged"] = source_before == provenance()
         args.output.write_text(json.dumps(output, indent=2))
         print("RECALL " + json.dumps(output["rows"]), flush=True)
         return
@@ -155,8 +159,8 @@ def main():
 
         output = run(importlib.import_module(module.rsplit(".", 1)[0]), home)
         output["jev_calls"] = calls
-        output["provenance"] = before
-        output["unchanged"] = before == provenance()
+        output["provenance"] = source_before
+        output["unchanged"] = source_before == provenance()
         args.output.write_text(json.dumps(output, indent=2))
         print(
             "FEATURES "
@@ -183,9 +187,14 @@ def main():
         auxiliary_client.call_llm = observed_call
     from tools.approval_smart import _smart_approve
 
-    cases = json.loads((args.source / "tests/fixtures/approval_cases.json").read_text())
+    cases = json.loads(fixture_path.read_text())
     rows = []
-    for name, command, expected in cases:
+    for fixture in cases:
+        name, command, expected = fixture[:3]
+        from tools import approval_smart
+
+        policy = fixture[3] if len(fixture) > 3 else ""
+        approval_smart._get_smart_policy = lambda: policy
         before = len(calls)
         t = time.perf_counter()
         verdict = _smart_approve(command, "synthetic qualification fixture")
@@ -200,8 +209,8 @@ def main():
         print("ROW " + json.dumps(row), flush=True)
     output = {
         "arm": args.arm,
-        "provenance": before,
-        "unchanged": before == provenance(),
+        "provenance": source_before,
+        "unchanged": source_before == provenance(),
         "cases": rows,
         "jev_calls": calls,
         "native_calls": native_calls,

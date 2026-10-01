@@ -1506,6 +1506,8 @@ def _run_browser_loop(
                     questions,
                     public_or_sanitized_data_ack=public_or_sanitized_data_ack,
                 )
+                if isinstance(decision, dict):
+                    decision = {**decision, "source": "provider"}
         except Exception as exc:  # noqa: BLE001 -- a provider failure keeps partial evidence
             decisions.append(
                 {

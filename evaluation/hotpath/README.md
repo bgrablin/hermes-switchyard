@@ -117,3 +117,10 @@ Run `planning.py --baseline BASE --candidate CANDIDATE --output NEW_DIRECTORY`
 for a new offline measurement. Live measurements additionally require `--live
 --profile EVALUATION_PROFILE` in a configured Hermes environment. Existing output
 directories are never overwritten. Keep the new freeze and every observation.
+
+Historical unit verification uses `frozen/measured-source-v2.tar.gz`, a copy of
+the exact measured source independently checked against the original freeze.
+It preserves the original observations and does not certify later feature
+branches. The default `verify.py` command still checks the current tree and
+rejects source drift; passing the immutable measured source only audits the
+historical study. Do not reuse its measurements as current-branch qualification.

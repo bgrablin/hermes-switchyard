@@ -10,6 +10,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--arm", choices=["baseline", "candidate", "features", "recall"], required=True
 )
+parser.add_argument(
+    "--corpus", choices=["approval_cases", "approval_holdout"], default="approval_cases"
+)
 parser.add_argument("--template", type=Path, required=True)
 parser.add_argument("--output", type=Path, required=True)
 args = parser.parse_args()
@@ -30,6 +33,8 @@ raise SystemExit(
     subprocess.call(
         prefix
         + [
+            "--corpus",
+            args.corpus,
             "--arm",
             args.arm,
             "--source",
