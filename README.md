@@ -152,7 +152,7 @@ The complete list of what Switchyard adds to Hermes:
 | Surface | Available now | Default |
 | --- | --- | --- |
 | Tools (7) | `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, `jev_session_search_rerank`, `jev_computer_use` | Callable when the matching toolset is selected (see [Toolsets](#toolsets-and-session-exposure)) |
-| Hooks (7 kinds) | Five default kinds cover skill routing, effort, and usage receipts. Optional `pre_tool_call` requests approval; `transform_tool_result` handles output and stuck advice. | Five kinds on after install; new tool hooks opt-in |
+| Hooks (7) | `pre_llm_call` (skill routing and effort capture), `post_llm_call` (clears capture), `post_tool_call` (reconsiders effort), `transform_llm_output` (receipt line), `post_api_request` (token counts); optional `pre_tool_call` (requests approval) and `transform_tool_result` (output handling and stuck advice) | First five on after install; new tool hooks opt-in |
 | Middleware (1) | `llm_request` sets the reasoning effort for each request | On when your Hermes version supports it (0.21.4+) |
 | CLI | `hermes switchyard setup`, `status`, `test`, `receipt`, `stats`, `guide`, `ensure-toolsets` | Run when you want |
 | CLI (offline, 0.6.0 candidates) | `hermes switchyard lint-skills [--json]` flags ambiguous descriptions ([guide](docs/LINT-SKILLS.md)); `hermes switchyard scan-catalog PATH` reviews package/MCP content with hashes and coverage gaps ([guide](docs/FEATURE-EXPANSION.md)) | Explicit only; no network, no edits |
