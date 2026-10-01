@@ -174,6 +174,28 @@ class OutcomeLabelTests(unittest.TestCase):
                 result = generate(records, [evidence[0], next_user])
                 self.assertEqual(result["labels"][0]["next_turn_user_correction"], "UNKNOWN")
 
+    def test_documented_comma_and_unicode_meaningful_suffix(self):
+        from hermes_switchyard.outcome_labels import generate
+
+        records, evidence, _ = frozen_case("explicit-correction-with-same-arm-adjacent-reply")
+        for text, expected in (
+            ("No, I asked for 日本語.", True),
+            ("No, I asked you to 翻訳.", True),
+            ("That's not what I asked for: Ελληνικά.", True),
+            ("No I asked for three items.", "UNKNOWN"),
+            ("No! I asked for three items.", "UNKNOWN"),
+            ("No? I asked for three items.", "UNKNOWN"),
+            ("No. I asked for three items.", "UNKNOWN"),
+            ("No, I asked for ...?!", "UNKNOWN"),
+        ):
+            with self.subTest(text=text):
+                following = {**evidence[1], "user_message": {
+                    "reply_to_message_id": "m-positive", "text": text,
+                }}
+                report = generate(records, [evidence[0], following])
+                self.assertEqual(report["labels"][0]["next_turn_user_correction"], expected)
+                self.assertNotIn(text, json.dumps(report, ensure_ascii=False))
+
     def test_complete_correction_markers_need_no_suffix(self):
         from hermes_switchyard.outcome_labels import generate
 

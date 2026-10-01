@@ -28,7 +28,7 @@ _EVIDENCE_FIELDS = frozenset({
     "undone", "reactions",
 })
 _CORRECTION = re.compile(
-    r"^(?:no[,!?.]?\s+i asked (?:for|you to)\b|"
+    r"^(?:no,\s+i asked (?:for|you to)\b|"
     r"that's not what i asked (?:for|you to)\b|"
     r"(?P<complete>you (?:misread|misunderstood) my request\b))", re.IGNORECASE,
 )
@@ -124,7 +124,7 @@ def _correction_label(current: Mapping, following: Mapping | None) -> bool | str
         return UNKNOWN
     text = text.strip()
     match = _CORRECTION.match(text)
-    if (match and (match.group("complete") or re.search(r"[A-Za-z0-9]", text[match.end():]))
+    if (match and (match.group("complete") or any(char.isalnum() for char in text[match.end():]))
             and not _AMBIGUOUS.search(text[match.end():])):
         return True
     if _AMBIGUOUS.search(text):
