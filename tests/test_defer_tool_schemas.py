@@ -318,6 +318,19 @@ class ProviderBoundaryTests(unittest.TestCase):
         request["messages"] = [{"role": "user", "content": [{"type": "image", "source": {}}]}]
         self.assertIsNone(callback(request=request))
 
+    def test_product_requests_and_forced_choices_keep_decision_tools(self):
+        callback = build_defer_tool_schemas_middleware(enabled=True)
+        for prompt in ("Use Switchyard to assess this decision.", "Use Jev to pick a skill.",
+                       "Please assess this with hermes_switchyard."):
+            self.assertIsNone(callback(request=_skill_route_request(user=prompt)))
+        for choice in ("required", {"type": "any"},
+                       {"type": "allowed_tools", "mode": "required", "tools": []},
+                       {"future_unknown_shape": True}):
+            request = {**_skill_route_request(), "tool_choice": choice}
+            self.assertIsNone(callback(request=request))
+        for choice in ("auto", {"type": "auto"}):
+            self.assertIsNotNone(callback(request={**_skill_route_request(), "tool_choice": choice}))
+
     def test_mixed_multimodal_inputs_keep_all_schemas(self):
         callback = build_defer_tool_schemas_middleware(enabled=True)
         for block in ({"type": "image_url", "image_url": {}},

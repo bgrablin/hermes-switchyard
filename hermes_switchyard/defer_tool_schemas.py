@@ -39,7 +39,7 @@ _TOOL_NAME_CUE_RE = re.compile(
 _SWITCHYARD_TOOL_ASK_RE = re.compile(
     r"\b(?:"
     r"call\s+jev_|use\s+jev_|"
-    r"switchyard\s+(?:decision\s+)?tools?|"
+    r"switchyard|hermes_switchyard|jev|"
     r"hermes_switchyard\s+tools?|"
     r"jev\s+(?:assess|skill\s*select|model\s*route|session\s*search)"
     r")\b",
@@ -217,8 +217,8 @@ def should_omit_switchyard_tool_schemas(
             return False
     # Explicit provider tool choices must remain satisfiable.
     choice = request.get("tool_choice")
-    if isinstance(choice, Mapping) and tool_definition_name(choice) in DEFERRED_SWITCHYARD_TOOL_NAMES:
-        return False
+    if choice not in (None, "auto", "none") and choice != {"type": "auto"}:
+        return False  # Includes required/any, named tools, and unknown choice shapes.
     text = latest_user_text(request) if user_text is None else (user_text or "")
     if not text:
         return False  # Unknown or non-text request shapes fail open.
