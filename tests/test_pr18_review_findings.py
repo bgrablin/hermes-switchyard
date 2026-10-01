@@ -531,6 +531,42 @@ class ReceiptContractTests(HermesHomeTestCase):
             os.environ.pop("HERMES_HOME", None)
             harness.close()
 
+    def test_migration_returns_winning_current_record(self):
+        for timing in ("legacy_read", "publication"):
+            with self.subTest(timing=timing):
+                harness = _MemoryFileHarness()
+                try:
+                    os.environ["HERMES_HOME"] = harness._tmp.name
+                    current = receipt_state._receipt_state_file()
+                    legacy = Path(harness._tmp.name) / "plugins" / receipt_state.PLUGIN_NAME / "receipt.json"
+                    legacy.parent.mkdir(parents=True)
+                    old = _base_advisory()
+                    legacy.write_text(json.dumps(old), encoding="utf-8")
+                    winner = receipt_state.canonicalize_receipt({**old, "total_usage": {"cost": 0.77}})
+                    self.assertNotEqual(winner, receipt_state.canonicalize_receipt(old))
+                    read = receipt_state._read_json_receipt
+                    write = receipt_state._write_canonical_receipt
+                    def publish():
+                        current.parent.mkdir(parents=True, exist_ok=True)
+                        current.write_text(json.dumps(winner), encoding="utf-8")
+                    def observe_read(path):
+                        value = read(path)
+                        if timing == "legacy_read" and path == legacy:
+                            publish()
+                        return value
+                    def observe_write(path, value, **kwargs):
+                        if timing == "publication":
+                            publish()
+                        return write(path, value, **kwargs)
+                    with mock.patch.object(receipt_state, "_read_json_receipt", observe_read), mock.patch.object(
+                        receipt_state, "_write_canonical_receipt", observe_write
+                    ):
+                        self.assertEqual(receipt_state.read_latest_receipt(), winner)
+                    self.assertTrue(legacy.is_file(), "distinct legacy record must be retained")
+                finally:
+                    os.environ.pop("HERMES_HOME", None)
+                    harness.close()
+
     def test_migration_publication_is_atomically_non_clobbering_under_race(self):
         import threading
 

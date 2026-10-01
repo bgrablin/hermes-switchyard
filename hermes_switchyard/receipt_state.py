@@ -658,9 +658,18 @@ def read_latest_receipt() -> dict[str, Any] | None:
     # Never replace an unrelated or malformed new file. Publish with atomic
     # no-clobber semantics; delete the regular legacy artifact only after the
     # new profile-owned record is read back and matches this migration.
-    if path is not None and not path.exists():
+    if path is not None:
         if _write_canonical_receipt(path, canonical, no_clobber=True):
             _retire_legacy_receipt(legacy_path, path, canonical)
+        else:
+            # A concurrent publisher owns the current record. Never return a
+            # distinct stale legacy record after losing the atomic publication.
+            try:
+                return canonicalize_receipt(_read_json_receipt(path))
+            except FileNotFoundError:
+                pass  # A write failure without a winner retains valid legacy data.
+            except (OSError, TypeError, ValueError):
+                return None
     return canonical
 
 

@@ -78,6 +78,12 @@ def inspect_text(name: str, text: str) -> list[dict[str, Any]]:
             value = json.loads(text)
         except (ValueError, TypeError, RecursionError):
             return findings + [{"path": name, "line": None, "rule": "invalid_json"}]
+        if Path(name).name.lower() in {"mcp.json", ".mcp.json"} and not isinstance(
+            value, dict
+        ):
+            return findings + [
+                {"path": name, "line": None, "rule": "invalid_mcp_config"}
+            ]
         servers = (
             value.get("mcpServers", value.get("mcp_servers", {}))
             if isinstance(value, dict)
@@ -119,7 +125,7 @@ def inspect_text(name: str, text: str) -> list[dict[str, Any]]:
                             }
                         )
                 url = server.get("url", "")
-                if isinstance(url, str) and url.startswith("http://"):
+                if isinstance(url, str) and url.strip().lower().startswith("http://"):
                     findings.append(
                         {"path": name, "line": None, "rule": "unencrypted_mcp_endpoint"}
                     )

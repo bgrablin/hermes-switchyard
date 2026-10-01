@@ -214,6 +214,29 @@ class CatalogTests(unittest.TestCase):
                 "invalid_mcp_config", {item["rule"] for item in report["findings"]}
             )
 
+    def test_mcp_roots_and_case_insensitive_endpoint(self):
+        for name in ("mcp.json", ".mcp.json"):
+            for value in ([], None, "invalid"):
+                with tempfile.TemporaryDirectory() as d:
+                    (Path(d) / name).write_text(json.dumps(value))
+                    report = scan_catalog(d)
+                    self.assertIn(
+                        "invalid_mcp_config", {f["rule"] for f in report["findings"]}
+                    )
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "mcp.json").write_text(
+                json.dumps(
+                    {"mcpServers": {"remote": {"url": "HTTP://example.invalid/mcp"}}}
+                )
+            )
+            report = scan_catalog(d)
+            self.assertIn(
+                "unencrypted_mcp_endpoint", {f["rule"] for f in report["findings"]}
+            )
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "generic.json").write_text("[]")
+            self.assertFalse(scan_catalog(d)["findings"])
+
     def test_untrusted_mcp_types_and_deep_json_are_reported(self):
         for payload in (
             {"mcpServers": {"bad": {"command": ["npx"]}}},
