@@ -1,49 +1,49 @@
-# Setup
+# Setup guide
 
-Hermes Switchyard has two separate setup boundaries:
+This guide takes you from nothing to a working Switchyard, and explains how to check that a Hermes session can actually use it. If you just want the short version, the [README quickstart](../README.md#quickstart) has it. If terms like "toolset" or "profile" are new, skim the [Concepts primer](CONCEPTS.md) first.
 
-1. Network access to download the public GitHub repository; no GitHub login or token is required.
-2. TypeSafe or OpenRouter access for live Jev decisions.
+**Overview:**
 
-A ChatGPT or Codex subscription is separate and does not pay Jev or OpenRouter request charges.
+1. Install and enable the plugin. No GitHub account is needed.
+2. Save one Jev key, for TypeSafe or OpenRouter.
+3. Start a fresh session and confirm the tools are visible.
 
-## Requirements
+## Before you start
 
-For skill selection, model routing, and `jev_assess`:
+You need:
 
-- Hermes Agent with the native plugin contract: `plugin.yaml`, a root `__init__.py`, and `register(ctx)`.
-- Python 3.11 or newer for the repository's offline checks.
-- Network access to `github.com/bgrablin/hermes-switchyard`.
-- Either a TypeSafe API key in the active profile as `TYPESAFE_API_KEY`, or an OpenRouter API key as `OPENROUTER_API_KEY`.
-- Enough account credit or current allowance for the selected route.
+- **Hermes Agent** with native plugin support. Adaptive reasoning effort also needs Hermes **0.21.4 or newer**. On older versions, effort adaptation just stays inactive.
+- **Network access** to `github.com/bgrablin/hermes-switchyard`. The repository is public, so no token is needed. Never put a token in a Git URL.
+- **One Jev API key:** either `TYPESAFE_API_KEY` (direct TypeSafe) or `OPENROUTER_API_KEY` (OpenRouter), with enough credit on that account.
+- **For browser goals:** a Chromium-family browser (Chrome, Chromium, or Edge). **For desktop apps:** Hermes' Cua Driver-backed `computer_use` tool on Windows, macOS, or Linux.
+- **For contributors only:** Python 3.11+ to run the repository's offline checks.
 
-For `jev_computer_use`, public web goals use a local Chromium-family browser and do not call Hermes `computer_use` between clicks. Desktop GUI goals still need the Cua Driver-backed `computer_use` tool on Windows, macOS, or Linux.
+> **Billing note:** Jev calls are billed by TypeSafe or OpenRouter. A ChatGPT or Codex subscription does not pay for them, even if Codex supplies your main Hermes model.
 
-The supported endpoints are `https://api.typesafe.ai/v1/systemone` and `https://openrouter.ai/api/alpha/decisions`. `jev_provider: auto` prefers direct TypeSafe when its key exists.
+## Step 1: Install and enable
 
-## Install
+The safest path installs first, then enables without allowing the plugin to override Hermes' built-in tools:
 
-The repository is public. No GitHub login or token is required. Do not put a token in a Git URL.
+```text
+hermes plugins install bgrablin/hermes-switchyard --no-enable
+hermes plugins enable hermes-switchyard --no-allow-tool-override
+```
 
-Install and enable the plugin with the supported one-liner:
+If you prefer one command:
 
 ```text
 hermes plugins install bgrablin/hermes-switchyard --enable
 ```
 
-Both provider keys are optional alternatives, so installation does not prompt for either one. To install without enabling first:
+Hermes security-scans the source during install. If the scan blocks the install, read the findings. Don't use `--force` just to get past it.
 
-```text
-hermes plugins install bgrablin/hermes-switchyard --no-enable
-hermes plugins list
-hermes plugins enable hermes-switchyard
-```
+Installation does not ask for a key, because either provider works. You'll add one next.
 
-Restart open TUI windows after installation or an update; they keep their previously loaded plugin code. Then start a fresh Hermes session.
+> **Already have Hermes open?** Running sessions and TUI windows keep the plugin code they started with. Close and reopen them after installing or updating.
 
-## Add a Jev key safely
+## Step 2: Add a Jev key
 
-Run exactly one provider-specific setup command and enter the key only in its masked prompt:
+Run **one** of these and type the key into the masked prompt:
 
 ```text
 hermes switchyard setup --provider typesafe
@@ -51,56 +51,138 @@ hermes switchyard setup --provider typesafe
 hermes switchyard setup --provider openrouter
 ```
 
-Do not put a key in `hermes auth add`, a command argument, URL, fixture, repository file, or issue report. Check plugin availability without displaying keys:
+Setup also runs `hermes switchyard ensure-toolsets`, which adds the `computer_use` and `hermes_switchyard` toolsets to your CLI toolset list (`platform_toolsets.cli`) without enabling anything else. If Hermes' coding focus mode (`agent.coding_context: focus`) is active, it takes precedence for sessions started without `-t`. In that case, pin the toolsets with `-t`, or leave focus mode, and confirm with `hermes switchyard status --json` (it reports `source: coding_posture`).
+
+Never put a key in `hermes auth add`, a command argument, a URL, a test fixture, a repository file, or an issue report.
+
+Keys belong to a **profile**. If you use several Hermes profiles, run setup in each one. After adding or changing a key, start a fresh session.
+
+## Step 3: Start fresh and check
+
+Start a new Hermes session, then:
 
 ```text
-hermes plugins list --enabled
+hermes plugins list --enabled          # is the plugin enabled?
+hermes switchyard status --json        # is a key present, and can a session call the tools?
 ```
 
-Profiles do not share secrets automatically. After adding or changing a key, start a fresh Hermes session.
+`status` runs locally with no network access and never prints your key. Its `status` field should be `ready`. If it says something else, see [Confirm what a session exposes](#confirm-what-a-session-exposes) below.
 
-## Confirm the plugin
-
-List enabled plugins:
-
-```text
-hermes plugins list --enabled
-```
-
-Run the native plugin check from the plugin root with a fresh temporary Hermes home when you do not want to change a live profile:
+**Optional: test the plugin loader without touching your real profile.** Run Plugin Doctor in a throwaway Hermes home:
 
 ```text
 HERMES_HOME="$(mktemp -d)" hermes plugins doctor . --ci
 ```
 
-On Windows, set `HERMES_HOME` to a new temporary directory using the shell's normal environment-variable syntax. Plugin Doctor imports and registers plugin code in-process, so it checks the real loader but is not a sandbox. Use it only with reviewed code.
+On Windows, set `HERMES_HOME` to a new temporary folder using your shell's syntax.
 
-A successful native check proves discovery and registration, not model quality, GUI completion, or permission to send private data. It also does not prove that a session can call a tool.
+Plugin Doctor really imports and runs the plugin's registration code. It is not a sandbox, so only run it on code you've reviewed. A pass proves the plugin loads and registers. It does **not** prove answer quality, browser success, permission to send private data, or that a particular session can call the tools.
 
+## Confirm what a session exposes
 
-## Adaptive reasoning effort (Hermes ≥ 0.21)
+Two separate facts decide whether a session can use a Switchyard tool:
 
-After install, adaptive reasoning effort is **on** in `auto` mode. Your
-`/reasoning` level is the cap by default: Switchyard registers Hermes `llm_request`
-middleware and may ask Jev to pick a lower level for routine steps. To choose, it
-sends Jev bounded text from your current message (not history, memory, plugin
-context, or tool results); set `adaptive_reasoning_effort` to `false` to send no
-message text. The default Jev decision budget is 0.4 s (configurable from 0.1 to 1.5 s); on timeout your level is sent unchanged. It also sends your level unchanged when Jev fails or no lower level exists.
-Changing `/reasoning` mid-session sets a new cap and keeps `auto` mode; it does
-not pin the session. Run `/switchyard effort pin` to send your selected level
-unchanged; run `/switchyard effort auto` to resume adaptation.
-The middleware rewrites only request-scoped effort fields;
-messages stay untouched for prompt-cache friendliness. The optional
-`adaptive_reasoning_effort_allow_raise` setting lets auto mode raise one wire
-level while the latest tool call failed; the next successful call clears it.
+- **Registered:** Hermes' registry holds this plugin's registration for the tool. Plugin Doctor checks this.
+- **Callable:** the tool is in the catalog Hermes builds for *this* session. That depends on which toolsets are selected. Only `hermes switchyard status` checks this.
 
-In a session:
+### Which toolset holds which tool
+
+- `jev_computer_use` is in the **`computer_use`** toolset, next to Hermes' own `computer_use` tool.
+- `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, and `jev_session_search_rerank` are in the **`hermes_switchyard`** toolset.
+
+### How Hermes picks toolsets for a session
+
+- **No `--toolsets` flag:** Hermes uses its default CLI selection. Under a default configuration, that includes both toolsets. If you saved a toolset list with `hermes tools` that leaves Computer Use off, `jev_computer_use` stays out.
+- **With `--toolsets` / `-t`:** your list **replaces** the defaults. It does not add to them. To get all seven tools, name both:
+
+  ```text
+  hermes -t computer_use,hermes_switchyard chat
+  ```
+
+  In PowerShell, quote the list (`-t "computer_use,hermes_switchyard"`), because an unquoted comma means something else there.
+- **`agent.disabled_toolsets` always wins.** Hermes subtracts this list from every CLI session, even one with an explicit pin. To undo it, remove the name from `agent.disabled_toolsets` in `config.yaml`, or enable the toolset in `hermes tools`.
+
+### Checking with `status`
+
+```text
+hermes switchyard status --json                                    # a session started with no -t flag
+hermes switchyard status --json --toolsets computer_use,terminal   # a session started with that exact pin
+```
+
+`status` asks Hermes' own catalog builder what a **fresh** session would get. It cannot see inside a session that's already running, so restart after changing anything. It always exits with code 0, so read the JSON. `status --json` also includes a `toolset_composition` object that names the required toolsets.
+
+The top-level `status` field names the **first** problem it found:
+
+| `status` | Meaning | What to do |
+| --- | --- | --- |
+| `tools_not_registered` | Hermes doesn't hold this plugin's registration for at least one tool. | Read that tool's `reason` (table below). |
+| `tools_not_callable` | Everything is registered, but at least one tool isn't in this session's catalog. | Read that tool's `reason`. |
+| `credential_required` | Tools are fine, but there's no key for the provider Switchyard will actually use (`effective_provider`). A key for the *other* provider doesn't count. | Run `hermes switchyard setup --provider …` for the effective provider, or set `jev_provider` to the provider whose key you have. |
+| `exposure_unverified` | A key exists, but Hermes' registry, catalog, or disabled list couldn't be read, so callability is unknown. | See `tool_exposure.unavailable_reason`. Nothing is assumed to work. |
+| `ready` | Key present, and all seven tools registered and callable. | Nothing. You're set. |
+
+**Which provider is "effective"?** With `jev_provider: auto`, it's TypeSafe if a TypeSafe key exists, otherwise OpenRouter. If you set `jev_provider` or `api_endpoint` explicitly, that wins. `effective_provider` is `null` when the route is invalid or the plugin didn't register in this process; `status` then accepts a key for either provider.
+
+Each entry in `tool_exposure.tools` has `expected_toolset`, `registered`, `registry_toolset`, `callable`, and `reason`. A `null` means "couldn't tell," and is never treated as available. `tool_exposure.selection` shows what was evaluated:
+
+- `source`: `explicit_toolsets`, `platform_default`, or `coding_posture`
+- `enabled_toolsets`
+- `disabled_toolsets`: read from `agent.disabled_toolsets`
+- `unknown_toolsets`: names Hermes ignores, such as a misspelled `computer-use`
+
+Per-tool `reason` codes:
+
+| `reason` | Stage | Meaning | Fix |
+| --- | --- | --- | --- |
+| `not_registered` | registration | Hermes has no entry for the tool. | `hermes plugins enable hermes-switchyard`, then start a fresh session. |
+| `owned_by_another_registration` | registration | Another registration already owns that tool name, usually a duplicate or pre-rename legacy copy of this plugin. Hermes silently refuses the second registration. `registry_toolset` names the owner. | Remove the duplicate or legacy copy, then start a fresh session. |
+| `toolset_not_selected` | exposure | The session's toolsets don't include `registry_toolset`. | Add it to `--toolsets`, or enable it in `hermes tools`. |
+| `toolset_disabled` | exposure | The toolset is in `agent.disabled_toolsets`, which overrides even an explicit pin. This is reported before `toolset_not_selected`, because adding it to `--toolsets` won't help. | Remove it from `agent.disabled_toolsets`, or enable it in `hermes tools`. |
+| `availability_check_failed` | exposure | The toolset is selected, but the tool's own availability check returned false. For decision tools, `jev_provider` or `api_endpoint` is invalid. For `jev_computer_use`, the platform is unsupported. | Fix the setting, then start a fresh session. |
+| `not_in_catalog` | exposure | Selected and available, yet Hermes still left the tool out. | Open an issue with your `status --json` output. The plugin can't see Hermes' reason. |
+
+If tools go missing after setup, re-run `hermes switchyard ensure-toolsets`.
+
+## Choosing a provider and model
+
+Switchyard talks to exactly two fixed endpoints:
+
+- Direct TypeSafe: `https://api.typesafe.ai/v1/systemone`
+- OpenRouter: `https://openrouter.ai/api/alpha/decisions`
+
+With the default `jev_provider: auto`, TypeSafe is preferred when its key exists. To choose explicitly:
+
+```text
+hermes config set plugins.entries.hermes-switchyard.settings.jev_provider auto
+```
+
+Leave `jev_model` empty to get each provider's default: `jev-latest` on TypeSafe, `typesafe/jev-1.13` on OpenRouter. If an older setup pinned the TypeSafe-only alias while using `auto`, clear it:
+
+```text
+hermes config unset plugins.entries.hermes-switchyard.settings.jev_model
+```
+
+**Jev is not your main model.** Jev makes the small decisions, and your configured Hermes model does everything else. A Codex login can supply Hermes' main model, but it does not give you TypeSafe or OpenRouter access, a key, or credit.
+
+All other settings: [Configuration reference](CONFIGURATION.md).
+
+## Adaptive reasoning effort, briefly
+
+After install, adaptive effort is **on** in `auto` mode:
+
+- **Your `/reasoning` level is the cap.** Jev may pick a lower level for routine steps. It never goes higher unless you enable `adaptive_reasoning_effort_allow_raise`, and then only by one level after a failed tool call.
+- **What Jev sees:** a bounded, scrubbed excerpt of your **current message** only. It never sees history, memory, plugin context, or tool results.
+- **Timing:** Jev gets 0.4 s by default (adjustable from 0.1 to 1.5 s). On timeout or any failure, your level is sent unchanged.
+- **Changing `/reasoning` mid-session** sets a new cap. It does not pin the session.
+- **Prompt caching is unaffected:** only the effort field of each request changes, never the messages.
+
+Session commands:
 
 ```text
 /switchyard effort status | pin | auto
 ```
 
-Settings:
+Common settings:
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort false
@@ -109,102 +191,46 @@ hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_
 hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort_allow_raise true
 ```
 
-Full behavior: [ADAPTIVE-REASONING-EFFORT.md](ADAPTIVE-REASONING-EFFORT.md).
+On a Hermes without `register_middleware`, the feature records `noop_seam_unavailable` and changes nothing. Full behavior: [ADAPTIVE-REASONING-EFFORT.md](ADAPTIVE-REASONING-EFFORT.md).
 
-On Hermes hosts without `register_middleware`, registration records
-`noop_seam_unavailable` and does not change requests. `jev_model_route` remains
-advisory (`applied: false`); adaptive effort is the apply path.
+## What each tool does
 
-## Confirm what a session exposes
+- **`jev_assess`** asks Jev typed questions, Choice (pick one), Score (rate on a scale), or Noul (yes/no), and validates the answers. Large sets of independent questions are split into bounded batches.
+- **`jev_skill_select`** searches the whole catalog you give it and returns the best skill. It does **not** load the skill.
+- **`jev_model_route`** filters and ranks model candidates you supply. It does **not** change the active model or use a fallback provider.
+- **`jev_computer_use`** runs bounded steps toward a goal: in a fresh browser for public web pages, or through Hermes' Cua Driver for desktop apps. It rechecks targets before acting. A finished run is a *completion candidate* with `verified: false`, until something else independently checks the result. Desktop receipts are always unverified. The browser receipt's dual-gate verified state isn't reached by the current loop; see [Action evidence](DOM-BROWSER-BACKEND.md#action-evidence).
 
-Hermes puts a tool in a session's callable catalog only when the toolset the tool is registered under is selected for that session. The required composition is:
+Jev may abstain. A confidence number is not a correctness guarantee.
 
-- `jev_computer_use` is exposed only when the `computer_use` toolset is selected. Hermes' own `computer_use` tool is in the same toolset.
-- `jev_assess`, `jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_model_route_approved`, and `jev_session_search_rerank` are exposed only when the `hermes_switchyard` toolset is selected.
-- A session started without `--toolsets` uses Hermes' default CLI selection, which includes both toolsets under a default configuration. A toolset list saved by `hermes tools` that leaves Computer Use off keeps `jev_computer_use` out of sessions.
-- An explicit `--toolsets` (`-t`) pin replaces the default selection and does not add plugin toolsets. To expose all seven tools, name both: `hermes -t computer_use,hermes_switchyard chat`. In PowerShell, quote the list, because an unquoted comma is PowerShell's array operator.
-- Hermes also subtracts the configured `agent.disabled_toolsets` list from every CLI session, including one with an explicit pin. A required toolset named there stays unreachable whatever `--toolsets` says, so naming both toolsets is not enough while either is listed. To clear the suppression, remove the name from `agent.disabled_toolsets` in `config.yaml`, or enable the toolset in `hermes tools`, which also removes it from that list for the CLI. `status` reads the same list, so it reports the suppression instead of a false `callable`.
-
-Registered and callable are different facts. Registered means Hermes' registry holds this plugin's own registration for the tool. Callable means the tool is in the catalog Hermes builds for a session with a given toolset selection. Hermes Plugin Doctor reports discovery/import/registration only and does not evaluate per-session callable exposure. The plugin's own status command reports both, with no network access. `status --json` also includes a `toolset_composition` object that names the required toolsets and repeats that Doctor boundary. To add `computer_use` and `hermes_switchyard` to `platform_toolsets.cli` without enabling unrelated toolsets, run `hermes switchyard ensure-toolsets` (also invoked from `setup` after saving a key):
-
-```text
-hermes switchyard status --json
-hermes switchyard status --json --toolsets computer_use,terminal
-```
-
-The first form evaluates the toolsets Hermes' CLI uses for a session started without `--toolsets`. The second evaluates an explicit pin, so you can reproduce what a scripted launch will expose. `status` evaluates a fresh session with Hermes' own catalog builder. It does not read the catalog of a session that is already running, so start a fresh session after changing the plugin, its configuration, or the toolsets. The command exits with status 0 in every state; read the JSON.
-
-The `status` field names the first problem found, in this order:
-
-| `status` | Meaning | What to do |
-| --- | --- | --- |
-| `tools_not_registered` | Hermes' registry does not hold this plugin's registration for at least one tool. | Read that tool's `reason`. |
-| `tools_not_callable` | Every tool is registered, but at least one is missing from the evaluated session catalog. | Read that tool's `reason`. |
-| `credential_required` | The tools are registered and callable, but the key for the provider the configured route uses (`effective_provider`) is missing. A key for the other provider does not count: an explicit `jev_provider` or `api_endpoint` can select OpenRouter while only a TypeSafe key exists, or the reverse. | Run `hermes switchyard setup --provider typesafe` or `--provider openrouter` for the effective provider, or point `jev_provider` at the provider whose key exists. |
-| `exposure_unverified` | The effective provider's key exists, but Hermes' registry, catalog, or configured suppression list could not be read, so callability is unknown. | See `tool_exposure.unavailable_reason`. Nothing is assumed available. |
-| `ready` | The effective provider's key exists and all seven tools are registered and callable in the evaluated selection. | None. |
-
-`tool_exposure.tools` lists each tool with `expected_toolset`, `registered`, `registry_toolset`, `callable`, and `reason`. A `null` value means it could not be determined, and it is never treated as available. `tool_exposure.selection` names the evaluated `source` (`explicit_toolsets`, `platform_default`, or `coding_posture`), the `enabled_toolsets`, the `disabled_toolsets` read from `agent.disabled_toolsets`, and any `unknown_toolsets`, which are names Hermes ignores, such as a misspelled `computer-use`. `effective_provider` is `typesafe` or `openrouter`: with `jev_provider: auto` the route uses TypeSafe when its key exists and OpenRouter otherwise. It is `null` when the route is invalid or the plugin did not register in this process, and `status` then accepts a key for either provider.
-
-| `reason` | Stage | Meaning | Fix |
-| --- | --- | --- | --- |
-| `not_registered` | registration | Hermes' registry has no entry for the tool. | Enable the plugin with `hermes plugins enable hermes-switchyard`, then start a fresh session. |
-| `owned_by_another_registration` | registration | The registry holds an entry under that name that this plugin did not register. Hermes rejects a second registration of a name that already sits in a different toolset, and it does so without raising an error, so a duplicate or legacy copy of the plugin, such as an install from before the rename to Hermes Switchyard, can hold the name. `registry_toolset` names the toolset that owns it. | Remove the duplicate or legacy copy and start a fresh session. |
-| `toolset_not_selected` | exposure | The selected toolsets do not include `registry_toolset`. | Add that toolset to `--toolsets`, or enable it in `hermes tools`. |
-| `toolset_disabled` | exposure | `registry_toolset` is listed in `agent.disabled_toolsets`, which Hermes subtracts last, even from an explicit pin. It is reported ahead of `toolset_not_selected`, because adding the toolset to `--toolsets` cannot help. | Remove it from `agent.disabled_toolsets` in `config.yaml`, or enable it in `hermes tools`. |
-| `availability_check_failed` | exposure | The toolset is selected, but the tool's own availability check returned false. For the decision tools that means an invalid or contradictory `jev_provider` or `api_endpoint`. For `jev_computer_use` it means an unsupported platform. | Correct the setting the check reads, then start a fresh session. |
-| `not_in_catalog` | exposure | The toolset is selected and the check passes, yet Hermes left the tool out. | Open an issue with the `status --json` output. The plugin cannot see Hermes' reason. |
-
-## Configure the plugin
-
-The plugin settings are profile-scoped under `plugins.entries.hermes-switchyard.settings`:
-
-```text
-hermes config set plugins.entries.hermes-switchyard.settings.jev_provider auto
-hermes config set plugins.entries.hermes-switchyard.settings.computer_max_steps 100
-```
-
-Leave `jev_model` empty to use the provider default. Direct TypeSafe uses `jev-latest`; OpenRouter uses `typesafe/jev-1.13`.
-
-If an earlier setup pinned the TypeSafe-only alias while using `auto`, remove it so provider-specific defaults work:
-
-```text
-hermes config unset plugins.entries.hermes-switchyard.settings.jev_model
-```
-
-Text-entry and value-selection actions use only bounded caller-supplied values from `text_inputs`; the registered `jev_computer_use` tool never calls a conversational Hermes LLM to compose field text between Jev actions. If a text action needs a value, supply it in `text_inputs` before the operation. Jev and the configured host model are separate: Jev makes the decision, and the host model is used elsewhere. That model is separate from Jev. A Codex login can supply Hermes' host model when configured, but it does not supply a TypeSafe or OpenRouter account, key, credit, or Jev access.
+For text fields, `jev_computer_use` uses only values the caller supplies in `text_inputs`. It never asks a chat model to make up field text between steps, so supply any needed values up front.
 
 ## Privacy requirements
 
-`public_or_sanitized_data_ack` is on after install. Callers may omit it. Pass `false` to refuse one call, or set `plugins.entries.hermes-switchyard.settings.public_or_sanitized_data_ack` to false to refuse all Jev tools. Hermes owns data classification. The flag is not a scan, redaction guarantee, DLP control, or permission to bypass another control.
+`public_or_sanitized_data_ack` is on after install, so callers don't have to pass it. To refuse a single call, the caller passes `false`. To refuse all Jev tool calls, set the setting to `false`.
 
-For a Cua Driver request, Switchyard builds a bounded decision state from the goal, target application, window title, safe controls, visible context, and recent actions. Text entry can also use selected field context with the configured Hermes text model. The caller must exclude private, employer, regulated, credential, password, API-key, token, payment, and verification-code data before invocation.
+This flag is your attestation, not a scanner. It doesn't redact anything, doesn't act as DLP, and doesn't override any other control. Hermes owns data classification.
 
-## What is supported
+For desktop computer use, Switchyard builds a bounded snapshot from the goal, target app, window title, safe controls, visible context, and recent actions. Text entry types only the values the caller supplies in `text_inputs`. No Hermes text model is asked to compose field text. **Before calling it, make sure none of that contains** private, employer, regulated, credential, password, API-key, token, payment, or verification-code data.
 
-- `jev_assess` validates public/sanitized Choice, Score, and Noul answers and batches large independent question maps into bounded requests.
-- `jev_skill_select` searches the full supplied catalog through partitioned Choices. It does not load the skill.
-- `jev_model_route` filters and ranks explicit candidate metadata. It does not change the active model or use a fallback provider.
-- `jev_computer_use` runs bounded actions through Hermes' Cua Driver-backed tool on Windows, macOS, and Linux. It rechecks targets before acting and returns `verified: false` until Hermes independently checks the result.
-- Jev may abstain. A confidence value is not a correctness guarantee.
+## If your key is missing
 
-## Missing-key symptoms and recovery
+The tools still appear, but every call fails safely until you add a key. Install prints `after-install.md`; `hermes switchyard guide` shows it again.
 
-If neither `TYPESAFE_API_KEY` nor `OPENROUTER_API_KEY` is available, the tools still appear after enablement. Calls fail closed until you save one key. Install prints `after-install.md`; `hermes switchyard guide` reprints it.
+To fix it:
 
-Recover without changing code:
-
-1. Run `hermes switchyard setup --provider typesafe` or use `--provider openrouter` and enter the key only in the masked prompt.
+1. Run `hermes switchyard setup --provider typesafe` (or `--provider openrouter`) and enter the key in the masked prompt.
 2. Start a fresh Hermes session.
 3. Run `hermes plugins list --enabled`.
-4. Run `hermes plugins doctor . --ci` from the plugin root if discovery remains unclear.
+4. If discovery still looks wrong, run `hermes plugins doctor . --ci` from the plugin folder.
 
-A Codex login, a different `jev_model` value, or a missing direct key does not fix a missing secret. Choose the provider whose profile secret is present.
+A Codex login, a different `jev_model`, or a key for the *other* provider won't fix a missing key. Use the provider whose key you actually saved.
 
-## Limits and future work
+## Limits
 
-Automatic skill routing defaults to hosted_sanitized + load with standing acknowledgement after install. The load path invokes Hermes' normal `skill_view` loader once for an accepted identified turn; explicit skill instructions, abstention, invalid output, and loader rejection suppress the automatic load. Opt down to `local_only` / `advisory` for privacy. The release does not change the active Hermes model, use provider fallback, claim calibrated correctness, or certify GUI completion independently. Cua Driver remains the host-owned desktop executor; Switchyard adds the Jev decision layer and does not bypass its approval or platform boundaries.
+- Automatic skill routing is on by default (`hosted_sanitized` + `load`). It loads at most one accepted skill per turn through Hermes' normal `skill_view` loader. Naming a skill yourself, an abstention, an invalid answer, or a loader rejection all prevent the automatic load. For more privacy, switch to `local_only` or `advisory`.
+- Switchyard never changes your active Hermes model, never uses provider fallback, and doesn't claim calibrated correctness or independently certify that a GUI task finished.
+- For desktop work, Cua Driver remains Hermes' own executor. Switchyard adds the decision layer on top and does not bypass Cua Driver's approvals or platform limits.
 
-## Optional automatic source prefetch
+## Optional: automatic source prefetch
 
-See [SOURCE-FINDER.md](SOURCE-FINDER.md) for enabling bounded evidence prefetch from normal Hermes requests. It adds no callable tool and requires no toolset selection.
+To have Switchyard fetch an exact passage from a file you name before Hermes answers, see [SOURCE-FINDER.md](SOURCE-FINDER.md). It adds no tool and needs no toolset.

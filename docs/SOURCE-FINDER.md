@@ -1,111 +1,115 @@
-# Automatic source prefetch
+# Automatic source prefetch (opt-in pilot)
 
-Ask Hermes normally: "In notes.md, find the retry limit."
-When enabled, a pre-turn hook can retrieve an exact supporting passage before the
-first main-model request. There is no slash command or callable finder tool.
-Unsupported wording, unknown filenames, recognized compound requests, and declined lookups
-continue through ordinary Hermes search/read tools without finder discovery.
+**In short:** ask Hermes a normal question that names a file, such as *"In notes.md, find the retry limit."* With this pilot turned on, Switchyard finds the exact supporting passage **before** Hermes' first model call, and hands it over with the file name, line range, and a hash of what was read. Hermes can then answer directly instead of spending a round searching and reading.
 
-## Enable the pilot
+There's nothing new to learn: no slash command and no tool. If your request doesn't fit the supported pattern, or the evidence is uncertain, Hermes does what it always does and uses its normal search and read tools.
 
-Set these plugin settings and start a fresh Hermes session:
+**Status:** off by default. It is a pilot that is still being qualified. Unreleased; planned for 0.6.0.
+
+## Turn it on
+
+Set two settings, then start a fresh Hermes session:
 
 ```yaml
 evidence_finder_enabled: true
 evidence_finder_root: /absolute/path/to/public-source
 ```
 
-The directory must contain operator-approved public or sanitized text. File names
-in requests are relative to this configured source root. The feature stays off by
-default while qualification continues. It requires the existing pre_llm_call hook;
-no toolset selection, execution middleware, or Hermes source modification is needed.
-A refused public_or_sanitized_data_ack disables registration. The earlier draft's
-evidence_finder_prefetch switch and switchyard_find tool have been removed.
+Using the command line:
 
-## Eligibility and fallback
+```text
+hermes config set plugins.entries.hermes-switchyard.settings.evidence_finder_enabled true
+hermes config set plugins.entries.hermes-switchyard.settings.evidence_finder_root /absolute/path/to/public-source
+```
 
-For a single-file lookup, the original user message must name one file in a supported
-form: "In file.md, find ..." or "Find ... in file.md". Quoted paths are accepted.
-An explicit list of two to eight files uses the [multi-file form below](#multiple-named-files).
-A second line may request
-a complete supported JSON format; other multiline and recognized compound work stays with
-Hermes. Explicit printable, nonblank session, task, and turn identities, an empty
-parent-session identity (foreground work), and a supported interactive platform are required. Missing or
-malformed identity skips prefetch before source I/O or provider work.
+- **The folder** must contain text you've approved as public or sanitized, because passages from it are sent to Jev.
+- **File names** in your requests are relative to that folder.
+- It uses the existing `pre_llm_call` hook. No toolset, middleware, or Hermes change is needed.
+- If `public_or_sanitized_data_ack` is `false`, the feature doesn't register.
 
-Privacy and network constraints in the original request skip lookup. Any supplied
-host egress envelope also skips lookup because it may authorize a smaller payload.
-The privacy and compound-action cue scanners are conservative heuristics. They can skip benign mentions, do not recognize every possible natural-language constraint or second action, and are not
-a general intent parser or data-loss-prevention system. The hook never reads history
-or model-generated tool arguments. Duplicate suppression retains the 256 most recent
-eligible scope/message keys. A repeat within that window skips work; an evicted key
-may perform a fresh lookup. Evidence is never cached or reinjected from an earlier callback.
-Host-envelope refusals apply to the entire session/task/turn scope, regardless of
-message changes or an initially malformed message. They are retained separately
-from ordinary duplicate suppression and never evicted to admit another lookup.
-A later callback cannot broaden a refusal by changing the text or omitting the
-envelope. A refusal recorded while a lookup is in flight suppresses its returned
-context; it cannot recall a provider request already dispatched. If the bounded refusal store fills, prefetch stops for that hook instance
-until the plugin is reloaded; ordinary Hermes tools continue normally. Within an
-unrefused scope, a new query reads afresh.
+The earlier draft's `evidence_finder_prefetch` switch and `switchyard_find` tool no longer exist.
 
-Only exact positive evidence is supplied for direct answering. Missing, uncertain,
-invalid, or late results keep normal file tools. There is no internal main-model
-fallback call. Source data is untrusted current-turn user context, never a system
-instruction. A final Hermes answer can still be wrong; provenance is not correctness.
+## How to ask
 
-## Contract and limits
+**One file:**
 
-- Single-file lookup reads one relative file beneath the configured absolute root;
-  multi-file lookup uses the tighter aggregate limits below. Maximum 80,000 bytes,
-  strict UTF-8, no hidden components, traversal, symlinks, or nonregular files.
-- Descriptor-relative no-follow reads are required. Unsupported hosts defer.
-- At most 240 passages, 24 lines and 2,400 characters per passage; no silent truncation.
-- One logical Jev request combines passage selection and existence scoring. Its
-  three-second acceptance deadline includes verification and cleanup. Synchronous
-  filesystem calls cannot be forcibly interrupted. Bounded transport retry rules apply.
-- Source and query pass Hermes's egress scrubber. Missing scrubbing or required masking
-  defers before network work; a clean result does not classify all private data.
-- A second read verifies the same bytes, identity, and metadata after inference.
-  Changed/replaced sources defer. Returned evidence preserves original line endings,
-  source-relative path, line range, and SHA-256 of the captured read.
-- No result cache, repository crawling, generated quotations, or automatic edits.
+- "In file.md, find …"
+- "Find … in file.md"
 
-## Evaluation
+Quoted paths are fine.
 
-Evaluate complete ordinary-prompt conversations, including selection, Jev calls,
-verification, fallback, and final answers. Operation-only timing is not conversation
-latency. Retain controls, failures, unknown billing, source revisions, and scope checks.
-The previous callable-tool prototype and the narrowed prefetch pilot are separate
-candidates. Historical results keep their original acceptance verdicts.
-
-Future evaluations declare either efficiency (preserved outcomes with material time
-savings) or capability (better outcomes within a bounded latency budget) before calls.
-See [the prospective evaluation policy](VALUE-EVALUATION.md).
-
-
-## Multiple named files
-
-The same opt-in settings also recognize an explicit list of two to eight
-backtick-quoted filenames, for example:
+**Two to eight files:** list them in backticks:
 
 > In `implementation.md`, `policy.md` and `check.md`, find the queue overload behavior.
 
-One bounded Jev request evaluates each passage by its stable key, including
-supporting configuration, tests and contradictory documentation. Exact duplicate
-text shares citations. Distinct relevant passages remain separate, with their
-own file hashes and line ranges. All captured files are rechecked after inference,
-including files scored irrelevant.
+**Optional second line:** you may ask for a complete, supported JSON format on a second line. Other multi-line or compound requests ("find X *and then* rewrite it") are left to Hermes.
 
-The aggregate input limit is 80,000 bytes and 64 passages. The output limit is
-eight distinct passages and 12,000 characters. Uncertain decisions, missing
-results and exceeded budgets defer the whole lookup to normal file tools; the
-implementation does not silently truncate a bundle or assert repository-wide
-absence. Limits and relevance thresholds are local policy, not calibrated
-correctness probabilities. The existing three-second acceptance deadline,
-source-root boundary, acknowledgement, sanitization and foreground scope gates
-also apply. Unknown list syntax continues through ordinary Hermes tools.
+## When it steps aside
 
-This extends an opt-in pilot. See [the experiment record](AWESOME-JEV-EVALUATION.md)
-for component results, the passed 80-conversation native pilot, and its bounded
-qualification limits.
+Prefetch skips the turn, and Hermes handles it normally, when:
+
+- the wording or list syntax isn't recognized, or a file is unknown;
+- the request is compound, or mentions privacy or network constraints;
+- Hermes supplied an egress policy envelope for the turn (it might authorize a smaller payload);
+- the turn isn't a foreground interactive one. Prefetch requires explicit, printable session, task, and turn IDs, an empty parent-session ID, and a supported platform. Missing or malformed IDs skip prefetch before any file or network work.
+- the evidence is missing, uncertain, invalid, or late.
+
+There's no hidden fallback model call. The cue detectors for privacy and compound requests are conservative heuristics. They can skip harmless requests, they won't catch every constraint, and they are not a general intent parser or DLP system.
+
+The hook never reads conversation history or tool arguments the model wrote.
+
+## Trust and limits
+
+- **Only exact, positive evidence is passed on.** Source text is treated as untrusted user-turn context, never as a system instruction.
+- **Provenance is not correctness.** Hermes' final answer can still be wrong.
+- **No caching or reuse.** Evidence is never cached or re-injected from an earlier turn.
+
+### Duplicate and refusal tracking
+
+- **Duplicates.** The 256 most recent eligible scope-and-message keys are remembered, and a repeat within that window is skipped. Once a key is evicted, a repeat may run a fresh lookup. Within an unrefused scope, a new question always reads the files afresh.
+- **Host refusals.** When a host envelope refuses a session, task, or turn, the refusal covers that whole scope, even if the message changes or was initially malformed. Refusals are stored separately from duplicates and are never evicted to make room.
+- **No broadening.** A later callback can't widen a refusal by changing the text or dropping the envelope.
+- **In-flight lookups.** A refusal recorded while a lookup is running suppresses its result. It can't recall a provider request that has already been sent.
+- **A full refusal store** stops prefetch for that hook instance until the plugin reloads. Ordinary Hermes tools keep working.
+
+## Technical contract
+
+**Reading files**
+
+- A single-file lookup reads one relative file under the configured absolute root, up to 80,000 bytes of strict UTF-8.
+- Hidden path components, `..` traversal, symlinks, and non-regular files are refused.
+- Reads must be descriptor-relative and no-follow. Hosts that can't do that skip prefetch.
+- At most 240 passages, each up to 24 lines and 2,400 characters. Nothing is silently truncated.
+
+**Asking Jev**
+
+- One logical Jev request selects the passage and scores whether the answer exists.
+- The 3-second acceptance deadline includes verification and cleanup. Synchronous filesystem calls can't be forcibly interrupted. Bounded transport retry rules apply.
+- The source and query both go through Hermes' egress scrubber. If scrubbing is unavailable or masking would be needed, the lookup steps aside before any network work. A clean scrub doesn't mean all private data was caught.
+
+**Verifying the result**
+
+- After Jev answers, the file is read a second time to confirm the same bytes, identity, and metadata. A changed or replaced file means the lookup steps aside.
+- Returned evidence keeps the original line endings, the relative path, the line range, and the SHA-256 of the captured read.
+
+**Never done:** result caching, repository crawling, generated quotations, or automatic edits.
+
+### Multiple named files
+
+The same settings also handle an explicit backtick list of two to eight files.
+
+- **One request for all files.** A single bounded Jev request evaluates each passage by a stable key, including supporting configuration, tests, and contradicting documentation.
+- **Duplicates and citations.** Exact duplicate text shares citations. Distinct relevant passages stay separate, each with its own file hash and line range.
+- **Rechecks.** Every captured file is rechecked after inference, including files scored irrelevant.
+- **Limits.** Input is capped at 80,000 bytes and 64 passages in total. Output is capped at eight distinct passages and 12,000 characters.
+- **All or nothing.** Uncertain decisions, missing results, and exceeded budgets hand the *whole* lookup back to Hermes' normal tools. A bundle is never silently truncated, and absence is never claimed for the whole repository.
+
+Limits and relevance thresholds are local policy, not calibrated probabilities. The 3-second deadline, source-root boundary, acknowledgement, scrubbing, and foreground-only rules all still apply. Unrecognized list syntax goes to Hermes' ordinary tools.
+
+## Evaluation
+
+This pilot is judged on **complete conversations** with ordinary prompts: selection, Jev calls, verification, fallback, and the final answer. Timing a single operation doesn't measure conversation latency. Evaluations keep their controls, failures, unknown billing, source revisions, and scope checks.
+
+The earlier callable-tool prototype and this narrowed pilot are separate candidates, and historical results keep their original verdicts. Future evaluations declare up front whether they're testing **efficiency** (same outcomes, materially faster) or **capability** (better outcomes within a latency budget). See the [prospective evaluation policy](VALUE-EVALUATION.md).
+
+The multi-file extension passed an 80-conversation native pilot. Component results and limits are in [the experiment record](AWESOME-JEV-EVALUATION.md).
