@@ -9,6 +9,7 @@ from collections import OrderedDict
 from typing import Any
 
 from .source_find import MAX_QUERY_CHARS, locate
+from .source_bundle import MAX_FILES, locate_many
 from .egress import source_lookup_needs_local_handling
 
 _NAMED_SOURCE = re.compile(
@@ -116,6 +117,30 @@ def request_source(message: Any) -> str | None:
     return source if "." in source.rsplit("/", 1)[-1] and len(source) <= 512 else None
 
 
+
+def request_sources(message: Any) -> list[str] | None:
+    """Explicit backtick-quoted file lists; unknown syntax keeps ordinary tools."""
+    if not _valid_message(message):
+        return None
+    lines = message.strip().splitlines()
+    match = re.fullmatch(r"In\s+((?:`[^`\n]+`(?:,\s*|\s+and\s+|,\s*and\s+))*`[^`\n]+`),\s*(.+)",
+                         lines[0], re.I)
+    if not match:
+        return None
+    filenames = re.findall(r"`([^`]+)`", match.group(1))
+    if not 2 <= len(filenames) <= MAX_FILES or len(set(filenames)) != len(filenames):
+        return None
+    # Reuse the single-file full-message checks, including format-only suffixes
+    # and privacy/compound-action refusal. Never infer a path from query text.
+    proxy = "In `" + filenames[0] + "`, " + match.group(2)
+    if len(lines) > 1:
+        proxy += "\n" + "\n".join(lines[1:])
+    if request_source(proxy) is None or any(
+            "." not in name.rsplit("/", 1)[-1] or len(name) > 512 for name in filenames):
+        return None
+    return filenames
+
+
 def build_hook(*, enabled: bool, root: str, standing_ack: bool, client_factory: Any):
     """Never inject cached evidence. A duplicate invocation only skips work."""
     consumed: OrderedDict[tuple[str, ...], None] = OrderedDict()
@@ -158,11 +183,14 @@ def build_hook(*, enabled: bool, root: str, standing_ack: bool, client_factory: 
         if turn_egress_policy is not None or egress_policy is not None:
             refuse(key)
             return None
-        source = request_source(user_message)
-        if source is None or not consume(key):
+        sources = request_sources(user_message)
+        source = request_source(user_message) if sources is None else None
+        if (source is None and sources is None) or not consume(key):
             return None
         try:
-            result = locate(root=root, source=source, query=user_message.strip().splitlines()[0].strip(),
+            lookup = locate_many if sources else locate
+            result = lookup(root=root, **({"sources": sources} if sources else {"source": source}),
+                            query=user_message.strip().splitlines()[0].strip(),
                             client_factory=client_factory, public_or_sanitized_data_ack=True)
             # This ephemeral block belongs to the current user turn. Source
             # evidence is data; neither provider text nor source instructions
@@ -187,3 +215,4 @@ def build_hook(*, enabled: bool, root: str, standing_ack: bool, client_factory: 
             return None
 
     return hook
+

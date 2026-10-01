@@ -70,3 +70,29 @@ candidates. Historical results keep their original acceptance verdicts.
 Future evaluations declare either efficiency (preserved outcomes with material time
 savings) or capability (better outcomes within a bounded latency budget) before calls.
 See [the prospective evaluation policy](VALUE-EVALUATION.md).
+
+
+## Multiple named files (draft extension)
+
+The same opt-in settings also recognize an explicit list of two to eight
+backtick-quoted filenames, for example:
+
+> In `implementation.md`, `policy.md` and `check.md`, find the queue overload behavior.
+
+One bounded Jev request evaluates each passage by its stable key, including
+supporting configuration, tests and contradictory documentation. Exact duplicate
+text shares citations. Distinct relevant passages remain separate, with their
+own file hashes and line ranges. All captured files are rechecked after inference,
+including files scored irrelevant.
+
+The aggregate input limit is 80,000 bytes and 64 passages. The output limit is
+eight distinct passages and 12,000 characters. Uncertain decisions, missing
+results and exceeded budgets defer the whole lookup to normal file tools; the
+implementation does not silently truncate a bundle or assert repository-wide
+absence. Limits and relevance thresholds are local policy, not calibrated
+correctness probabilities. The existing three-second acceptance deadline,
+source-root boundary, acknowledgement, sanitization and foreground scope gates
+also apply. Unknown list syntax continues through ordinary Hermes tools.
+
+This extends an opt-in pilot. See [the experiment record](AWESOME-JEV-EVALUATION.md)
+for positive component results and the unresolved full-conversation evaluation.
