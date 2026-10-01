@@ -112,7 +112,7 @@ class RequestPlanningTests(unittest.TestCase):
         questions = {f'q{i}"é😀': {"type": "noul", "instructions": "read\n" + "é" * (i % 9)} for i in range(600)}
         for endpoint, model in ((client.DEFAULT_ENDPOINT, client.EXPECTED_MODEL), (client.TYPESAFE_ENDPOINT, "jev-1.13.0")):
             calls = []
-            decider = client.DecisionClient(api_key="synthetic", endpoint=endpoint, model=model, transport=lambda payload: (calls.append(payload), transport(payload))[1])
+            decider = client.DecisionClient(api_key="fixture-key", endpoint=endpoint, model=model, transport=lambda payload: (calls.append(payload), transport(payload))[1])
             for state in ({"text": "small"}, {"text": "é" * 35000}):
                 with self.subTest(endpoint=endpoint, large=len(state["text"]) > 10):
                     calls.clear()
@@ -130,7 +130,7 @@ class RequestPlanningTests(unittest.TestCase):
 
     def test_client_exact_byte_boundary(self):
         calls = []
-        decider = client.DecisionClient(api_key="synthetic", transport=lambda payload: (calls.append(payload), transport(payload))[1])
+        decider = client.DecisionClient(api_key="fixture-key", transport=lambda payload: (calls.append(payload), transport(payload))[1])
         questions = {f"q{i}": {"type": "noul", "instructions": "é" * 10} for i in range(3)}
         boundary = len(json.dumps(decider._payload("task", dict(list(questions.items())[:2])), ensure_ascii=False).encode())
         for delta in (-1, 0, 1):
@@ -143,7 +143,7 @@ class RequestPlanningTests(unittest.TestCase):
 
     def test_invalid_tail_and_budget_fail_before_transport(self):
         calls = []
-        decider = client.DecisionClient(api_key="synthetic", transport=lambda payload: (calls.append(payload), transport(payload))[1])
+        decider = client.DecisionClient(api_key="fixture-key", transport=lambda payload: (calls.append(payload), transport(payload))[1])
         question = {"type": "noul", "instructions": "public synthetic input"}
         for state, questions in ((float("nan"), {"q": question}), ("task", {"q": question, "tail": {"type": "noul", "instructions": "x" * 96000}})):
             with self.assertRaises(ValueError):

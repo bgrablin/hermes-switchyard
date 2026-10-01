@@ -11,7 +11,7 @@ Requests that fit in one batch take a direct path. There is no new setting.
 
 The baseline is main `541649a3ae64eb666a3e85dff35a03642d00030a`.
 The final candidate is reconstructed by applying the v1 patch and then the v2
-patch in `evidence/source-records.tar.gz` to that baseline. Frozen source hashes
+patch in `frozen/source-records.tar.gz` to that baseline. Frozen source hashes
 identify the measured Python files independently of the eventual PR commit.
 
 The primary claim was frozen before each run: identical plans and payloads,
@@ -94,9 +94,9 @@ Availability alone is not a reason to change the configured provider.
 
 ## Reproduce and inspect
 
-`evidence/measurements.tar.gz` contains the v1/v2 freezes, every raw observation,
-and summaries. `evidence/source-records.tar.gz` contains the baseline revision and
-both source patches. `evidence/sha256.json` binds the archives and visible summaries.
+`frozen/measurements.tar.gz` contains the v1/v2 freezes, every raw observation,
+and summaries. `frozen/source-records.tar.gz` contains the baseline revision and
+both source patches. `frozen/sha256.json` binds the archives and visible summaries.
 No credentials, user tasks, or private source text are included.
 
 Run `python evaluation/hotpath/verify.py` to check retained evidence, completeness,
