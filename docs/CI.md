@@ -1,5 +1,13 @@
 # CI and release verification
 
+**In short:** there are three layers of checks.
+
+1. **Offline checks on every pull request:** fast, with no network calls to Jev. The full OS and Python matrix runs on `main` and weekly.
+2. **Native compatibility:** loads the plugin into a pinned, real Hermes checkout.
+3. **Live Jev checks:** manual only, behind a protected environment.
+
+Report-only jobs watch for upstream Hermes drift without blocking anything.
+
 This repository has three separate CI boundaries. Offline checks never call OpenRouter. Native compatibility uses the pinned Hermes checkout and the real loader. Live Jev checks are manual, source-allowlisted, and require a protected GitHub environment. A report-only job in the compatibility workflow checks upstream HEAD; a separate workflow checks pin drift. Neither report gates a change.
 
 ## Offline compatibility

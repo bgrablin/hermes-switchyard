@@ -1,5 +1,16 @@
 # Approved model routing
 
+**In short:** Switchyard can *recommend* which model should handle a task. You keep a list of models you've approved, with their cost, data rules, and capabilities. Jev judges which approved models fit the task, and code picks the cheapest one that qualifies. **It never switches your model.** Every result says `applied: false`, and changing models stays a deliberate step you take in Hermes.
+
+There are two tools:
+
+| Tool | Candidates come from | Use it when |
+| --- | --- | --- |
+| `jev_model_route` | The caller, in the tool call | You want a quick, bounded comparison of models you name |
+| `jev_model_route_approved` | Your profile's approved registry (settings below) | You want a recommendation only from models you've vetted |
+
+The registry is empty by default, so `jev_model_route_approved` recommends nothing until you configure it.
+
 `jev_model_route_approved` evaluates only the active profile's locally configured, explicitly approved model registry. It is an advisory routing point: the result never changes the active Hermes model, provider, account, configuration, or fallback chain.
 
 ## Why this exists
@@ -88,6 +99,8 @@ Switchyard does not apply it. The operator or coordinator must use Hermes' norma
 Offline tests prove registry validation, expiry, cheapest-qualified selection, provider-failure classification, and no automatic switch. They do not prove that a recommended model can complete an arbitrary task or that its account currently has quota.
 
 ## Hermes model-selection apply seam
+
+> **For maintainers.** The rest of this page explains why Switchyard can't apply a recommendation yet, and what Hermes would need to add.
 
 ### Checked upstream status
 

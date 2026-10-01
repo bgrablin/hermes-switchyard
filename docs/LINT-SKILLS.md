@@ -1,4 +1,6 @@
-# Offline skill-routability lint
+# Skill description lint (`lint-skills`)
+
+**In short:** automatic skill routing works best when every skill's description is clearly different from the others. This command reads your skill names and descriptions and flags pairs that look too alike, plus descriptions that are too short, too long, or don't start with "Use when". It runs entirely offline, changes nothing, and is a hint, not a verdict. *New in the upcoming 0.6.0.*
 
 `hermes switchyard lint-skills` checks whether the active Hermes skill descriptions are easy to distinguish. It uses the names and descriptions returned by Hermes' `skills_list()` registry. It does not open skill bodies or supporting files, call Jev or a network endpoint, edit skills, or change automatic routing. It is an advisory routability check, **not** Hermes' SKILL.md standards lint.
 
@@ -11,7 +13,7 @@ hermes switchyard lint-skills --json
 
 The text report lists counts and skill names with issue labels and named peers. JSON uses `schema: switchyard.lint_skills.v1`, `status: ok`, and stable name-ordered `counts`, `pairs`, `clusters`, and `findings`. Validated identifiers are the only skill-sourced strings exported. Descriptions, bodies, paths, and registry error text are not exported. A failed registry lookup exits nonzero with a closed-set reason instead of printing a partial report.
 
-## Checks and limits
+## What it checks
 
 | Finding | Rule |
 | --- | --- |
@@ -20,6 +22,8 @@ The text report lists counts and skill names with issue labels and named peers. 
 | `short_description` | Fewer than 40 characters. |
 | `long_description` | More than 200 characters. |
 | `missing_use_when` | Description does not start with `Use when` (case-insensitive). |
+
+## Limits
 
 Token matching folds case, extracts ASCII letters and numbers, and removes the small stopword set frozen in `evaluation/lint-skills/PLAN.md`. It is a lexical hint, not proof that two skills have the same purpose. Review named peers yourself before changing a description. Nothing is auto-edited.
 

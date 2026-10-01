@@ -1,5 +1,12 @@
 # Prospective Switchyard value evaluation
 
+**In short:** this page holds the rules a new feature has to pass before it can ship or become a default.
+
+- **Pick one goal up front:** *faster* (same results, at least 10% quicker) or *more capable* (better results, at most 15% slower).
+- **Freeze the test plan** before any live call.
+- **Measure whole conversations** against Hermes without the plugin and against current `main`.
+- **No cherry-picking afterwards.**
+
 This policy applies to new, frozen evaluations after its adoption. It does not
 reclassify old studies, erase failed candidates, or declare existing work proven.
 Cost remains reported with unknown values explicit; feature selection prioritizes

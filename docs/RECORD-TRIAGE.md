@@ -1,4 +1,6 @@
-# Bounded record triage on `jev_assess`
+# Record triage demo (`jev_assess` library example)
+
+**In short:** this is a worked example, not a feature you turn on. It shows how to use Jev's typed decisions safely in a real workflow: sorting a batch of bug reports into "qualified," "needs info," or "out of scope," and rating severity. Code decides what counts as a confident answer, acts only on those answers, writes the results to disk, and a separate check re-verifies everything. Use it as a template for your own `jev_assess` workflows.
 
 `hermes_switchyard.record_triage` is a second bounded demonstration of the existing `jev_assess` primitive. It is a library module, not a registered tool: the tool surface and `plugin.yaml` are unchanged. It shows useful motion end to end: records go in, typed judgements are accepted or refused by code, a deterministic consumer acts, and a separate check re-verifies the result.
 

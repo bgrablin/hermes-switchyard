@@ -1,5 +1,9 @@
 # Local observation report (`wow`)
 
+**In short:** a quick look at what Switchyard has been doing on this machine over the last week. It shows how many turns it saw, how often it picked or loaded a skill, how often it lowered effort, how many Jev calls it made, and how fast they were. It reads only local records, makes no network calls, and changes nothing. *0.6.0 candidate; not in 0.5.6.*
+
+It reports **what was recorded**, not whether Switchyard made things better. Every number comes with its denominator, so you can tell "zero" from "no data."
+
 Switchyard can summarize **retained local records** without calling Jev or a provider. This is a read-only report, not a comparison with Switchyard off and not a measure of task quality or savings.
 
 ```text
@@ -9,7 +13,11 @@ hermes switchyard wow --days 14 --json
 /switchyard wow --days 14 --json
 ```
 
+## Options and output
+
 The default window is the trailing 7 days. `--days N` accepts an integer from 1 to 3650. Both commands use the same report builder. JSON has `schema_version: 1` and top-level `plugin_state`, `window`, `coverage`, `sources`, and `metrics`. The `window` object gives the UTC start and end. Each metric gives a `count` (or `value` for latency), its denominator `n`, and `status`. Text shows the window and each metric's denominator and status.
+
+## Metrics
 
 | Metric | Observation and denominator (`n`) |
 | --- | --- |
@@ -21,6 +29,8 @@ The default window is the trailing 7 days. `--days N` accepts an integer from 1 
 | `jev_calls` | Recorded routing request counts plus effort records with `jev_called: true`; `n` is routing receipts plus effort records. Explicit Jev tools and unrecorded calls are outside this figure. |
 | `median_latency_ms` | Nearest-rank p50 of recorded one-request routing latencies and effort Jev latencies; `n` is eligible latency samples. Multi-request routing totals are not per-call samples. |
 | `hosted_failures`, `hosted_abstentions` | Typed routing terminal states; `n` is routing receipts. |
+
+## Coverage and limits
 
 The two sources report `available`, `partial`, or `unavailable`. `partial` means invalid records or a retention boundary prevent a complete view; counts then describe only valid retained observations. An unavailable source produces `null`/`unknown` for metrics that need it, not a guessed zero. A valid empty source can report zero observations with `n=0`, but this says nothing about turns the plugin did not observe. The routing writer retains at most 500 records or 1 MiB; the effort writer retains at most 2,000 records or 1 MiB. A longer `--days` window cannot recover rotated or expired rows.
 

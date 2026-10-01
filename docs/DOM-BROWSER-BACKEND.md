@@ -1,11 +1,32 @@
-# DOM browser backend
+# Browser and desktop computer use (`jev_computer_use`)
 
-`jev_computer_use` runs a DOM browser loop when the caller supplies a public
-`start_url` or when the goal contains a public https URL. One bounded Jev request
-per step chooses the operation and the click target together, and the plugin then
-acts on the page. Hermes `computer_use` is never inserted between those clicks.
+> **Advanced reference.** The overview below covers what most people need. The rest of the page documents the browser backend's exact behavior and security boundaries.
 
-Desktop applications without a public URL still use Cua Driver.
+## At a glance
+
+`jev_computer_use` lets the main model hand Switchyard a goal like *"On the public Wikipedia page for Ada Lovelace, open the article about the Analytical Engine."* Switchyard then works toward it one step at a time. At each step, one bounded Jev request picks both the action (click, type, scroll, and so on) and the target. Code checks the target, acts, and looks again.
+
+**Two backends, picked automatically:**
+
+| Goal | Backend | How it runs |
+| --- | --- | --- |
+| Has a public `https` URL (as `start_url` or in the goal) | **DOM browser** | A fresh, headless Chromium-family browser with a throwaway profile. Hermes' own `computer_use` is never called between clicks. |
+| A desktop app, no public URL | **Cua Driver** | Hermes' native `computer_use` tool, with its usual approvals |
+
+**What the browser will never do:**
+
+- use your existing browser, cookies, or signed-in sessions
+- log in, sign up, or enter passwords or payment details
+- upload files or press hotkeys
+- visit private or local addresses (`localhost`, `192.168.x.x`, intranet names, and so on), or any non-`https` page
+
+**Typing into forms.** The model supplies each value in `text_inputs`, keyed by the field's label. Jev decides *which* field to type into, but never sees *what* is typed. Switchyard masks copies of those values that echo back in page text and URLs. This is best-effort: values in a host name, or transformed by the page (hashed, encoded, translated, or partly copied), are not caught. See [how caller values are protected](#typing-how-caller-values-are-checked-and-protected).
+
+**"Done" needs two signals.** When the loop finishes, it returns a *completion candidate*. The receipt shows whether the stop came from a local check (`completion_condition`, such as "the title contains *Analytical Engine*") or from Jev deciding it was done. In the current loop the result is `verified: false` either way. The receipt also has a dual-gate verified state (Jev `DONE` plus a satisfied local condition), but the loop stops on the local condition first, so normal runs don't reach it. Verify the result yourself. See [Action evidence](#action-evidence).
+
+**Settings:** `browser_executable` (optional browser path) and `computer_max_steps` (default 100). See the [Configuration reference](CONFIGURATION.md#computer-use).
+
+The rest of this page is the detailed contract.
 
 ## Backend and session semantics
 
@@ -54,54 +75,46 @@ capability boundary and names the caller's next option. The capability set is al
 reported on every receipt as `capabilities`, so a caller can see the whole set and
 not just the mismatch.
 
-After a bounded settle, the backend checks that the exact caller value remains
-in the selected field. Only a retained field is suppressed on recapture in the
-same document. A reset field can be offered again; a new document at the same
-URL gets a new target identity. The browser owns document identity through the
-main frame loader and execution context; a page global cannot supply it. A stale
-selected target is refused before dispatch. Editable contents are removed from
-provider-visible page text, but local readback still compares the exact value.
-Caller values are masked as `[editable text]` only in page-sourced free text:
-page text, page title, element labels and the choice descriptions built from
-them, and action labels and titles in `recent_actions` and the public receipt.
-The free-text match ignores letter case, compatibility width, and combining
-marks, and it treats the Turkish dotted and dotless i forms as `i`. A page that
-shows `Ada` as `ADA`, or `mimari` as `MİMARİ` with CSS `text-transform` under
-`lang=tr`, is also masked. URL projection uses the same match form.
-Masking runs before each field is cut to its bound (label 120, title 240, page
-text 4000 characters), and a cut never splits a caller value. The snapshot cuts
-labels and page text in the page before masking. If such a field is at or near
-its bound and ends with the start of a caller value, that tail is masked too.
-The snapshot never cuts a label or page text between the two halves of a
-UTF-16 surrogate pair.
-Element IDs, choice keys, operation, status, and effect values, and the caller's
-own goal are never rewritten, so a short value such as `e` or `1` cannot change
-a target or a receipt field. A short value can mask many characters of page
-text; that is the privacy cost. Do not put a caller value in the goal.
+### Typing: how caller values are checked and protected
 
-A page can copy a typed value into a URL, for example a GET search form that
-changes a Search href to `/results?q=...`. The provider-visible `page.url`,
-`elements[].href`, and `recent_actions[].url`, and the receipt `url` and
-`actions[].url`, are projected per URL part. The scheme and host stay exact. A
-path segment, query key or value, fragment, or userinfo that carries a caller
-value in raw, percent-encoded, form-encoded, case-folded, or separator-collapsed
-form becomes `[editable text]`. Other parts stay. If a value still spans parts,
-the whole path, query, and fragment are masked. The exact URL stays local: the
-browser clicks the exact href, and destination policy, stale-target checks, and
-completion predicates read the exact URL. A short value can mask many URL parts.
-Masking finds literal, case-folded, whitespace-collapsed, and common URL-encoded
-copies only. It does not find a value in a URL host or subdomain, which stays
-exact, or a value that the page transforms (for example base64, a hash, a
-translation, or a partial copy). This is a best-effort projection, not DLP.
-Page-side normalization or rejection is not a confirmed fill.
-An unchanged, already-present value reports `text_already_present` without
-progress; navigation during typing reports `url_changed` or `document_changed`
-without claiming the old field retained its value. Repeated ineffective
-attempts still stop at the no-progress limit. Forms are submitted only by
-clicking an offered visible control; the backend does not synthesize Enter or
-bypass the destination policy. A public
-Wikipedia Special:Search form is supported when its search field and Search
-button are visible.
+**Confirming a fill**
+
+- After a short settle, the backend checks that the exact caller value is still in the selected field.
+- Only a field that kept its value is suppressed on recapture in the same document. A field that was reset can be offered again. A new document at the same URL gets a new target identity.
+- The browser owns document identity, through the main frame loader and execution context. A page global can't supply it.
+- A stale selected target is refused before dispatch.
+- Editable contents are removed from the page text Jev sees, but local readback still compares the exact value.
+- Page-side normalization or rejection is not a confirmed fill.
+
+**Masking caller values in what Jev sees**
+
+- Caller values are replaced with `[editable text]` in page-sourced free text only:
+  - the page text and page title;
+  - element labels, and the choice descriptions built from them;
+  - action labels and titles in `recent_actions` and the public receipt.
+- The match ignores letter case, compatibility width, and combining marks, and treats the Turkish dotted and dotless i as `i`. A page that shows `Ada` as `ADA`, or `mimari` as `MİMARİ` with CSS `text-transform` under `lang=tr`, is still masked. URL projection uses the same matching.
+- Masking runs **before** each field is cut to its limit (label 120, title 240, page text 4,000 characters), and a cut never splits a caller value. The snapshot cuts labels and page text inside the page before masking. If such a field is at or near its limit and ends with the start of a caller value, that tail is masked too.
+- The snapshot never cuts a label or page text between the two halves of a UTF-16 surrogate pair.
+- Element IDs, choice keys, operation, status, and effect values, and the caller's own goal are never rewritten, so a short value such as `e` or `1` can't change a target or a receipt field.
+- A short value can mask many characters of page text. That's the privacy cost. **Don't put a caller value in the goal.**
+
+**Masking caller values in URLs**
+
+A page can copy a typed value into a URL. For example, a GET search form might change a Search link to `/results?q=...`.
+
+- **Which URLs.** The provider-visible `page.url`, `elements[].href`, and `recent_actions[].url`, and the receipt's `url` and `actions[].url`, are masked part by part.
+- **Scheme and host** stay exact.
+- **Other parts.** A path segment, query key or value, fragment, or userinfo that contains a caller value becomes `[editable text]`. That covers raw, percent-encoded, form-encoded, case-folded, and separator-collapsed copies. Other parts stay as they are. If a value spans parts, the whole path, query, and fragment are masked.
+- **The exact URL stays local.** The browser clicks the exact link, and the destination policy, stale-target checks, and completion predicates all read the exact URL.
+- **Limits.** A short value can mask many URL parts. Masking finds literal, case-folded, whitespace-collapsed, and common URL-encoded copies only. It does **not** find a value in the host or subdomain, which stays exact, or a value the page transforms (base64, a hash, a translation, a partial copy). This is a best-effort projection, not DLP.
+
+**Typing outcomes**
+
+- An unchanged, already-present value reports `text_already_present`, with no progress.
+- Navigation during typing reports `url_changed` or `document_changed`, without claiming the old field kept its value.
+- Repeated ineffective attempts still stop at the no-progress limit.
+- Forms are submitted only by clicking a visible control that was offered. The backend never synthesizes Enter or bypasses the destination policy.
+- A public Wikipedia Special:Search form is supported when its search field and Search button are visible.
 
 ## Completion predicates
 
@@ -127,8 +140,11 @@ Narrow quoted derivation is allowed only for these explicit goal phrases:
 Unquoted URLs and free-form wording are never mined. When no safe predicate is
 supplied or derived, the loop falls back to a provider `DONE` decision.
 
-A predicate stop and a provider `DONE` both return `status: completion_candidate`
-with `verified: false`. The receipt records `completion_source` as
+A predicate stop and a provider `DONE` both return `status: completion_candidate`.
+Both keep `verified: false` in the normal loop. The predicate is checked after
+every action, so a satisfied condition stops the loop as `local_predicate`
+before Jev is asked again, and a provider `DONE` only arrives on a page where
+the condition was not satisfied. The receipt records `completion_source` as
 `local_predicate` or `provider_decision` and reports each predicate check, so the
 difference between "the caller's condition matched" and "the model believed it was
 done" stays visible. Independent verification remains coordinator-owned.
@@ -324,7 +340,7 @@ Each action record separates three claims that are not interchangeable:
 | `effect_observed` | a URL, title, document, or focus change was observed afterwards |
 | `goal_verified` | always false inside the loop; receipt-level verification is separate |
 
-Action records do not carry a top-level `verified` field. Receipt-level dual-gate verification sets `goal_verified` / `verified` true only when Hermes agreed `DONE` (`completion_source: provider_decision`) **and** a local completion condition is satisfied; `verification_owner` is then `hermes_and_url`. A `local_predicate` early-stop (caller-supplied or derived) may still be `completion_candidate` but keeps both flags false. Provider `DONE` without a satisfied condition stays unverified (`verification_owner: coordinator`).
+Action records do not carry a top-level `verified` field. Receipt-level dual-gate verification sets `goal_verified` / `verified` true only when the provider (Jev) decided `DONE` (`completion_source: provider_decision`) **and** a local completion condition is satisfied; `verification_owner` is then `hermes_and_url`. A `local_predicate` early-stop (caller-supplied or derived) may still be `completion_candidate` but keeps both flags false. Provider `DONE` without a satisfied condition stays unverified (`verification_owner: coordinator`). The current loop always checks the predicate before asking Jev again (see [Completion predicates](#completion-predicates)), so the dual-gate verified state is not reached in normal runs; treat every completion candidate as unverified.
 
 `effect_confirmed` repeats `effect_observed` for compatibility and is never true
 without an observed delta, so a click that changes nothing reports
