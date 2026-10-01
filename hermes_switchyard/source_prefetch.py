@@ -20,7 +20,13 @@ _TRAILING_SOURCE = re.compile(
     r"^(?:find|locate|show|identify)\s+(.+?)\s+in\s+"
     r"(?:`([^`\n]+)`|\"([^\"\n]+)\"|([^\s]+?))[?.]?$", re.IGNORECASE,
 )
-_CHANGE = re.compile(r"\b(?:edit|update|modify|delete|remove|replace|execute|run|install|deploy|send|upload)\b", re.IGNORECASE)
+_CHANGE = re.compile(
+    r"\b(?:edit(?:s|ed|ing)?|updat(?:e[sd]?|ing)|modif(?:y|ies|ied|ying)|"
+    r"delet(?:e[sd]?|ing)|remov(?:e[sd]?|ing)|replac(?:e[sd]?|ing)|"
+    r"execut(?:e[sd]?|ing)|run(?:s|ning)?|ran|install(?:s|ed|ing)?|"
+    r"deploy(?:s|ed|ing)?|send(?:s|ing)?|sent|upload(?:s|ed|ing)?)\b",
+    re.IGNORECASE,
+)
 _INTERACTIVE = frozenset({"cli", "tui", "telegram", "discord", "slack", "signal", "whatsapp"})
 
 
@@ -215,4 +221,3 @@ def build_hook(*, enabled: bool, root: str, standing_ack: bool, client_factory: 
             return None
 
     return hook
-

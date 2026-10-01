@@ -174,6 +174,24 @@ class BundlePrefetchTests(unittest.TestCase):
             self.assertIsNone(hook(**args))
             lookup.assert_not_called()
 
+    def test_inflected_mutating_actions_skip_single_and_multi_source_io(self):
+        actions = ("edits", "edited", "editing", "updates", "updated", "updating",
+                   "modifies", "modified", "modifying", "deletes", "deleted", "deleting",
+                   "removes", "removed", "removing", "replaces", "replaced", "replacing",
+                   "executes", "executed", "executing", "runs", "running", "ran",
+                   "installs", "installed", "installing", "deploys", "deployed", "deploying",
+                   "sends", "sending", "sent", "uploads", "uploaded", "uploading")
+        with mock.patch.object(prefetch, "locate_many") as many, mock.patch.object(prefetch, "locate") as one:
+            hook = prefetch.build_hook(enabled=True, root="/fixture", standing_ack=True, client_factory=mock.Mock())
+            for action in actions:
+                for sources in ("`a.md`", "`a.md` and `b.md`"):
+                    message = f"In {sources}, find the limit while {action} the files."
+                    with self.subTest(message=message):
+                        self.assertIsNone(hook(user_message=message, session_id="s", task_id="t",
+                                              turn_id="r", parent_session_id="", platform="cli"))
+            many.assert_not_called()
+            one.assert_not_called()
+
     def test_hook_returns_multi_evidence_without_metadata_egress(self):
         response = {"status": "found", "evidence": [{"source": "a.md", "text": "limit=37"}],
                     "request_count": 1, "next_action": "Use individual citations if sufficient."}
