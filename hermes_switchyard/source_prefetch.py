@@ -70,7 +70,8 @@ def request_source(message: Any) -> str | None:
         formatting = lines[1].removesuffix("Do not modify files.").strip()
         if (not _format_only(formatting)
                 or _CHANGE.search(formatting)
-                or source_lookup_needs_local_handling(formatting)
+                # "Return only JSON" restricts formatting, not processing.
+                or source_lookup_needs_local_handling(re.sub(r"^Return only ", "Return ", formatting, flags=re.I))
                 or re.search(r"\btool\b", formatting, re.I)):
             return None
     if _CHANGE.search(first) or source_lookup_needs_local_handling(first):

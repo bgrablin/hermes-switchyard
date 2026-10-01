@@ -163,7 +163,11 @@ class EvidenceFindTests(unittest.TestCase):
         with mock.patch.object(finder, "read_source") as read:
             for query in ["Find retries offline", "Find retries without using an external service",
                           "Find retries using local tools only", "Find retries on my computer",
-                          "Find retries on this air-gapped system", "Find retries while disconnected"]:
+                          "Find retries on this air-gapped system", "Find retries while disconnected",
+                          "Find retries on-device only", "Find retries on device only",
+                          "Find retries ondevice", "Find retries on-box", "Find retries on premises",
+                          "Find retries using this laptop", "Find retries inside our perimeter",
+                          "Find retries strictly in-house", "Find retries using internal resources exclusively"]:
                 self.assertEqual(self.run_find(query=query)["reason"], "local_handling_required")
             read.assert_not_called()
         self.factory.assert_not_called()

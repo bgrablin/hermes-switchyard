@@ -103,6 +103,9 @@ class PrefetchTests(unittest.TestCase):
                        "on this air-gapped system", "on this airgapped system", "on this air gapped system",
                        "on this air‐gapped system", "on this air‑gapped system", "on this air–gapped system",
                        "across the air gap", "while disconnected",
+                       "on-device only", "on device only", "ondevice", "on-box", "on premises",
+                       "using this laptop", "inside our perimeter", "strictly in-house",
+                       "keeping everything here", "using internal resources exclusively",
                        "without using an external service", "with no network access",
                        "without sharing it", "on my computer", "inside this device",
                        "don't send it anywhere", "don’t use the cloud", "with no third-party access"]:
