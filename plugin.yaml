@@ -33,6 +33,8 @@ provides_hooks:
 provides_middleware:
   - llm_request
 config_schema:
+  evidence_finder_enabled: {type: bool, default: false, description: "Opt-in automatic evidence prefetch for simple foreground requests naming one file or an explicit list of two to eight files. Sends bounded public or sanitized source text to the configured Jev provider before the main-model call. Other requests use ordinary Hermes tools. No finder tool is exposed."}
+  evidence_finder_root: {type: str, default: "", description: "Operator-approved absolute directory for source prefetch. UTF-8 regular files, max 80000 bytes; no symlinks or hidden path components. Requires descriptor-relative no-follow support; unsupported hosts skip."}
   jev_provider: {type: str, default: "auto", description: auto prefers direct TypeSafe when TYPESAFE_API_KEY is available; also accepts typesafe or openrouter}
   api_endpoint: {type: str, default: "https://openrouter.ai/api/alpha/decisions", description: Fixed TypeSafe or OpenRouter Jev endpoint; arbitrary endpoints fail closed}
   jev_model: {type: str, default: "", description: Provider-specific Jev alias; empty selects jev-latest for TypeSafe or typesafe/jev-1.13 for OpenRouter}
