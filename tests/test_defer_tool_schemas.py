@@ -355,6 +355,27 @@ class ProviderBoundaryTests(unittest.TestCase):
             ]}]
             self.assertIsNone(callback(request=request))
 
+    def test_tool_result_content_requires_scalar_text_on_all_provider_shapes(self):
+        callback = build_defer_tool_schemas_middleware(enabled=True)
+        for output in (None, {"type": "image"}, [{"type": "input_image", "image_url": "data:..."}],
+                       [{"type": "input_file", "file_id": "file-1"}],
+                       [{"type": "unknown", "text": "read result"}], "plain text result"):
+            for provider in ("responses", "anthropic", "chat"):
+                with self.subTest(provider=provider, output=output):
+                    request = _skill_route_request(user="Continue.")
+                    if provider == "responses":
+                        request["input"] = request.pop("messages") + [
+                            {"type": "function_call_output", "call_id": "call-1", "output": output}]
+                    elif provider == "anthropic":
+                        request["messages"].append({"role": "user", "content": [
+                            {"type": "tool_result", "tool_use_id": "call-1", "content": output}]})
+                    else:
+                        request["messages"].append({"role": "tool", "tool_call_id": "call-1", "content": output})
+                    if isinstance(output, str):
+                        self.assertIsNotNone(callback(request=request))
+                    else:
+                        self.assertIsNone(callback(request=request))
+
     def test_full_switchyard_and_computer_pin_keeps_decision_tools(self):
         request = _skill_route_request()
         request["tools"] = [_openai_tool(name) for name in (

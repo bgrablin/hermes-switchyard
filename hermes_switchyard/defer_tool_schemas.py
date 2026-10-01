@@ -201,20 +201,34 @@ def should_omit_switchyard_tool_schemas(
     if not isinstance(tools, list) or not tools:
         # Nothing to omit, or tools live under another key we do not rewrite.
         return False
-    # Mixed multimodal and unrecognized user content cannot be classified from
-    # its text fragment. Tool-result continuations are not new user prompts.
+    # Mixed multimodal and unrecognized content cannot be classified from its
+    # text fragment. Tool results are continuations, but can carry images/files.
     for item in iter_request_items(request):
-        if not isinstance(item, Mapping) or item.get("role") != "user":
+        if not isinstance(item, Mapping):
+            return False
+        if item.get("type") == "function_call_output":
+            if not isinstance(item.get("output"), str):
+                return False
+            continue
+        if item.get("role") == "tool":
+            if not isinstance(item.get("content"), str):
+                return False
+            continue
+        if item.get("role") != "user":
             continue
         content = item.get("content")
         if isinstance(content, str):
             continue
-        if not isinstance(content, list) or any(
-            not isinstance(part, Mapping)
-            or part.get("type") not in {"text", "input_text", "output_text", "tool_result"}
-            for part in content
-        ):
+        if not isinstance(content, list):
             return False
+        for part in content:
+            if not isinstance(part, Mapping):
+                return False
+            if part.get("type") == "tool_result":
+                if not isinstance(part.get("content"), str):
+                    return False
+            elif part.get("type") not in {"text", "input_text", "output_text"} or not isinstance(part.get("text"), str):
+                return False
     # Explicit provider tool choices must remain satisfiable.
     choice = request.get("tool_choice")
     if choice not in (None, "auto", "none") and choice != {"type": "auto"}:
