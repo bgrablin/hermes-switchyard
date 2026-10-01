@@ -109,7 +109,7 @@ def request_source(message: Any) -> str | None:
     # A single location question only. Conjunctions, extra sentences, dotted
     # file/identifier references, and additional actions stay with normal tools.
     # Conservative false positives only forgo the optional prefetch.
-    if re.search(r"\b(?:and|then|also|compare|summarize|explain|calculate|count)\b|[,;:&.!?…—–]|\s-\s",
+    if re.search(r"\b(?:and|then|also|compare|summarize|explain|calculate|count|translate)\b|[,;:&.!?…—–]|\s-\s",
                  query.strip().rstrip(".!?"), re.I):
         return None
     # Require a concrete filename, not a directory or a pronoun like "that".

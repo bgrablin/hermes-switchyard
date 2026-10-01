@@ -145,7 +145,8 @@ class PrefetchTests(unittest.TestCase):
             self.assertEqual(prefetch.request_source("In notes.md, find the retry limit.\n" + suffix), "notes.md")
 
     def test_additional_action_or_file_clauses_stay_with_host(self):
-        for prompt in ["In notes.md, find the retry limit, translate it to French.",
+        for prompt in ["In notes.md, find the retry limit translate it to French.",
+                       "In notes.md, find the retry limit, translate it to French.",
                        "In notes.md, find the retry limit: translate it to French.",
                        "In notes.md, find the retry limit — translate it to French.",
                        "In notes.md, find the retry limit - translate it to French.",
