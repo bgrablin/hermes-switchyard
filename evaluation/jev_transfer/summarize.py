@@ -272,14 +272,17 @@ def native_summary(run):
                 if valid_routing_decision:
                     routed_decision_turns.add((row["arm"], row["id"]))
                     answers = receipt["decision"]["answers"]
-                    if receipt["applied"] and (
-                        answers["routine"]["noul"] < 0.8
-                        or answers["stakes"]["noul"] >= 0.5
-                        or not bounded_number(
+                    qualified = (
+                        answers["routine"]["noul"] >= 0.8
+                        and answers["stakes"]["noul"] < 0.5
+                        and bounded_number(
                             receipt.get("wall_ms"), freeze["routing_deadline_ms"]
                         )
-                    ):
+                    )
+                    if receipt["applied"] and not qualified:
                         raise ValueError("applied route did not qualify within its deadline")
+                    if qualified and not receipt["applied"]:
+                        raise ValueError("qualifying route was not applied")
             shared = receipt.get("shared_request_id")
             if not routing and (not isinstance(shared, str) or not shared.strip()):
                 raise ValueError("unbound shared decision receipt")

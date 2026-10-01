@@ -26,6 +26,7 @@ class JevTransferEvidenceTests(unittest.TestCase):
 
     def test_retained_trials_replay(self):
         result = summarize()
+        self.assertEqual(result, json.loads((ROOT / "summary.json").read_text()))
         self.assertEqual(result["interrupted_run"]["rows"], 79)
         self.assertFalse(result["interrupted_run"]["qualified"])
         for name in ["native_routing", "native_consolidation"]:
@@ -215,6 +216,20 @@ class JevTransferEvidenceTests(unittest.TestCase):
                     receipt["shared_latency_ms"] = run["freeze"]["routing_deadline_ms"] + 1
                 with self.assertRaisesRegex(ValueError, "shared decision is not bound"):
                     native_summary(run)
+
+    def test_qualifying_routing_decision_must_be_applied(self):
+        run = copy.deepcopy(self.evidence["runs"]["native_routing"])
+        row = next(
+            r for r in run["rows"]
+            if r["arm"] == "candidate" and any(x["applied"] for x in r["route"])
+        )
+        receipt = next(x for x in row["route"] if x["applied"])
+        receipt["applied"] = False
+        receipt["to"] = run["freeze"]["source_model"]
+        for wire in row["wire"]:
+            wire["model"] = run["freeze"]["source_model"]
+        with self.assertRaisesRegex(ValueError, "qualifying route was not applied"):
+            native_summary(run)
 
     def test_decision_receipt_must_enclose_physical_call_latency(self):
         for name in ["native_routing", "native_consolidation"]:
