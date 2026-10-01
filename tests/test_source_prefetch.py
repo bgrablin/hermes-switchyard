@@ -64,6 +64,25 @@ class PrefetchTests(unittest.TestCase):
                 self.assertIsNone(self.hook(**{**self.kwargs, field: value}))
         self.locate.assert_not_called()
 
+    def test_blank_or_malformed_identities_deny_prefetch_and_native_dispatch(self):
+        for field in ("session_id", "task_id", "turn_id"):
+            for value in (None, "", " ", " " * 256, "\t", "\u00a0", "\u3000", "x" * 257, 1):
+                with self.subTest(field=field, value=value):
+                    kwargs = {**self.kwargs, field: value}
+                    self.assertIsNone(self.hook(**kwargs))
+                    policy = prefetch.SourceTurnPolicy()
+                    hook = prefetch.build_hook(enabled=True, root="/fixture", standing_ack=True,
+                                               client_factory=self.factory, policy=policy)
+                    out = hook(**kwargs)
+                    self.assertEqual(out["metadata"]["switchyard_find"]["reason"], "turn_policy_unavailable")
+                    self.assertEqual(out["metadata"]["switchyard_find"]["request_count"], 0)
+                    reason = policy.tool_execution(tool_name="switchyard_find", args={},
+                                                   next_call=lambda _: policy.dispatch_reason(), **kwargs)
+                    self.assertEqual(reason, "turn_policy_unavailable")
+                    self.assertFalse(policy._turns)
+        self.locate.assert_not_called()
+        self.factory.assert_not_called()
+
     def test_host_envelopes_never_authorize_additional_source_text(self):
         for name in ["turn_egress_policy", "egress_policy"]:
             for policy in [{"decision": "allow"}, {"decision": "deny"}, {}, "invalid"]:

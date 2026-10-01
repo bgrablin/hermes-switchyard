@@ -82,7 +82,7 @@ class SourceTurnPolicy:
     @staticmethod
     def _key(session_id, task_id, turn_id):
         scope = (session_id, task_id, turn_id)
-        return scope if all(type(v) is str and v and len(v) <= 256 and v.isprintable()
+        return scope if all(type(v) is str and v.strip() and len(v) <= 256 and v.isprintable()
                             for v in scope) else None
 
     def capture(self, *, user_message=None, session_id=None, task_id=None, turn_id=None,
@@ -197,8 +197,8 @@ def build_hook(*, enabled: bool, root: str, standing_ack: bool, client_factory: 
         # reinterpret that envelope as permission to send an entire local file.
         if turn_egress_policy is not None or egress_policy is not None:
             return None
-        scope = (session_id, task_id, turn_id)
-        if any(not isinstance(value, str) or not value or len(value) > 256 or not value.isprintable() for value in scope):
+        scope = SourceTurnPolicy._key(session_id, task_id, turn_id)
+        if scope is None:
             return None
         source = request_source(user_message)
         if source is None:
