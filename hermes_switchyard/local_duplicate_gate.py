@@ -14,9 +14,12 @@ Capability-first:
 Plugin-only: uses existing ``tool_execution`` middleware + ``post_tool_call``.
 No Hermes core / hermes-agent changes.
 """
+
 from __future__ import annotations
 
 import hashlib
+import inspect
+import types
 import json
 import threading
 from collections import OrderedDict
@@ -57,9 +60,12 @@ class ReadEvidence:
 def _valid_evidence(evidence: Any) -> bool:
     return (
         isinstance(evidence, ReadEvidence)
-        and evidence.complete is True and evidence.read_only is True
-        and all(type(value) is str and value.strip() and len(value) <= 4096
-                for value in (evidence.source_identity, evidence.revision))
+        and evidence.complete is True
+        and evidence.read_only is True
+        and all(
+            type(value) is str and value.strip() and len(value) <= 4096
+            for value in (evidence.source_identity, evidence.revision)
+        )
         and type(evidence.result_sha256) is str
         and len(evidence.result_sha256) == 64
         and all(c in "0123456789abcdef" for c in evidence.result_sha256)
@@ -108,19 +114,24 @@ def _bump(name: str) -> None:
 
 def _scope_key(*, session_id: Any = None, task_id: Any = None) -> str | None:
     # Both dimensions are mandatory; preserve exact identifiers without stripping.
-    if not all(type(value) is str and value.strip() and len(value) <= 512
-               for value in (session_id, task_id)):
+    if not all(
+        type(value) is str and value.strip() and len(value) <= 512
+        for value in (session_id, task_id)
+    ):
         return None
     return json.dumps([session_id, task_id], ensure_ascii=False, separators=(",", ":"))
 
 
 def canonical_args(args: Any) -> str | None:
     """Canonical JSON arguments, or None when exact identity cannot be proven."""
+
     def json_value(value: Any) -> bool:
         if value is None or type(value) in (str, bool, int, float):
             return True
         if isinstance(value, Mapping):
-            return all(type(key) is str and json_value(item) for key, item in value.items())
+            return all(
+                type(key) is str and json_value(item) for key, item in value.items()
+            )
         if type(value) is list:
             return all(json_value(item) for item in value)
         return False
@@ -132,8 +143,13 @@ def canonical_args(args: Any) -> str | None:
     try:
         if not json_value(args):
             return None
-        return json.dumps(args, ensure_ascii=False, sort_keys=True,
-                          separators=(",", ":"), allow_nan=False)
+        return json.dumps(
+            args,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
     except (TypeError, ValueError, RecursionError):
         return None
 
@@ -144,25 +160,48 @@ def _normalize_tool_name(tool_name: Any) -> str:
     return tool_name if tool_name.strip() == tool_name else ""
 
 
-def observation_identity(tool_name: Any, args: Any = None, *,
-                         result: Any = None, evidence: ReadEvidence | None = None) -> str | None:
+def observation_identity(
+    tool_name: Any,
+    args: Any = None,
+    *,
+    result: Any = None,
+    evidence: ReadEvidence | None = None,
+) -> str | None:
     """Only a trusted adapter can establish freshness; arguments/results cannot."""
     if canonical_args(args) is None or not _valid_evidence(evidence):
         return None
     return evidence.revision
 
 
-def fingerprint_for(tool_name: Any, args: Any = None, *,
-                    observation_id: str | None = None, result: Any = None,
-                    evidence: ReadEvidence | None = None) -> str | None:
+def fingerprint_for(
+    tool_name: Any,
+    args: Any = None,
+    *,
+    observation_id: str | None = None,
+    result: Any = None,
+    evidence: ReadEvidence | None = None,
+) -> str | None:
     """Full tool, args, source identity, revision and complete-result digest."""
     name = _normalize_tool_name(tool_name)
     canonical = canonical_args(args)
-    if not name or _gate_tool_kind(name) != "read" or canonical is None or not _valid_evidence(evidence):
+    if (
+        not name
+        or _gate_tool_kind(name) != "read"
+        or canonical is None
+        or not _valid_evidence(evidence)
+    ):
         return None
-    payload = json.dumps([name, canonical, evidence.source_identity,
-                          evidence.revision, evidence.result_sha256],
-                         ensure_ascii=False, separators=(",", ":"))
+    payload = json.dumps(
+        [
+            name,
+            canonical,
+            evidence.source_identity,
+            evidence.revision,
+            evidence.result_sha256,
+        ],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
     return "read:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -181,23 +220,48 @@ def decide_local_duplicate(
     ``action`` is ``reuse`` | ``dispatch``; ``reason`` explains fail-open / skip.
     """
     if enabled is not True:
-        return {"action": "dispatch", "reason": "flag_off", "fingerprint": None, "cached_result": None}
+        return {
+            "action": "dispatch",
+            "reason": "flag_off",
+            "fingerprint": None,
+            "cached_result": None,
+        }
 
     name = _normalize_tool_name(tool_name)
     kind = _gate_tool_kind(name) if name else "other"
     if kind != "read":
-        return {"action": "dispatch", "reason": "non_read", "fingerprint": None, "cached_result": None}
+        return {
+            "action": "dispatch",
+            "reason": "non_read",
+            "fingerprint": None,
+            "cached_result": None,
+        }
 
     key = fingerprint_for(name, args, evidence=evidence)
     if key is None:
-        return {"action": "dispatch", "reason": "missing_observation_identity", "fingerprint": None, "cached_result": None}
+        return {
+            "action": "dispatch",
+            "reason": "missing_observation_identity",
+            "fingerprint": None,
+            "cached_result": None,
+        }
 
     scope = _scope_key(session_id=session_id, task_id=task_id)
     if scope is None:
-        return {"action": "dispatch", "reason": "missing_session_identity", "fingerprint": key, "cached_result": None}
+        return {
+            "action": "dispatch",
+            "reason": "missing_session_identity",
+            "fingerprint": key,
+            "cached_result": None,
+        }
     with _STORE_LOCK:
         if _ACTIVE_MUTATIONS:
-            return {"action": "dispatch", "reason": "mutation_in_progress", "fingerprint": key, "cached_result": None}
+            return {
+                "action": "dispatch",
+                "reason": "mutation_in_progress",
+                "fingerprint": key,
+                "cached_result": None,
+            }
         session = _SESSION_STORE.get(scope)
         cached = session.get(key) if session is not None else None
         if cached is None:
@@ -261,6 +325,13 @@ def record_tool_outcome(
         with _STORE_LOCK:
             _invalidate_all_locked()
         return {"recorded": False, "reason": "mutation_cleared_session", "kind": kind}
+    # Final failure status may arrive without source evidence or even scope.
+    # Invalidate before fingerprint validation, including in-flight generations.
+    if failed:
+        with _STORE_LOCK:
+            _invalidate_all_locked()
+            _bump("fail_open")
+        return {"recorded": False, "reason": "failed_read_invalidated"}
     if scope is None:
         return {"recorded": False, "reason": "missing_session_identity"}
 
@@ -271,19 +342,13 @@ def record_tool_outcome(
             _bump("fail_open")
         return {"recorded": False, "reason": "missing_observation_identity"}
 
-    if failed:
-        with _STORE_LOCK:
-            session = _SESSION_STORE.get(scope)
-            if session is not None and key in session:
-                del session[key]
-                _bump("invalidated")
-            _bump("fail_open")
-        return {"recorded": False, "reason": "failed_read_invalidated", "fingerprint": key}
-
     # Reuse must preserve the complete host result and its type. Never truncate.
     max_result_chars = max(1, min(max_result_chars, DEFAULT_MAX_RESULT_CHARS))
-    if (not isinstance(result, str) or len(result) > max_result_chars
-            or hashlib.sha256(result.encode("utf-8")).hexdigest() != evidence.result_sha256):
+    if (
+        not isinstance(result, str)
+        or len(result) > max_result_chars
+        or hashlib.sha256(result.encode("utf-8")).hexdigest() != evidence.result_sha256
+    ):
         with _STORE_LOCK:
             session = _SESSION_STORE.get(scope)
             if session is not None and key in session:
@@ -292,11 +357,16 @@ def record_tool_outcome(
             _bump("fail_open")
         return {"recorded": False, "reason": "result_not_cacheable", "fingerprint": key}
     text = result
-    max_keys_per_session = max(1, min(max_keys_per_session, DEFAULT_MAX_KEYS_PER_SESSION))
+    max_keys_per_session = max(
+        1, min(max_keys_per_session, DEFAULT_MAX_KEYS_PER_SESSION)
+    )
     max_sessions = max(1, min(max_sessions, DEFAULT_MAX_SESSIONS))
 
     with _STORE_LOCK:
-        if _ACTIVE_MUTATIONS or (expected_generation is not None and expected_generation != _MUTATION_GENERATION):
+        if _ACTIVE_MUTATIONS or (
+            expected_generation is not None
+            and expected_generation != _MUTATION_GENERATION
+        ):
             _bump("fail_open")
             return {"recorded": False, "reason": "mutation_generation_changed"}
         if scope not in _SESSION_STORE:
@@ -311,7 +381,12 @@ def record_tool_outcome(
             session.popitem(last=False)
         _SESSION_STORE.move_to_end(scope)
         _bump("recorded")
-    return {"recorded": True, "reason": "stored", "fingerprint": key, "chars": len(text)}
+    return {
+        "recorded": True,
+        "reason": "stored",
+        "fingerprint": key,
+        "chars": len(text),
+    }
 
 
 def _invalidate_all_locked() -> None:
@@ -322,6 +397,52 @@ def _invalidate_all_locked() -> None:
     _bump("invalidated")
 
 
+def _is_terminal_middleware(next_call: Any, callback: Any) -> bool:
+    """Verify the actual native chain snapshot, not the mutable plugin registry.
+
+    Hermes currently exposes no terminal-position capability. Recognize only
+    its live Python chain implementation and dispatch if that seam changes.
+    Downstream middleware may rewrite arguments or results and must always run.
+    """
+    try:
+        from hermes_cli.middleware import _run_execution_chain
+
+        call_at_code = next(
+            code
+            for code in _run_execution_chain.__code__.co_consts
+            if isinstance(code, types.CodeType) and code.co_name == "call_at"
+        )
+        next_code = next(
+            code
+            for code in call_at_code.co_consts
+            if isinstance(code, types.CodeType) and code.co_name == "next_call"
+        )
+        if (
+            not isinstance(next_call, types.FunctionType)
+            or next_call.__code__ is not next_code
+        ):
+            return False
+        frame = inspect.getclosurevars(next_call).nonlocals
+        call_at = frame["call_at"]
+        if (
+            not isinstance(call_at, types.FunctionType)
+            or call_at.__code__ is not call_at_code
+        ):
+            return False
+        chain = inspect.getclosurevars(call_at).nonlocals
+        callbacks, index = chain["callbacks"], frame["index"]
+        return (
+            type(callbacks) is list
+            and type(index) is int
+            and index == len(callbacks) - 1
+            and callbacks[index] is callback
+            and frame["callback"] is callback
+            and callable(chain["terminal_call"])
+        )
+    except Exception:  # noqa: BLE001 -- no proven final position means fresh dispatch
+        return False
+
+
 def build_tool_execution_middleware(*, enabled: bool) -> Callable[..., Any]:
     """Reuse requires an eligible pure tool and trusted host source verification.
 
@@ -329,10 +450,17 @@ def build_tool_execution_middleware(*, enabled: bool) -> Callable[..., Any]:
     Hermes does not supply one and therefore dispatches. Generation checks
     synchronize hit publication and recording with all local mutations.
     """
-    def on_tool_execution(*, tool_name: str = "", args: Any = None,
-                          next_call: Callable[..., Any] | None = None,
-                          session_id: Any = None, task_id: Any = None,
-                          reuse_evidence_provider: Any = None, **_kwargs: Any) -> Any:
+
+    def on_tool_execution(
+        *,
+        tool_name: str = "",
+        args: Any = None,
+        next_call: Callable[..., Any] | None = None,
+        session_id: Any = None,
+        task_id: Any = None,
+        reuse_evidence_provider: Any = None,
+        **_kwargs: Any,
+    ) -> Any:
         global _ACTIVE_MUTATIONS
         if not callable(next_call):
             return None
@@ -348,6 +476,8 @@ def build_tool_execution_middleware(*, enabled: bool) -> Callable[..., Any]:
                 with _STORE_LOCK:
                     _ACTIVE_MUTATIONS -= 1
                     _invalidate_all_locked()
+        if not _is_terminal_middleware(next_call, on_tool_execution):
+            return next_call(args)
         scope = _scope_key(session_id=session_id, task_id=task_id)
         if scope is None or not callable(reuse_evidence_provider):
             return next_call(args)
@@ -358,14 +488,27 @@ def build_tool_execution_middleware(*, enabled: bool) -> Callable[..., Any]:
             return next_call(args)
         try:
             evidence = reuse_evidence_provider(tool_name, args)
-            decision = decide_local_duplicate(enabled=True, tool_name=tool_name, args=args,
-                        session_id=session_id, task_id=task_id, evidence=evidence)
-            if decision["action"] == "reuse" and reuse_evidence_provider(tool_name, args) == evidence:
+            decision = decide_local_duplicate(
+                enabled=True,
+                tool_name=tool_name,
+                args=args,
+                session_id=session_id,
+                task_id=task_id,
+                evidence=evidence,
+            )
+            if (
+                decision["action"] == "reuse"
+                and reuse_evidence_provider(tool_name, args) == evidence
+            ):
                 with _STORE_LOCK:
                     # Linearize the hit under the same lock as mutation start.
                     # Never return the prior decision's detached cached value.
                     current = _SESSION_STORE.get(scope, {}).get(decision["fingerprint"])
-                    if not _ACTIVE_MUTATIONS and generation == _MUTATION_GENERATION and current is not None:
+                    if (
+                        not _ACTIVE_MUTATIONS
+                        and generation == _MUTATION_GENERATION
+                        and current is not None
+                    ):
                         _bump("reused")
                         return current
         except Exception:  # noqa: BLE001 -- uncertainty always dispatches
@@ -374,14 +517,25 @@ def build_tool_execution_middleware(*, enabled: bool) -> Callable[..., Any]:
             evidence = None
         result = next_call(args)  # outside the catch: dispatch exactly once
         try:
-            if _valid_evidence(evidence) and reuse_evidence_provider(tool_name, args) == evidence:
-                record_tool_outcome(enabled=True, tool_name=tool_name, args=args, result=result,
-                                    session_id=session_id, task_id=task_id, evidence=evidence,
-                                    expected_generation=generation)
+            if (
+                _valid_evidence(evidence)
+                and reuse_evidence_provider(tool_name, args) == evidence
+            ):
+                record_tool_outcome(
+                    enabled=True,
+                    tool_name=tool_name,
+                    args=args,
+                    result=result,
+                    session_id=session_id,
+                    task_id=task_id,
+                    evidence=evidence,
+                    expected_generation=generation,
+                )
         except Exception:  # noqa: BLE001 -- observer must not affect the live result
             with _STORE_LOCK:
                 _bump("fail_open")
         return result
+
     return on_tool_execution
 
 
@@ -442,7 +596,10 @@ def register_local_duplicate_gate(ctx: Any, *, enabled: bool) -> dict[str, Any]:
 
     if callable(register_middleware):
         try:
-            register_middleware("tool_execution", build_tool_execution_middleware(enabled=enabled is True))
+            register_middleware(
+                "tool_execution",
+                build_tool_execution_middleware(enabled=enabled is True),
+            )
             middleware_registered = True
         except Exception:  # noqa: BLE001
             reasons.append("tool_execution_register_failed")
@@ -451,7 +608,9 @@ def register_local_duplicate_gate(ctx: Any, *, enabled: bool) -> dict[str, Any]:
 
     if callable(register_hook):
         try:
-            register_hook("post_tool_call", build_post_tool_call_hook(enabled=enabled is True))
+            register_hook(
+                "post_tool_call", build_post_tool_call_hook(enabled=enabled is True)
+            )
             post_tool_registered = True
         except Exception:  # noqa: BLE001
             reasons.append("post_tool_call_register_failed")
