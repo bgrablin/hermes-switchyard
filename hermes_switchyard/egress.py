@@ -223,9 +223,10 @@ def is_routing_mode(value: Any) -> bool:
 
 _SOURCE_EGRESS_CUE = re.compile(
     r"\b(?:offline|off.line|air[\s\-\u2010-\u2015]*gap(?:ped)?|disconnected|"
-    r"local(?:ly)?|private|confidential|without|never|no|"
+    r"local(?:ly)?|private|confidential|without|never|no|not|cannot|can't|won't|"
+    r"(?:could|should|would|must|does|is|are|was|were)n't|"
     r"don't|do\s+not|avoid|skip|instead|network|internet|cloud|external|"
-    r"third.party|remote|hosted|provider|egress|upload|transmit|share|send|"
+    r"third[\s_\-\u2010-\u2015]*part(?:y|ies)|remote|hosted|provider|egress|upload|transmit|share|send|"
     r"only|solely|exclusively|strictly|keep(?:s|ing)?|stay(?:s|ing)?|leav(?:e|ing)|retain(?:s|ing)?|confined|restricted|"
     r"inside|within|outside|device|machine|computer|pc|laptop|desktop|host|"
     r"on.device|ondevice|on.box|onbox|on.prem(?:ises)?|in.house|internal|"
