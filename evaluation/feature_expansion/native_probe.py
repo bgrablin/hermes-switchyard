@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import hashlib
 import json
 import os
 import shutil
@@ -20,7 +21,9 @@ from pathlib import Path
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--arm", choices=["baseline", "candidate", "features"], default="candidate"
+        "--arm",
+        choices=["baseline", "candidate", "features", "recall"],
+        default="candidate",
     )
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--home", dest="run_home", type=Path, required=True)
@@ -90,6 +93,32 @@ def main():
     module = next(c.__module__ for c in callbacks if "approval_review" in c.__module__)
     approval = importlib.import_module(module)
     assert Path(approval.__file__).is_relative_to(dest)
+
+    def provenance():
+        names = [
+            "agent.auxiliary_client",
+            "tools.approval_smart",
+            "hermes_cli.plugins",
+            "model_tools",
+        ]
+        return {
+            "candidate_files": {
+                str(p.relative_to(dest)): hashlib.sha256(p.read_bytes()).hexdigest()
+                for p in sorted(dest.rglob("*"))
+                if p.is_file() and "__pycache__" not in p.parts
+            },
+            "native_module_hashes": {
+                name: hashlib.sha256(
+                    Path(importlib.import_module(name).__file__).read_bytes()
+                ).hexdigest()
+                for name in names
+            },
+            "fixture_sha256": hashlib.sha256(
+                (args.source / "tests/fixtures/approval_cases.json").read_bytes()
+            ).hexdigest(),
+        }
+
+    before = provenance()
     cls = approval.DecisionClient
     original = cls._post
     calls = []
@@ -110,12 +139,24 @@ def main():
             calls.append(row)
 
     cls._post = post
+    if args.arm == "recall":
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from native_recall import run
+
+        output = run(importlib.import_module(module.rsplit(".", 1)[0]), template)
+        output["provenance"] = before
+        output["unchanged"] = before == provenance()
+        args.output.write_text(json.dumps(output, indent=2))
+        print("RECALL " + json.dumps(output["rows"]), flush=True)
+        return
     if args.arm == "features":
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from native_features import run
 
         output = run(importlib.import_module(module.rsplit(".", 1)[0]), home)
         output["jev_calls"] = calls
+        output["provenance"] = before
+        output["unchanged"] = before == provenance()
         args.output.write_text(json.dumps(output, indent=2))
         print(
             "FEATURES "
@@ -159,6 +200,8 @@ def main():
         print("ROW " + json.dumps(row), flush=True)
     output = {
         "arm": args.arm,
+        "provenance": before,
+        "unchanged": before == provenance(),
         "cases": rows,
         "jev_calls": calls,
         "native_calls": native_calls,

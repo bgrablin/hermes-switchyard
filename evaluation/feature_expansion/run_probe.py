@@ -8,7 +8,7 @@ from pathlib import Path
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    "--arm", choices=["baseline", "candidate", "features"], required=True
+    "--arm", choices=["baseline", "candidate", "features", "recall"], required=True
 )
 parser.add_argument("--template", type=Path, required=True)
 parser.add_argument("--output", type=Path, required=True)

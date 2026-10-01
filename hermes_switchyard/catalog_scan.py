@@ -113,7 +113,7 @@ def inspect_text(name: str, text: str) -> list[dict[str, Any]]:
                     findings.append(
                         {"path": name, "line": None, "rule": "unencrypted_mcp_endpoint"}
                     )
-    return findings[:2048]
+    return findings[: MAX_FINDINGS + 1]
 
 
 def scan_catalog(root: str | Path) -> dict[str, Any]:
