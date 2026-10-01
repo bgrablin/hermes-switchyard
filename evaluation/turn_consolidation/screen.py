@@ -5,6 +5,7 @@ import argparse
 import copy
 import hashlib
 import json
+import math
 import os
 import random
 import statistics
@@ -348,7 +349,7 @@ def main():
             )
 
     def p95(values):
-        return sorted(values)[int((len(values) - 1) * 0.95)]
+        return sorted(values)[math.ceil(0.95 * len(values)) - 1]
 
     summary = {}
     for arm in ["split", "merged", "cap_matrix"]:

@@ -1,4 +1,4 @@
-"""Frozen native same-provider routing pilot; public synthetic tasks only."""
+"""Frozen native skill/effort consolidation pilot; public synthetic tasks only."""
 
 import argparse
 import hashlib
