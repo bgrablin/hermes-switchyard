@@ -7,6 +7,9 @@ redaction-failed, or timed-out reviews escalate; no command is executed here.
 from __future__ import annotations
 
 import math
+import hashlib
+import json
+import uuid
 import re
 from types import SimpleNamespace
 from typing import Any
@@ -174,53 +177,70 @@ def pre_tool_gate(*, tool_name="", args=None, **_):
         "delegate_task",
     } or not isinstance(args, dict):
         return None
-    # Inspect values, not JSON escapes; only additive escalation, never permission.
+
+    def uninspectable():
+        # There is no complete inspected input to bind. A fresh nonce prevents
+        # native session/permanent allowlists from authorizing another call.
+        return {
+            "action": "approve",
+            "message": "Switchyard could not completely inspect this input. Approval applies only to this invocation.",
+            "rule_key": f"switchyard:{tool_name}:uninspectable:{uuid.uuid4().hex}",
+        }
+
     pending = [args]
     characters = 0
     visited = 0
+    consequential = False
     while pending:
         item = pending.pop()
         visited += 1
         if visited > 256:
-            return {
-                "action": "approve",
-                "message": "Switchyard input inspection exceeded its bound.",
-                "rule_key": "switchyard:uninspectable",
-            }
+            return uninspectable()
         if isinstance(item, str):
             characters += len(item)
             if characters > 16_000:
-                return {
-                    "action": "approve",
-                    "message": "Switchyard input inspection exceeded its bound.",
-                    "rule_key": "switchyard:uninspectable",
-                }
-            if (
-                _CREDENTIAL.search(item)
+                return uninspectable()
+            consequential = bool(
+                consequential
+                or _CREDENTIAL.search(item)
                 or _IRREVERSIBLE.search(item)
                 or native_hardline(item) is not False
-            ):
-                return {
-                    "action": "approve",
-                    "message": "Switchyard detected credential access or an irreversible-operation indicator. Review the exact tool input.",
-                    "rule_key": "switchyard:consequential",
-                }
+            )
         elif isinstance(item, dict):
-            if len(item) > 256:
-                return {
-                    "action": "approve",
-                    "message": "Switchyard input inspection exceeded its bound.",
-                    "rule_key": "switchyard:uninspectable",
-                }
+            if len(item) > 256 or any(not isinstance(k, str) for k in item):
+                return uninspectable()
+            characters += sum(len(k) for k in item)
+            if characters > 16_000:
+                return uninspectable()
             pending.extend(item.values())
         elif isinstance(item, (list, tuple)):
             if len(item) > 256:
-                return {
-                    "action": "approve",
-                    "message": "Switchyard input inspection exceeded its bound.",
-                    "rule_key": "switchyard:uninspectable",
-                }
+                return uninspectable()
             pending.extend(item)
+        elif item is None or type(item) is bool:
+            continue
+        elif type(item) is int:
+            if item.bit_length() > 4096:
+                return uninspectable()
+        elif type(item) is float and math.isfinite(item):
+            continue
+        else:
+            return uninspectable()
+    if consequential:
+        # Serialize only after the complete graph has passed bounded inspection.
+        encoded = json.dumps(
+            args,
+            sort_keys=True,
+            ensure_ascii=True,
+            allow_nan=False,
+            separators=(",", ":"),
+        )
+        digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        return {
+            "action": "approve",
+            "message": "Switchyard detected credential access or an irreversible-operation indicator. Review the exact tool input; persistent approval covers only this tool and identical input.",
+            "rule_key": f"switchyard:{tool_name}:consequential:{digest}",
+        }
     return None
 
 

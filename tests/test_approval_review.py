@@ -177,3 +177,43 @@ class ApprovalTests(unittest.TestCase):
         for timeout in [float("nan"), float("inf"), -1]:
             with self.assertRaises(ValueError):
                 ApprovalClient(timeout=timeout)
+
+
+class ApprovalScopeTests(unittest.TestCase):
+    def test_persistent_approval_keys_bind_exact_tool_and_all_input(self):
+        with patch(
+            "hermes_switchyard.approval_review.native_hardline", return_value=False
+        ):
+            first = pre_tool_gate(
+                tool_name="terminal",
+                args={"command": "rm obsolete.txt", "cwd": "workspace-a"},
+            )
+            repeat = pre_tool_gate(
+                tool_name="terminal",
+                args={"cwd": "workspace-a", "command": "rm obsolete.txt"},
+            )
+            changed = pre_tool_gate(
+                tool_name="terminal",
+                args={"command": "rm obsolete.txt", "cwd": "workspace-b"},
+            )
+            other_tool = pre_tool_gate(
+                tool_name="execute_code",
+                args={"command": "rm obsolete.txt", "cwd": "workspace-a"},
+            )
+        self.assertEqual(first["rule_key"], repeat["rule_key"])
+        self.assertNotEqual(first["rule_key"], changed["rule_key"])
+        self.assertNotEqual(first["rule_key"], other_tool["rule_key"])
+
+    def test_uninspectable_inputs_never_share_an_allowlist_key(self):
+        args = {"command": "x" * 16001}
+        first = pre_tool_gate(tool_name="terminal", args=args)
+        second = pre_tool_gate(tool_name="terminal", args=args)
+        self.assertNotEqual(first["rule_key"], second["rule_key"])
+        with patch(
+            "hermes_switchyard.approval_review.native_hardline", return_value=False
+        ):
+            too_large_after_indicator = pre_tool_gate(
+                tool_name="terminal",
+                args={"padding": "x" * 16001, "command": "rm obsolete.txt"},
+            )
+        self.assertIn(":uninspectable:", too_large_after_indicator["rule_key"])

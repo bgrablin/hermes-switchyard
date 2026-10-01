@@ -41,7 +41,9 @@ The two new native tool hooks have no registered listeners when disabled.
 
 `pre_tool_call` covers `terminal`, `execute_code`, `write_file`, `patch`, and
 `delegate_task`. Hermes' `approve` directive means **request human approval**;
-it never means this plugin approved execution. Native permissions still apply.
+it never means this plugin approved execution. Persistent approval keys bind the
+tool and entire bounded input; incomplete inspection uses an invocation-only key.
+Native permissions still apply.
 Hermes may ignore a failed or timed-out plugin hook, so this additive check is
 not a complete authorization boundary.
 
