@@ -47,6 +47,7 @@ RELEASE_FILES = (
     "docs/ADAPTIVE-REASONING-EFFORT.md",
     "docs/SESSION-SEARCH-RERANK.md",
     "docs/SOURCE-FINDER.md",
+    "docs/AWESOME-JEV-EVALUATION.md",
     "docs/VALUE-EVALUATION.md",
     "docs/BENCHMARKS.md",
     "docs/DOM-BROWSER-BACKEND.md",
