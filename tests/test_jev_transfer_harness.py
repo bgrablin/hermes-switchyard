@@ -3,9 +3,11 @@
 import hashlib
 import json
 import math
-from contextlib import nullcontext
+from contextlib import nullcontext, redirect_stdout
 import importlib.util
+import io
 from pathlib import Path
+import tarfile
 import tempfile
 import time
 from types import SimpleNamespace
@@ -251,6 +253,91 @@ class JevTransferHarnessTests(unittest.TestCase):
                     "routine_qualified" if valid else "decision_failed",
                 )
                 router.client.decide.assert_called_once()
+
+    def test_routing_deadline_and_receipt_use_one_elapsed_value(self):
+        for elapsed in [0.3999999, 0.4000001]:
+            with self.subTest(elapsed=elapsed):
+                router = PILOT.PilotRouter()
+                router.client = mock.Mock()
+                router.client.decide.return_value = {
+                    "request_id": "decision",
+                    "answers": {"routine": {"noul": 1}, "stakes": {"noul": 0}},
+                }
+                router.turns[("s", "t", "u")] = {"text": "Sum 1 and 2", "model": None}
+                with mock.patch.object(
+                    PILOT, "request_budget_scope", return_value=nullcontext()
+                ), mock.patch.object(
+                    PILOT.time, "perf_counter", side_effect=[0, elapsed, 0.401]
+                ) as clock:
+                    result = router.apply(
+                        {"model": PILOT.ORIGIN, "input": [
+                            {"role": "user", "content": "Sum 1 and 2"}
+                        ]},
+                        session_id="s", task_id="t", turn_id="u",
+                        provider="openai-codex", api_mode="codex_responses",
+                        model=PILOT.ORIGIN,
+                    )
+                self.assertEqual(clock.call_count, 2)
+                self.assertEqual(router.receipts[0]["wall_ms"], elapsed * 1000)
+                self.assertEqual(router.receipts[0]["applied"], elapsed <= 0.4)
+                self.assertEqual(
+                    result["model"], PILOT.TARGET if elapsed <= 0.4 else PILOT.ORIGIN
+                )
+
+    def test_live_summaries_require_completed_turns(self):
+        archive = io.BytesIO()
+        with tarfile.open(fileobj=archive, mode="w") as tar:
+            for path in [
+                "hermes_switchyard/placeholder.py",
+                "evaluation/routing_value/catalogs/c25/skills/sample/SKILL.md",
+            ]:
+                content = b"sample"
+                entry = tarfile.TarInfo(path)
+                entry.size = len(content)
+                tar.addfile(entry, io.BytesIO(content))
+
+        class Worker:
+            def __init__(self, arm, *_args, **_kwargs):
+                self.arm = arm
+                self.ready = {"runtime_modules": {}}
+
+            def ask(self, request):
+                return {
+                    "arm": self.arm, "id": request["id"], "final": "OK",
+                    "completed": request["id"].endswith("-1"), "wall_ms": 1,
+                    "wire": [], "jev": [], "route": [],
+                }
+
+            def close(self):
+                pass
+
+        def git_output(command, **_kwargs):
+            return archive.getvalue() if command[1] == "archive" else "frozen-revision"
+
+        for runner in [ROUTING, CONSOLIDATION]:
+            with self.subTest(runner=runner.__name__), tempfile.TemporaryDirectory() as temp:
+                out = Path(temp) / "run"
+                with mock.patch.object(
+                    runner, "CASES", [{"id": "case", "prompt": "Reply OK", "expected": "OK"}]
+                ), mock.patch.object(
+                    runner.subprocess, "check_output", side_effect=git_output
+                ), mock.patch.object(
+                    runner, "runtime_hashes", return_value={}
+                ), mock.patch.object(
+                    runner.driver, "Worker", Worker
+                ), mock.patch(
+                    "sys.argv", ["compare", "--output", str(out), "--hermes-root", temp]
+                ), redirect_stdout(io.StringIO()):
+                    runner.main()
+                summary = json.loads((out / "summary.json").read_text())
+                for metrics in summary["arms"].values():
+                    self.assertEqual((metrics["n"], metrics["correct"]), (2, 1))
+                rows = [
+                    json.loads(line) for line in (out / "raw.jsonl").read_text().splitlines()
+                ]
+                self.assertEqual(len(rows), 8)
+                self.assertEqual(sum(row["correct"] for row in rows), 4)
+                self.assertTrue(all(row["completed"] for row in rows if row["correct"]))
 
     def test_shared_decision_without_usable_id_falls_back(self):
         broker = CONSOLIDATION_PILOT.Broker()

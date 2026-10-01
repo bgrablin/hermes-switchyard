@@ -155,12 +155,13 @@ class PilotRouter:
                 else:
                     row["reason"] = "not_qualified"
             except Exception as exc:
+                elapsed = time.perf_counter() - started
                 row["reason"] = "decision_failed"
                 row["error_type"] = type(exc).__name__
             row.update(
                 to=selected,
                 applied=selected != ORIGIN,
-                wall_ms=(time.perf_counter() - started) * 1000,
+                wall_ms=elapsed * 1000,
             )
             turn["model"] = selected
             self.receipts.append(row)

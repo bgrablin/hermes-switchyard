@@ -183,6 +183,7 @@ def main():
                     )
                     row["correct"] = (
                         str(row.get("final") or "").strip() == case["expected"]
+                        and row.get("completed") is True
                     )
                     row["expected"] = case["expected"]
                     row["repeat"] = repeat
