@@ -162,8 +162,10 @@ def _walk(fd, directory, skipped, entries, depth=0):
                 )
             else:
                 directories.append(name)
-        else:
+        elif stat.S_ISREG(mode):
             files.append(name)
+        else:
+            skipped.append({"path": rel, "reason": "special_file"})
     yield directory, files, fd
     for name in directories:
         rel = str(Path(directory, name))

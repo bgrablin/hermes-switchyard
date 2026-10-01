@@ -21,7 +21,7 @@ The `upstream-head` job in the same compatibility workflow runs only on the week
 
 Each pinned compatibility matrix job:
 
-1. Fetches Hermes Agent at `8503ee4459316ce092b5d69b7d396c27aa03d0be` into the runner's temporary directory outside the candidate workspace.
+1. Fetches Hermes Agent at `dad0057271f14da3278a91afd438c901b2fcc5f3` into the runner's temporary directory outside the candidate workspace.
 2. Creates a venv outside the Hermes checkout with `uv venv`.
 3. Installs the pinned checkout with the upstream contributor setup, `uv pip install -e ".[all,dev,anthropic]"`.
 4. Runs `hermes plugins validate --json` and `hermes plugins doctor --ci` against this candidate.
@@ -45,7 +45,7 @@ REPORT="$(mktemp)"
 HERMES_HOME="$(mktemp -d)" "$HERMES_VENV/bin/python" "$SWITCHYARD_ROOT/scripts/ci/check_native_hermes.py" \
   --plugin-root "$SWITCHYARD_ROOT" \
   --upstream-root "$HERMES_SOURCE_ROOT" \
-  --upstream-sha 8503ee4459316ce092b5d69b7d396c27aa03d0be \
+  --upstream-sha dad0057271f14da3278a91afd438c901b2fcc5f3 \
   --source-sha "$(git -C "$SWITCHYARD_ROOT" rev-parse --verify HEAD)" \
   --report "$REPORT"
 ```
@@ -81,7 +81,7 @@ HERMES_HOME="$(mktemp -d)" \
   --plugin-root "$SWITCHYARD_ROOT" \
   --upstream-root "$HERMES_SOURCE_ROOT" \
   --source-sha "$(git -C "$SWITCHYARD_ROOT" rev-parse --verify HEAD)" \
-  --upstream-sha 8503ee4459316ce092b5d69b7d396c27aa03d0be \
+  --upstream-sha dad0057271f14da3278a91afd438c901b2fcc5f3 \
   --secret-home "$HOME/.hermes" \
   --report "$(mktemp)"
 ```
@@ -95,6 +95,14 @@ Use an authorized local Hermes profile only. Do not place a key in a command arg
 The workflow uploads the candidate ZIP and verification receipt as short-lived artifacts. It never creates tags, publishes releases, changes repository settings, or enables a plugin in a user profile. A successful archive build without source verification or native loader evidence is not a release claim.
 
 ## Hermes upstream pin
+
+The current pin includes upstream plugin-guard v8's context-aware treatment of
+inert test fixtures and detection regexes. The earlier v4 scanner marked these
+as executable threats and blocked installation of the feature regression corpus.
+The full repository is still scanned, all findings are retained, and the required
+verdict remains `safe`. No local scanner rule is suppressed. Native loader and
+schema checks pass against the selected upstream source; its Python range is
+unchanged. Older scanners may reject this repository's inert attack fixtures.
 
 One full commit SHA pins the Hermes upstream source for every workflow that uses it: `switchyard-compatibility.yml`, `live-jev.yml`, `release-candidate.yml`, and `upstream-pin-drift.yml`. The value is the `HERMES_UPSTREAM_SHA` environment entry in each file, and the documented references in `docs/CI.md`, `docs/TEST-MATRIX.md`, and `THIRD_PARTY.md` must name the same commit. The native checker also holds `PINNED_HERMES_SHA` and `PINNED_HERMES_PYTHON`; the SHA must match the workflows so the pinned `requires-python` check cannot be skipped. `tests/test_ci_contracts.py` fails if these pins or the documented Python range diverge.
 

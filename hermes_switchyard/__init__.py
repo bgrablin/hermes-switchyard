@@ -1792,6 +1792,7 @@ def register(ctx):
             if start_url:
                 def run_dom(active_client):
                     return browser_use.run_browser_goal(
+                        retrieved_screen_enabled=setting_bool("retrieved_screen_enabled", False),
                         plan_cache=browser_plan_cache if setting_bool("browser_plan_cache", False) else None,
                         cache_scope=cache_identity() if setting_bool("browser_plan_cache", False) else None,
                         goal=args.get("goal") or "",
@@ -1912,6 +1913,7 @@ def register(ctx):
             except Exception:  # noqa: BLE001 -- missing key/route fails open to FTS
                 return json.dumps(
                     rerank_session_search(
+                        retrieved_screen_enabled=setting_bool("retrieved_screen_enabled", False),
                         candidates=candidates,
                         query=query,
                         client=None,
@@ -1926,6 +1928,7 @@ def register(ctx):
             try:
                 return json.dumps(
                     rerank_session_search(
+                        retrieved_screen_enabled=setting_bool("retrieved_screen_enabled", False),
                         query=query,
                         candidates=candidates,
                         client=active_client,

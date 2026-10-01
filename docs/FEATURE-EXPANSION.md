@@ -1,13 +1,15 @@
 # Tool review, retrieval screening, and conservative output handling
 
 These are development candidates for 0.6.0, not a new release. Model switching
-remains advisory. No Hermes core patch or private execution override is required.
+remains advisory. No Hermes core patch or private execution override is required. The tested
+upstream pin includes plugin-guard v8; older install scanners can reject the
+inert adversarial fixtures in this repository.
 
 ## What changes
 
 | Feature | Behavior | Default |
 | --- | --- | --- |
-| Retrieved-text screen | Locally withholds session-search cards with explicit instruction-override or role-spoof indicators, including provider-failure fallback. Stops the DOM loop on the same indicators in its observations. | On; no provider required |
+| Retrieved-text screen | Locally withholds session-search cards with explicit instruction-override or role-spoof indicators, including provider-failure fallback. Stops the DOM loop on the same indicators in its observations. | Enforcement off; search indicators shadow-only |
 | Catalog review | `hermes switchyard scan-catalog PATH` reads a local package or MCP config directory and reports content hashes, rule locations, and coverage gaps. | Explicit command only |
 | Consequential tool gate | Requests native human approval on code-defined credential, deletion, or irreversible-operation indicators. | Off |
 | Smart approval provider | Six typed Jev questions feed a deterministic APPROVE/DENY/ESCALATE decision for native `auxiliary.approval`. | Off; separate provider selection required |
@@ -15,7 +17,9 @@ remains advisory. No Hermes core patch or private execution override is required
 | Cross-tool stuck advice | After three errors across at least two tools, asks once whether they share an unresolved prerequisite. A strong answer adds advice. | Off |
 | Browser plan cache | Reuses successful public link decisions for repeat goals when page evidence and route scope match. | Off |
 
-The screen recognizes a bounded set of warning patterns. It does not establish
+Enforcement needs explicit `retrieved_screen_enabled: true`. By default, search
+receipts report shadow indicators without withholding cards, and DOM runs keep
+the existing behavior. The screen recognizes a bounded set of warning patterns. It does not establish
 that content is trustworthy, scan unobserved page text, or replace the host's
 instruction boundary. Search receipts contain warning codes and withheld counts,
 not matched text. Benign documents demonstrating an attack may be withheld.
@@ -25,6 +29,7 @@ not matched text. Benign documents demonstrating an attack may be withheld.
 Settings live under `plugins.entries.hermes-switchyard.settings`:
 
 ```yaml
+retrieved_screen_enabled: true
 consequential_tool_gate: true
 repeated_output_compaction: true
 cross_tool_stuck_detection: true

@@ -1067,6 +1067,7 @@ def run_browser_goal(
     text_inputs: Any = None,
     allowed_hotkeys: Any = None,
     browser_executable: Any = None,
+    retrieved_screen_enabled: bool = False,
     plan_cache: Any = None,
     cache_scope: Any = None,
 ) -> dict[str, Any]:
@@ -1086,6 +1087,7 @@ def run_browser_goal(
     page: dict[str, Any] = {"url": "", "title": "", "text": "", "elements": []}
     condition = _normalize_completion_condition(completion_condition, goal)
     progress: dict[str, Any] = {
+        "retrieved_screen_enabled": retrieved_screen_enabled is True,
         "attempted_requests": 0,
         "last_state_hash": None,
         "browser": None,
@@ -1353,7 +1355,7 @@ def _run_browser_loop(
             failure_phase="unsafe_url",
             reconcile_before_retry=False,
         )
-    if screen_page(page):
+    if progress.get("retrieved_screen_enabled") and screen_page(page):
         return finish(page=page, status="blocked", failure_phase="retrieved_instruction_screen")
     if plan_cache is not None and cache_scope is not None and not text_inputs and condition is not None:
         replay = plan_cache.begin(cache_scope, goal, page, condition, min_actions_before_done)
@@ -1391,7 +1393,7 @@ def _run_browser_loop(
                 failure_reason=str(blocked.get("code") or "destination_blocked"),
                 reconcile_before_retry=bool(actions),
             )
-        if screen_page(page):
+        if progress.get("retrieved_screen_enabled") and screen_page(page):
             return finish(
                 page=page, status="blocked", failure_phase="retrieved_instruction_screen",
                 reconcile_before_retry=bool(actions),
@@ -1630,7 +1632,7 @@ def _run_browser_loop(
                     )
                 label = chosen["label"]
                 fresh = session.observe()
-                if screen_page(fresh):
+                if progress.get("retrieved_screen_enabled") and screen_page(fresh):
                     return finish(page=fresh, status="blocked", failure_phase="retrieved_instruction_screen", reconcile_before_retry=bool(actions))
                 if decision.get("source") == "plan_cache" and fresh != page:
                     return finish(page=fresh, status="abstained", failure_phase="stale_plan", reconcile_before_retry=bool(actions))
@@ -1700,7 +1702,7 @@ def _run_browser_loop(
                     )
                 label = chosen["label"]
                 fresh = session.observe()
-                if screen_page(fresh):
+                if progress.get("retrieved_screen_enabled") and screen_page(fresh):
                     return finish(page=fresh, status="blocked", failure_phase="retrieved_instruction_screen", reconcile_before_retry=bool(actions))
                 if decision.get("source") == "plan_cache" and fresh != page:
                     return finish(page=fresh, status="abstained", failure_phase="stale_plan", reconcile_before_retry=bool(actions))
@@ -1857,7 +1859,7 @@ def _run_browser_loop(
                 failure_phase="unsafe_url",
                 reconcile_before_retry=True,
             )
-        if screen_page(after):
+        if progress.get("retrieved_screen_enabled") and screen_page(after):
             actions.append(_action_record(step=step, operation=operation, label=label, target_id=target_id, page=after, dispatched=action_dispatched, effect_observed=None, effect_status="retrieved_instruction_screen"))
             return finish(page=after, status="blocked", failure_phase="retrieved_instruction_screen", reconcile_before_retry=True)
         url_changed = str(after.get("url") or "") != str(page.get("url") or "")
@@ -1955,7 +1957,7 @@ def _run_browser_loop(
         stalled = 0 if progressed else stalled + 1
         page.clear()
         page.update(after)
-        if screen_page(page):
+        if progress.get("retrieved_screen_enabled") and screen_page(page):
             return finish(page=page, status="blocked", failure_phase="retrieved_instruction_screen", reconcile_before_retry=True)
         progress["last_state_hash"] = _observation_signature(page)
         completion = _completion_status(condition, page)
@@ -2057,7 +2059,7 @@ def _local_scroll_recovery(
             return {"after": candidate, "records": records, "blocked": blocked, "unsafe": False}
         if not _public_http_url(str(candidate.get("url") or "")):
             return {"after": candidate, "records": records, "blocked": None, "unsafe": True}
-        if changed or screen_page(candidate):
+        if changed:
             return {"after": candidate, "records": records, "blocked": None, "unsafe": False}
     return {"after": None, "records": records, "blocked": None, "unsafe": False}
 

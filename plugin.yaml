@@ -35,6 +35,7 @@ provides_hooks:
 provides_middleware:
   - llm_request
 config_schema:
+  retrieved_screen_enabled: {type: bool, default: false, description: "Opt in to local instruction-pattern blocking in session-search cards and DOM observations. When off, search receipts retain shadow indicators without withholding evidence; DOM behavior is unchanged."}
   browser_plan_cache:
     type: bool
     default: false

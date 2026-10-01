@@ -164,7 +164,13 @@ def main():
         args.output.write_text(json.dumps(output, indent=2))
         print(
             "FEATURES "
-            + json.dumps({k: v for k, v in output.items() if k != "jev_calls"}),
+            + json.dumps(
+                {
+                    k: v
+                    for k, v in output.items()
+                    if k not in {"jev_calls", "provenance"}
+                }
+            ),
             flush=True,
         )
         return
@@ -180,9 +186,15 @@ def main():
 
         def observed_call(*args, **kwargs):
             route = {}
-            response = native_call(*args, route_info=route, **kwargs)
-            native_calls.append({"route": route, "model": response.model})
-            return response
+            row = {"route": route}
+            native_calls.append(row)  # Count attempts, including provider failures.
+            try:
+                response = native_call(*args, route_info=route, **kwargs)
+                row["model"] = response.model
+                return response
+            except Exception as exc:
+                row["error_type"] = type(exc).__name__
+                raise
 
         auxiliary_client.call_llm = observed_call
     from tools.approval_smart import _smart_approve
@@ -195,14 +207,18 @@ def main():
 
         policy = fixture[3] if len(fixture) > 3 else ""
         approval_smart._get_smart_policy = lambda: policy
-        before = len(calls)
+        observed_calls = native_calls if args.arm == "baseline" else calls
+        before = len(observed_calls)
         t = time.perf_counter()
         verdict = _smart_approve(command, "synthetic qualification fixture")
         row = {
             "id": name,
             "expected": expected,
             "verdict": verdict,
-            "requests": len(calls) - before,
+            "requests": len(observed_calls) - before,
+            "request_counter": "native_auxiliary_attempts"
+            if args.arm == "baseline"
+            else "jev_transport_attempts",
             "wall_ms": round((time.perf_counter() - t) * 1000, 1),
         }
         rows.append(row)

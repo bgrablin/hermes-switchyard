@@ -179,7 +179,6 @@ def _normalize_candidates(
         raise ValueError(f"candidates must contain at most {MAX_CANDIDATES} entries")
     normalized: list[dict[str, Any]] = []
     seen: set[str] = set()
-    candidates, _screen = screen_shortlist(candidates)
     for index, raw in enumerate(candidates):
         if not isinstance(raw, Mapping):
             raise ValueError(f"candidates[{index}] must be an object")
@@ -250,12 +249,15 @@ def fail_open_to_fts(
     metadata: Mapping[str, Any] | None = None,
     confidence: float = 0.0,
     winning_probability: float | None = None,
+    retrieved_screen_enabled: bool = False,
 ) -> dict[str, Any]:
     """Return the first FTS candidate with an explicit fail-open reason.
 
     Used by the tool handler when the Jev client cannot be constructed, and by
     the re-rank path when Jev is down or low-confidence.
     """
+    if retrieved_screen_enabled:
+        candidates, _screen = screen_shortlist(candidates)
     query_text = (query or "").strip()[:MAX_QUERY_CHARS]
     if not candidates:
         return _empty_result(query=query_text, max_card_chars=max_card_chars)
@@ -633,9 +635,14 @@ def _rerank_session_search(
         )
 
 
-def rerank_session_search(**kwargs):
+def rerank_session_search(*, retrieved_screen_enabled=False, **kwargs):
     """Screen retrieved cards locally before selection, even with no provider."""
     candidates, screening = screen_shortlist(kwargs.get("candidates"))
+    flagged = screening["withheld"]
+    if not retrieved_screen_enabled:
+        candidates = kwargs.get("candidates")
+        screening["withheld"] = 0
+    screening.update(mode="enforce" if retrieved_screen_enabled else "shadow", flagged=flagged)
     result = _rerank_session_search(**{**kwargs, "candidates": candidates})
     result["retrieved_screen"] = screening
     if screening["withheld"] and not candidates:

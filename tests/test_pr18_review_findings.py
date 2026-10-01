@@ -467,6 +467,29 @@ class ReceiptContractTests(HermesHomeTestCase):
             os.environ.pop("HERMES_HOME", None)
             harness.close()
 
+    def test_receipt_read_rejects_swap_before_open(self):
+        harness = _MemoryFileHarness()
+        try:
+            path = Path(harness._tmp.name) / "checked.json"
+            outside = Path(harness._tmp.name) / "external.json"
+            path.write_text(json.dumps(_base_advisory()), encoding="utf-8")
+            outside.write_text(json.dumps(_base_advisory()), encoding="utf-8")
+            original = os.open
+            def replace_at_open(target, *args, **kwargs):
+                path.unlink()
+                try:
+                    path.symlink_to(outside)
+                except OSError:
+                    self.skipTest("symlinks unavailable")
+                return original(target, *args, **kwargs)
+            with mock.patch.object(receipt_state.os, "open", replace_at_open), mock.patch.object(
+                receipt_state.os, "fdopen", side_effect=AssertionError("external content was read")
+            ):
+                with self.assertRaises((OSError, ValueError)):
+                    receipt_state._read_json_receipt(path)
+        finally:
+            harness.close()
+
     def test_symlinked_new_receipt_cannot_retire_legacy(self):
         harness = _MemoryFileHarness()
         try:

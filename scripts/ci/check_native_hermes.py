@@ -13,7 +13,7 @@ from typing import Any
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 
-PINNED_HERMES_SHA = "8503ee4459316ce092b5d69b7d396c27aa03d0be"
+PINNED_HERMES_SHA = "dad0057271f14da3278a91afd438c901b2fcc5f3"
 PINNED_HERMES_PYTHON = ">=3.11,<3.14"
 EXPECTED_PLUGIN = "hermes-switchyard"
 EXPECTED_MANIFEST_VERSION = 1
