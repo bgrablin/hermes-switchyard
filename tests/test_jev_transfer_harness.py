@@ -143,34 +143,47 @@ class JevTransferHarnessTests(unittest.TestCase):
         self.assertEqual(result["model"], PILOT.TARGET)
 
     def test_model_route_without_identity_keeps_original_model(self):
-        router = PILOT.PilotRouter()
-        router.client = mock.Mock()
-        router.client.decide.return_value = {
-            "request_id": None,
-            "answers": {
-                "routine": {"type": "noul", "noul": 1},
-                "stakes": {"type": "noul", "noul": 0},
-            },
-        }
-        router.turns[("s", "t", "u")] = {"text": "Sum 1 and 2", "model": None}
-        request = {
-            "model": PILOT.ORIGIN,
-            "input": [{"role": "user", "content": "Sum 1 and 2"}],
-        }
-        with mock.patch.object(
-            PILOT, "request_budget_scope", return_value=nullcontext()
-        ):
-            result = router.apply(
-                request,
-                session_id="s",
-                task_id="t",
-                turn_id="u",
-                provider="openai-codex",
-                api_mode="codex_responses",
-                model=PILOT.ORIGIN,
-            )
-        self.assertEqual(result["model"], PILOT.ORIGIN)
-        self.assertFalse(router.receipts[0]["applied"])
+        for request_id in [None, "", "  ", 12, "valid-decision-id"]:
+            with self.subTest(request_id=request_id):
+                router = PILOT.PilotRouter()
+                router.client = mock.Mock()
+                router.client.decide.return_value = {
+                    "request_id": request_id,
+                    "answers": {
+                        "routine": {"noul": 1},
+                        "stakes": {"noul": 0},
+                    },
+                }
+                router.turns[("s", "t", "u")] = {
+                    "text": "Sum 1 and 2",
+                    "model": None,
+                }
+                request = {
+                    "model": PILOT.ORIGIN,
+                    "input": [{"role": "user", "content": "Sum 1 and 2"}],
+                }
+                with mock.patch.object(
+                    PILOT, "request_budget_scope", return_value=nullcontext()
+                ), mock.patch.object(PILOT.time, "perf_counter", return_value=0):
+                    result = router.apply(
+                        request,
+                        session_id="s",
+                        task_id="t",
+                        turn_id="u",
+                        provider="openai-codex",
+                        api_mode="codex_responses",
+                        model=PILOT.ORIGIN,
+                    )
+                valid = request_id == "valid-decision-id"
+                self.assertEqual(
+                    result["model"], PILOT.TARGET if valid else PILOT.ORIGIN
+                )
+                self.assertEqual(router.receipts[0]["applied"], valid)
+                self.assertEqual(
+                    router.receipts[0]["reason"],
+                    "routine_qualified" if valid else "decision_failed",
+                )
+                router.client.decide.assert_called_once()
 
     def test_shared_decision_without_usable_id_falls_back(self):
         broker = CONSOLIDATION_PILOT.Broker()
