@@ -628,7 +628,7 @@ _KEPT_WHY = (
     r"cloud decision)"
 )
 _PASS_WHY = (
-    r"(?:pinned|no lower level|model excluded|adaptive off|unsupported route|"
+    r"(?:pinned|no lower level|this level cannot be adapted on this route|model excluded|adaptive off|unsupported route|"
     r"pass-through|reasoning off)"
 )
 _RECEIPT_SUFFIX = (
@@ -640,8 +640,8 @@ _RECEIPT_SUFFIX = (
 _RECEIPT_TAIL = re.compile(
     rf"\n\n(?:"
     rf"switchyard: effort {_EFFORT_PATH}(?: \(kept: [^)\n]*\))?(?: · [^\n]*)?"
-    rf"|Reasoning: not adapted — (?:host sent no effort|no lower level for this route|"
-    rf"host sent no effort; no lower level for this route) · no Jev call"
+    rf"|Reasoning: not adapted — (?:host sent no effort|this level cannot be adapted on this route|"
+    rf"host sent no effort; this level cannot be adapted on this route) · no Jev call"
     rf"|"
     rf"Reasoning: (?:{_EFFORT_PATH}|kept at {_EFFORT_TOKEN} — {_KEPT_WHY}|"
     rf"{_EFFORT_TOKEN} · {_PASS_WHY})(?: · {_RECEIPT_SUFFIX})*"
@@ -899,7 +899,7 @@ def parse_receipt_mode(value: Any) -> str:
     """Return ``auto``, ``always``, or ``off``.
 
     Bool ``True`` / ``"on"`` / legacy ``"work"`` map to ``auto`` (show when
-    Switchyard changed effort or made/reused a decision). Bool ``False`` maps to
+    Switchyard changed effort, made/reused a decision, or a turn was route-only). Bool ``False`` maps to
     ``off``. Unknown values fall back to ``auto``.
     """
     if value is True:
@@ -1282,7 +1282,7 @@ def _human_reason(reason_code: Any) -> str:
         "cached": "reused earlier decision",
         "cached_unchanged": "reused earlier decision",
         "pinned": "pinned (your level)",
-        "no_room": "no lower level for this route",
+        "no_room": "this level cannot be adapted on this route",
         "excluded_model": "model excluded",
         "disabled": "adaptive effort off",
         "unsupported_route": "unsupported route",
@@ -1308,7 +1308,7 @@ def _pass_label(reason_code: Any) -> str:
     reason = str(reason_code or "").strip()
     labels = {
         "pinned": "pinned",
-        "no_room": "no lower level",
+        "no_room": "this level cannot be adapted on this route",
         "excluded_model": "model excluded",
         "disabled": "adaptive off",
         "unsupported_route": "unsupported route",
@@ -2006,7 +2006,7 @@ class ReasoningEffortController:
 
         Default ``auto`` mode: a line when Switchyard changed effort or made/reused a
         decision (cloud, local, or cached), or every request was not adapted because the
-        host sent no effort or the route had no lower level. ``always`` also shows other
+        host sent no effort or the level could not be adapted on the route. ``always`` also shows other
         pass-through when a wire level is known. ``off`` never shows a line. Examples:
         ``Reasoning: high→low · 180 ms`` and
         ``Reasoning: kept at high — consequential request · 210 ms``. The saved figure is
@@ -2023,7 +2023,7 @@ class ReasoningEffortController:
         if entry["route_only"] and entry["route_reasons"]:
             labels = {
                 "no_host_effort": "host sent no effort",
-                "no_room": "no lower level for this route",
+                "no_room": "this level cannot be adapted on this route",
             }
             why = "; ".join(labels[reason] for reason in labels if reason in entry["route_reasons"])
             return f"Reasoning: not adapted — {why} · no Jev call"
@@ -2302,7 +2302,7 @@ class ReasoningEffortController:
             "  summary         show the session summary: turns, lowered/kept/raised, cloud, tokens\n"
             "  pin             send your selected /reasoning level unchanged\n"
             "  auto            let Switchyard lower effort for routine steps (" + auto_limit + ")\n"
-            "  receipt auto    show a line when effort changed or a decision was made/reused (default)\n"
+            "  receipt auto    show decisions and route-side not-adapted receipts (default)\n"
             "  receipt always  also when pinned / pass-through with a known wire level\n"
             "  receipt off     show no receipt line\n"
             "  (legacy: receipt work|on → auto)"
@@ -2329,17 +2329,21 @@ class ReasoningEffortController:
                 )
                 if mode == "off":
                     return "Reasoning receipt: off." + persist_note
+                route_note = (
+                    " A foreground turn where every request passed through because the host "
+                    "sent no effort or the level cannot be adapted on the route gets one "
+                    "'not adapted' line with 'no Jev call'."
+                )
                 if mode == "always":
                     return (
-                        "Reasoning receipt: always. Also shows the last sent level when "
+                        "Reasoning receipt: always." + route_note + " Also shows the last sent level when "
                         "pinned or other pass-through with a known wire level (for example "
-                        "'Reasoning: high · pinned'). No line when the host has no effort "
-                        "field or the route is unsupported." + persist_note
+                        "'Reasoning: high · pinned'). Unsupported routes remain quiet." + persist_note
                     )
                 return (
                     "Reasoning receipt: auto. A reply where Switchyard changed effort or "
                     "made/reused a decision ends with one line, for example "
-                    "'Reasoning: high→low · 180 ms'." + legacy_note + persist_note
+                    "'Reasoning: high→low · 180 ms'." + route_note + legacy_note + persist_note
                 )
             if len(parts) > 2 or action not in {"status", "summary", "pin", "auto"}:
                 return usage
