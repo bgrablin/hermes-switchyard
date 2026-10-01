@@ -1,0 +1,178 @@
+[
+  {
+    "case": "skills-25",
+    "kind": "single",
+    "arms": {
+      "baseline": {
+        "n": 21,
+        "failures": 0,
+        "median_ms": 0.7939809584058821,
+        "total_ms": 18.318271031603217,
+        "p95_ms": 1.5449410420842469
+      },
+      "candidate": {
+        "n": 21,
+        "failures": 0,
+        "median_ms": 0.1381810288876295,
+        "total_ms": 2.975792158395052,
+        "p95_ms": 0.16770203365013003
+      }
+    },
+    "identical_plan_or_payload": true,
+    "median_reduction_pct": 82.5964303772394
+  },
+  {
+    "case": "skills-25",
+    "kind": "multi",
+    "arms": {
+      "baseline": {
+        "n": 21,
+        "failures": 0,
+        "median_ms": 0.9401090210303664,
+        "total_ms": 20.678843080531806,
+        "p95_ms": 1.2720869854092598
+      },
+      "candidate": {
+        "n": 21,
+        "failures": 0,
+        "median_ms": 0.18363096751272678,
+        "total_ms": 3.8465698598884046,
+        "p95_ms": 0.2067249733954668
+      }
+    },
+    "identical_plan_or_payload": true,
+    "median_reduction_pct": 80.467056117442
+  },
+  {
+    "case": "skills-600",
+    "kind": "single",
+    "arms": {
+      "baseline": {
+        "n": 21,
+        "failures": 0,
+        "median_ms": 98.71306997956708,
+        "total_ms": 2118.850190017838,
+        "p95_ms": 108.392157999333
+      },
+      "candidate": {
+        "n": 21,
+        "failures": 0,
+        "median_ms": 2.6956709916703403,
+        "total_ms": 57.04551801318303,
+        "p95_ms": 2.9229720239527524
+      }
+    },
+    "identical_plan_or_payload": true,
+    "median_reduction_pct": 97.26918533459822
+  },
+  {
+    "case": "skills-600",
+    "kind": "multi",
+    "arms": {
+      "baseline": {
+        "n": 21,
+        "failures": 0,
+        "median_ms": 112.03415098134428,
+        "total_ms": 2371.361729921773,
+        "p95_ms": 118.01620101323351
+      },
+      "candidate": {
+        "n": 21,
+        "failures": 0,
+        "median_ms": 3.786402987316251,
+        "total_ms": 79.91779688745737,
+        "p95_ms": 3.99156502680853
+      }
+    },
+    "identical_plan_or_payload": true,
+    "median_reduction_pct": 96.6203135792525
+  },
+  {
+    "case": "questions-1-100",
+    "kind": "decide",
+    "arms": {
+      "baseline": {
+        "n": 21,
+        "failures": 0,
+        "median_ms": 0.048502988647669554,
+        "total_ms": 1.0830979445017874,
+        "p95_ms": 0.08363398956134915
+      },
+      "candidate": {
+        "n": 21,
+        "failures": 0,
+        "median_ms": 0.06254104664549232,
+        "total_ms": 1.3303959276527166,
+        "p95_ms": 0.08306396193802357
+      }
+    },
+    "identical_plan_or_payload": true,
+    "median_reduction_pct": -28.942665986619055
+  },
+  {
+    "case": "questions-255-100",
+    "kind": "decide",
+    "arms": {
+      "baseline": {
+        "n": 21,
+        "failures": 0,
+        "median_ms": 17.180444963742048,
+        "total_ms": 366.9117979006842,
+        "p95_ms": 19.223220995627344
+      },
+      "candidate": {
+        "n": 21,
+        "failures": 0,
+        "median_ms": 0.6043490138836205,
+        "total_ms": 12.714976037386805,
+        "p95_ms": 0.6344529683701694
+      }
+    },
+    "identical_plan_or_payload": true,
+    "median_reduction_pct": 96.48234364616836
+  },
+  {
+    "case": "questions-600-100",
+    "kind": "decide",
+    "arms": {
+      "baseline": {
+        "n": 21,
+        "failures": 0,
+        "median_ms": 37.59688098216429,
+        "total_ms": 808.9220248511992,
+        "p95_ms": 44.83516304753721
+      },
+      "candidate": {
+        "n": 21,
+        "failures": 0,
+        "median_ms": 2.3405830143019557,
+        "total_ms": 49.4063901132904,
+        "p95_ms": 2.4762360262684524
+      }
+    },
+    "identical_plan_or_payload": true,
+    "median_reduction_pct": 93.77452875569037
+  },
+  {
+    "case": "questions-600-50000",
+    "kind": "decide",
+    "arms": {
+      "baseline": {
+        "n": 21,
+        "failures": 0,
+        "median_ms": 81.28562901401892,
+        "total_ms": 1757.9624040517956,
+        "p95_ms": 94.19218602124602
+      },
+      "candidate": {
+        "n": 21,
+        "failures": 0,
+        "median_ms": 2.713418973144144,
+        "total_ms": 58.00173297757283,
+        "p95_ms": 3.0331650050356984
+      }
+    },
+    "identical_plan_or_payload": true,
+    "median_reduction_pct": 96.66187122366222
+  }
+]
