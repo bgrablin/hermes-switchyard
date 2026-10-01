@@ -212,7 +212,11 @@ def _read_retained_history(path: Path) -> list[dict]:
             handle.seek(start)
             data = handle.read(receipt_history.DEFAULT_MAX_BYTES)
             after = os.fstat(handle.fileno())
-            if (after.st_size, after.st_mtime_ns) != (opened.st_size, opened.st_mtime_ns):
+            final_path = path.lstat()
+            if (not stat.S_ISREG(after.st_mode) or after.st_nlink != 1
+                    or not stat.S_ISREG(final_path.st_mode) or final_path.st_nlink != 1
+                    or (final_path.st_dev, final_path.st_ino) != (opened.st_dev, opened.st_ino)
+                    or (after.st_size, after.st_mtime_ns) != (opened.st_size, opened.st_mtime_ns)):
                 raise OSError("history changed while reading")
     finally:
         if descriptor is not None:
@@ -241,7 +245,12 @@ def _publish_report(path: Path, payload: str) -> None:
     finally:
         if descriptor is not None:
             os.close(descriptor)
-        temporary.unlink()
+        try:
+            temporary.unlink()
+        except OSError:
+            # Preserve the publication result (or original failure). The temp
+            # file is private and may be cleaned up after a filesystem failure.
+            pass
 
 
 def main(argv: list[str] | None = None) -> int:

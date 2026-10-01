@@ -311,6 +311,42 @@ class OutcomeLabelTests(unittest.TestCase):
                 with self.assertRaises(OSError):
                     outcome_labels._read_retained_history(linked)
 
+    def test_history_revalidates_link_count_and_path_after_read(self):
+        from types import SimpleNamespace
+        from hermes_switchyard import outcome_labels
+        with tempfile.TemporaryDirectory() as root:
+            history = Path(root) / "history.jsonl"
+            history.write_text("")
+            original = history.stat()
+            values = {name: getattr(original, name) for name in (
+                "st_mode", "st_nlink", "st_dev", "st_ino", "st_size", "st_mtime_ns",
+            )}
+            for boundary in ("new_link", "path_replaced", "path_unlinked"):
+                changed = SimpleNamespace(**{**values, "st_nlink": 2})
+                replaced = SimpleNamespace(**{**values, "st_ino": original.st_ino + 1})
+                stats = [original, changed if boundary == "new_link" else original]
+                paths = [original, original, FileNotFoundError() if boundary == "path_unlinked" else replaced]
+                if boundary == "new_link":
+                    paths[-1] = original
+                with self.subTest(boundary=boundary), \
+                        mock.patch.object(outcome_labels.os, "fstat", side_effect=stats), \
+                        mock.patch.object(Path, "lstat", side_effect=paths):
+                    with self.assertRaises(OSError):
+                        outcome_labels._read_retained_history(history)
+
+    def test_cleanup_failure_preserves_publication_success_or_original_error(self):
+        from hermes_switchyard import outcome_labels
+        with tempfile.TemporaryDirectory() as root:
+            output = Path(root) / "labels.json"
+            with mock.patch.object(Path, "unlink", side_effect=OSError("cleanup failed")):
+                outcome_labels._publish_report(output, "complete\n")
+            self.assertEqual(output.read_text(), "complete\n")
+            with mock.patch.object(Path, "unlink", side_effect=OSError("cleanup failed")), \
+                    mock.patch.object(receipt_state, "_apply_private_permissions", side_effect=PermissionError("protect failed")):
+                with self.assertRaisesRegex(PermissionError, "protect failed"):
+                    outcome_labels._publish_report(Path(root) / "other.json", "unpublished")
+            self.assertFalse((Path(root) / "other.json").exists())
+
     def test_offline_cli_reads_only_explicit_synthetic_history_and_writes_private_output(self):
         with tempfile.TemporaryDirectory(prefix="outcome-label-test-") as temporary:
             root = Path(temporary)
