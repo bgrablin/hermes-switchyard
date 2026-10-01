@@ -22,6 +22,7 @@ import re
 from typing import Any, Mapping, Sequence
 
 from . import receipt_state
+from .retrieved_screen import screen_shortlist
 from .client import (
     DEFAULT_OPERATION_DEADLINE_SECONDS,
     MAX_DECISION_REQUESTS,
@@ -178,6 +179,7 @@ def _normalize_candidates(
         raise ValueError(f"candidates must contain at most {MAX_CANDIDATES} entries")
     normalized: list[dict[str, Any]] = []
     seen: set[str] = set()
+    candidates, _screen = screen_shortlist(candidates)
     for index, raw in enumerate(candidates):
         if not isinstance(raw, Mapping):
             raise ValueError(f"candidates[{index}] must be an object")
@@ -448,7 +450,7 @@ def _merge_call_metadata(base: dict[str, Any], extra: Mapping[str, Any]) -> None
         pass
 
 
-def rerank_session_search(
+def _rerank_session_search(
     *,
     query: str,
     candidates: Sequence[Any],
@@ -629,3 +631,14 @@ def rerank_session_search(
             pick_match_message=pick_match_message,
             metadata=metadata,
         )
+
+
+def rerank_session_search(**kwargs):
+    """Screen retrieved cards locally before selection, even with no provider."""
+    candidates, screening = screen_shortlist(kwargs.get("candidates"))
+    result = _rerank_session_search(**{**kwargs, "candidates": candidates})
+    result["retrieved_screen"] = screening
+    if screening["withheld"] and not candidates:
+        result["status"] = "blocked"
+        result["fail_open_reason"] = "retrieved_instruction_screen"
+    return result

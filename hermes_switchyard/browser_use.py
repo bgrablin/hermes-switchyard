@@ -29,6 +29,8 @@ from typing import Any, Protocol
 from urllib.parse import quote, unquote, unquote_plus, urlsplit
 from urllib.request import urlopen
 
+from .retrieved_screen import screen_page
+
 from . import destination_policy
 from .client import (
     DEFAULT_OPERATION_DEADLINE_SECONDS,
@@ -1065,6 +1067,8 @@ def run_browser_goal(
     text_inputs: Any = None,
     allowed_hotkeys: Any = None,
     browser_executable: Any = None,
+    plan_cache: Any = None,
+    cache_scope: Any = None,
 ) -> dict[str, Any]:
     """Run one in-process Jev browser loop. The coordinator does not sit between clicks."""
     if type(goal) is not str or not goal.strip():
@@ -1160,6 +1164,7 @@ def run_browser_goal(
                         progress=progress,
                         condition=condition,
                         text_inputs=caller_text_inputs,
+                        plan_cache=plan_cache, cache_scope=cache_scope,
                     )
                 finally:
                     try:
@@ -1182,6 +1187,7 @@ def run_browser_goal(
                 progress=progress,
                 condition=condition,
                 text_inputs=caller_text_inputs,
+                plan_cache=plan_cache, cache_scope=cache_scope,
             )
     except TimeoutError:
         progress["last_state_hash"] = _observation_signature(page)
@@ -1288,6 +1294,8 @@ def _run_browser_loop(
     progress: dict[str, Any],
     condition: dict[str, Any] | None,
     text_inputs: dict[str, tuple[str, ...]] | None = None,
+    plan_cache: Any = None,
+    cache_scope: Any = None,
 ) -> dict[str, Any]:
     """Run one bounded observe-decide-act loop over the session.
 
@@ -1296,7 +1304,11 @@ def _run_browser_loop(
     discards completed external work.
     """
 
+    replay = None
+
     def finish(**fields: Any) -> dict[str, Any]:
+        if replay is not None:
+            replay.finish(status=fields.get("status"), completion=fields.get("completion"), actions=actions)
         reported = fields.pop("page", page)
         progress["destination"] = _destination_report(session)
         # Every receipt hashes the page it reports, so a terminal path can
@@ -1341,6 +1353,10 @@ def _run_browser_loop(
             failure_phase="unsafe_url",
             reconcile_before_retry=False,
         )
+    if screen_page(page):
+        return finish(page=page, status="blocked", failure_phase="retrieved_instruction_screen")
+    if plan_cache is not None and cache_scope is not None and not text_inputs and condition is not None:
+        replay = plan_cache.begin(cache_scope, goal, page, condition, min_actions_before_done)
     signature = _observation_signature(page)
     progress["last_state_hash"] = signature
     stalled = 0
@@ -1373,6 +1389,11 @@ def _run_browser_loop(
                 status="blocked",
                 failure_phase="destination_blocked",
                 failure_reason=str(blocked.get("code") or "destination_blocked"),
+                reconcile_before_retry=bool(actions),
+            )
+        if screen_page(page):
+            return finish(
+                page=page, status="blocked", failure_phase="retrieved_instruction_screen",
                 reconcile_before_retry=bool(actions),
             )
         elements = _safe_elements(page.get("elements"))
@@ -1476,13 +1497,15 @@ def _run_browser_loop(
                 for item in _public_actions(actions[-8:], caller_values)
             ],
         }
-        progress["attempted_requests"] = int(progress.get("attempted_requests") or 0) + 1
         try:
-            decision = client.decide(
-                state,
-                questions,
-                public_or_sanitized_data_ack=public_or_sanitized_data_ack,
-            )
+            decision = replay.lookup(page, state, questions) if replay is not None else None
+            if decision is None:
+                progress["attempted_requests"] = int(progress.get("attempted_requests") or 0) + 1
+                decision = client.decide(
+                    state,
+                    questions,
+                    public_or_sanitized_data_ack=public_or_sanitized_data_ack,
+                )
         except Exception as exc:  # noqa: BLE001 -- a provider failure keeps partial evidence
             decisions.append(
                 {
@@ -1530,6 +1553,7 @@ def _run_browser_loop(
         decisions.append(
             {
                 "phase": "step",
+                "source": decision.get("source", "provider"),
                 "operation": operation,
                 "latency_ms": decision.get("latency_ms"),
                 "model": decision.get("model"),
@@ -1582,6 +1606,8 @@ def _run_browser_loop(
                 status="abstained",
                 failure_phase=gate,
             )
+        if replay is not None:
+            replay.record(page, state, questions, decision)
         action_dispatched: bool | None = None
         text_transition = False
         text_accepted = False
@@ -1602,6 +1628,10 @@ def _run_browser_loop(
                     )
                 label = chosen["label"]
                 fresh = session.observe()
+                if screen_page(fresh):
+                    return finish(page=fresh, status="blocked", failure_phase="retrieved_instruction_screen", reconcile_before_retry=bool(actions))
+                if decision.get("source") == "plan_cache" and fresh != page:
+                    return finish(page=fresh, status="abstained", failure_phase="stale_plan", reconcile_before_retry=bool(actions))
                 if not _public_http_url(str(fresh.get("url") or "")):
                     return finish(
                         page=fresh,
@@ -1668,6 +1698,10 @@ def _run_browser_loop(
                     )
                 label = chosen["label"]
                 fresh = session.observe()
+                if screen_page(fresh):
+                    return finish(page=fresh, status="blocked", failure_phase="retrieved_instruction_screen", reconcile_before_retry=bool(actions))
+                if decision.get("source") == "plan_cache" and fresh != page:
+                    return finish(page=fresh, status="abstained", failure_phase="stale_plan", reconcile_before_retry=bool(actions))
                 if not _public_http_url(str(fresh.get("url") or "")):
                     return finish(
                         page=fresh,
@@ -1821,6 +1855,9 @@ def _run_browser_loop(
                 failure_phase="unsafe_url",
                 reconcile_before_retry=True,
             )
+        if screen_page(after):
+            actions.append(_action_record(step=step, operation=operation, label=label, target_id=target_id, page=after, dispatched=action_dispatched, effect_observed=None, effect_status="retrieved_instruction_screen"))
+            return finish(page=after, status="blocked", failure_phase="retrieved_instruction_screen", reconcile_before_retry=True)
         url_changed = str(after.get("url") or "") != str(page.get("url") or "")
         title_changed = str(after.get("title") or "") != str(page.get("title") or "")
         content_changed = _observation_signature(after) != signature
@@ -1916,6 +1953,8 @@ def _run_browser_loop(
         stalled = 0 if progressed else stalled + 1
         page.clear()
         page.update(after)
+        if screen_page(page):
+            return finish(page=page, status="blocked", failure_phase="retrieved_instruction_screen", reconcile_before_retry=True)
         progress["last_state_hash"] = _observation_signature(page)
         completion = _completion_status(condition, page)
         if completion is not None and completion["satisfied"] and len(actions) >= min_actions_before_done:
@@ -2016,7 +2055,7 @@ def _local_scroll_recovery(
             return {"after": candidate, "records": records, "blocked": blocked, "unsafe": False}
         if not _public_http_url(str(candidate.get("url") or "")):
             return {"after": candidate, "records": records, "blocked": None, "unsafe": True}
-        if changed:
+        if changed or screen_page(candidate):
             return {"after": candidate, "records": records, "blocked": None, "unsafe": False}
     return {"after": None, "records": records, "blocked": None, "unsafe": False}
 
@@ -2092,8 +2131,9 @@ def _browser_receipt(
         "effect_observed_count": observed_effects,
         "goal_verified": dual_gate_verified,
         "click_count": click_count,
-        "jev_request_count": len(decisions),
-        "attempted_request_count": int(state.get("attempted_requests") or len(decisions)),
+        "jev_request_count": sum(item.get("source") != "plan_cache" for item in decisions),
+        "plan_cache_hits": sum(item.get("source") == "plan_cache" for item in decisions),
+        "attempted_request_count": int(state.get("attempted_requests", len(decisions))),
         "jev_total_latency_ms": round(sum(latencies), 1) if latencies else 0.0,
         "last_state_hash": state.get("last_state_hash"),
         "destination_policy": state.get("destination") or destination_policy.static_report("not_started"),

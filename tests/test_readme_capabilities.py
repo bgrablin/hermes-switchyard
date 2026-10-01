@@ -88,13 +88,14 @@ def _config_description(key: str) -> str:
 class _RecordingContext:
     """A minimal PluginContext that records names only and applies install defaults."""
 
-    def __init__(self):
+    def __init__(self, enabled=()):
+        self.enabled = enabled
         self.hooks: list[str] = []
         self.middleware: list[str] = []
         self.tools: list[str] = []
 
     def get_config(self, _key, default=None):
-        return default
+        return True if _key in self.enabled else default
 
     def register_hook(self, name, _callback):
         self.hooks.append(name)
@@ -137,7 +138,11 @@ class ReadmeCapabilityInventoryTests(unittest.TestCase):
         features = _features_section(_readme_text())
         total = _NUMBER_WORDS[len(TOOL_TOOLSETS)]
         decision = _NUMBER_WORDS[
-            sum(1 for toolset in TOOL_TOOLSETS.values() if toolset == "hermes_switchyard")
+            sum(
+                1
+                for toolset in TOOL_TOOLSETS.values()
+                if toolset == "hermes_switchyard"
+            )
         ]
         hooks = _manifest_list("provides_hooks")
         middleware = _manifest_list("provides_middleware")
@@ -161,18 +166,22 @@ class ReadmeCapabilityInventoryTests(unittest.TestCase):
 
     def test_capability_table_lists_every_declared_hook_and_middleware(self):
         features = _features_section(_readme_text())
-        for name in _manifest_list("provides_hooks") + _manifest_list("provides_middleware"):
+        for name in _manifest_list("provides_hooks") + _manifest_list(
+            "provides_middleware"
+        ):
             self.assertIn(
                 f"`{name}`",
                 features,
                 f"the README capability inventory does not list {name}",
             )
 
-    def test_default_registration_matches_the_manifest_in_both_directions(self):
+    def test_enabled_registration_matches_the_manifest_in_both_directions(self):
         # Hermes `plugins validate` fails when registration adds a hook that
         # plugin.yaml does not declare. A source text search cannot see that, so
         # run the real register() with the default install settings.
-        context = _RecordingContext()
+        context = _RecordingContext(
+            {"consequential_tool_gate", "repeated_output_compaction"}
+        )
         with tempfile.TemporaryDirectory(prefix="switchyard-manifest-home-") as home:
             with mock.patch.dict(os.environ, {"HERMES_HOME": home}):
                 register(context)
@@ -191,16 +200,31 @@ class ReadmeCapabilityInventoryTests(unittest.TestCase):
                 [],
                 f"plugin.yaml declares {kind} names that register() does not add",
             )
-        self.assertEqual(len(_manifest_list("provides_hooks")), len(set(_manifest_list("provides_hooks"))))
-        self.assertEqual(sorted(context.tools), sorted(_manifest_list("provides_tools")))
+        self.assertEqual(
+            len(_manifest_list("provides_hooks")),
+            len(set(_manifest_list("provides_hooks"))),
+        )
+        self.assertEqual(
+            sorted(context.tools), sorted(_manifest_list("provides_tools"))
+        )
         hook_row = next(
-            line for line in _features_section(_readme_text()).splitlines() if line.startswith("| Hooks (")
+            line
+            for line in _features_section(_readme_text()).splitlines()
+            if line.startswith("| Hooks (")
         )
         self.assertEqual(
             sorted(set(re.findall(r"`([a-z_]+)`", hook_row))),
             sorted(set(context.hooks)),
             "the README Hooks row does not list exactly the registered hooks",
         )
+
+    def test_optional_hooks_add_no_listeners_by_default(self):
+        context = _RecordingContext()
+        with tempfile.TemporaryDirectory() as home:
+            with mock.patch.dict(os.environ, {"HERMES_HOME": home}):
+                register(context)
+        self.assertNotIn("pre_tool_call", context.hooks)
+        self.assertNotIn("transform_tool_result", context.hooks)
 
     def test_settings_text_discloses_adaptive_effort_message_egress(self):
         # Default-on adaptive effort sends bounded clean current-message text to
@@ -209,9 +233,20 @@ class ReadmeCapabilityInventoryTests(unittest.TestCase):
         limit = f"{MAX_TASK_CHARS:,}"
         effort = _config_description("adaptive_reasoning_effort")
         ack = _config_description("public_or_sanitized_data_ack")
-        for name, text in (("adaptive_reasoning_effort", effort), ("public_or_sanitized_data_ack", ack)):
-            self.assertIn(f"up to {limit} characters", text, f"{name} does not state the text bound")
-            self.assertIn("current user message", text, f"{name} does not say message text is sent")
+        for name, text in (
+            ("adaptive_reasoning_effort", effort),
+            ("public_or_sanitized_data_ack", ack),
+        ):
+            self.assertIn(
+                f"up to {limit} characters",
+                text,
+                f"{name} does not state the text bound",
+            )
+            self.assertIn(
+                "current user message",
+                text,
+                f"{name} does not say message text is sent",
+            )
             self.assertIn("Set false", text, f"{name} does not name its opt-out")
         self.assertIn("privacy opt-out", effort)
         self.assertIn("adaptive effort", ack)
@@ -221,7 +256,9 @@ class ReadmeCapabilityInventoryTests(unittest.TestCase):
             path.read_text(encoding="utf-8")
             for path in sorted((ROOT / "hermes_switchyard").rglob("*.py"))
         )
-        for name in _manifest_list("provides_hooks") + _manifest_list("provides_middleware"):
+        for name in _manifest_list("provides_hooks") + _manifest_list(
+            "provides_middleware"
+        ):
             self.assertIn(
                 f'"{name}"',
                 source,
