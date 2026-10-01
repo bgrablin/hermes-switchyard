@@ -1,6 +1,7 @@
 """Boundary and provenance tests for the maintained experimental harness."""
 
 import hashlib
+from contextlib import nullcontext
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -103,6 +104,36 @@ class JevTransferHarnessTests(unittest.TestCase):
             CONSOLIDATION.source_hashes()[tasks],
             hashlib.sha256((ROOT / tasks).read_bytes()).hexdigest(),
         )
+
+    def test_model_route_without_identity_keeps_original_model(self):
+        router = PILOT.PilotRouter()
+        router.client = mock.Mock()
+        router.client.decide.return_value = {
+            "request_id": None,
+            "answers": {
+                "routine": {"type": "noul", "noul": 1},
+                "stakes": {"type": "noul", "noul": 0},
+            },
+        }
+        router.turns[("s", "t", "u")] = {"text": "Sum 1 and 2", "model": None}
+        request = {
+            "model": PILOT.ORIGIN,
+            "input": [{"role": "user", "content": "Sum 1 and 2"}],
+        }
+        with mock.patch.object(
+            PILOT, "request_budget_scope", return_value=nullcontext()
+        ):
+            result = router.apply(
+                request,
+                session_id="s",
+                task_id="t",
+                turn_id="u",
+                provider="openai-codex",
+                api_mode="codex_responses",
+                model=PILOT.ORIGIN,
+            )
+        self.assertEqual(result["model"], PILOT.ORIGIN)
+        self.assertFalse(router.receipts[0]["applied"])
 
     def test_shared_decision_without_usable_id_falls_back(self):
         broker = CONSOLIDATION_PILOT.Broker()

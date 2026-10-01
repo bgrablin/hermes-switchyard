@@ -136,6 +136,9 @@ class PilotRouter:
                         public_or_sanitized_data_ack=True,
                     )
                 row["decision"] = answer
+                request_id = answer.get("request_id")
+                if not isinstance(request_id, str) or not request_id.strip():
+                    raise ValueError("missing decision identity")
                 routine = _noul_score(answer["answers"]["routine"], "routine")
                 stakes = _noul_score(answer["answers"]["stakes"], "stakes")
                 elapsed = time.perf_counter() - started
