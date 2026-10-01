@@ -14,6 +14,41 @@ MODEL = "gpt-6-sol"
 JEV = "typesafe/jev-1.13-20260917"
 
 
+RUNTIME_MODULES = (
+    "run_agent",
+    "hermes_state",
+    "hermes_constants",
+    "hermes_cli.runtime_provider",
+    "hermes_cli.env_loader",
+    "hermes_cli.plugins",
+    "agent.secret_scope",
+)
+
+
+def runtime_identity(root, modules):
+    root = root.resolve()
+    paths = {}
+    for name in RUNTIME_MODULES:
+        origin = getattr(modules.get(name), "__file__", None)
+        if not isinstance(origin, str):
+            raise ValueError("Hermes runtime module has no source path: " + name)
+        path = Path(origin).resolve(strict=True)
+        expected = root / (name.replace(".", "/") + ".py")
+        if path != expected or not path.is_relative_to(root):
+            raise ValueError("Hermes runtime root does not match loaded module: " + name)
+        paths[name] = str(path)
+    return paths
+
+
+def recorded_decision(result, safe_usage):
+    row = {
+        key: result.get(key)
+        for key in ["model", "request_id", "answers", "transport_retries"]
+    }
+    row["usage"] = safe_usage(result.get("usage"))
+    return row
+
+
 def main(args):
     from hermes_cli.env_loader import hydrate_profile_secret_sources
     from agent.secret_scope import build_profile_secret_scope, set_secret_scope
@@ -88,6 +123,7 @@ def main(args):
     if module:
         cls = importlib.import_module(module + ".client").DecisionClient
         original_post = cls._post
+        safe_usage = importlib.import_module(module + ".receipt_state").safe_usage
 
         def post(self, payload):
             assert self.model == JEV
@@ -95,18 +131,7 @@ def main(args):
             row = {"questions": list(payload["questions"])}
             try:
                 result = original_post(self, payload)
-                row.update(
-                    {
-                        k: result.get(k)
-                        for k in [
-                            "model",
-                            "usage",
-                            "request_id",
-                            "answers",
-                            "transport_retries",
-                        ]
-                    }
-                )
+                row.update(recorded_decision(result, safe_usage))
                 return result
             except Exception as exc:
                 row["error_type"] = type(exc).__name__
@@ -162,10 +187,16 @@ def main(args):
         return original_stream(payload, **kw)
 
     agent._run_codex_stream = stream
+    runtime_modules = runtime_identity(args.hermes_root, sys.modules)
     print(
         "READY "
         + json.dumps(
-            {"arm": args.arm, "provider": runtime["provider"], "model": MODEL}
+            {
+                "arm": args.arm,
+                "provider": runtime["provider"],
+                "model": MODEL,
+                "runtime_modules": runtime_modules,
+            }
         ),
         flush=True,
     )
@@ -219,6 +250,7 @@ if __name__ == "__main__":
     p.add_argument("--arm", required=True)
     p.add_argument("--home", type=Path, required=True)
     p.add_argument("--source", type=Path, required=True)
+    p.add_argument("--hermes-root", type=Path, required=True)
     try:
         main(p.parse_args())
     except Exception as exc:

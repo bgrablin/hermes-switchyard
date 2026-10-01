@@ -1,6 +1,8 @@
 """Boundary and provenance tests for the maintained experimental harness."""
 
 import hashlib
+import json
+import math
 from contextlib import nullcontext
 import importlib.util
 from pathlib import Path
@@ -9,6 +11,8 @@ import time
 from types import SimpleNamespace
 import unittest
 from unittest import mock
+
+from hermes_switchyard.receipt_state import safe_usage
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -35,7 +39,68 @@ CONSOLIDATION_PILOT = load(
 )
 
 
+WORKERS = [
+    load("evaluation/model_routing/native_worker.py", "transfer_routing_worker"),
+    load("evaluation/turn_consolidation/native_worker.py", "transfer_consolidation_worker"),
+]
+
+
 class JevTransferHarnessTests(unittest.TestCase):
+    def test_worker_runtime_paths_must_match_fingerprinted_checkout(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "expected"
+            modules = {}
+            for name in WORKERS[0].RUNTIME_MODULES:
+                path = root / (name.replace(".", "/") + ".py")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.touch()
+                modules[name] = SimpleNamespace(__file__=str(path))
+            unrelated = Path(temp) / "other-run-agent.py"
+            unrelated.touch()
+            for worker in WORKERS:
+                paths = worker.runtime_identity(root, modules)
+                self.assertEqual(set(paths), set(worker.RUNTIME_MODULES))
+                changed = {**modules, "run_agent": SimpleNamespace(__file__=str(unrelated))}
+                with self.assertRaisesRegex(ValueError, "does not match"):
+                    worker.runtime_identity(root, changed)
+
+    def test_launcher_passes_root_and_retains_worker_identity(self):
+        bootstrap = "runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)"
+        ready = {"runtime_modules": {"run_agent": "/runtime/run_agent.py"}}
+        for runner in [ROUTING, CONSOLIDATION]:
+            proc = mock.Mock()
+            proc.stdout = ["READY " + json.dumps(ready) + "\n"]
+            with mock.patch.object(
+                runner.driver.subprocess,
+                "check_output",
+                return_value=json.dumps(["python", "-c", bootstrap]),
+            ), mock.patch.object(
+                runner.driver.subprocess, "Popen", return_value=proc
+            ) as popen:
+                worker = runner.driver.Worker(
+                    "off", Path("/output"), ROOT, hermes_root=Path("/runtime")
+                )
+            command = popen.call_args.args[0]
+            self.assertEqual(command[-2:], ["--hermes-root", "/runtime"])
+            self.assertEqual(worker.ready, ready)
+
+    def test_recorded_usage_is_allowlisted_without_mutating_response(self):
+        usage = {
+            "input_tokens": 12,
+            "cost": None,
+            "reasoning_tokens": math.nan,
+            "output_tokens": True,
+            "total_tokens": -1,
+            "unknown": {"text": "provider metadata"},
+        }
+        result = {"model": "test-model", "usage": usage}
+        for worker in WORKERS:
+            row = worker.recorded_decision(result, safe_usage)
+            self.assertEqual(row["usage"], {"input_tokens": 12.0, "cost": None})
+            self.assertIs(result["usage"], usage)
+            self.assertIn("unknown", result["usage"])
+            self.assertIsNot(row["usage"], usage)
+
     def test_capture_rejects_nonstring_and_long_inputs(self):
         router = PILOT.PilotRouter()
         context = dict(

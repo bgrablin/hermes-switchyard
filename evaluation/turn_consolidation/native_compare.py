@@ -154,8 +154,15 @@ def main():
     try:
         for arm in freeze["arms"]:
             workers[arm] = driver.Worker(
-                arm, out, out / ("main" if arm == "off" else arm)
+                arm,
+                out,
+                out / ("main" if arm == "off" else arm),
+                hermes_root=args.hermes_root,
             )
+        freeze["runtime_workers"] = {
+            arm: worker.ready["runtime_modules"] for arm, worker in workers.items()
+        }
+        (out / "freeze.json").write_text(json.dumps(freeze, indent=2))
         jobs = [(r, c) for r in range(2) for c in CASES]
         rng = random.Random(873811)
         rng.shuffle(jobs)
