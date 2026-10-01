@@ -81,7 +81,9 @@ class JevTransferHarnessTests(unittest.TestCase):
                     "off", Path("/output"), ROOT, hermes_root=Path("/runtime")
                 )
             command = popen.call_args.args[0]
-            self.assertEqual(command[-2:], ["--hermes-root", "/runtime"])
+            self.assertEqual(
+                command[-2:], ["--hermes-root", str(Path("/runtime").resolve())]
+            )
             self.assertEqual(worker.ready, ready)
 
     def test_recorded_usage_is_allowlisted_without_mutating_response(self):
