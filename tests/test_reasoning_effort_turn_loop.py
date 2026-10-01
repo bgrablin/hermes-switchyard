@@ -21,9 +21,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scripts import live_effort_replay as replay
 from scripts.build_release import RELEASE_FILES
@@ -97,7 +99,7 @@ def _child(plugin_dir: Path) -> None:
             reasoning_config={"enabled": True, "effort": "high"},
         )
 
-    def run(route: str, text: str, output_tokens: int = 1, agent=None, history=None) -> dict:
+    def run(route: str, text: str, output_tokens: int = 1, agent=None, history=None, provider_delay=0.0) -> dict:
         spec = ROUTES[route]
         agent = agent or make_agent(route)
         agent._cleanup_task_resources = agent._persist_session = lambda *a, **k: None
@@ -106,6 +108,8 @@ def _child(plugin_dir: Path) -> None:
         wire: list[dict] = []
 
         def provider_call(api_kwargs):
+            if provider_delay:
+                time.sleep(provider_delay)
             wire.append(api_kwargs)
             wire_clock.append(time.perf_counter())
             if spec["api_mode"] == "anthropic_messages":
@@ -179,31 +183,65 @@ def _child(plugin_dir: Path) -> None:
     measured.append(run("anthropic", "hi", output_tokens=300, agent=session_agent))
     os.environ["HERMES_SESSION_ID"] = session_agent.session_id
     measured_summary = controller.handle_command("effort summary")
-    # Decision budget: a Jev that answers "low" after 650 ms under the default 0.4 s budget.
-    slow_started: list[float] = []
+    # Hold the worker until the real request has completed. Observe the actual
+    # Event.wait budget without making host scheduling part of the assertion.
+    effort_module = sys.modules[type(controller).__module__]
 
-    class SlowJev:
+    class BlockedJev:
+        def __init__(self):
+            self.release = threading.Event()
+            self.finished = threading.Event()
+            self.worker = None
+            self.started = None
+
         def decide(self, state, questions, **kwargs):
-            slow_started.append(time.perf_counter())
-            time.sleep(0.65)
-            levels = list(questions["reasoning_effort"]["criteria"])
-            return {"answers": {
-                "reasoning_effort": {"choice": levels[0], "confidence": 1.0,
-                                     "probabilities": {level: float(level == levels[0]) for level in levels}},
-                "stakes": {"noul": 0.0},
-            }}
+            self.worker = threading.current_thread()
+            self.started = time.perf_counter()
+            try:
+                assert self.release.wait(10), "test did not release blocked Jev"
+                levels = list(questions["reasoning_effort"]["criteria"])
+                return {"answers": {
+                    "reasoning_effort": {"choice": levels[0], "confidence": 1.0,
+                                         "probabilities": {level: float(level == levels[0]) for level in levels}},
+                    "stakes": {"noul": 0.0},
+                }}
+            finally:
+                self.finished.set()
 
     slow = []
     for route in ROUTES:
-        controller.client_factory = SlowJev
+        blocked = BlockedJev()
+        controller.client_factory = lambda: blocked
         slow_agent = make_agent(route)
-        row = run(route, SLOW_TASK, agent=slow_agent)
-        added = wire_clock[-1] - slow_started[-1]
-        time.sleep(0.3)  # the late "low" arrives here; it must not reach a later request
+        waits = []
+
+        def observed_event():
+            event = mock.Mock(wraps=threading.Event())
+            waits.append(event.wait)
+            return event
+
+        # Only the installed adapter gets the proxy; real Thread internals and
+        # the test's release event still use the untouched threading module.
+        try:
+            with mock.patch.object(effort_module, "threading", mock.Mock(wraps=threading)) as observed:
+                observed.Event.side_effect = observed_event
+                # Deliberate provider-boundary delay proves unrelated host work
+                # cannot make this decision-budget contract fail.
+                row = run(route, SLOW_TASK, agent=slow_agent, provider_delay=0.1)
+            pending_at_dispatch = not blocked.finished.is_set()
+        finally:
+            blocked.release.set()
+            if blocked.worker is not None:
+                blocked.worker.join(10)
+        assert blocked.worker is not None, "Jev worker never started"
+        assert not blocked.worker.is_alive(), "late Jev worker did not finish"
+        added = wire_clock[-1] - blocked.started
+        wait_budgets = [call.args[0] for wait in waits for call in wait.call_args_list]
         controller.client_factory = TextOnlyJev
         before = len(jev_states)
-        after = run(route, CONSEQUENTIAL, agent=slow_agent)  # same session, next turn
-        slow.append({**row, "added_s": added, "after_sent": after["sent"],
+        after = run(route, CONSEQUENTIAL, agent=slow_agent)  # same session, after the late answer
+        slow.append({**row, "added_s": added, "wait_budgets": wait_budgets,
+                     "jev_pending_at_dispatch": pending_at_dispatch, "after_sent": after["sent"],
                      "after_jev_calls": len(jev_states) - before})
     os.environ["HERMES_SESSION_ID"] = slow[-1]["session"]
     slow_status = controller.handle_command("effort status")
@@ -318,16 +356,17 @@ class HermesTurnLoopEffortTests(unittest.TestCase):
               by_case[("codex", CONSEQUENTIAL)]["final"].splitlines()[-1])
         print("E2E summary sample:\n" + summary)
 
-        # Decision budget on both wire shapes: a 650 ms Jev under the default 0.4 s budget.
+        # Both real wire paths proceed after the bounded wait while Jev is blocked.
         self.assertEqual(len(proof["slow"]), len(ROUTES))
         for row in proof["slow"]:
             self.assertEqual(row["sent"], "high", row)
-            self.assertLessEqual(row["added_s"], 0.45, row)
+            self.assertEqual(row["wait_budgets"], [0.4], row)
+            self.assertTrue(row["jev_pending_at_dispatch"], row)
             self.assertEqual(row["final"], "Synthetic answer.\n\nReasoning: kept at high — cloud over 400 ms budget")
             self.assertEqual((row["after_sent"], row["after_jev_calls"]), ("high", 1), row)
         self.assertIn("cloud over budget", proof["slow_status"])  # humanized; raw code stays in --json / receipts
         self.assertIn("deadline: 0.4 seconds", proof["slow_status"])
-        print("E2E budget samples:", [round(row["added_s"] * 1000) for row in proof["slow"]], "ms added;",
+        print("E2E worker-to-provider wall time (includes host work):", [round(row["added_s"] * 1000) for row in proof["slow"]], "ms;",
               proof["slow"][0]["final"].splitlines()[-1])
 
 
