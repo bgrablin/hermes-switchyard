@@ -187,29 +187,24 @@ def _child(plugin_dir: Path) -> None:
     # Event.wait budget without making host scheduling part of the assertion.
     effort_module = sys.modules[type(controller).__module__]
 
-    class BlockedJev:
+    class BlockedDecision:
+        """Synthetic worker result, even if scheduling outlasts the startup deadline."""
+
         def __init__(self):
             self.release = threading.Event()
             self.finished = threading.Event()
-            self.started = None
+            self.answer = None
 
-        def decide(self, state, questions, **kwargs):
-            self.started = time.perf_counter()
-            try:
-                assert self.release.wait(10), "test did not release blocked Jev"
-                levels = list(questions["reasoning_effort"]["criteria"])
-                return {"answers": {
-                    "reasoning_effort": {"choice": levels[0], "confidence": 1.0,
-                                         "probabilities": {level: float(level == levels[0]) for level in levels}},
-                    "stakes": {"noul": 0.0},
-                }}
-            finally:
-                self.finished.set()
+        def __call__(self, factory, deadline_at, kwargs):
+            assert self.release.wait(10), "test did not release blocked decision"
+            self.answer = {"status": "selected", "effort": "low", "reason_code": "jev_selected",
+                           "jev_called": True}
+            self.finished.set()
+            return self.answer
 
     slow = []
     for route in ROUTES:
-        blocked = BlockedJev()
-        controller.client_factory = lambda: blocked
+        blocked = BlockedDecision()
         slow_agent = make_agent(route)
         waits = []
         workers = []
@@ -224,34 +219,33 @@ def _child(plugin_dir: Path) -> None:
             waits.append(event.wait)
             return event
 
-        # Only the installed adapter gets the proxy; real Thread internals and
-        # the test's release event still use the untouched threading module.
-        try:
-            with mock.patch.object(effort_module, "threading", mock.Mock(wraps=threading)) as observed:
-                observed.Event.side_effect = observed_event
-                observed.Thread.side_effect = observed_thread
-                # Deliberate provider-boundary delay proves unrelated host work
-                # cannot make this decision-budget contract fail.
-                request_started = time.perf_counter()
-                row = run(route, SLOW_TASK, agent=slow_agent, provider_delay=0.1)
-            pending_at_dispatch = not blocked.finished.is_set()
-        finally:
-            blocked.release.set()
-            # A worker delayed past the deadline may skip decide() entirely.
-            # Track it at construction so that case still gets joined.
-            for worker in workers:
-                worker.join(10)
-        assert len(workers) == 1, "unexpected Jev worker count"
-        assert not workers[0].is_alive(), "late Jev worker did not finish"
+        # The decision producer is synthetic; the installed controller's worker,
+        # Event.wait, timeout handling, middleware, and provider dispatch are real.
+        # Keep the producer patched until the worker joins, including late starts.
+        with mock.patch.object(controller, "_pooled_decision", side_effect=blocked):
+            try:
+                # Only the adapter gets the proxy, not real Thread internals.
+                with mock.patch.object(effort_module, "threading", mock.Mock(wraps=threading)) as observed:
+                    observed.Event.side_effect = observed_event
+                    observed.Thread.side_effect = observed_thread
+                    # Deliberate delay covers unrelated work after the decision wait.
+                    request_started = time.perf_counter()
+                    row = run(route, SLOW_TASK, agent=slow_agent, provider_delay=0.1)
+                pending_at_dispatch = not blocked.finished.is_set()
+            finally:
+                blocked.release.set()
+                for worker in workers:
+                    worker.join(10)
+        assert len(workers) == 1, "unexpected decision worker count"
+        assert not workers[0].is_alive(), "late decision worker did not finish"
+        assert blocked.finished.is_set(), "late answer was never produced"
         added = wire_clock[-1] - request_started
         wait_budgets = [call.args[0] for wait in waits for call in wait.call_args_list]
-        controller.client_factory = TextOnlyJev
         before = len(jev_states)
         after = run(route, CONSEQUENTIAL, agent=slow_agent)  # same session, after the late answer
         slow.append({**row, "added_s": added, "wait_budgets": wait_budgets,
-                     "jev_pending_at_dispatch": pending_at_dispatch, "jev_started": blocked.started is not None,
-                     "after_sent": after["sent"],
-                     "after_jev_calls": len(jev_states) - before})
+                     "jev_pending_at_dispatch": pending_at_dispatch, "late_effort": blocked.answer["effort"],
+                     "after_sent": after["sent"], "after_jev_calls": len(jev_states) - before})
     os.environ["HERMES_SESSION_ID"] = slow[-1]["session"]
     slow_status = controller.handle_command("effort status")
     os.environ.pop("HERMES_SESSION_ID", None)
@@ -371,6 +365,7 @@ class HermesTurnLoopEffortTests(unittest.TestCase):
             self.assertEqual(row["sent"], "high", row)
             self.assertEqual(row["wait_budgets"], [0.4], row)
             self.assertTrue(row["jev_pending_at_dispatch"], row)
+            self.assertEqual(row["late_effort"], "low", row)
             self.assertEqual(row["final"], "Synthetic answer.\n\nReasoning: kept at high — cloud over 400 ms budget")
             self.assertEqual((row["after_sent"], row["after_jev_calls"]), ("high", 1), row)
         self.assertIn("cloud over budget", proof["slow_status"])  # humanized; raw code stays in --json / receipts
