@@ -20,6 +20,22 @@ RUNS = {
     "native_consolidation",
     "native_consolidation_interrupted",
 }
+# Offered identifiers in the retained native c25 study, from its frozen baseline.
+NATIVE_SKILL_CRITERIA = frozenset({
+    "block-party-seating", "board-game-pairings", "choir-practice-order",
+    "day-trip-packing", "fabric-scrap-sorting", "family-ride-stops",
+    "field-trip-stations", "garden-walk-access", "garden-walk-parking",
+    "garden-walk-refreshments", "garden-walk-shade", "garden-walk-signage",
+    "garden-walk-timing", "garden-walk-volunteers", "garden-walk-weather",
+    "hermes-switchyard:hermes-switchyard-operations", "mural-workshop-layout",
+    "nature-walk-notes", "paper-folding-lesson", "photo-walk-themes",
+    "picnic-menu-cards", "reading-circle-seating", "seed-swap-inventory",
+    "shared-chores-rota", "story-circle-prompts", "stretch-class-sequence",
+})
+NATIVE_EFFORT_CRITERIA = {
+    "medium": frozenset({"low", "medium"}),
+    "high": frozenset({"low", "medium", "high"}),
+}
 LEGACY_RECEIPT = re.compile(
     r"\n\nswitchyard: effort (?:none|minimal|low|medium|high|xhigh|max|ultra)"
     r"(?:→(?:none|minimal|low|medium|high|xhigh|max|ultra))?"
@@ -110,24 +126,15 @@ def routing_decision_matches(decision, calls, expected_model):
     ):
         return False
     for name in questions:
-        raw, normalized = raw_answers[name], answers[name]
+        raw = normalize_answer(raw_answers[name], "noul")
+        normalized = answers[name]
         if (
-            not isinstance(raw, dict)
-            or set(raw) != {"type", "noul"}
-            or raw["type"] != "noul"
+            raw is None
             or not isinstance(normalized, dict)
             or set(normalized) != {"noul"}
+            or not bounded_number(normalized["noul"], 1)
+            or normalized != raw
         ):
-            return False
-        for score in [raw["noul"], normalized["noul"]]:
-            if (
-                isinstance(score, bool)
-                or not isinstance(score, (int, float))
-                or not math.isfinite(score)
-                or not 0 <= score <= 1
-            ):
-                return False
-        if normalized["noul"] != raw["noul"]:
             return False
     return True
 
@@ -139,6 +146,35 @@ def bounded_number(value, upper):
         and math.isfinite(value)
         and 0 <= value <= upper
     )
+
+
+def normalize_answer(answer, kind, criteria=None):
+    """Replay the frozen client's raw Choice/Noul response contract."""
+    if not isinstance(answer, dict):
+        return None
+    if "type" in answer:
+        if answer["type"] != kind:
+            return None
+        answer = {key: value for key, value in answer.items() if key != "type"}
+    if kind == "noul":
+        if set(answer) != {"noul"} or not bounded_number(answer["noul"], 1):
+            return None
+    else:
+        if set(answer) != {"choice", "probabilities", "confidence"}:
+            return None
+        choice, probabilities = answer["choice"], answer["probabilities"]
+        if (
+            not isinstance(choice, str)
+            or choice not in criteria
+            or not bounded_number(answer["confidence"], 1)
+            or not isinstance(probabilities, dict)
+            or set(probabilities) != set(criteria)
+            or not all(bounded_number(v, 1) for v in probabilities.values())
+            or abs(sum(probabilities.values()) - 1) >= 0.02
+            or probabilities[choice] < max(probabilities.values()) - 1e-6
+        ):
+            return None
+    return answer
 
 
 def shared_decision_matches(receipt, calls, freeze):
@@ -168,27 +204,30 @@ def shared_decision_matches(receipt, calls, freeze):
     ):
         return False
     cap = receipt.get("cap")
-    levels = {"medium": ["low", "medium"], "high": ["low", "medium", "high"]}.get(cap)
     answers = call.get("answers")
-    if levels is None or not isinstance(answers, dict):
-        return False
-    choice = answers.get("reasoning_effort_" + cap)
-    stakes = answers.get("stakes")
     if (
-        not isinstance(choice, dict)
-        or choice.get("type") != "choice"
-        or choice.get("choice") not in levels
-        or not bounded_number(choice.get("confidence"), 1)
-        or not isinstance(choice.get("probabilities"), dict)
-        or set(choice["probabilities"]) != set(levels)
-        or not all(bounded_number(v, 1) for v in choice["probabilities"].values())
-        or not math.isclose(sum(choice["probabilities"].values()), 1, abs_tol=0.01)
-        or not isinstance(stakes, dict)
-        or set(stakes) != {"type", "noul"}
-        or stakes["type"] != "noul"
-        or not bounded_number(stakes["noul"], 1)
+        cap not in NATIVE_EFFORT_CRITERIA
+        or not isinstance(answers, dict)
+        or set(answers) != required
     ):
         return False
+    schema = {
+        "skill": ("choice", NATIVE_SKILL_CRITERIA),
+        "needs_skill": ("noul", None),
+        "stakes": ("noul", None),
+        **{
+            "reasoning_effort_" + name: ("choice", levels)
+            for name, levels in NATIVE_EFFORT_CRITERIA.items()
+        },
+    }
+    normalized = {
+        name: normalize_answer(answers[name], kind, criteria)
+        for name, (kind, criteria) in schema.items()
+    }
+    if any(answer is None for answer in normalized.values()):
+        return False
+    choice = normalized["reasoning_effort_" + cap]
+    stakes = normalized["stakes"]
     # Frozen pilot: no prior tool failures; stakes at 0.5 veto any lowering.
     selected = choice["choice"]
     expected = cap if selected != cap and stakes["noul"] >= 0.5 else selected

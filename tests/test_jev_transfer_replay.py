@@ -12,6 +12,7 @@ from evaluation.jev_transfer.summarize import (
     LEGACY_RECEIPT,
     complete_rows,
     native_summary,
+    normalize_answer,
     summarize,
 )
 
@@ -214,6 +215,100 @@ class JevTransferEvidenceTests(unittest.TestCase):
                     receipt["shared_latency_ms"] = run["freeze"]["routing_deadline_ms"] + 1
                 with self.assertRaisesRegex(ValueError, "shared decision is not bound"):
                     native_summary(run)
+
+    def test_optional_raw_type_tags_preserve_native_metrics(self):
+        for name in ["native_routing", "native_consolidation"]:
+            with self.subTest(name=name):
+                run = copy.deepcopy(self.evidence["runs"][name])
+                expected = native_summary(run)
+                for row in run["rows"]:
+                    for call in row["jev"]:
+                        for answer in (call.get("answers") or {}).values():
+                            answer.pop("type", None)
+                self.assertEqual(native_summary(run), expected)
+
+    def shared_fixture(self):
+        run = copy.deepcopy(self.evidence["runs"]["native_consolidation"])
+        row = next(r for r in run["rows"] if r["arm"] == "candidate" and r["route"])
+        receipt = row["route"][0]
+        call = next(
+            c for c in row["jev"] if c["request_id"] == receipt["shared_request_id"]
+        )
+        return run, call["answers"]
+
+    def test_shared_answers_require_exact_question_keys(self):
+        _, answers = self.shared_fixture()
+        for name in [*answers, "extra"]:
+            with self.subTest(name=name):
+                run, changed = self.shared_fixture()
+                if name == "extra":
+                    changed[name] = {"noul": 0}
+                else:
+                    del changed[name]
+                with self.assertRaisesRegex(ValueError, "shared decision is not bound"):
+                    native_summary(run)
+
+    def test_every_shared_answer_rejects_wrong_type_or_extra_fields(self):
+        _, answers = self.shared_fixture()
+        for name in answers:
+            for field, value in [("type", "wrong"), ("type", None), ("extra", 0)]:
+                with self.subTest(name=name, field=field, value=value):
+                    run, changed = self.shared_fixture()
+                    changed[name][field] = value
+                    with self.assertRaisesRegex(ValueError, "shared decision is not bound"):
+                        native_summary(run)
+
+    def test_all_shared_choices_must_win_with_offered_criteria(self):
+        for name in ["skill", "reasoning_effort_medium", "reasoning_effort_high"]:
+            for change in ["nonwinning", "missing", "extra"]:
+                with self.subTest(name=name, change=change):
+                    run, answers = self.shared_fixture()
+                    answer = answers[name]
+                    other = next(k for k in answer["probabilities"] if k != answer["choice"])
+                    if change == "nonwinning":
+                        answer["probabilities"] = {
+                            key: float(key == other) for key in answer["probabilities"]
+                        }
+                    elif change == "missing":
+                        del answer["probabilities"][other]
+                    else:
+                        answer["probabilities"]["not-offered"] = 0
+                    with self.assertRaisesRegex(ValueError, "shared decision is not bound"):
+                        native_summary(run)
+
+    def test_noul_shape_and_numeric_contract(self):
+        for value in [True, None, math.nan, math.inf, -0.01, 1.01]:
+            with self.subTest(value=value):
+                self.assertIsNone(normalize_answer({"noul": value}, "noul"))
+        for answer in [
+            {"type": None, "noul": 0},
+            {"type": "choice", "noul": 0},
+            {"noul": 0, "extra": 0},
+        ]:
+            self.assertIsNone(normalize_answer(answer, "noul"))
+        for value in [0, 0.5, 1]:
+            self.assertEqual(normalize_answer({"noul": value}, "noul"), {"noul": value})
+
+    def test_choice_numeric_contract_and_tolerances(self):
+        criteria = {"low", "high"}
+        for probabilities, accepted in [
+            ({"low": 0.51, "high": 0.5}, True),
+            ({"low": 0.5, "high": 0.4999995}, True),
+            ({"low": 0.4999995, "high": 0.5}, True),
+            ({"low": 0.49, "high": 0.5}, False),
+            ({"low": 0.53, "high": 0.5}, False),
+            ({"low": True, "high": 0}, False),
+            ({"low": math.nan, "high": 0}, False),
+        ]:
+            with self.subTest(probabilities=probabilities):
+                answer = {"choice": "low", "probabilities": probabilities, "confidence": 0.8}
+                self.assertEqual(normalize_answer(answer, "choice", criteria) is not None, accepted)
+        for confidence in [True, None, math.inf, -0.1, 1.1]:
+            answer = {
+                "choice": "low", "probabilities": {"low": 1, "high": 0},
+                "confidence": confidence,
+            }
+            self.assertIsNone(normalize_answer(answer, "choice", criteria))
 
     def test_receipt_normalization_is_terminal_and_exact(self):
         receipt = "\n\nswitchyard: effort high→low · Jev 180 ms"
