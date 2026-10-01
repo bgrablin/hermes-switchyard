@@ -110,6 +110,15 @@ def inspect_text(name: str, text: str) -> list[dict[str, Any]]:
                         {"path": name, "line": None, "rule": "invalid_mcp_entry"}
                     )
                     continue
+                # MCP argv is executable configuration, even in a JSON file.
+                # Inspect its decoded operation without executing or reporting it.
+                operation = " ".join([command or "", *args])
+                for rule, pattern in RULES:
+                    if pattern.search(operation):
+                        findings.append({"path": name, "line": None, "rule": rule})
+                for part in [command or "", *args]:
+                    for reason in screen_text(part):
+                        findings.append({"path": name, "line": None, "rule": reason})
                 if command in {"npx", "uvx"}:
                     packages = [
                         a for a in args if isinstance(a, str) and not a.startswith("-")

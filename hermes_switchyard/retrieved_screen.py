@@ -50,15 +50,29 @@ def screen_text(text: Any) -> tuple[str, ...]:
     return tuple(name for name, pattern in _PATTERNS if pattern.search(normalized))
 
 
+def card_anchors(card: Mapping[str, Any]) -> Any:
+    """Shared alias precedence for screening and candidate normalization."""
+    for key in ("match_anchors", "match_message_ids", "match_message_id"):
+        value = card.get(key)
+        if value is not None:
+            return value
+    return None
+
+
+def anchor_preview(anchor: Mapping[str, Any]) -> Any:
+    """Return the exact raw preview that normalization will consume."""
+    return anchor.get("preview") or anchor.get("snippet") or ""
+
+
 def screen_card(card: Any) -> tuple[str, ...]:
     if not isinstance(card, Mapping):
         return ()  # Existing schema validation owns malformed objects.
     fields = [card.get("title"), card.get("snippet")]
-    anchors = card.get("match_anchors")
+    anchors = card_anchors(card)
     if isinstance(anchors, (list, tuple)):
         if len(anchors) > 32:
             return ("screen_limit",)
-        fields.extend(a.get("preview") for a in anchors if isinstance(a, Mapping))
+        fields.extend(anchor_preview(a) for a in anchors if isinstance(a, Mapping))
     return tuple(sorted({reason for field in fields for reason in screen_text(field)}))
 
 

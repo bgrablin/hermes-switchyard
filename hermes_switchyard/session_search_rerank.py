@@ -22,7 +22,7 @@ import re
 from typing import Any, Mapping, Sequence
 
 from . import receipt_state
-from .retrieved_screen import screen_shortlist
+from .retrieved_screen import anchor_preview, card_anchors, screen_shortlist
 from .client import (
     DEFAULT_OPERATION_DEADLINE_SECONDS,
     MAX_DECISION_REQUESTS,
@@ -161,7 +161,7 @@ def _parse_anchors(raw: Any, *, index: int) -> list[dict[str, str]]:
             add(_validate_message_id(item))
         elif isinstance(item, Mapping):
             mid = _validate_message_id(item.get("message_id") or item.get("id"))
-            preview = _coerce_text(item.get("preview") or item.get("snippet") or "", MAX_ANCHOR_PREVIEW_CHARS)
+            preview = _coerce_text(anchor_preview(item), MAX_ANCHOR_PREVIEW_CHARS)
             add(mid, preview)
         else:
             raise ValueError(f"candidates[{index}] anchor entries must be strings or objects")
@@ -191,11 +191,7 @@ def _normalize_candidates(
         body = snippet or title
         if len(body) > max_card_chars:
             body = body[:max_card_chars]
-        anchors_raw = raw.get("match_anchors")
-        if anchors_raw is None:
-            anchors_raw = raw.get("match_message_ids")
-        if anchors_raw is None:
-            anchors_raw = raw.get("match_message_id")
+        anchors_raw = card_anchors(raw)
         anchors = _parse_anchors(anchors_raw, index=index)
         normalized.append(
             {
