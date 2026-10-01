@@ -350,6 +350,26 @@ class ReceiptModeAndPlainLanguageTests(unittest.TestCase):
         self.assertIn("Saved in plugin settings", reply)
         self.assertEqual(controller.receipt_mode, "always")
 
+    def test_receipt_command_help_and_confirmations_include_route_only_turns(self):
+        controller, _, _ = make()
+        for command in ("", "effort receipt", "effort receipt invalid"):
+            with self.subTest(command=command):
+                self.assertIn("receipt auto    show decisions and route-side not-adapted receipts",
+                              controller.handle_command(command))
+        with patch("hermes_switchyard.reasoning_effort_adapter.persist_plugin_receipt_mode", return_value=True):
+            for mode in ("auto", "always", "work", "on", "changes"):
+                with self.subTest(mode=mode):
+                    reply = controller.handle_command("effort receipt " + mode)
+                    self.assertIn("every request passed through", reply)
+                    self.assertIn("host sent no effort", reply)
+                    self.assertIn("level cannot be adapted on the route", reply)
+                    self.assertIn("'not adapted' line with 'no Jev call'", reply)
+                    self.assertNotIn("No line when the host", reply)
+                    if mode == "always":
+                        self.assertIn("Unsupported routes remain quiet", reply)
+                        self.assertIn("pinned", reply)
+            self.assertNotIn("not adapted", controller.handle_command("effort receipt off"))
+
     def test_status_leading_line_is_plain_language(self):
         controller, _, _ = make()
         begin(controller, "status ping")
@@ -404,8 +424,8 @@ class RoutePassReceiptTests(unittest.TestCase):
                                 self.assertEqual(send(controller, "low", turn=turn), "low")
                                 self.assertEqual(last_receipt()["reason_code"], "no_room")
                         why = {"no_host_effort": "host sent no effort",
-                               "no_room": "no lower level for this route",
-                               "both": "host sent no effort; no lower level for this route"}[reason]
+                               "no_room": "this level cannot be adapted on this route",
+                               "both": "host sent no effort; this level cannot be adapted on this route"}[reason]
                         expected = f"Reasoning: not adapted — {why} · no Jev call"
                         self.assertEqual(receipt_line(controller, turn), None if mode == "off" else expected)
                         self.assertIsNone(finish(controller, turn=turn))
@@ -458,8 +478,9 @@ class RoutePassReceiptTests(unittest.TestCase):
         begin(controller, "hi")
         self.assertEqual(send(controller, "high"), "high")
         self.assertEqual(last_receipt()["reason_code"], "no_room")
+        self.assertIn("this level cannot be adapted on this route", controller.handle_command("effort status"))
         self.assertEqual(receipt_line(controller),
-                         "Reasoning: not adapted — no lower level for this route · no Jev call")
+                         "Reasoning: not adapted — this level cannot be adapted on this route · no Jev call")
         self.assertEqual(jev.calls, [])
 
     def test_actual_work_wins_in_either_request_order(self):
