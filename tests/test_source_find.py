@@ -313,4 +313,4 @@ class WiringTests(unittest.TestCase):
     def test_unsupported_filesystem_defers(self):
         with mock.patch.object(finder.os, "supports_dir_fd", set()):
             with self.assertRaisesRegex(finder.SourceError, "unsupported_filesystem"):
-                finder.read_source("/fixture", "source.md")
+                finder.read_source(str(Path(tempfile.gettempdir()).resolve()), "source.md")
