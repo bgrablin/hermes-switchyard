@@ -39,7 +39,7 @@ class FingerprintHelpersTests(unittest.TestCase):
     def test_uncanonicalizable_arguments_fail_open_without_shared_keys(self):
         cyclic = {}
         cyclic["self"] = cyclic
-        for args in (cyclic, {1: "integer key"}, {"nested": {1: "integer key"}},
+        for args in (None, cyclic, {1: "integer key"}, {"nested": {1: "integer key"}},
                      {"opaque": object()}, {"tuple": (1,)}, {"nan": float("nan")},
                      [1], "[1]"):
             with self.subTest(kind=type(args).__name__):
@@ -454,6 +454,19 @@ class CacheBoundaryTests(unittest.TestCase):
         self.assertEqual(self.decide(session_id=None)["action"], "dispatch")
         self.record()
         self.assertEqual(self.decide(session_id=None, task_id="s1")["action"], "dispatch")
+
+    def test_tasks_in_one_session_remain_isolated(self):
+        self.record(task_id="parent")
+        self.assertEqual(self.decide(task_id="child")["action"], "dispatch")
+        self.assertEqual(self.decide(task_id="parent")["action"], "reuse")
+        self.assertEqual(self.decide()["action"], "dispatch")
+        self.assertFalse(self.record(task_id=object())["recorded"])
+
+    def test_mutations_in_other_or_unidentified_scope_clear_shared_resources(self):
+        for scope in ("another-session", None):
+            self.record()
+            self.record(tool_name="skill_manage", session_id=scope)
+            self.assertEqual(self.decide()["action"], "dispatch")
 
     def test_oversized_or_nonstring_results_invalidate_without_truncation(self):
         from hermes_switchyard.local_duplicate_gate import DEFAULT_MAX_RESULT_CHARS

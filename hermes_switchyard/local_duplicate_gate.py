@@ -8,7 +8,7 @@ middleware (skip ``next_call``) — **0 Jev**, replace-not-add.
 Capability-first:
 - Flag default **off**.
 - Fail-open when unsure (non-read, missing observation identity, errors, writes).
-- Mutations and failed reads never skip; writes/exec clear the session store.
+- Mutations and failed reads never skip; writes/exec clear all session stores.
 - Empty observation identity never silently skips (except closed-set args-stable
   read tools where identity is derived from args explicitly as ``args_stable:…``).
 
@@ -84,10 +84,14 @@ def _bump(name: str) -> None:
 
 
 def _scope_key(*, session_id: Any = None, task_id: Any = None) -> str | None:
+    parts = []
     for label, value in (("session", session_id), ("task", task_id)):
-        if isinstance(value, str) and value.strip() and len(value) <= 512:
-            return label + ":" + value.strip()
-    return None
+        if value is None or value == "":
+            continue
+        if not isinstance(value, str) or not value.strip() or len(value) > 512:
+            return None
+        parts.append((label, value))
+    return json.dumps(parts, separators=(",", ":")) if parts else None
 
 
 def canonical_args(args: Any) -> str | None:
@@ -101,8 +105,6 @@ def canonical_args(args: Any) -> str | None:
             return all(json_value(item) for item in value)
         return False
 
-    if args is None:
-        return "{}"
     if not isinstance(args, Mapping):
         return None
     try:
@@ -265,7 +267,7 @@ def record_tool_outcome(
 
     - Successful read → store bounded result under fingerprint.
     - Failed read → drop that fingerprint (retry must dispatch).
-    - write/exec → clear the whole session store (freshness).
+    - write/exec → clear all session stores (freshness).
     """
     if enabled is not True:
         return {"recorded": False, "reason": "flag_off"}
@@ -273,9 +275,6 @@ def record_tool_outcome(
     name = _normalize_tool_name(tool_name)
     kind = classify_tool_kind(name) if name else "other"
     scope = _scope_key(session_id=session_id, task_id=task_id)
-    if scope is None:
-        return {"recorded": False, "reason": "missing_session_identity"}
-
     failed, _detail = derive_tool_failure(
         status=status,
         error_type=error_type,
@@ -287,11 +286,14 @@ def record_tool_outcome(
 
     if kind != "read":
         with _STORE_LOCK:
-            if scope in _SESSION_STORE:
-                del _SESSION_STORE[scope]
-                _bump("cleared_sessions")
+            if _SESSION_STORE:
+                _COUNTERS["cleared_sessions"] += len(_SESSION_STORE)
+                _SESSION_STORE.clear()
                 _bump("invalidated")
         return {"recorded": False, "reason": "mutation_cleared_session", "kind": kind}
+
+    if scope is None:
+        return {"recorded": False, "reason": "missing_session_identity"}
 
     # Use the same call-time identity for recording and lookup.
     key = fingerprint_for(name, args)
@@ -380,7 +382,7 @@ def build_tool_execution_middleware(*, enabled: bool) -> Callable[..., Any]:
 
 
 def build_post_tool_call_hook(*, enabled: bool) -> Callable[..., Any]:
-    """Observer: record successful reads / invalidate failures / clear on mutation."""
+    """Observer: record successful reads / invalidate failures / clear all scopes on mutation."""
 
     def on_post_tool_call(
         tool_name: str = "",

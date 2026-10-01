@@ -94,7 +94,7 @@ You can also set `public_or_sanitized_data_ack` and `automatic_skill_public_or_s
 | Local report (0.6.0 candidate; not in 0.5.6) | `hermes switchyard wow` and `/switchyard wow` summarize retained observations without a provider call; [limits and JSON schema](docs/WOW-LOCAL-REPORT.md) | Trailing 7 days; read-only |
 | CLI (offline) | `hermes switchyard lint-skills [--json]` checks description routability; see [limits](docs/LINT-SKILLS.md) | Explicit only; no provider calls or edits |
 
-Doctor reports six hook registrations because two handlers use `pre_llm_call`; the manifest lists five distinct kinds. `jev_skill_select_many` recommends several skills but does not load them. The automatic hook can load one accepted skill per identified turn. The model-routing tools do not apply a model switch. Jev `DONE` alone does not verify a browser goal; Switchyard also needs its local completion condition. An early local stop is a candidate, not verified success. [Browser receipts](docs/DOM-BROWSER-BACKEND.md) show the separate action, effect, and goal fields.
+Doctor reports seven hook registrations because two handlers use `pre_llm_call` and two use `post_tool_call`; the manifest lists five distinct kinds. `jev_skill_select_many` recommends several skills but does not load them. The automatic hook can load one accepted skill per identified turn. The model-routing tools do not apply a model switch. Jev `DONE` alone does not verify a browser goal; Switchyard also needs its local completion condition. An early local stop is a candidate, not verified success. [Browser receipts](docs/DOM-BROWSER-BACKEND.md) show the separate action, effect, and goal fields.
 
 ## Automatic skill recommendations
 
