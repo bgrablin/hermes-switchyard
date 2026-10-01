@@ -34,6 +34,8 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 
 ### Not included
 
+- Same-turn Jev consolidation and same-provider model routing remain evaluation-only. The isolated adapters and frozen live evidence are available in [the transfer-pilot report](evaluation/jev_transfer/README.md); neither is registered or enabled as a product feature, and neither is generally release-qualified.
+
 - No Hermes TUI chip sync claim for wire effort (status bar / `/reasoning` remain the cap; the receipt shows what was sent).
 - [#139](https://github.com/bgrablin/hermes-switchyard/issues/139) Jev-feature redesign (replace main-model work) remains open exploration, not a release commitment.
 

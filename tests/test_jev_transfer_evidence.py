@@ -1,0 +1,75 @@
+"""Offline evidence replay rejects incomplete or modified trial records."""
+
+import copy
+import json
+import math
+from pathlib import Path
+import shutil
+import tempfile
+import unittest
+
+from evaluation.jev_transfer.summarize import (
+    LEGACY_RECEIPT,
+    complete_rows,
+    native_summary,
+    summarize,
+)
+
+ROOT = Path(__file__).resolve().parents[1] / "evaluation/jev_transfer"
+
+
+class JevTransferEvidenceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.evidence = json.loads((ROOT / "observations.json").read_text())
+
+    def test_retained_trials_replay(self):
+        result = summarize()
+        self.assertEqual(result["interrupted_run"]["rows"], 79)
+        self.assertFalse(result["interrupted_run"]["qualified"])
+        for name in ["native_routing", "native_consolidation"]:
+            self.assertFalse(result[name]["release_qualified"])
+            for metrics in result[name]["arms"].values():
+                self.assertEqual(metrics["n"], 24)
+
+    def test_missing_duplicate_and_nonfinite_rows_are_rejected(self):
+        run = self.evidence["runs"]["native_routing"]
+        for rows in [run["rows"][:-1], run["rows"] + run["rows"][:1]]:
+            with self.assertRaises(ValueError):
+                complete_rows(run["freeze"], rows, True)
+        rows = copy.deepcopy(run["rows"])
+        rows[0]["wall_ms"] = math.nan
+        with self.assertRaises(ValueError):
+            complete_rows(run["freeze"], rows, True)
+
+    def test_modified_export_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for name in [
+                "provenance.json",
+                "observations.json",
+                "source-snapshots.json",
+            ]:
+                shutil.copy2(ROOT / name, root / name)
+            with (root / "observations.json").open("a") as handle:
+                handle.write(" ")
+            with self.assertRaisesRegex(ValueError, "digest mismatch"):
+                summarize(root)
+
+    def test_route_without_matching_wire_is_rejected(self):
+        run = copy.deepcopy(self.evidence["runs"]["native_routing"])
+        for row in run["rows"]:
+            for wire in row["wire"]:
+                wire["model"] = run["freeze"]["source_model"]
+        with self.assertRaisesRegex(ValueError, "route is not bound"):
+            native_summary(run)
+
+    def test_receipt_normalization_is_terminal_and_exact(self):
+        receipt = "\n\nswitchyard: effort high→low · Jev 180 ms"
+        self.assertEqual(LEGACY_RECEIPT.sub("", "Rome" + receipt), "Rome")
+        for text in ["Rome switchyard: effort high", "Rome" + receipt + "\nOther text"]:
+            self.assertEqual(LEGACY_RECEIPT.sub("", text), text)
+
+
+if __name__ == "__main__":
+    unittest.main()
