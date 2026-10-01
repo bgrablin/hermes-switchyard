@@ -1,0 +1,277 @@
+{
+  "records": [
+    {
+      "id": "help-typo",
+      "title": "Help banner misspells Options",
+      "component": "cli",
+      "body": "On version 1.0 Linux, run project --help. Expected heading: Options. Actual heading: Optoins. All documented commands work; only that spelling is wrong.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "format-workaround",
+      "title": "Short JSON format option fails",
+      "component": "cli",
+      "body": "On version 1.0 Linux, create a.txt containing hello. Run project convert a.txt -f json. Expected JSON output; actual Unknown option -f. Running project convert a.txt --format json outputs the correct identical JSON, with no loss.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "parser-blocked",
+      "title": "Valid empty JSON object cannot be parsed",
+      "component": "parser",
+      "body": "On version 1.0, save {} to input.json and run project parse input.json. Expected parsed empty object; actual parser exits 2 with Unsupported object. Both API parse('{}') and CLI fail. No supported parse path works. Source files are unchanged.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "overwrite",
+      "title": "Convert destroys unrelated source file",
+      "component": "cli",
+      "body": "On version 1.0, create a.txt containing alpha and b.txt containing beta. Run project convert a.txt --output c.txt. Expected c.txt only changes. Actual b.txt is overwritten with zeros, and the project's only backup of b.txt is overwritten too; original data cannot be recovered.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "docs-layout",
+      "title": "Command example has uneven indentation",
+      "component": "docs",
+      "body": "Open the bundled help with project help examples in version 1.0. Expected examples align. Actual the second example is indented one extra space. Copying and running either example succeeds; all operations work.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "env-workaround",
+      "title": "CLI endpoint option is ignored",
+      "component": "cli",
+      "body": "Version 1.0: run project fetch --endpoint https://example.test. Expected supplied endpoint; actual default endpoint is used. Setting PROJECT_ENDPOINT=https://example.test and running project fetch uses the supplied endpoint correctly and retrieves the same data intact.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "network-blocked",
+      "title": "Every local test server request fails",
+      "component": "network",
+      "body": "Version 1.0: start the documented test server on localhost:8123 and run project fetch http://localhost:8123/item. Expected item JSON; actual client fails before sending with invalid socket state. API fetch fails identically. No documented alternative works, and stored data is intact.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "access-control",
+      "title": "Unauthenticated read exposes another account",
+      "component": "network",
+      "body": "Version 1.0 test server: create user A and private item 42, then log out. Send GET /items/42 without an Authorization header. Expected 401; actual 200 containing A's private item. Reproduced from a fresh unauthenticated client.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "version-label",
+      "title": "Version output repeats a harmless word",
+      "component": "cli",
+      "body": "On version 1.0 run project --version. Expected project 1.0; actual project project 1.0. Exit is zero and every functional command behaves correctly. No data is changed.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "stdin-workaround",
+      "title": "Standard-input parse rejects valid document",
+      "component": "parser",
+      "body": "Version 1.0: pipe '{\"x\":1}' to project parse -. Expected parsed object; actual unsupported input stream. Saving the identical JSON to doc.json and running project parse doc.json returns the correct object. All original data is retained.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "export-blocked",
+      "title": "No interface can export the stored records",
+      "component": "cli",
+      "body": "Version 1.0: create two test records using project add, then run project export --all. Expected export of both; actual unsupported encoder. API export_all fails too. Every supported export format fails without a workaround. Existing records remain readable and intact.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "secret-log",
+      "title": "Ordinary users can download live secret tokens",
+      "component": "network",
+      "body": "Version 1.0 test server: log in as admin using a synthetic live access token, log out, then log in as an ordinary test user and GET /support.log. Expected log excludes credentials; actual response includes the complete usable admin token. That token grants admin access.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "punctuation",
+      "title": "Help example has inconsistent punctuation",
+      "component": "docs",
+      "body": "Version 1.0: run project help import. Expected a final period after the explanatory sentence; actual punctuation is absent. The documented example executes correctly and no operation is impaired.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "rename-workaround",
+      "title": "Short rename command is broken",
+      "component": "cli",
+      "body": "Version 1.0: create item old, run project mv old new. Expected rename; actual unknown subcommand mv. The documented project rename old new succeeds, preserving the same content and completing the requested rename.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "delete-blocked",
+      "title": "Delete cannot remove any selected record",
+      "component": "cli",
+      "body": "Version 1.0: create record r1 then run project delete r1 --yes. Expected r1 removed; actual error unsupported deletion. API delete('r1') also fails. No supported method can delete any record. No records are corrupted or lost.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "permission-escalation",
+      "title": "Viewer can grant itself administrator privileges",
+      "component": "network",
+      "body": "Version 1.0: create a viewer-only account. With that account's token send PATCH /accounts/self with role=admin. Expected 403 and no role change; actual 200, role becomes admin, and an admin-only endpoint is accessible. Reproduced twice on a clean test database.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "slow-export",
+      "title": "Export completes ten times slower",
+      "component": "cli",
+      "body": "Version 1.0: create 100 test records, run project export --all. Expected the documented 1-second export. Actual: the identical correct complete export takes 10 seconds, consistently. It still completes the intended task, no alternate export path is available, and no data is lost.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "slow-search",
+      "title": "Search still works but responds slowly",
+      "component": "cli",
+      "body": "Version 1.0: load the bundled sample and run project search sample. Expected the complete matching results in under one second. Actual: every correct result arrives after 8 seconds. Search remains usable and always completes; no workaround exists and no data changes.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "slow-parse",
+      "title": "Parser completes with avoidable delay",
+      "component": "parser",
+      "body": "Version 1.0: save {\"a\":1} to sample.json and run project parse sample.json. Expected immediate parsed object. Actual: the correct parsed object is returned after a fixed 5-second delay. The task always completes; there is no alternate interface and source bytes are unchanged.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "noisy-output",
+      "title": "Progress output is noisy but the task completes",
+      "component": "cli",
+      "body": "Version 1.0: run project import sample.json on the bundled valid sample. Expected one progress line and a successful import. Actual: progress repeats many times, but every record imports correctly and the command exits zero. There is no quiet option or workaround. The intended task completes with no loss or unauthorized access.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "sort-delay",
+      "title": "Sorting completes with large latency regression",
+      "component": "cli",
+      "body": "Version 1.0: create the documented 100-row sample and run project sort sample.csv. Expected sorted output in one second; actual correctly sorted complete output takes 12 seconds. Every sort completes successfully, there is no alternate sort implementation, and input data remains intact.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "parse-memory",
+      "title": "Parser uses excessive memory but completes",
+      "component": "parser",
+      "body": "Version 1.0: parse the bundled 1 MB sample with project parse sample.json. Expected normal 20 MB memory use; actual 1 GB memory use for every parse. Parsing still completes with the correct complete object on supported machines, no workaround exists, and no data is damaged.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "fetch-bandwidth",
+      "title": "Fetch transfers duplicate bytes but returns the correct result",
+      "component": "network",
+      "body": "Version 1.0: run project fetch against the documented test server. Expected one transfer of the file; the network trace shows the client downloads it twice each time. It still returns the correct entire file successfully. No workaround exists and no unauthorized access or data loss occurs.",
+      "data_class": "synthetic"
+    },
+    {
+      "id": "export-cpu",
+      "title": "Export completes but consumes a full CPU core",
+      "component": "cli",
+      "body": "Version 1.0: create the sample database and run project export --all. Expected negligible CPU usage; actual one core stays at 100 percent until completion. Every export finishes and contains exactly the correct records, the UI remains usable, no workaround exists, and no data is lost.",
+      "data_class": "synthetic"
+    }
+  ],
+  "expected": {
+    "help-typo": {
+      "disposition": "qualified",
+      "severity": "cosmetic"
+    },
+    "format-workaround": {
+      "disposition": "qualified",
+      "severity": "minor"
+    },
+    "parser-blocked": {
+      "disposition": "qualified",
+      "severity": "major"
+    },
+    "overwrite": {
+      "disposition": "qualified",
+      "severity": "critical"
+    },
+    "docs-layout": {
+      "disposition": "qualified",
+      "severity": "cosmetic"
+    },
+    "env-workaround": {
+      "disposition": "qualified",
+      "severity": "minor"
+    },
+    "network-blocked": {
+      "disposition": "qualified",
+      "severity": "major"
+    },
+    "access-control": {
+      "disposition": "qualified",
+      "severity": "critical"
+    },
+    "version-label": {
+      "disposition": "qualified",
+      "severity": "cosmetic"
+    },
+    "stdin-workaround": {
+      "disposition": "qualified",
+      "severity": "minor"
+    },
+    "export-blocked": {
+      "disposition": "qualified",
+      "severity": "major"
+    },
+    "secret-log": {
+      "disposition": "qualified",
+      "severity": "critical"
+    },
+    "punctuation": {
+      "disposition": "qualified",
+      "severity": "cosmetic"
+    },
+    "rename-workaround": {
+      "disposition": "qualified",
+      "severity": "minor"
+    },
+    "delete-blocked": {
+      "disposition": "qualified",
+      "severity": "major"
+    },
+    "permission-escalation": {
+      "disposition": "qualified",
+      "severity": "critical"
+    },
+    "slow-export": {
+      "disposition": "qualified",
+      "severity": "minor"
+    },
+    "slow-search": {
+      "disposition": "qualified",
+      "severity": "minor"
+    },
+    "slow-parse": {
+      "disposition": "qualified",
+      "severity": "minor"
+    },
+    "noisy-output": {
+      "disposition": "qualified",
+      "severity": "cosmetic"
+    },
+    "sort-delay": {
+      "disposition": "qualified",
+      "severity": "minor"
+    },
+    "parse-memory": {
+      "disposition": "qualified",
+      "severity": "minor"
+    },
+    "fetch-bandwidth": {
+      "disposition": "qualified",
+      "severity": "minor"
+    },
+    "export-cpu": {
+      "disposition": "qualified",
+      "severity": "minor"
+    }
+  },
+  "scope": "Confirmation: original 16 concrete reports, four edge reports (visual-only noisy-output label corrected before these calls), plus four unseen functional-degradation reports. Still-completing functional degradation is minor in this demonstration taxonomy, irrespective of slowdown magnitude.",
+  "severity_rubric": [
+    "Appearance or wording defect only; all intended operations still work and no data is lost.",
+    "An operation still completes the intended task despite functional degradation, or an explicitly stated usable workaround completes a failed operation; no data loss or unauthorized access is reported.",
+    "An intended operation is blocked with no usable workaround; no permanent data loss or unauthorized access is reported.",
+    "Permanent loss or corruption of user data, unauthorized access, or a confirmed exposure of secret values."
+  ]
+}

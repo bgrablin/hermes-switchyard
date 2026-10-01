@@ -16,6 +16,8 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 
 ### Changed
 
+- Use explicit impact descriptions for the existing record-triage severity Score, enabled whenever the library workflow runs. In a frozen live synthetic workflow comparison, correct rated priorities increased from 18/48 to 42/48; wrong accepted priorities fell from two to zero. Severity indices, priorities, thresholds, and budgets stay unchanged; mean latency rose 18.74% (median nearly unchanged) and reported cost increased. This is a library-workflow improvement, not a new automatic tool. See [scope and evidence](docs/RECORD-TRIAGE.md#severity-rubric).
+
 - Optional deferral of Switchyard decision-tool schemas (`defer_switchyard_tool_schemas`, default **off**; #158). Removes six decision schemas from eligible provider requests while preserving automatic skill routing, reasoning adaptation, explicit tool requests, prior tool calls, forced tool choices, and `jev_computer_use`. Supports Chat Completions, Responses, and Anthropic histories. No measured latency or capability benefit is claimed; spontaneous uncued decision calls require disabling this opt-in setting. The rejected cheap-shortlist experiment (#157) is excluded.
 
 - Check current Hermes HEAD on its supported Python 3.14 every week and on manual dispatch, with report-only per-step receipts. The pinned 3.11–3.13 checks and non-required pinned 3.14 pre-qualification cell remain unchanged.

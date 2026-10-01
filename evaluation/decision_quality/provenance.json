@@ -1,0 +1,61 @@
+{
+  "observations_sha256": "33705716521d2048a7e2468b9e384361b8ea2d15eb5acdab8e713d7ee5671f11",
+  "frozen_sources": {
+    "screen.py": {
+      "path": "frozen/screen.py",
+      "sha256": "fc111d02b273c1a3505ea9301df13bc85287fc8195768b67ec719d49601f6cb5"
+    },
+    "cases.json": {
+      "path": "frozen/cases.json",
+      "sha256": "97be2d4a9105f1e8d76bc8996ebf4a9b4690d417e9a53d49599f98638025c973"
+    },
+    "native_worker.py": {
+      "path": "frozen/native_worker.py",
+      "sha256": "6af0147b279d7463c96934c442a59b20f873029f0d9f240f39fea5345f5a7f78"
+    },
+    "native_compare.py": {
+      "path": "frozen/native_compare.py",
+      "sha256": "0387382a94154cb9cf11dcaa2e0f7c0864c1853fad1b0ee70a88e3d9312631c5"
+    },
+    "workflow_compare.py": {
+      "path": "frozen/workflow_compare.py",
+      "sha256": "6fe605feb824822b7a0ca2c18f1c3d148c917ee3d3591e969428f29fcd9327b7"
+    },
+    "workflow-cases.json": {
+      "path": "frozen/workflow-cases.json",
+      "sha256": "2211526ceb82e0d350d879d2440801276088bdca1299adbc72ab244994767c0c"
+    },
+    "record_triage.py": {
+      "path": "frozen/record_triage.py",
+      "sha256": "e40347789b861687fc69edc5e1acdb709284a7f822830d4e7dea78965522ff95"
+    }
+  },
+  "arm_sources": {
+    "release": {
+      "revision": "552940b8fbb89d453c6356bd29559484cdfc8a9b",
+      "tree": "5709b2597e0ee7cb40827f1ac3d34412a1115cb5"
+    },
+    "main": {
+      "revision": "afee8afdec3967201ff6c24d29dc892e6311e6a4",
+      "tree": "fca43b68d6f78b7dc027d90486d7a881b058f26a"
+    },
+    "candidate": {
+      "base": "afee8afdec3967201ff6c24d29dc892e6311e6a4",
+      "patch_sha256": "54c92624d59bd8d1a42738c0b6c476549cefe5e7f3d52c398951b2041b36df48"
+    }
+  },
+  "run_implementations": {
+    "screen-run": {
+      "revision": "afee8afdec3967201ff6c24d29dc892e6311e6a4",
+      "tree": "fca43b68d6f78b7dc027d90486d7a881b058f26a"
+    },
+    "workflow-run": {
+      "revision": "afee8afdec3967201ff6c24d29dc892e6311e6a4",
+      "tree": "fca43b68d6f78b7dc027d90486d7a881b058f26a"
+    },
+    "native-run": {
+      "revision": "afee8afdec3967201ff6c24d29dc892e6311e6a4",
+      "tree": "fca43b68d6f78b7dc027d90486d7a881b058f26a"
+    }
+  }
+}
