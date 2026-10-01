@@ -142,7 +142,7 @@ The `status` field names the first problem found, in this order:
 | `tools_not_callable` | Every tool is registered, but at least one is missing from the evaluated session catalog. | Read that tool's `reason`. |
 | `credential_required` | The tools are registered and callable, but the key for the provider the configured route uses (`effective_provider`) is missing. A key for the other provider does not count: an explicit `jev_provider` or `api_endpoint` can select OpenRouter while only a TypeSafe key exists, or the reverse. | Run `hermes switchyard setup --provider typesafe` or `--provider openrouter` for the effective provider, or point `jev_provider` at the provider whose key exists. |
 | `exposure_unverified` | The effective provider's key exists, but Hermes' registry, catalog, or configured suppression list could not be read, so callability is unknown. | See `tool_exposure.unavailable_reason`. Nothing is assumed available. |
-| `ready` | The effective provider's key exists and all five tools are registered and callable in the evaluated selection. | None. |
+| `ready` | The effective provider's key exists and all seven tools are registered and callable in the evaluated selection. | None. |
 
 `tool_exposure.tools` lists each tool with `expected_toolset`, `registered`, `registry_toolset`, `callable`, and `reason`. A `null` value means it could not be determined, and it is never treated as available. `tool_exposure.selection` names the evaluated `source` (`explicit_toolsets`, `platform_default`, or `coding_posture`), the `enabled_toolsets`, the `disabled_toolsets` read from `agent.disabled_toolsets`, and any `unknown_toolsets`, which are names Hermes ignores, such as a misspelled `computer-use`. `effective_provider` is `typesafe` or `openrouter`: with `jev_provider: auto` the route uses TypeSafe when its key exists and OpenRouter otherwise. It is `null` when the route is invalid or the plugin did not register in this process, and `status` then accepts a key for either provider.
 
@@ -204,3 +204,7 @@ A Codex login, a different `jev_model` value, or a missing direct key does not f
 ## Limits and future work
 
 Automatic skill routing defaults to hosted_sanitized + load with standing acknowledgement after install. The load path invokes Hermes' normal `skill_view` loader once for an accepted identified turn; explicit skill instructions, abstention, invalid output, and loader rejection suppress the automatic load. Opt down to `local_only` / `advisory` for privacy. The release does not change the active Hermes model, use provider fallback, claim calibrated correctness, or certify GUI completion independently. Cua Driver remains the host-owned desktop executor; Switchyard adds the Jev decision layer and does not bypass its approval or platform boundaries.
+
+## Optional automatic source prefetch
+
+See [SOURCE-FINDER.md](SOURCE-FINDER.md) for enabling bounded evidence prefetch from normal Hermes requests. It adds no callable tool and requires no toolset selection.

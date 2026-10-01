@@ -46,6 +46,9 @@ RELEASE_FILES = (
     "docs/AUTOMATIC-INTEGRATION.md",
     "docs/ADAPTIVE-REASONING-EFFORT.md",
     "docs/SESSION-SEARCH-RERANK.md",
+    "docs/SOURCE-FINDER.md",
+    "docs/AWESOME-JEV-EVALUATION.md",
+    "docs/VALUE-EVALUATION.md",
     "docs/BENCHMARKS.md",
     "docs/DOM-BROWSER-BACKEND.md",
     "docs/LINT-SKILLS.md",
@@ -54,6 +57,7 @@ RELEASE_FILES = (
     "docs/TEST-MATRIX.md",
     "docs/FIRST-RUN.md",
     "docs/WOW-LOCAL-REPORT.md",
+    "docs/benchmarks/awesome-jev-native-v2.json",
     "docs/benchmarks/live-selector-c6d9b28.json",
     "docs/benchmarks/live-selector-c8e6008.json",
     "docs/benchmarks/live-selector-7dc77c8.json",
@@ -72,6 +76,9 @@ RELEASE_FILES = (
     "hermes_switchyard/receipt_state.py",
     "hermes_switchyard/record_triage.py",
     "hermes_switchyard/client.py",
+    "hermes_switchyard/source_find.py",
+    "hermes_switchyard/source_bundle.py",
+    "hermes_switchyard/source_prefetch.py",
     "hermes_switchyard/computer_use.py",
     "hermes_switchyard/defer_tool_schemas.py",
     "hermes_switchyard/destination_policy.py",
@@ -608,3 +615,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

@@ -8,6 +8,10 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 
 ### Added
 
+- Extend the opt-in source finder with bounded multi-file evidence bundles, exact per-file citations, keyed relevance questions, duplicate citation preservation, and whole-lookup fallback. The complete 80-conversation synthetic native pilot passes its correctness and efficiency gates; the feature remains opt-in. See [results and limits](docs/AWESOME-JEV-EVALUATION.md).
+
+- Automatic source-prefetch pilot for simple natural-language requests naming a file. Exact evidence can reach Hermes before its first main-model call; unsupported requests use ordinary tools. No finder tool, schema, or discovery round. Opt-in with an absolute approved root, bounded reads, original-request guards, sanitization, and freshness verification. See [setup and limits](docs/SOURCE-FINDER.md).
+
 - [#152](https://github.com/bgrablin/hermes-switchyard/issues/152): `hermes switchyard wow` and `/switchyard wow` show read-only, offline aggregates from retained routing and effort receipts. The default is 7 days; `--days N` and versioned `--json` are available. Every metric shows its observed denominator and window. Partial or unavailable sources remain explicit; the report makes no savings, outcome, or complete-coverage claim.
 - Synthetic routing-value fixtures for paired plugin-off comparisons: deterministic 25-, 150-, and 600-skill catalogs, hidden-fact answer checks, and offline validation (refs #130). No comparative result has been measured.
 - [#167](https://github.com/bgrablin/hermes-switchyard/issues/167): Local-only offline outcome-label generator over retained routing receipts. Four evidence-censored boolean/unknown fields, explicit per-field coverage, and a stable 20% hash split for already-retained data; no runtime holdout, routing change, or benefit claim. See [the frozen evaluation and limits](docs/OUTCOME-LABELS.md).
@@ -27,6 +31,8 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 
 ### Fixed
 
+- Use a native absolute root in the source-finder unsupported-filesystem test so Windows reaches the intended filesystem check instead of rejecting a drive-less POSIX path.
+- Make the installed turn-loop timeout test verify the actual 400 ms decision wait and discard of a synchronized late answer, without treating Windows scheduling or later Hermes/provider work as part of that budget. The production timeout is unchanged.
 - Preserve archived source bytes in the evaluation tampering tests on Windows so they exercise the intended body-hash and Git-source checks without changing archive-header line endings.
 - [#182](https://github.com/bgrablin/hermes-switchyard/pull/182) (fixes [#180](https://github.com/bgrablin/hermes-switchyard/issues/180)): show one `not adapted` receipt per foreground turn when every request passes through because the host sent no effort (`no_host_effort`) or the requested level cannot be adapted on the route (`no_room`). Visible in `auto` and `always`, with no added Jev calls or effort changes; `off` suppresses it. Pinned, excluded, disabled, delegated, and background behavior is unchanged. Receipt replay stripping, command help, and documentation match the new behavior.
 - Use the installed Hermes YAML parser dependency in compatibility tests instead of assuming PyYAML is installed on current Hermes.
