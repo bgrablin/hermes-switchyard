@@ -142,7 +142,8 @@ hermes switchyard scan-catalog ./candidate-package
 The command makes no network requests and executes no package code. It checks
 bounded UTF-8 source/configuration files for download-and-execute patterns,
 dynamic execution, credential/network access, instruction-override indicators,
-and common MCP launcher/endpoint hazards. Findings are review indicators, not a
+and common MCP launcher/endpoint hazards. Command indicators also apply to skill
+Markdown and configuration text; benign command examples can need review. Findings are review indicators, not a
 malware verdict. A human still decides admission; the command does not install,
 whitelist, approve, or override Hermes' existing install scanner.
 

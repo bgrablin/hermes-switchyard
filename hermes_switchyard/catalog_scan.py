@@ -33,7 +33,6 @@ TEXT_SUFFIXES = frozenset(
     }
 )
 SKIP_DIRS = frozenset({".git", ".venv", "venv", "node_modules", "__pycache__"})
-CODE_SUFFIXES = frozenset({".py", ".sh", ".bash", ".js", ".ts"})
 RULES = (
     (
         "download_execute",
@@ -69,10 +68,11 @@ def inspect_text(name: str, text: str) -> list[dict[str, Any]]:
     for line_number, line in enumerate(text.splitlines(), 1):
         for reason in screen_text(line):
             findings.append({"path": name, "line": line_number, "rule": reason})
-        if suffix in CODE_SUFFIXES:
-            for rule, pattern in RULES:
-                if pattern.search(line):
-                    findings.append({"path": name, "line": line_number, "rule": rule})
+        # Skills and configuration can contain commands an agent or installer
+        # executes. These remain review indicators even in explanatory prose.
+        for rule, pattern in RULES:
+            if pattern.search(line):
+                findings.append({"path": name, "line": line_number, "rule": rule})
     if suffix == ".json":
         try:
             value = json.loads(text)
