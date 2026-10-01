@@ -165,26 +165,11 @@ def summarize(screen, workflow, native):
 
 
 def main():
-    if (ROOT / "observations.json").exists():
-        saved = json.loads((ROOT / "observations.json").read_text())
-        evidence = {name: saved[name] for name in ["screen", "workflow", "native"]}
-    else:
-        evidence = {
-            "screen": rows("screen-run"),
-            "workflow": rows("workflow-run"),
-            "native": rows("native-run"),
-        }
-    summary = summarize(**evidence)
+    from validate_observations import validate
+
+    book = validate(ROOT)
+    summary = summarize(**{key: book[key] for key in ["screen", "workflow", "native"]})
     (ROOT / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-    evidence["freezes"] = (
-        saved["freezes"]
-        if (ROOT / "observations.json").exists()
-        else {
-            name: json.loads((ROOT / name / "freeze.json").read_text())
-            for name in ["screen-run", "workflow-run", "native-run"]
-        }
-    )
-    (ROOT / "observations.json").write_text(json.dumps(evidence, indent=2) + "\n")
     print(json.dumps(summary, indent=2))
 
 
