@@ -80,7 +80,8 @@ approvals:
 ```
 
 This route uses the existing `OPENROUTER_API_KEY` secret and fixed Decisions
-endpoint. It accepts native smart-review envelopes only. It does not select the
+endpoint. The native per-request timeout is honored with a two-second cap;
+when omitted, the adapter uses its 0.8-second default. It accepts native smart-review envelopes only. It does not select the
 main conversation model, rewrite another provider, or execute the reviewed text.
 Known credential and irreversible-operation patterns escalate before any hosted
 request. Commands or operator policies that change under redaction, oversized
@@ -149,7 +150,8 @@ whitelist, approve, or override Hermes' existing install scanner.
 
 The report includes per-file SHA-256, a manifest digest, rule IDs and locations,
 and skipped coverage. Limits: 512 files, 1,024 directory entries, 256 KB per file,
-4 MB total, 32 directory levels, and 4,096 findings. Symlinks, excluded
+4 MB total, 32 directory levels, 64 JSON nesting levels, and 4,096 findings.
+Excessive JSON nesting is reported before decoding, independent of Python version. Symlinks, excluded
 directories, unsupported types, changed/unreadable files, and exhausted budgets are explicit gaps. File reads
 use descriptor-relative no-follow operations; platforms lacking those primitives
 return `safe_scan_unavailable` instead of scanning unsafely. Windows currently

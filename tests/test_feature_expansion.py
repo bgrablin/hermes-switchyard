@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch, Mock
 
-from hermes_switchyard.catalog_scan import scan_catalog
+from hermes_switchyard.catalog_scan import scan_catalog, inspect_text, MAX_JSON_DEPTH
 from hermes_switchyard.output_pruning import (
     compact_repeated_lines,
     prune_terminal_result,
@@ -329,7 +329,22 @@ class CatalogTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / "mcp.json").write_text("[" * 2000 + "0" + "]" * 2000)
             report = scan_catalog(d)
-            self.assertIn("invalid_json", {f["rule"] for f in report["findings"]})
+            self.assertIn("json_depth_limit", {f["rule"] for f in report["findings"]})
+
+    def test_json_depth_bound_ignores_brackets_and_escaped_quotes_in_strings(self):
+        inner = json.dumps({"text": '[{"' * 100 + "\\"})
+        within = "[" * (MAX_JSON_DEPTH - 1) + inner + "]" * (MAX_JSON_DEPTH - 1)
+        self.assertFalse(inspect_text("generic.json", within))
+        beyond = "[" + within + "]"
+        with patch("hermes_switchyard.catalog_scan.json.loads") as decode:
+            self.assertIn(
+                "json_depth_limit",
+                {f["rule"] for f in inspect_text("generic.json", beyond)},
+            )
+        decode.assert_not_called()
+        self.assertIn(
+            "invalid_json", {f["rule"] for f in inspect_text("generic.json", "{bad")}
+        )
 
     def test_large_file_and_invalid_json_are_not_clean(self):
         with tempfile.TemporaryDirectory() as d:

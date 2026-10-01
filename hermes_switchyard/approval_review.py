@@ -244,6 +244,12 @@ def pre_tool_gate(*, tool_name="", args=None, **_):
     return None
 
 
+def _approval_timeout(value):
+    if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+        raise ValueError("invalid approval timeout")
+    return min(value, 2.0)
+
+
 class ApprovalClient:
     HERMES_SKIP_TRANSPORT_WRAP = True
     HERMES_SKIP_ASYNC_WRAP = True
@@ -255,17 +261,22 @@ class ApprovalClient:
             raise ValueError("unsupported approval endpoint")
         self.api_key, self.base_url = api_key, DEFAULT_ENDPOINT
         self.enabled = enabled
-        self.timeout = float(timeout or 0.8)
-        if not math.isfinite(self.timeout) or self.timeout <= 0:
-            raise ValueError("invalid approval timeout")
-        self.timeout = min(self.timeout, 2.0)
+        self.timeout = _approval_timeout(0.8 if timeout is None else timeout)
         self.is_closed = False
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
 
     def close(self):
         self.is_closed = True
 
-    def create(self, *, messages=None, model="typesafe/jev-1.13", stream=False, **_):
+    def create(
+        self,
+        *,
+        messages=None,
+        model="typesafe/jev-1.13",
+        stream=False,
+        timeout=None,
+        **_,
+    ):
         if self.enabled() is not True:
             raise ValueError("smart approval provider disabled")
         if model not in {"typesafe/jev-1.13", "typesafe/jev-1.13-20260917"}:
@@ -295,6 +306,7 @@ class ApprovalClient:
             raise ValueError("ambiguous command envelope")
         command = untrusted.split("<command>\n", 1)[1].split("\n</command>", 1)[0]
         policy = trusted.split(POLICY_MARKER, 1)[1] if POLICY_MARKER in trusted else ""
+        deadline = self.timeout if timeout is None else _approval_timeout(timeout)
         credential = self.api_key
         client = DecisionClient(
             api_key=credential, endpoint=DEFAULT_ENDPOINT, model=model
@@ -305,7 +317,7 @@ class ApprovalClient:
                 client=client,
                 operator_policy=policy,
                 public_or_sanitized_data_ack=True,
-                deadline_seconds=self.timeout,
+                deadline_seconds=deadline,
             )
         finally:
             client.close()

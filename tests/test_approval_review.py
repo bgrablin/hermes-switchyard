@@ -173,8 +173,41 @@ class ApprovalTests(unittest.TestCase):
             self.assertEqual(self.review(client)["verdict"], "ESCALATE")
         self.assertEqual(client.calls, 0)
 
+    def test_request_timeout_overrides_default_with_two_second_cap(self):
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a security reviewer for an AI coding agent.",
+            },
+            {"role": "user", "content": "<command>\npwd\n</command>"},
+        ]
+        client = ApprovalClient(timeout=0.6, enabled=lambda: True)
+        with (
+            patch("hermes_switchyard.approval_review.DecisionClient") as transport,
+            patch(
+                "hermes_switchyard.approval_review.review_command",
+                return_value={
+                    "verdict": "ESCALATE",
+                    "review_attempted": False,
+                    "request_count": 0,
+                    "reason": "synthetic",
+                },
+            ) as review,
+        ):
+            for requested, expected in [(None, 0.6), (0.1, 0.1), (2, 2), (5, 2)]:
+                client.create(messages=messages, timeout=requested)
+                self.assertEqual(review.call_args.kwargs["deadline_seconds"], expected)
+            transport.reset_mock()
+            review.reset_mock()
+            for invalid in (0, -1, True, "2", float("nan"), float("inf")):
+                with self.assertRaises(ValueError):
+                    client.create(messages=messages, timeout=invalid)
+            transport.assert_not_called()
+            review.assert_not_called()
+        self.assertEqual(client.timeout, 0.6)
+
     def test_provider_timeout_is_finite(self):
-        for timeout in [float("nan"), float("inf"), -1]:
+        for timeout in [float("nan"), float("inf"), -1, 0, True, "2"]:
             with self.assertRaises(ValueError):
                 ApprovalClient(timeout=timeout)
 

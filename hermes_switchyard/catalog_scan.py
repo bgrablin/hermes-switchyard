@@ -15,6 +15,7 @@ from .retrieved_screen import screen_text
 MAX_FILES = 512
 MAX_ENTRIES = 1024
 MAX_FINDINGS = 4096
+MAX_JSON_DEPTH = 64
 MAX_FILE_BYTES = 256_000
 MAX_TOTAL_BYTES = 4_000_000
 TEXT_SUFFIXES = frozenset(
@@ -61,6 +62,29 @@ RULES = (
 )
 
 
+def _json_depth_exceeded(text: str) -> bool:
+    """Bound nesting before decoding, independently of Python's parser limits."""
+    depth = 0
+    quoted = escaped = False
+    for char in text:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+        elif char in "[{":
+            depth += 1
+            if depth > MAX_JSON_DEPTH:
+                return True
+        elif char in "]}":
+            depth -= 1
+    return False
+
+
 def inspect_text(name: str, text: str) -> list[dict[str, Any]]:
     """Evidence contains locations and rule IDs only; no source text or secrets."""
     findings: list[dict[str, Any]] = []
@@ -74,6 +98,8 @@ def inspect_text(name: str, text: str) -> list[dict[str, Any]]:
             if pattern.search(line):
                 findings.append({"path": name, "line": line_number, "rule": rule})
     if suffix == ".json":
+        if _json_depth_exceeded(text):
+            return findings + [{"path": name, "line": None, "rule": "json_depth_limit"}]
         try:
             value = json.loads(text)
         except (ValueError, TypeError, RecursionError):
