@@ -164,6 +164,7 @@ class EvidenceFindTests(unittest.TestCase):
             for query in ["Find retries offline", "Find retries without using an external service",
                           "Find retries using local tools only", "Find retries on my computer",
                           "Find retries on this air-gapped system", "Find retries while disconnected",
+                          "Find retries; all data must remain here",
                           "Find retries—must not contact third parties", "Find retries via third-parties",
                           "Find retries via thirdparties", "Find retries but cannot call services",
                           "Find retries but can't call services", "Find retries but mustn't call services",

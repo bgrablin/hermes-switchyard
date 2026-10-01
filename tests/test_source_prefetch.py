@@ -44,6 +44,18 @@ class PrefetchTests(unittest.TestCase):
         self.assertIsNotNone(self.hook(**self.kwargs))
         self.assertEqual(self.locate.call_count, 1)
 
+    def test_captured_denial_tells_host_to_skip_unavailable_finder(self):
+        for enabled in (True, False):
+            hook = prefetch.build_hook(enabled=enabled, root="/fixture", standing_ack=True,
+                                       client_factory=self.factory, policy=prefetch.SourceTurnPolicy())
+            out = hook(**{**self.kwargs, "user_message": "In notes.md, find retries; all data must remain here."})
+            self.assertIn("do not discover", out["context"])
+            self.assertNotIn("notes.md", out["context"])
+            self.assertEqual(out["metadata"]["switchyard_find"]["reason"], "local_handling_required")
+            self.assertEqual(out["metadata"]["switchyard_find"]["request_count"], 0)
+        self.locate.assert_not_called()
+        self.factory.assert_not_called()
+
     def test_missing_scope_foreground_and_unknown_platform_skip(self):
         for field, value in [("session_id", None), ("task_id", ""), ("turn_id", None),
                              ("parent_session_id", None), ("parent_session_id", "parent"),
@@ -109,7 +121,7 @@ class PrefetchTests(unittest.TestCase):
         for suffix in ["offline", "off-line", "locally", "using local tools only",
                        "on this air-gapped system", "on this airgapped system", "on this air gapped system",
                        "on this air‐gapped system", "on this air‑gapped system", "on this air–gapped system",
-                       "across the air gap", "while disconnected",
+                       "across the air gap", "while disconnected", "all data must remain here",
                        "—must not contact third parties", "must not contact third-parties",
                        "must not contact thirdparties", "cannot call services", "can't call services",
                        "mustn't call services", "shouldn’t call services",
@@ -137,7 +149,11 @@ class PrefetchTests(unittest.TestCase):
             self.assertEqual(prefetch.request_source("In notes.md, find the retry limit.\n" + suffix), "notes.md")
 
     def test_additional_action_or_file_clauses_stay_with_host(self):
-        for prompt in ["In notes.md, find the retry limit and compare it with config.md.",
+        for prompt in ["In notes.md, find the retry limit, translate it to French.",
+                       "In notes.md, find the retry limit: translate it to French.",
+                       "In notes.md, find the retry limit — translate it to French.",
+                       "In notes.md, find the retry limit - translate it to French.",
+                       "In notes.md, find the retry limit and compare it with config.md.",
                        "In notes.md, find the retry limit; summarize config.md.",
                        "In notes.md, find the retry limit. Summarize config.md.",
                        "Find the retry limit and calculate the delay in notes.md.",

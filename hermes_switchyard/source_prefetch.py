@@ -163,7 +163,7 @@ def request_source(message: Any) -> str | None:
     # A single location question only. Conjunctions, extra sentences, dotted
     # file/identifier references, and additional actions stay with normal tools.
     # Conservative false positives only forgo the optional prefetch.
-    if re.search(r"\b(?:and|then|also|compare|summarize|explain|calculate|count)\b|[;&.!?…]",
+    if re.search(r"\b(?:and|then|also|compare|summarize|explain|calculate|count)\b|[,;:&.!?…—–]|\s-\s",
                  query.strip().rstrip(".!?"), re.I):
         return None
     # Require a concrete filename, not a directory or a pronoun like "that".
@@ -183,8 +183,14 @@ def build_hook(*, enabled: bool, root: str, standing_ack: bool, client_factory: 
             policy.capture(user_message=user_message, session_id=session_id, task_id=task_id,
                            turn_id=turn_id, parent_session_id=parent_session_id, platform=platform,
                            turn_egress_policy=turn_egress_policy, egress_policy=egress_policy)
-            if policy.turn_reason(session_id, task_id, turn_id) is not None:
-                return None
+            policy_reason = policy.turn_reason(session_id, task_id, turn_id)
+            if policy_reason is not None:
+                return {
+                    "context": "switchyard_find is unavailable for this turn. Use normal Hermes search/read "
+                               "tools directly; do not discover its schema or call it.",
+                    "metadata": {"switchyard_find": {"status": "defer", "reason": policy_reason,
+                                                    "request_count": 0, "accounting": "no_request"}},
+                }
         if not enabled or standing_ack is not True or parent_session_id != "" or type(platform) is not str or platform not in _INTERACTIVE:
             return None
         # A supplied host envelope may grant only a smaller payload. Do not

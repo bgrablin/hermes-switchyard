@@ -227,7 +227,7 @@ _SOURCE_EGRESS_CUE = re.compile(
     r"(?:could|should|would|must|does|is|are|was|were)n't|"
     r"don't|do\s+not|avoid|skip|instead|network|internet|cloud|external|"
     r"third[\s_\-\u2010-\u2015]*part(?:y|ies)|remote|hosted|provider|egress|upload|transmit|share|send|"
-    r"only|solely|exclusively|strictly|keep(?:s|ing)?|stay(?:s|ing)?|leav(?:e|ing)|retain(?:s|ing)?|confined|restricted|"
+    r"only|solely|exclusively|strictly|keep(?:s|ing)?|stay(?:s|ing)?|remain(?:s|ed|ing)?|leav(?:e|ing)|retain(?:s|ing)?|confined|restricted|"
     r"inside|within|outside|device|machine|computer|pc|laptop|desktop|host|"
     r"on.device|ondevice|on.box|onbox|on.prem(?:ises)?|in.house|internal|"
     r"off.site|offsite|export|hermetic)\b"
