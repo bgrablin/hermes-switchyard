@@ -170,6 +170,18 @@ class MiddlewareTests(unittest.TestCase):
         self.assertIn("terminal", after)
         self.assertIn("skill_view", after)
 
+    def test_noop_filter_preserves_prior_middleware_rewrite(self):
+        request = {"messages": [{"role": "user", "content": "hello"}],
+                   "tools": [{"type": "function", "function": {"name": "terminal"}}],
+                   "reasoning_effort": "high"}
+        callback = build_defer_tool_schemas_middleware(enabled=True)
+        self.assertIsNone(callback(request=request))
+        # Hermes can deliver the original request to each callback. Returning
+        # None ensures this filter cannot overwrite another plugin's rewrite.
+        prior = {"request": {**request, "reasoning_effort": "low"}, "source": "prior"}
+        composed = compose_llm_request_middleware(lambda **kwargs: prior, callback)
+        self.assertEqual(composed(request=request)["request"]["reasoning_effort"], "low")
+
     def test_middleware_keeps_schemas_when_tools_needed(self):
         callback = build_defer_tool_schemas_middleware(enabled=True)
         request = _skill_route_request(

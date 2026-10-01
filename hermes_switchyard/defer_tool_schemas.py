@@ -322,7 +322,7 @@ def build_defer_tool_schemas_middleware(*, enabled: bool):
             updated = omit_switchyard_tools_from_request(raw)
         except Exception:  # noqa: BLE001 -- never break the provider call
             return None
-        if updated.get("tools") is raw.get("tools"):
+        if updated.get("tools") == raw.get("tools"):
             return None
         return {
             "request": updated,
