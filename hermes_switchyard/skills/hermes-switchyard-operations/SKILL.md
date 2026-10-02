@@ -197,9 +197,11 @@ explicit native-tool preference. Public HTTPS goals use the DOM browser loop,
 not Hermes `computer_use` between clicks. Desktop apps without a URL use Cua
 Driver. The desktop loop rechecks exposed app/window/control identity before
 actions; hotkeys require an explicit semantic allowlist. Sensitive targets stay
-excluded. `DONE` returns `completion_candidate` with `verified: false`, never
-independently verified completion. A blocked, stale, or incomplete run needs
-inspection, not blind continuation. Read back the actual page/app target yourself.
+excluded. In the DOM browser loop, `DONE` returns `completion_candidate`; the
+receipt has `verified: true` only when the provider decided `DONE` and the fixed
+local completion condition is satisfied. Desktop `DONE` always returns
+`verified: false`. A blocked, stale, or incomplete run needs inspection, not
+blind continuation. Read back the actual page/app target yourself.
 
 ## Approval prompts and opt-in features
 

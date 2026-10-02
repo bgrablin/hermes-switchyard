@@ -47,7 +47,30 @@ class OperationsSkillTests(unittest.TestCase):
                     parsed = parser.parse_args(argv[2:])
                     self.assertIsNotNone(parsed.switchyard_command)
                     plugin_commands.append(parsed.switchyard_command)
+                elif argv[:3] == ["hermes", "config", "set"]:
+                    self._assert_plugin_setting(argv)
+                else:
+                    self.fail(f"no validator for documented command: {command}")
         self.assertTrue(plugin_commands)
+
+    def _assert_plugin_setting(self, argv):
+        """Check a documented setting against the plugin.yaml settings schema."""
+        self.assertEqual(len(argv), 5, argv)
+        prefix = "plugins.entries.hermes-switchyard.settings."
+        self.assertTrue(argv[3].startswith(prefix), argv[3])
+        name, value = argv[3][len(prefix):], argv[4]
+        manifest = (ROOT / "plugin.yaml").read_text(encoding="utf-8")
+        declared = re.search(
+            r"^  " + re.escape(name) + r": \{type: (\w+), default: [^,]+, description: \"([^\"]*)\"",
+            manifest, re.MULTILINE,
+        )
+        self.assertIsNotNone(declared, f"{name} is not a declared plugin setting")
+        kind, description = declared.groups()
+        if kind == "bool":
+            self.assertIn(value, {"true", "false"})
+        else:
+            self.assertEqual(kind, "str", f"{name}: no validator for type {kind}")
+            self.assertRegex(description, r"\b" + re.escape(value) + r"\b")
 
     def test_linked_guides_exist_in_the_release_payload(self):
         links = re.findall(r"\]\(([^)]+)\)", self.text)
