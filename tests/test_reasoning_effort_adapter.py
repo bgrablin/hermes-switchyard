@@ -351,6 +351,56 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
                     self.assertIn("minimal", wire)
                     self.assertEqual(applied["reasoning_effort"], "minimal")
 
+    def test_commandcode_host_minimal_is_rewritten_without_jev(self):
+        # Host already emitted reasoning_effort=minimal on an enum-strict relay.
+        # Clamp must rewrite to low even when there is no adaptive room (no Jev).
+        from hermes_switchyard.reasoning_effort_adapter import (
+            ReasoningEffortController,
+            last_receipt,
+        )
+        from tests.test_reasoning_effort_user_cap import Env, sent_effort
+
+        COMMANDCODE = {
+            "provider": "commandcode",
+            "model": "deepseek/deepseek-v4.1-flash",
+            "api_mode": "chat_completions",
+        }
+
+        class _Client:
+            def decide(self, *a, **k):  # pragma: no cover
+                raise AssertionError("clamp rewrite must not call Jev")
+
+        controller = ReasoningEffortController(
+            client_factory=lambda: _Client(),
+            session_env=Env(HERMES_SESSION_ID="synthetic-session"),
+        )
+        # Non-trivial turn so local_trivial bypass does not apply; host level is minimal.
+        controller.build_pre_llm_call_hook()(
+            session_id="synthetic-session",
+            task_id="synthetic-session",
+            turn_id="t1",
+            user_message="please summarize the release notes carefully",
+            parent_session_id="",
+        )
+        request = {
+            "model": COMMANDCODE["model"],
+            "messages": [{"role": "user", "content": "please summarize the release notes carefully"}],
+            "reasoning_effort": "minimal",
+        }
+        result = controller.on_llm_request(
+            request,
+            session_id="synthetic-session",
+            task_id="synthetic-session",
+            turn_id="t1",
+            **COMMANDCODE,
+        )
+        self.assertEqual(sent_effort(request, result), "low")
+        receipt = last_receipt()
+        self.assertEqual(receipt["reason_code"], "provider_clamp")
+        self.assertEqual(receipt["effort"], "low")
+        self.assertEqual(receipt["requested_effort"], "minimal")
+        self.assertIs(receipt["jev_called"], False)
+
     def test_commandcode_trivial_floor_is_low(self):
         # Local trivial bypass must send the route floor (low), never invalid minimal.
         from hermes_switchyard.reasoning_effort_adapter import (

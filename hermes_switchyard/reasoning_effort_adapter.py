@@ -2630,6 +2630,7 @@ class ReasoningEffortController:
                 requested, provider=provider, model=model, api_mode=api_mode
             )
             if requested_wire not in ladder:
+                # Host sent a level outside the route ladder after clamp — preserve.
                 return self._unchanged(state, reason="no_room", requested=requested, base=base)
             cap_index = ladder.index(requested_wire)
             if self.allow_raise and state.stuck and cap_index + 1 < len(ladder):
@@ -2638,6 +2639,27 @@ class ReasoningEffortController:
             cap = candidates[-1]
             base["cap"] = cap
             if len(candidates) < 2:
+                # No adaptive room. If the host enum was remapped onto the only
+                # wire-safe level (e.g. commandcode minimal→low), still rewrite so
+                # the invalid original never reaches the provider (#181).
+                if requested_wire != requested:
+                    receipt = {
+                        **base,
+                        "status": "selected",
+                        "reason_code": "provider_clamp",
+                    }
+                    return self._finish_request(
+                        raw_request,
+                        receipt,
+                        state,
+                        None,
+                        effort=requested_wire,
+                        requested=requested,
+                        jev_called=False,
+                        provider=provider,
+                        model=model,
+                        api_mode=api_mode,
+                    )
                 return self._unchanged(state, reason="no_room", requested=requested, base=base)
 
             jev_called = False
