@@ -281,7 +281,7 @@ class HookRegistrationTests(unittest.TestCase):
         self.assertTrue(receipt["pre_llm_call_capture"])
         self.assertEqual(seen, ["transform_tool_result", "pre_llm_call"])
 
-    def test_register_flag_off_still_registers_hook(self):
+    def test_register_flag_off_adds_no_listener(self):
         seen: list[tuple[str, object]] = []
 
         def register_hook(name, callback):
@@ -291,17 +291,49 @@ class HookRegistrationTests(unittest.TestCase):
             SimpleNamespace(register_hook=register_hook),
             enabled=False,
         )
-        self.assertTrue(receipt["registered"])
+        self.assertFalse(receipt["registered"])
         self.assertFalse(receipt["enabled"])
+        self.assertEqual(receipt["reason"], "disabled")
         self.assertEqual(receipt["scope"], "exec_soft_cap")
-        self.assertEqual(seen[0][0], "transform_tool_result")
-        # Flag off → callback is a no-op.
-        self.assertIsNone(seen[0][1](tool_name="terminal", result=_noisy_stdout(), status="ok"))
+        self.assertEqual(seen, [])
 
     def test_register_without_seam(self):
         receipt = register_tool_output_filter(SimpleNamespace(), enabled=True)
         self.assertFalse(receipt["registered"])
         self.assertEqual(receipt["reason"], "hermes_transform_tool_result_unavailable")
+
+
+class CompositionSmokeTests(unittest.TestCase):
+    """Hermes first-string-wins: Switchyard must compose, not stack listeners."""
+
+    def test_composed_with_compaction_still_soft_caps(self):
+        from hermes_switchyard.output_pruning import prune_terminal_result
+        from hermes_switchyard.tool_output_filter import build_transform_tool_result_hook
+
+        # Unique lines: compaction cannot collapse them, so soft-cap must still run
+        # after the shared transform_tool_result composition (Hermes first-string-wins).
+        lines = [f"build step {i}: compiled object {i}.o ok" for i in range(400)]
+        noisy = "\n".join(lines)
+        self.assertGreater(len(noisy), DEFAULT_SOFT_CAP_CHARS)
+        payload = json.dumps({"exit_code": 0, "stdout": noisy, "stderr": ""})
+        filter_hook = build_transform_tool_result_hook(enabled=True)
+
+        def composed(**kwargs):
+            working = dict(kwargs)
+            override = None
+            pruned = prune_terminal_result(**working)
+            if isinstance(pruned, str):
+                override = pruned
+                working["result"] = pruned
+            filtered = filter_hook(**working)
+            if isinstance(filtered, str):
+                override = filtered
+            return override
+
+        out = composed(tool_name="terminal", result=payload, status="ok", args={"command": "make -j4"})
+        self.assertIsInstance(out, str)
+        self.assertIn("switchyard: omitted", out)
+        self.assertLess(len(out), len(payload))
 
 
 if __name__ == "__main__":

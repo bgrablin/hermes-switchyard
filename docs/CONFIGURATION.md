@@ -136,6 +136,14 @@ Used by the `jev_session_search_rerank` tool. Guide: [SESSION-SEARCH-RERANK.md](
 | `session_search_rerank_winning_probability_threshold` | `0.8` | Below this winning probability, keep the original order. |
 | `session_search_rerank_max_card_chars` | `360` | Maximum characters per search result sent to Jev (after redaction). |
 
+## Disposable tool-output filter (opt-in experiment)
+
+Soft-caps high-volume **exec** tool stdout before it re-enters the main model context. Default **off**. No measured win is claimed; leave it off until prove-value evidence exists. See issue [#151](https://github.com/bgrablin/hermes-switchyard/issues/151).
+
+| Key | Default | What it does |
+| --- | --- | --- |
+| `filter_disposable_tool_output` | `false` | When `true`, soft-caps successful high-volume terminal/shell/bash stdout (head + tail, with an explicit omission marker). Preserves errors, non-zero exits, small outputs, security-relevant text, and user-asked full dumps. Does not filter read/write kinds in this vertical slice. |
+
 ## Explicit tools and privacy
 
 | Key | Default | What it does |

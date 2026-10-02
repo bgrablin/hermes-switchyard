@@ -422,13 +422,13 @@ def build_transform_tool_result_hook(*, enabled: bool):
 
 
 def register_tool_output_filter(ctx: Any, *, enabled: bool) -> dict[str, Any]:
-    """Register ``transform_tool_result`` (and user-text capture when on).
+    """Register ``transform_tool_result`` only when the opt-in flag is on.
 
-    ``transform_tool_result`` is always registered when available so plugin.yaml
-    ``provides_hooks`` stays in sync with ``register()``. Behavior is gated by
-    ``enabled`` (default off). When enabled, also register ``pre_llm_call`` to
-    capture the turn's user message for full-dump preserve (plugin-only; no
-    Hermes core changes).
+    Default off adds no listener (matches other optional tool hooks). When on,
+    also register ``pre_llm_call`` to capture the turn's user message for
+    full-dump preserve. Plugin-only — no Hermes core changes. Callers that also
+    enable repeated-output compaction or stuck advice should compose one
+    ``transform_tool_result`` listener themselves (Hermes first-string-wins).
     """
     register_hook = getattr(ctx, "register_hook", None)
     if not callable(register_hook):
@@ -439,19 +439,27 @@ def register_tool_output_filter(ctx: Any, *, enabled: bool) -> dict[str, Any]:
             "scope": "exec_soft_cap",
             "pre_llm_call_capture": False,
         }
-    callback = build_transform_tool_result_hook(enabled=enabled is True)
+    if enabled is not True:
+        return {
+            "registered": False,
+            "reason": "disabled",
+            "enabled": False,
+            "scope": "exec_soft_cap",
+            "pre_llm_call_capture": False,
+            "soft_cap_chars": soft_cap_chars(),
+        }
+    callback = build_transform_tool_result_hook(enabled=True)
     register_hook("transform_tool_result", callback)
     capture_registered = False
-    if enabled is True:
-        try:
-            register_hook("pre_llm_call", build_pre_llm_call_capture_hook())
-            capture_registered = True
-        except Exception:  # noqa: BLE001 -- filter still works with args-only cues
-            capture_registered = False
+    try:
+        register_hook("pre_llm_call", build_pre_llm_call_capture_hook())
+        capture_registered = True
+    except Exception:  # noqa: BLE001 -- filter still works with args-only cues
+        capture_registered = False
     return {
         "registered": True,
         "reason": "ok",
-        "enabled": enabled is True,
+        "enabled": True,
         "scope": "exec_soft_cap",
         "soft_cap_chars": soft_cap_chars(),
         "pre_llm_call_capture": capture_registered,

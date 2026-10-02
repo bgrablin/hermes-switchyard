@@ -42,7 +42,6 @@ from .reasoning_effort_adapter import (
 from .routing import route_model, select_skill, select_skills
 from .session_search_rerank import rerank_session_search
 from .defer_tool_schemas import register_defer_tool_schemas_middleware
-from .tool_output_filter import register_tool_output_filter
 from .two_stage_routing import TWO_STAGE_CONFIG_KEYS, TwoStageConfig, skill_excerpt
 
 from .host_compat import ctx_get_config, register_auxiliary_task as register_host_auxiliary_task
@@ -1602,14 +1601,78 @@ def register(ctx):
 
     from .output_pruning import prune_terminal_result
     from .stuck_detection import StuckDetector
-    if callable(getattr(ctx, "register_hook", None)):
-        pruning = setting_bool("repeated_output_compaction", False)
-        stuck = StuckDetector(client) if standing_ack and setting_bool("cross_tool_stuck_detection", False) else None
-        if pruning or stuck:
-            def transform_result(**kwargs):
-                advice = stuck(**kwargs) if stuck is not None and setting_bool("cross_tool_stuck_detection", False) and setting_bool("public_or_sanitized_data_ack", True) else None
-                return advice if advice is not None else prune_terminal_result(**kwargs) if pruning else None
-            ctx.register_hook("transform_tool_result", transform_result)
+    from .tool_output_filter import (
+        build_pre_llm_call_capture_hook,
+        build_transform_tool_result_hook,
+        soft_cap_chars,
+    )
+    filter_enabled = setting_bool("filter_disposable_tool_output", False)
+    pruning = setting_bool("repeated_output_compaction", False)
+    stuck = StuckDetector(client) if standing_ack and setting_bool("cross_tool_stuck_detection", False) else None
+    filter_status = {
+        "registered": False,
+        "reason": "disabled",
+        "enabled": False,
+        "scope": "exec_soft_cap",
+        "pre_llm_call_capture": False,
+        "soft_cap_chars": soft_cap_chars(),
+        "composed_with_output_hooks": False,
+    }
+    if callable(getattr(ctx, "register_hook", None)) and (pruning or stuck or filter_enabled):
+        # Hermes transform_tool_result is first-string-wins across listeners, so
+        # compose Switchyard's opt-in transforms into one callback.
+        filter_hook = build_transform_tool_result_hook(enabled=filter_enabled)
+
+        def transform_result(**kwargs):
+            working = dict(kwargs)
+            override = None
+            if pruning:
+                pruned = prune_terminal_result(**working)
+                if isinstance(pruned, str):
+                    override = pruned
+                    working["result"] = pruned
+            if filter_enabled:
+                filtered = filter_hook(**working)
+                if isinstance(filtered, str):
+                    override = filtered
+                    working["result"] = filtered
+            advice = (
+                stuck(**working)
+                if stuck is not None
+                and setting_bool("cross_tool_stuck_detection", False)
+                and setting_bool("public_or_sanitized_data_ack", True)
+                else None
+            )
+            return advice if advice is not None else override
+
+        ctx.register_hook("transform_tool_result", transform_result)
+        capture_registered = False
+        if filter_enabled:
+            try:
+                ctx.register_hook("pre_llm_call", build_pre_llm_call_capture_hook())
+                capture_registered = True
+            except Exception:  # noqa: BLE001 -- args-only full-dump cues still work
+                capture_registered = False
+        filter_status = {
+            "registered": filter_enabled,
+            "reason": "ok" if filter_enabled else "composed_without_filter",
+            "enabled": filter_enabled,
+            "scope": "exec_soft_cap",
+            "pre_llm_call_capture": capture_registered,
+            "soft_cap_chars": soft_cap_chars(),
+            "composed_with_output_hooks": True,
+        }
+    elif not callable(getattr(ctx, "register_hook", None)) and filter_enabled:
+        filter_status = {
+            "registered": False,
+            "reason": "hermes_transform_tool_result_unavailable",
+            "enabled": True,
+            "scope": "exec_soft_cap",
+            "pre_llm_call_capture": False,
+            "soft_cap_chars": soft_cap_chars(),
+            "composed_with_output_hooks": False,
+        }
+    _RUNTIME_STATUS["tool_output_filter"] = filter_status
 
     session_search_choice_confidence = _config_float(
         ctx_get_config(ctx, "session_search_rerank_choice_confidence_threshold", default=0.8),
@@ -1763,13 +1826,6 @@ def register(ctx):
             _effort_mod.mark_composed_llm_request_registered()
         )
 
-    # Opt-in disposable exec soft-cap (#151). Hook always registered when the
-    # Hermes transform_tool_result seam exists; behavior gated by the flag
-    # (default off). Plugin-only — no Hermes core changes.
-    _RUNTIME_STATUS["tool_output_filter"] = register_tool_output_filter(
-        ctx,
-        enabled=setting_bool("filter_disposable_tool_output", False),
-    )
 
     def assess_handler(args, **kwargs):
         try:
