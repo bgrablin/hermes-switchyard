@@ -6,11 +6,13 @@ redaction-failed, or timed-out reviews escalate; no command is executed here.
 
 from __future__ import annotations
 
+import ast
 import math
 import hashlib
 import json
 import uuid
 import re
+import shlex
 from types import SimpleNamespace
 from typing import Any
 
@@ -167,6 +169,178 @@ def review_command(
         return {**result, "reason": "provider_or_validation_failure"}
 
 
+_DISPLAY_SECRET = r"(?:pass(?:word|wd|phrase)?|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential|authorization|auth|cookie)"
+_SECRET_FIELD = re.compile(_DISPLAY_SECRET, re.I)
+# Consume unquoted escapes with their next character, including whitespace.
+# A trailing escape or unfinished quote is withheld rather than partly shown.
+_DISPLAY_VALUE = r'''(?:"(?:\\[\s\S]?|[^"\\])*(?:"|$)|'(?:\\[\s\S]?|[^'\\])*(?:'|$)|\\[\s\S]?|[^\s;,'"&\\]+)+'''
+_DISPLAY_ASSIGN = re.compile(
+    r'''(?i)((?<![\w-])[\w.-]*''' + _DISPLAY_SECRET + r'''[\w.-]*["']?\s*[:=]\s*)''' + _DISPLAY_VALUE
+)
+_DISPLAY_FLAG = re.compile(r"(?i)(--?[\w-]*" + _DISPLAY_SECRET + r"[\w-]*\s+)" + _DISPLAY_VALUE)
+_DISPLAY_AUTH = re.compile(r"(?i)\b(?:Bearer|Basic)\s+[^\s'\";,]+")
+_DISPLAY_HEADER = re.compile(r'''(?i)((?:authorization|proxy-authorization|cookie|set-cookie)\s*:\s*)[^\r\n'"]+''')
+_DISPLAY_URL = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*://[^\s'\"<>]+")
+
+
+def _redact_display_text(text: str) -> str:
+    """Local display only: mask opaque values before the host credential scrub."""
+    def url(match):
+        value = match.group()
+        scheme, rest = value.split("://", 1)
+        authority, slash, path = rest.partition("/")
+        authority = re.sub(r"^.*@", "[REDACTED]@", authority)
+        value = scheme + "://" + authority + slash + path
+        return re.sub(r"[?#].*", "?[REDACTED]", value)
+
+    text = _DISPLAY_URL.sub(url, text)
+    text = _DISPLAY_HEADER.sub(lambda m: m.group(1) + "[REDACTED]", text)
+    text = _DISPLAY_AUTH.sub("[REDACTED]", text)
+    text = _DISPLAY_ASSIGN.sub(lambda m: m.group(1) + "[REDACTED]", text)
+    text = _DISPLAY_FLAG.sub(lambda m: m.group(1) + "[REDACTED]", text)
+    safe, failure = redact_for_jev(text)
+    if failure or not isinstance(safe, str):
+        raise ValueError("redaction_unavailable")
+    return safe
+
+
+def _display_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return _redact_display_text(value)
+    if isinstance(value, dict):
+        return {
+            _redact_display_text(k): "[REDACTED]" if _SECRET_FIELD.search(k) else _display_value(v)
+            for k, v in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_display_value(v) for v in value]
+    return value
+
+
+def _display_text(safe, limit: int) -> str:
+    """Only already-redacted values reach escaping and truncation."""
+    quoted = json.dumps(safe, ensure_ascii=True, separators=(",", ":"))
+    return quoted if len(quoted) <= limit else quoted[:limit] + "... [truncated]"
+
+
+def _approval_message(tool_name, args, finding):
+    category, field, value = finding
+    if tool_name in {"write_file", "patch"}:
+        # File bodies can contain opaque secrets without recognizable labels.
+        # Show operands, never the body, even for multi-file patch payloads.
+        args = {key: "[REDACTED file body]" if key in {
+            "content", "old_string", "new_string", "patch"
+        } else item for key, item in args.items()}
+    safe = _display_value(args)
+    targets = {key: safe[key] for key in ("path", "workdir", "cwd", "target", "url") if key in safe}
+    field_text = "args" + "".join(f"[{json.dumps(k, ensure_ascii=True)}]" for k in field)
+    matched = "[REDACTED]" if any(isinstance(k, str) and _SECRET_FIELD.search(k) for k in field) else _display_value(value)
+    return (
+        f"Switchyard requires approval for {tool_name}.\n"
+        f"Trigger: {category}; field: {_display_text(_redact_display_text(field_text), 100)}\n"
+        f"Matched input (redacted): {_display_text(matched, 240)}\n"
+        f"Target/context (redacted): {_display_text(targets, 200)}\n"
+        f"Input preview (redacted): {_display_text(safe, 600)}\n"
+        "Scope: Allow once covers this call; session/always covers only this tool and identical input.\n"
+        "Indicators are text matches, not proof of intent. Redacted/truncated previews are not the full input."
+    )
+
+
+_CREDENTIAL_PATH = re.compile(r"(?i)(?:^|[/\\])(?:\.ssh(?:[/\\]|$)|\.aws[/\\]credentials|\.env(?:\b|[./]))")
+
+
+def _literal_python(code):
+    """Recognize literal assignments/docstrings/prints in a fresh Python process."""
+    try:
+        tree = ast.parse(code)
+        names = set()
+        for statement in tree.body:
+            if isinstance(statement, ast.Assign) and all(isinstance(t, ast.Name) and t.id != "print" for t in statement.targets):
+                ast.literal_eval(statement.value)
+                names.update(t.id for t in statement.targets if isinstance(t, ast.Name))
+            elif isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Constant):
+                continue
+            elif isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call):
+                call = statement.value
+                if not isinstance(call.func, ast.Name) or call.func.id != "print" or call.keywords:
+                    return False
+                for arg in call.args:
+                    if not (isinstance(arg, ast.Name) and arg.id in names):
+                        ast.literal_eval(arg)
+            else:
+                return False
+        return True
+    except (ValueError, SyntaxError, TypeError, RecursionError):
+        return False
+
+
+def _literal_shell_output(command):
+    # Expansion, redirects, compound commands and substitution are NOT inert
+    # just because the leading executable prints. Unknown syntax stays gated.
+    if any(c in command for c in ("$", "`", "\n", "\r")):
+        return False
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        words = list(lexer)
+    except ValueError:
+        return False
+    if not words or any(word and set(word) <= set(";&|<>()") for word in words):
+        return False
+    if words[0] in {"echo", "printf"}:
+        return True
+    return (len(words) == 3 and words[0] in {"python", "python3"} and words[1] == "-c"
+            and _literal_python(words[2]))
+
+
+def _operation_inputs(tool_name, args):
+    """Separate tool operands from passive docs, diffs and delegation prose.
+
+    This is not a shell evaluator. Unknown executable shapes retain the text
+    indicators; the host remains responsible for actual execution permissions.
+    """
+    if tool_name == "delegate_task":
+        return []  # Child tool calls have their own approval boundary.
+    if tool_name in {"terminal", "execute_code"}:
+        key = "command" if tool_name == "terminal" else "code"
+        value = args.get(key)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("missing_executable_input")
+        return [("shell" if key == "command" else "python", (key,), value)]
+    if tool_name == "patch" and args.get("mode") == "patch":
+        text = args.get("patch")
+        if not isinstance(text, str):
+            raise ValueError("missing_patch")
+        headers = re.findall(r"^\*\*\* (Update File|Add File|Delete File|Move to): (.+)$", text, re.M)
+        if not headers:
+            raise ValueError("unknown_patch")
+        return [("delete" if op == "Delete File" else "path", ("patch",), path.strip()) for op, path in headers]
+    path = args.get("path")
+    if not isinstance(path, str) or not path.strip():
+        raise ValueError("missing_target")
+    return [("path", ("path",), path)]
+
+
+def _operation_indicator(kind, value):
+    if kind == "delete":
+        return "irreversible_operation"
+    if kind == "path":
+        return "credential_access" if _CREDENTIAL_PATH.search(value) else None
+    hardline = native_hardline(value)
+    if hardline is not False:
+        return "native_hardline" if hardline is True else "native_policy_unavailable"
+    # Persistent execute_code globals can rebind print in an earlier call.
+    # Only fresh shell invocations qualify for the literal-output exemption.
+    if kind == "shell" and _literal_shell_output(value):
+        return None
+    if _CREDENTIAL.search(value):
+        return "credential_access"
+    if _IRREVERSIBLE.search(value):
+        return "irreversible_operation"
+    return None
+
+
 def pre_tool_gate(*, tool_name="", args=None, **_):
     """Add approval for explicit high-impact shapes; never grants execution."""
     if tool_name not in {
@@ -178,19 +352,23 @@ def pre_tool_gate(*, tool_name="", args=None, **_):
     } or not isinstance(args, dict):
         return None
 
-    def uninspectable():
+    def uninspectable(reason="incomplete_inspection"):
         # There is no complete inspected input to bind. A fresh nonce prevents
         # native session/permanent allowlists from authorizing another call.
         return {
             "action": "approve",
-            "message": "Switchyard could not completely inspect this input. Approval applies only to this invocation.",
+            "message": (
+                f"Switchyard requires approval for {tool_name}. Trigger: {reason}. "
+                "Input and target withheld: a complete safe preview is unavailable. "
+                "Approval applies only to this invocation; session/always cannot approve a later call."
+            ),
             "rule_key": f"switchyard:{tool_name}:uninspectable:{uuid.uuid4().hex}",
         }
 
     pending = [args]
     characters = 0
     visited = 0
-    consequential = False
+    finding = None
     while pending:
         item = pending.pop()
         visited += 1
@@ -200,12 +378,7 @@ def pre_tool_gate(*, tool_name="", args=None, **_):
             characters += len(item)
             if characters > 16_000:
                 return uninspectable()
-            consequential = bool(
-                consequential
-                or _CREDENTIAL.search(item)
-                or _IRREVERSIBLE.search(item)
-                or native_hardline(item) is not False
-            )
+
         elif isinstance(item, dict):
             if len(item) > 256 or any(not isinstance(k, str) for k in item):
                 return uninspectable()
@@ -226,7 +399,16 @@ def pre_tool_gate(*, tool_name="", args=None, **_):
             continue
         else:
             return uninspectable()
-    if consequential:
+    try:
+        operations = _operation_inputs(tool_name, args)
+    except ValueError:
+        return uninspectable()
+    for kind, field, value in operations:
+        category = _operation_indicator(kind, value)
+        if category:
+            finding = (category, field, value)
+            break
+    if finding is not None:
         # Serialize only after the complete graph has passed bounded inspection.
         encoded = json.dumps(
             args,
@@ -236,9 +418,13 @@ def pre_tool_gate(*, tool_name="", args=None, **_):
             separators=(",", ":"),
         )
         digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        try:
+            message = _approval_message(tool_name, args, finding)
+        except Exception:
+            return uninspectable("redaction_unavailable")
         return {
             "action": "approve",
-            "message": "Switchyard detected credential access or an irreversible-operation indicator. Review the exact tool input; persistent approval covers only this tool and identical input.",
+            "message": message,
             "rule_key": f"switchyard:{tool_name}:consequential:{digest}",
         }
     return None
