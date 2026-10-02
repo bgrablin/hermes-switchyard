@@ -216,9 +216,9 @@ History is best-effort diagnostic data, not a durable audit log.
 
 ```text
 hermes switchyard status --json
-hermes switchyard receipt --json
-hermes switchyard receipt --session <id>
-hermes switchyard receipt --last <n>
+hermes switchyard receipt [--human | --json]
+hermes switchyard receipt --session <id> [--human | --json]
+hermes switchyard receipt --last <n> [--human | --json]
 hermes switchyard stats [--since 24h]
 ```
 
@@ -231,12 +231,13 @@ hermes switchyard stats [--since 24h]
 
 A process started before a config change may still have the old hook and values.
 
-**`receipt`** prints the latest retained receipt. It covers source, selection, attempt, error or skip reason, model, request, latency, usage, candidate count, and shortlist policy.
+**`receipt`** emits formatted JSON by default; `--json` keeps the output compact. JSON output covers source, selection, attempt, error or skip reason, model, request, latency, usage, candidate count, and shortlist policy.
 
-- In `load` mode it adds `consumer_status`, `loaded_skill`, `loaded_source`, and `skill_load_verified`. `consumer_status` is one of `loaded`, `load_failed`, `explicit_override`, or `mandatory_conflict`.
+- `--human` shows a short plain-language summary for the latest receipt or selected history records. It reports the decision, selected skill, source, skill-load result, and whether Jev ran; task text and provider error text are not shown.
+- In `load` mode, JSON adds `consumer_status`, `loaded_skill`, `loaded_source`, and `skill_load_verified`. `consumer_status` is one of `loaded`, `load_failed`, `explicit_override`, or `mandatory_conflict`. The human summary marks a successful skill load as verified; that is load evidence, not task completion.
 - `verified` is always `false`. A receipt doesn't prove the recommendation was right, that a model changed, or that a GUI task finished.
-- With no receipt yet, it prints a structured `no_receipt` diagnostic and exits non-zero.
-- `--session <id>` shows that session's history and `--last <n>` the newest *n* records. They can be combined. An empty result prints `no_matching_receipts` or `no_receipt_history` and exits non-zero.
+- With no receipt yet, default/`--json` output contains a structured `no_receipt` diagnostic; `--human` prints `No automatic skill-routing receipt is available.` Both exit non-zero.
+- `--session <id>` shows that session's history and `--last <n>` the newest *n* records. They can be combined. An empty result uses the structured `no_matching_receipts` or `no_receipt_history` diagnostic by default/in `--json`; `--human` prints a plain-language no-match or no-history message. All empty results exit non-zero.
 
 **`stats`** summarizes history:
 
@@ -411,6 +412,7 @@ Denied, unknown, malformed, or restricted envelopes still block. A hosted failur
 - `hermes_switchyard/egress.py`: the versioned per-turn envelope contract and fail-closed evaluator
 - `hermes_switchyard/receipt_state.py`: source identity, receipt validation, and diagnostic state
 - `hermes_switchyard/receipt_history.py`: bounded per-turn history, routing statistics, and Git SHA resolution
+- `hermes_switchyard/receipt_output.py`: plain-text rendering for the receipt CLI
 - `hermes_switchyard/__init__.py`: plugin settings and `ctx.register_hook("pre_llm_call", ...)`
 - `plugin.yaml`: the hook declaration and configuration defaults
 
