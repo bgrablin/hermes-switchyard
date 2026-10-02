@@ -35,6 +35,7 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 
 ### Fixed
 
+- [#181](https://github.com/bgrablin/hermes-switchyard/issues/181): clamp adaptive effort for enum-strict Chat Completions relays such as `commandcode` that accept only `low|medium|high|xhigh|max`. Map `none` / `minimal` to `low` (and `ultra` to `max`) before the trivial-turn floor and Jev candidate list are derived, so a greeting no longer writes an invalid `reasoning_effort` and forces a provider 400 + retry.
 - Use a native absolute root in the source-finder unsupported-filesystem test so Windows reaches the intended filesystem check instead of rejecting a drive-less POSIX path.
 - Make the installed turn-loop timeout test verify the actual 400 ms decision wait and discard of a synchronized late answer, without treating Windows scheduling or later Hermes/provider work as part of that budget. The production timeout is unchanged.
 - Preserve archived source bytes in the evaluation tampering tests on Windows so they exercise the intended body-hash and Git-source checks without changing archive-header line endings.

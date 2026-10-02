@@ -205,6 +205,53 @@ def _isolated_replay(plugin_dir: Path) -> None:
     assert codex_wire[0]["input"] == "synthetic"
     assert "reasoning_effort" not in codex_wire[0]
 
+    # #181: enforce the reported relay enum at the actual SDK HTTP boundary.
+    # The installed plugin must make greetings and pre-existing minimal valid
+    # without a Jev call. This is an offline compatibility test, not a live speed claim.
+    strict_wire = []
+    accepted_efforts = {"low", "medium", "high", "xhigh", "max"}
+
+    def strict_chat(request):
+        payload = json.loads(request.content)
+        strict_wire.append(payload)
+        if payload.get("reasoning_effort") not in accepted_efforts:
+            return httpx.Response(400, json={"error": {
+                "message": 'Invalid option: expected one of "low"|"medium"|"high"|"xhigh"|"max"',
+                "type": "invalid_request_error", "param": "reasoning_effort",
+            }})
+        return httpx.Response(200, json={"id": "chat_synthetic", "object": "chat.completion",
+            "created": 0, "model": payload["model"], "choices": []})
+
+    calls_before = len(fake.calls)
+    with openai.OpenAI(api_key="test-key", base_url="https://example.invalid/v1", max_retries=0,
+                       http_client=httpx.Client(transport=httpx.MockTransport(strict_chat))) as client:
+        for alias in ("commandcode", "command-code", "command_code"):
+            for text, requested in (("hi", "high"), ("thanks", "high"), ("hi", "minimal")):
+                session = f"strict-{alias}-{text}-{requested}"
+                begin_turn(session, "t1", text=text)
+                request = {"model": "deepseek/deepseek-v4.1-flash",
+                           "messages": [{"role": "user", "content": text}], "reasoning_effort": requested}
+                adapted = apply_llm_request_middleware(
+                    request, provider=alias, model=request["model"], api_mode="chat_completions",
+                    session_id=session, task_id=session, turn_id="t1",
+                )
+                assert adapted.payload["reasoning_effort"] == "low"
+                assert adapted.payload["messages"] == request["messages"]
+                assert request["reasoning_effort"] == requested, "original_request_mutated"
+                client.chat.completions.create(**adapted.payload)
+    assert len(strict_wire) == 9 and all(p["reasoning_effort"] == "low" for p in strict_wire)
+    assert len(fake.calls) == calls_before, "strict_trivial_turn_called_jev"
+
+    # The ordinary OpenRouter chat route still gets its existing minimal floor.
+    begin_turn("ordinary-openrouter", "t1", text="hi")
+    ordinary = apply_llm_request_middleware(
+        {"model": "deepseek/deepseek-v4.1-flash", "messages": [{"role": "user", "content": "hi"}],
+         "reasoning_effort": "high"}, provider="openrouter", model="deepseek/deepseek-v4.1-flash",
+        api_mode="chat_completions", session_id="ordinary-openrouter", task_id="ordinary-openrouter", turn_id="t1",
+    )
+    assert ordinary.payload["reasoning_effort"] == "minimal"
+    assert len(fake.calls) == calls_before
+
     # Native Anthropic request: the real host composes the memory/plugin sidecar into the user
     # content and converts an OpenAI tool message into a tool_result user block. Jev must see
     # only the clean captured message on both the first and the after-tool request.
