@@ -996,10 +996,10 @@ def _cli_handler(args):
         print(json.dumps(report, sort_keys=True))
         return 0 if report["coverage_complete"] and not report["findings"] else 1
     if command == "lint-skills":
-        from .skill_lint import CatalogError, SCHEMA, discover_report, format_report
+        from .skill_lint import CatalogError, SCHEMA, discover_report, exit_code, format_report
 
         try:
-            report = discover_report()
+            report = discover_report(include_style=getattr(args, "style", False))
         except Exception as exc:  # noqa: BLE001 -- registry/provider text must not reach output
             reason = "catalog_unavailable"
             if isinstance(exc, CatalogError) and str(exc) in {
@@ -1015,8 +1015,9 @@ def _cli_handler(args):
         if getattr(args, "json_output", False):
             print(json.dumps(report, sort_keys=True))
         else:
-            print(format_report(report))
-        return 0
+            limit = None if getattr(args, "all_findings", False) else getattr(args, "limit", 20)
+            print(format_report(report, limit=limit))
+        return exit_code(report, getattr(args, "fail_on", None))
     if command == "status":
         credential_presence = {}
         for provider in ("typesafe", "openrouter"):
@@ -1315,7 +1316,13 @@ def _setup_cli(parser):
     scan = commands.add_parser("scan-catalog", help="Read-only package/MCP review with content hashes and coverage gaps")
     scan.add_argument("path", help="Local package directory to inspect without executing it")
     lint = commands.add_parser("lint-skills", help="Report local skill-description routability hints")
+    from .skill_lint import positive_limit
+
     lint.add_argument("--json", action="store_true", dest="json_output", help="Emit versioned JSON")
+    lint.add_argument("--style", action="store_true", help="Include optional wording and length suggestions")
+    lint.add_argument("--limit", type=positive_limit, default=20, metavar="N", help="Maximum text findings (default: 20; JSON is complete)")
+    lint.add_argument("--all", action="store_true", dest="all_findings", help="Show every text finding; overrides --limit")
+    lint.add_argument("--fail-on", choices=("warning", "error"), help="Exit 2 for findings at this severity or higher; default is advisory")
     setup = commands.add_parser("setup", help="Save one Jev provider key through a masked prompt")
     setup.add_argument("--provider", required=True, choices=("typesafe", "openrouter"))
     receipt = commands.add_parser("receipt", help="Show the latest automatic-routing receipt")
