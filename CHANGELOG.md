@@ -8,6 +8,8 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 
 ### Added
 
+- [#193](https://github.com/bgrablin/hermes-switchyard/pull/193): opt-in tool review, retrieval screening, and conservative output handling (runtime switches default **off**; catalog review is an explicit command). Retrieved-text screen (`retrieved_screen_enabled`; shadow indicators when off), `hermes switchyard scan-catalog` admission review, consequential tool gate (`consequential_tool_gate`), smart approval provider (`smart_approval_provider` / `switchyard-approvals`), repeated terminal-line compaction (`repeated_output_compaction`), cross-tool stuck advice (`cross_tool_stuck_detection`), and browser plan cache (`browser_plan_cache`). See [FEATURE-EXPANSION.md](docs/FEATURE-EXPANSION.md). No measured latency, cost, or task-quality claim; runtime candidates stay off until their value is demonstrated.
+
 - Extend the opt-in source finder with bounded multi-file evidence bundles, exact per-file citations, keyed relevance questions, duplicate citation preservation, and whole-lookup fallback. The complete 80-conversation synthetic native pilot passes its correctness and efficiency gates; the feature remains opt-in. See [results and limits](docs/AWESOME-JEV-EVALUATION.md).
 
 - Automatic source-prefetch pilot for simple natural-language requests naming a file. Exact evidence can reach Hermes before its first main-model call; unsupported requests use ordinary tools. No finder tool, schema, or discovery round. Opt-in with an absolute approved root, bounded reads, original-request guards, sanitization, and freshness verification. See [setup and limits](docs/SOURCE-FINDER.md).
@@ -35,6 +37,7 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 
 ### Fixed
 
+- [#181](https://github.com/bgrablin/hermes-switchyard/issues/181): clamp adaptive effort for enum-strict Chat Completions relays such as `commandcode` that accept only `low|medium|high|xhigh|max`. Map `none` / `minimal` to `low` (and `ultra` to `max`) before the trivial-turn floor and Jev candidate list are derived, so a greeting no longer writes an invalid `reasoning_effort` and forces a provider 400 + retry.
 - Use a native absolute root in the source-finder unsupported-filesystem test so Windows reaches the intended filesystem check instead of rejecting a drive-less POSIX path.
 - Make the installed turn-loop timeout test verify the actual 400 ms decision wait and discard of a synchronized late answer, without treating Windows scheduling or later Hermes/provider work as part of that budget. The production timeout is unchanged.
 - Preserve archived source bytes in the evaluation tampering tests on Windows so they exercise the intended body-hash and Git-source checks without changing archive-header line endings.
