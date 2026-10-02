@@ -30,12 +30,15 @@ def _preserve_request(value: Any) -> bool:
     if isinstance(value, str):
         return not value.strip() or bool(_FULL_OUTPUT.search(value))
     if isinstance(value, (list, tuple)):
-        texts = [
-            block["text"] for block in value
-            if isinstance(block, Mapping)
-            and block.get("type") in ("text", "input_text")
-            and isinstance(block.get("text"), str)
-        ]
+        texts = []
+        for block in value:
+            if (
+                not isinstance(block, Mapping)
+                or block.get("type") not in ("text", "input_text")
+                or not isinstance(block.get("text"), str)
+            ):
+                return True
+            texts.append(block["text"])
         return _preserve_request("\n".join(texts))
     # Uninspectable requests cannot authorize a model-facing rewrite.
     return True

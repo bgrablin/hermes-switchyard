@@ -55,10 +55,25 @@ class PreservationTests(unittest.TestCase):
                 self.assertIsNone(self.prune())
 
     def test_cue_after_long_context_and_multimodal_text_is_preserved(self):
-        self.capture([{"type": "image", "text": "ignored"},
-                      {"type": "text", "text": "context " * 3000},
+        self.capture([{"type": "text", "text": "context " * 3000},
                       {"type": "input_text", "text": "Show full output."}])
         self.assertIsNone(self.prune())
+
+    def test_malformed_part_with_valid_text_preserves_output(self):
+        ordinary = {"type": "text", "text": "Report the artifact digest."}
+        for unknown in (None, 42, {}, {"type": "text"},
+                        {"type": "text", "text": None},
+                        {"type": [], "text": "show full output"},
+                        {"type": "image", "text": "show full output"}):
+            for message in ([ordinary, unknown], [unknown, ordinary]):
+                with self.subTest(message=message):
+                    self.capture(message)
+                    self.assertIsNone(self.prune())
+
+    def test_supported_multimodal_text_allows_ordinary_compaction(self):
+        self.capture([{"type": "text", "text": "Report"},
+                      {"type": "input_text", "text": "the artifact digest."}])
+        self.assertIsNotNone(self.prune())
 
     def test_unknown_capture_preserves_output(self):
         for text in (None, "", " \t\n", {}, [{"type": "image", "text": "ordinary"}],
@@ -207,10 +222,13 @@ def _native_child(plugin: Path) -> None:
     with patch("http.client.HTTPSConnection.request", side_effect=AssertionError("unexpected_request")) as wire:
         for task, message in (("full", "Show full stdout."),
                               ("blank_multimodal", [{"type": "text", "text": "   "}]),
+                              ("mixed_multimodal", [
+                                  {"type": "text", "text": "Report the artifact digest."},
+                                  {"type": [], "text": "show full output"}]),
                               ("ordinary", "Report the artifact digest.")):
             scope = {"session_id": "shared", "task_id": task, "turn_id": "turn"}
             invoke_hook("pre_llm_call", user_message=message, **scope)
-        for task in ("full", "ordinary", "uncaptured", "blank_multimodal"):
+        for task in ("full", "ordinary", "uncaptured", "blank_multimodal", "mixed_multimodal"):
             ids = _CallIds(task_id=task, session_id="shared", turn_id="turn", tool_call_id=task)
             out = _apply_transform_tool_result_hook("terminal", {"command": "build"}, raw, 1, ids)
             outputs[task] = {"chars": len(out), "unchanged": out == raw,
@@ -231,6 +249,7 @@ def _native_child(plugin: Path) -> None:
         assert wire.call_count == 0
     assert outputs["full"]["unchanged"] and outputs["uncaptured"]["unchanged"]
     assert outputs["blank_multimodal"]["unchanged"]
+    assert outputs["mixed_multimodal"]["unchanged"]
     assert outputs["ordinary"]["chars"] < len(raw)
     assert all(item["digest_retained"] for item in outputs.values())
     manager.unload()
