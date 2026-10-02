@@ -61,8 +61,10 @@ class PreservationTests(unittest.TestCase):
         self.assertIsNone(self.prune())
 
     def test_unknown_capture_preserves_output(self):
-        for text in (None, "", {}, [{"type": "image", "text": "ordinary"}],
-                     [{"type": [], "text": "full output"}]):
+        for text in (None, "", " \t\n", {}, [{"type": "image", "text": "ordinary"}],
+                     [{"type": [], "text": "full output"}],
+                     [{"type": "text", "text": "   "}],
+                     [{"type": "text", "text": ""}, {"type": "input_text", "text": "\t\n"}]):
             with self.subTest(text=text):
                 self.capture(text)
                 self.assertIsNone(self.prune())
@@ -186,10 +188,11 @@ def _native_child(plugin: Path) -> None:
     outputs = {}
     with patch("http.client.HTTPSConnection.request", side_effect=AssertionError("unexpected_request")) as wire:
         for task, message in (("full", "Show full stdout."),
+                              ("blank_multimodal", [{"type": "text", "text": "   "}]),
                               ("ordinary", "Report the artifact digest.")):
             scope = {"session_id": "shared", "task_id": task, "turn_id": "turn"}
             invoke_hook("pre_llm_call", user_message=message, **scope)
-        for task in ("full", "ordinary", "uncaptured"):
+        for task in ("full", "ordinary", "uncaptured", "blank_multimodal"):
             ids = _CallIds(task_id=task, session_id="shared", turn_id="turn", tool_call_id=task)
             out = _apply_transform_tool_result_hook("terminal", {"command": "build"}, raw, 1, ids)
             outputs[task] = {"chars": len(out), "unchanged": out == raw,
@@ -206,6 +209,7 @@ def _native_child(plugin: Path) -> None:
                              "digest_retained": "REQUIRED_SYNTHETIC_VALUE" in out}
         assert wire.call_count == 0
     assert outputs["full"]["unchanged"] and outputs["uncaptured"]["unchanged"]
+    assert outputs["blank_multimodal"]["unchanged"]
     assert outputs["ordinary"]["chars"] < len(raw)
     assert all(item["digest_retained"] for item in outputs.values())
     manager.unload()

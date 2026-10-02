@@ -36,7 +36,7 @@ def _preserve_request(value: Any) -> bool:
             and block.get("type") in ("text", "input_text")
             and isinstance(block.get("text"), str)
         ]
-        return not texts or bool(_FULL_OUTPUT.search("\n".join(texts)))
+        return _preserve_request("\n".join(texts))
     # Uninspectable requests cannot authorize a model-facing rewrite.
     return True
 
