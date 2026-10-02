@@ -226,7 +226,7 @@ The defaults work for most people. These are the settings you're most likely to 
 | Stop sending message text for effort decisions | `hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort false` |
 | Never lower my `/reasoning` level | `hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort_mode pinned` |
 | Hide the `Reasoning: …` line | `/switchyard effort receipt off` (saved for future sessions) |
-| Soft-cap noisy exec tool stdout (opt-in) | `hermes config set plugins.entries.hermes-switchyard.settings.filter_disposable_tool_output true` |
+| Disposable-output filter prototype | Keep disabled: essential-span admission failed; see [configuration](docs/CONFIGURATION.md#tool-output-filter-admission-status) |
 | Choose a provider explicitly | `hermes config set plugins.entries.hermes-switchyard.settings.jev_provider typesafe` (or `openrouter`) |
 
 Start a fresh session after any change. Every setting, grouped by feature and explained: [Configuration reference](docs/CONFIGURATION.md).

@@ -37,7 +37,7 @@ FILTERABLE_KINDS = frozenset({"exec"})
 _OMISSION_TEMPLATE = (
     "\n\n… [switchyard: omitted {omitted} chars of disposable exec tool output "
     "({original} total; filter_disposable_tool_output); "
-    "errors and small outputs are never cut — ask for a full dump to keep verbatim] …\n\n"
+    "middle content is unavailable — ask for a full dump to keep verbatim] …\n\n"
 )
 
 # Never soft-cap when the captured text looks security- or failure-relevant.
@@ -138,8 +138,9 @@ def note_user_text(
     cleaned = cleaned_raw.strip()
     if not cleaned:
         return
-    # Bound stored text; full-dump cues appear early in ordinary asks.
-    stored = cleaned[:4_000]
+    # Inspect the complete request before bounding storage. A preservation cue
+    # after pasted context has the same authority as one at the start.
+    stored = "full dump" if _FULL_DUMP_ASK_RE.search(cleaned) else cleaned[:4_000]
     key = _scope_key(session_id=session_id, task_id=task_id)
     with _user_text_lock:
         _latest_user_text[key] = stored
@@ -326,7 +327,19 @@ def should_filter_tool_result(
 
     # Measure the disposable payload (structured output field when present).
     structured = _structured_output_field(result)
-    payload = structured[2] if structured is not None else _as_text(result)
+    if structured is None:
+        # A missing recognized stdout field does not make an envelope plain text.
+        # Preserve process lists, multiple output fields, and unfamiliar schemas.
+        # Slicing their serialized representation would corrupt JSON and metadata.
+        if not isinstance(result, str) or result.lstrip().startswith(("{", "[")):
+            return False
+        try:
+            json.loads(result)
+        except ValueError:
+            pass
+        else:
+            return False
+    payload = structured[2] if structured is not None else result
     if len(payload) <= soft_cap_chars():
         return False
     if looks_security_or_failure_relevant(payload):

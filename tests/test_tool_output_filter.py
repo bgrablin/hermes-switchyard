@@ -189,6 +189,34 @@ class PredicateTests(unittest.TestCase):
         )
         clear_user_text_for_tests()
 
+    def test_full_dump_cue_after_long_context_is_preserved(self):
+        self.addCleanup(clear_user_text_for_tests)
+        clear_user_text_for_tests()
+        text = "Synthetic public build context. " * 200 + " Please show full output; do not truncate."
+        for message in (text, [{"type": "text", "text": text}]):
+            with self.subTest(multimodal=isinstance(message, list)):
+                note_user_text(message, session_id="long-context", task_id="long-task")
+                self.assertIsNone(filter_tool_result_text(
+                    enabled=True, tool_name="terminal", result=_noisy_stdout(), status="ok",
+                    args={"command": "npm test"}, session_id="long-context", task_id="long-task",
+                ))
+
+    def test_unknown_json_envelopes_are_never_sliced(self):
+        # Native process(action=list) has a processes array, not top-level stdout.
+        processes = {"processes": [{"session_id": f"synthetic-{i}", "status": "running",
+            "command": "synthetic job", "output_preview": "public progress " * 20} for i in range(30)]}
+        for payload in (processes, {"output": _noisy_stdout(), "stdout": _noisy_stdout(), "exit_code": 0},
+                        {"log": _noisy_stdout(), "exit_code": 0}, [_noisy_stdout()], _noisy_stdout()):
+            for result in (json.dumps(payload), payload):
+                # The string payload itself is plain stdout; its JSON encoding is an envelope.
+                if result is payload and isinstance(payload, str):
+                    continue
+                with self.subTest(shape=type(payload).__name__, encoded=isinstance(result, str)):
+                    self.assertIsNone(filter_tool_result_text(
+                        enabled=True, tool_name="process", args={"action": "list"},
+                        result=result, status="ok",
+                    ))
+
     def test_preserves_small_output(self):
         self.assertFalse(
             should_filter_tool_result(
