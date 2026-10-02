@@ -105,10 +105,12 @@ Useful commands:
 | `/switchyard effort status` | The last effort decision and why |
 | `/switchyard effort summary` | Effort choices this session, with local and cloud counts |
 | `/switchyard effort pin` / `auto` | Always send your level / let Switchyard lower it again |
-| `hermes switchyard receipt --json` | The latest skill-routing receipt |
+| `hermes switchyard receipt` | The latest skill-routing receipt as formatted JSON |
+| `hermes switchyard receipt --human` | A readable summary of the decision, selected skill, and verified load result |
+| `hermes switchyard receipt --json` | The latest skill-routing receipt as compact JSON |
 | `hermes switchyard stats` | Totals across recent turns |
 
-A receipt records a decision. It does not prove the answer was correct or a browser task finished. More: [adaptive effort](docs/ADAPTIVE-REASONING-EFFORT.md) · [skill routing](docs/AUTOMATIC-INTEGRATION.md).
+`--human` also formats receipt history selected with `--session` or `--last`. JSON remains the default. A receipt records a decision. It does not prove the answer was correct or a browser task finished. More: [adaptive effort](docs/ADAPTIVE-REASONING-EFFORT.md) · [skill routing](docs/AUTOMATIC-INTEGRATION.md).
 
 ## Privacy at a glance
 
