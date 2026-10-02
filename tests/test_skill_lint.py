@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import io
 import json
 import socket
@@ -19,6 +20,17 @@ FIXTURE = Path(__file__).resolve().parents[1] / "evaluation" / "lint-skills" / "
 
 
 class SkillLintTests(unittest.TestCase):
+    def test_frozen_evaluation_provenance_matches_recorded_hashes(self):
+        expected = {
+            "PLAN.md": "99db874094409c53a4d94a2c7bac742c5c406077e20560aa1e75d98ca580ee7a",
+            "fixture.json": "1594daa52d22cc188d8f100ed0a1ff21dc0c3060a30122b39f64974469083d57",
+        }
+        results = FIXTURE.with_name("RESULTS.md").read_text(encoding="utf-8")
+        for name, digest in expected.items():
+            with self.subTest(name=name):
+                self.assertEqual(hashlib.sha256(FIXTURE.with_name(name).read_bytes()).hexdigest(), digest)
+                self.assertIn(digest, results)
+
     def _run_cli(self, catalog, *options):
         skills_tool = types.ModuleType("tools.skills_tool")
         setattr(skills_tool, "skills_list", mock.Mock(return_value=json.dumps({"success": True, "skills": catalog})))
