@@ -162,7 +162,10 @@ def prune_terminal_result(
     if (
         data.get("stderr")
         or data.get("error")
+        or data.get("error_type")
+        or data.get("error_message")
         or data.get("truncated")
+        or any(key in data and data[key] is not True for key in ("ok", "success"))
         or not _valid_result_status(data.get("status", "ok"))
         or any(
             key in data and (type(data[key]) is not int or data[key] != 0)

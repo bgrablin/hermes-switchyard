@@ -131,6 +131,9 @@ class EnvelopeTests(unittest.TestCase):
         for raw in (result(stdout=None), result(stdout="different"), result(exit_code=1),
                     result(status="failed"), result(status=None), result(status=[]), result(returncode=1),
                     result(exitcode="0"), result(stderr="warning"), result(truncated=True),
+                    result(ok=False), result(ok=None), result(ok="true"),
+                    result(success=False), result(success=None), result(success=1),
+                    result(error_type="NativeFailure"), result(error_message="failed"),
                     json.dumps({"processes": [{"output": "x" * 9000}]}),
                     "{broken JSON}", "[" * 2000 + "]" * 2000):
             with self.subTest(raw=raw[:60]):
@@ -139,6 +142,9 @@ class EnvelopeTests(unittest.TestCase):
     def test_duplicate_keys_are_preserved_without_reinterpretation(self):
         raw = result()[:-1] + ', "exit_code": 1}'
         self.assertIsNone(self.prune(raw))
+
+    def test_explicit_true_success_fields_allow_ordinary_compaction(self):
+        self.assertIsNotNone(self.prune(result(ok=True, success=True)))
 
     def test_observer_failure_fields_preserve_output(self):
         for fields in ({"error": "failed"}, {"error_type": "failure"},
@@ -187,6 +193,16 @@ def _native_child(plugin: Path) -> None:
             ids = _CallIds(task_id=task, session_id="shared", turn_id="turn", tool_call_id=task)
             out = _apply_transform_tool_result_hook("terminal", {"command": "build"}, raw, 1, ids)
             outputs[task] = {"chars": len(out), "unchanged": out == raw,
+                             "digest_retained": "REQUIRED_SYNTHETIC_VALUE" in out}
+        for name, fields in (("false_ok", {"ok": False}),
+                             ("false_success", {"success": False}),
+                             ("error_type", {"error_type": "NativeFailure"}),
+                             ("error_message", {"error_message": "failed"})):
+            failure = result(**fields)
+            ids = _CallIds(task_id="ordinary", session_id="shared", turn_id="turn", tool_call_id=name)
+            out = _apply_transform_tool_result_hook("terminal", {"command": "build"}, failure, 1, ids)
+            assert out == failure
+            outputs[name] = {"chars": len(out), "unchanged": out == failure,
                              "digest_retained": "REQUIRED_SYNTHETIC_VALUE" in out}
         assert wire.call_count == 0
     assert outputs["full"]["unchanged"] and outputs["uncaptured"]["unchanged"]
