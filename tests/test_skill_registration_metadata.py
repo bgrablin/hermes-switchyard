@@ -7,7 +7,6 @@ import hermes_switchyard as plugin
 
 
 SKILL_PATH = Path(plugin.__file__).parent / "skills" / "hermes-switchyard-operations" / "SKILL.md"
-EXPECTED_DESCRIPTION = "Use when evaluating bounded Jev decisions or integrating this plugin safely."
 
 
 class BaseContext:
@@ -38,10 +37,21 @@ class SkillRegistrationMetadataTests(unittest.TestCase):
         self.addCleanup(plugin.reset_runtime_status)
 
     def test_bundled_description_is_registered_exactly(self):
+        lines = SKILL_PATH.read_text(encoding="utf-8").splitlines()
+        self.assertTrue(lines)
+        self.assertEqual(lines[0], "---")
+        expected_description = ""
+        for line in lines[1:]:
+            if line == "---":
+                break
+            if line.startswith("description:"):
+                expected_description = line.partition(":")[2].strip()
+        self.assertTrue(expected_description)
+        self.assertTrue(expected_description.startswith("Use when"))
         ctx = CurrentContext()
         plugin.register(ctx)
         self.assertEqual(ctx.skills, [
-            ("hermes-switchyard-operations", SKILL_PATH, EXPECTED_DESCRIPTION, None),
+            ("hermes-switchyard-operations", SKILL_PATH, expected_description, None),
         ])
         self.assertIn("jev_assess", ctx.tools)
 
