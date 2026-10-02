@@ -191,7 +191,7 @@ class CliReceiptHistoryTests(_IsolatedHome):
             ("Skipped hosted routing", {
                 "source": "none", "selected": None, "hosted_skipped": "routing_mode_off",
             }),
-            ("Reused cached selection", {"cache_hit": True}),
+            ("Reused cached routing result", {"cache_hit": True}),
         )
         for expected, updates in cases:
             with self.subTest(expected=expected):
@@ -199,6 +199,25 @@ class CliReceiptHistoryTests(_IsolatedHome):
                 receipt = build_routing_receipt(result)
                 self.assertTrue(receipt_state.validate_receipt(receipt), receipt)
                 self.assertIn(expected, receipt_output.format_routing_receipt(receipt))
+
+    def test_human_cached_abstention_uses_neutral_routing_result_label(self):
+        receipt = build_routing_receipt({
+            "status": "abstained",
+            "selected": None,
+            "source": "none",
+            "hosted_attempted": True,
+            "hosted_skipped": None,
+            "cache_hit": True,
+            "candidate_count": 2,
+            "abstention_reason": "no_confident_match",
+        })
+        self.assertTrue(receipt_state.validate_receipt(receipt), receipt)
+        self.assertEqual(receipt["terminal_state"], "cache_hit")
+        self.assertIsNone(receipt["selected"])
+        rendered = receipt_output.format_routing_receipt(receipt)
+        self.assertIn("Decision: Reused cached routing result", rendered)
+        self.assertIn("Selected skill: None", rendered)
+        self.assertNotIn("Reused cached selection", rendered)
 
     def test_human_load_labels_cover_consumer_and_advisory_statuses(self):
         cases = (
@@ -322,11 +341,20 @@ class CliReceiptHistoryTests(_IsolatedHome):
         malformed_receipts = (
             ("task_text", {"task_text": canary}),
             ("unsafe_identifier", {"selected": f"docker-management\n{canary}"}),
+            ("hosted_abstention_with_selected", {"terminal_state": "hosted_abstention"}),
+            ("hosted_failure_with_selected", {
+                "terminal_state": "hosted_failure",
+                "hosted_attempted": True,
+                "hosted_error": "deadline_exceeded",
+                "hosted_skip_reason": None,
+            }),
         )
         for label, malformed_fields in malformed_receipts:
             with self.subTest(label=label):
                 receipt = build_routing_receipt(_local_result())
                 receipt.update(malformed_fields)
+                self.assertFalse(receipt_state.validate_receipt(receipt), label)
+                self.assertIsNone(receipt_state.canonicalize_receipt(receipt))
                 state.write_text(json.dumps(receipt), encoding="utf-8")
                 self.assertIsNone(receipt_state.read_latest_receipt())
                 code, output = self.run_command("receipt", "--human")

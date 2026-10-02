@@ -886,6 +886,17 @@ def validate_receipt(receipt: Any) -> bool:
         return False
     if receipt["terminal_state"] == "hosted_skipped" and (receipt["hosted_attempted"] or not skip_reason):
         return False
+    if receipt["terminal_state"] == "hosted_abstention" and (
+        receipt["source"] != "none" or not receipt["hosted_attempted"] or selected
+    ):
+        return False
+    if receipt["terminal_state"] == "hosted_failure" and (
+        receipt["source"] != "none"
+        or not receipt["hosted_attempted"]
+        or not receipt["hosted_error"]
+        or selected
+    ):
+        return False
     if receipt["terminal_state"] == "cache_hit" and receipt["hosted_attempted"]:
         return False
     return True

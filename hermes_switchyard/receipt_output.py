@@ -13,7 +13,7 @@ _DECISION_LABELS = {
     "hosted_failure": "Jev decision failed",
     "hosted_failure_local_fallback": "Used local fallback after Jev failed",
     "hosted_skipped": "Skipped hosted routing",
-    "cache_hit": "Reused cached selection",
+    "cache_hit": "Reused cached routing result",
 }
 
 
