@@ -143,10 +143,12 @@ def prune_terminal_result(
 ) -> str | None:
     if (
         tool_name != "terminal"
-        or status not in {"ok", "success"}
+        or not isinstance(status, str) or status not in {"ok", "success"}
         or not isinstance(result, str)
         or len(result) > MAX_RESULT
-        or error or error_type or error_message or ok is False
+        or any(value is not None and (not isinstance(value, str) or value != "")
+               for value in (error, error_type, error_message))
+        or ok is not None and ok is not True
     ):
         return None
     try:
@@ -160,11 +162,9 @@ def prune_terminal_result(
     ):
         return None
     if (
-        data.get("stderr")
-        or data.get("error")
-        or data.get("error_type")
-        or data.get("error_message")
-        or data.get("truncated")
+        any(key in data and (not isinstance(data[key], str) or data[key] != "")
+            for key in ("stderr", "error", "error_type", "error_message"))
+        or "truncated" in data and data["truncated"] is not False
         or any(key in data and data[key] is not True for key in ("ok", "success"))
         or not _valid_result_status(data.get("status", "ok"))
         or any(
@@ -183,6 +183,8 @@ def prune_terminal_result(
     if not count:
         return None
     try:
-        return json.dumps({**data, field: reduced}, ensure_ascii=False)
+        replacement = json.dumps({**data, field: reduced}, ensure_ascii=False, allow_nan=False)
+        replacement.encode("utf-8")
+        return replacement
     except (TypeError, ValueError, RecursionError):
         return None

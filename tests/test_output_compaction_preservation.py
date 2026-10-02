@@ -118,7 +118,7 @@ class EnvelopeTests(unittest.TestCase):
     def prune(self, raw, **extra):
         from hermes_switchyard.output_pruning import prune_terminal_result
 
-        return prune_terminal_result(tool_name="terminal", status="ok", result=raw, **extra)
+        return prune_terminal_result(**{"tool_name": "terminal", "status": "ok", "result": raw, **extra})
 
     def test_stdout_envelope_retains_other_fields(self):
         data = json.loads(result())
@@ -146,11 +146,23 @@ class EnvelopeTests(unittest.TestCase):
         self.assertIsNone(self.prune(raw))
 
     def test_explicit_true_success_fields_allow_ordinary_compaction(self):
-        self.assertIsNotNone(self.prune(result(ok=True, success=True)))
+        self.assertIsNotNone(self.prune(result(ok=True, success=True, error="", error_type="",
+                                              error_message="", truncated=False)))
+
+    def test_malformed_failure_and_truncation_field_types_preserve_output(self):
+        for field in ("stderr", "error", "error_type", "error_message"):
+            for value in (None, False, 0, [], {}):
+                with self.subTest(field=field, value=value):
+                    self.assertIsNone(self.prune(result(**{field: value})))
+        for value in (None, 0, "", "false", [], {}):
+            with self.subTest(truncated=value):
+                self.assertIsNone(self.prune(result(truncated=value)))
 
     def test_observer_failure_fields_preserve_output(self):
         for fields in ({"error": "failed"}, {"error_type": "failure"},
-                       {"error_message": "warning"}, {"ok": False}):
+                       {"error_message": "warning"}, {"ok": False}, {"ok": 0},
+                       {"ok": "true"}, {"error": []}, {"error_type": False},
+                       {"error_message": {}}, {"status": []}):
             with self.subTest(fields=fields):
                 self.assertIsNone(self.prune(result(), **fields))
 
@@ -158,6 +170,12 @@ class EnvelopeTests(unittest.TestCase):
         raw = result()
         with patch("hermes_switchyard.output_pruning.json.dumps", side_effect=TypeError):
             self.assertIsNone(self.prune(raw))
+
+    def test_nonfinite_numbers_and_unencodable_replacements_are_preserved(self):
+        for raw in (result(duration=float("nan")), result(duration=float("inf")),
+                    result(tail="\ud800")):
+            with self.subTest(raw=raw[-60:]):
+                self.assertIsNone(self.prune(raw))
 
     def test_unique_middle_evidence_is_never_truncated(self):
         original = "".join(f"build step {n}: exact artifact ID {n * n}\n" for n in range(1000))
@@ -200,7 +218,10 @@ def _native_child(plugin: Path) -> None:
         for name, fields in (("false_ok", {"ok": False}),
                              ("false_success", {"success": False}),
                              ("error_type", {"error_type": "NativeFailure"}),
-                             ("error_message", {"error_message": "failed"})):
+                             ("error_message", {"error_message": "failed"}),
+                             ("null_stderr", {"stderr": None}),
+                             ("array_error", {"error": []}),
+                             ("null_truncated", {"truncated": None})):
             failure = result(**fields)
             ids = _CallIds(task_id="ordinary", session_id="shared", turn_id="turn", tool_call_id=name)
             out = _apply_transform_tool_result_hook("terminal", {"command": "build"}, failure, 1, ids)
