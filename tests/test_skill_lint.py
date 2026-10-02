@@ -41,7 +41,7 @@ class SkillLintTests(unittest.TestCase):
         code, text = self._run_cli(rows, "--json")
         self.assertEqual(code, 1)
         self.assertEqual(json.loads(text), {
-            "schema": "switchyard.lint_skills.v1", "status": "unavailable", "reason": "catalog_too_large",
+            "schema": "switchyard.lint_skills.v2", "status": "unavailable", "reason": "catalog_too_large",
         })
         self.assertNotIn("synthetic-", text)
 
@@ -77,8 +77,9 @@ class SkillLintTests(unittest.TestCase):
         code_reversed, reversed_text = self._run_cli(list(reversed(fixture["catalog"])))
         self.assertEqual((code, code_reversed), (0, 0))
         self.assertEqual(text, reversed_text)
-        self.assertIn("certificate-alpha: confusable with certificate-beta", text)
-        self.assertIn("tiny-description: short_description, missing_use_when", text)
+        self.assertIn("certificate-alpha, certificate-beta: confusable", text)
+        self.assertIn("tiny-description: low_information_description", text)
+        self.assertNotIn("missing_use_when", text)
         self.assertIn("invalid_rows: 1", text)
         self.assertNotIn('"schema"', text)
         for canary in fixture["export_canaries"]:
@@ -86,7 +87,7 @@ class SkillLintTests(unittest.TestCase):
 
     def test_frozen_catalog_finds_planted_pairs_and_named_peers(self):
         fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
-        report = skill_lint.lint_catalog(fixture["catalog"])
+        report = skill_lint.lint_catalog(fixture["catalog"], include_style=True)
         self.assertEqual(report["counts"]["invalid_rows"], 1)
         self.assertEqual(report["counts"]["skills"], 12)
         actual = {"|".join(pair["names"]): pair["kind"] for pair in report["pairs"]}
@@ -94,7 +95,11 @@ class SkillLintTests(unittest.TestCase):
         findings = {entry["name"]: entry for entry in report["findings"]}
         for name, issues in fixture["description_issues"].items():
             if "invalid_row" not in issues:
-                self.assertEqual(findings[name]["issues"], issues)
+                # The frozen v1 style oracle remains unchanged and is opt-in in v2.
+                legacy_style = [code for code in findings[name]["issues"] if code in {
+                    "short_description", "long_description", "missing_use_when",
+                }]
+                self.assertEqual(legacy_style, issues)
         for name in fixture["distinct_names"]:
             self.assertFalse(findings.get(name, {}).get("peers"))
         for pair in fixture["truth_pairs"]:
@@ -109,12 +114,12 @@ class SkillLintTests(unittest.TestCase):
 
     def test_use_when_trigger_rejects_unicode_lookalikes(self):
         description = "Uſe when checking synthetic entries before preparing a local report."
-        report = skill_lint.lint_catalog([{"name": "lookalike", "description": description}])
+        report = skill_lint.lint_catalog([{"name": "lookalike", "description": description}], include_style=True)
         self.assertEqual(report["counts"]["missing_use_when"], 1)
         self.assertEqual(report["findings"][0]["issues"], ["missing_use_when"])
         mixed_case = skill_lint.lint_catalog([{
             "name": "ascii", "description": "uSe WhEn checking synthetic entries before preparing a local report.",
-        }])
+        }], include_style=True)
         self.assertEqual(mixed_case["counts"]["missing_use_when"], 0)
 
     def test_duplicate_names_are_all_invalid_regardless_of_input_order(self):
@@ -239,9 +244,12 @@ class SkillLintTests(unittest.TestCase):
                 code = args.func(args)
         self.assertEqual(code, 0)
         report = json.loads(output.getvalue())
-        self.assertEqual(report["schema"], "switchyard.lint_skills.v1")
+        self.assertEqual(report["schema"], "switchyard.lint_skills.v2")
         self.assertEqual(report["counts"]["skills"], 2)
-        self.assertEqual(report["pairs"], [{"names": ["alpha", "beta"], "kind": "near_duplicate"}])
+        self.assertEqual(len(report["pairs"]), 1)
+        self.assertEqual(report["pairs"][0]["names"], ["alpha", "beta"])
+        self.assertEqual(report["pairs"][0]["kind"], "near_duplicate")
+        self.assertTrue(report["pairs"][0]["evidence"]["exact_description"])
         self.assertNotIn("checking sample manifests", output.getvalue())
         skills_tool.skills_list.assert_called_once_with()  # type: ignore[attr-defined]
 
