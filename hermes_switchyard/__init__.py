@@ -1154,14 +1154,23 @@ def _cli_handler(args):
         return 0
     if command == "receipt":
         indent = None if getattr(args, "json_output", False) else 2
+        human_output = getattr(args, "human_output", False)
         session = getattr(args, "session", None)
         last = getattr(args, "last", None)
         if session is None and last is None:
             receipt = receipt_state.read_latest_receipt()
             if receipt is None:
-                print(json.dumps({"status": "unavailable", "reason": "no_receipt"}, sort_keys=True))
+                if human_output:
+                    print("No automatic skill-routing receipt is available.")
+                else:
+                    print(json.dumps({"status": "unavailable", "reason": "no_receipt"}, sort_keys=True))
                 return 1
-            print(json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=indent))
+            if human_output:
+                from .receipt_output import format_routing_receipt
+
+                print(format_routing_receipt(receipt))
+            else:
+                print(json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=indent))
             return 0
         # History mode: per-session lookup and/or the newest N turn records.
         if last is not None and (type(last) is not int or last <= 0):
@@ -1173,9 +1182,18 @@ def _cli_handler(args):
         records = receipt_history.read_history(session_id=session, last=last)
         if not records:
             reason = "no_matching_receipts" if session is not None else "no_receipt_history"
-            print(json.dumps({"status": "unavailable", "reason": reason}, sort_keys=True))
+            if human_output:
+                message = "No routing receipts match these filters." if session is not None else "No routing receipt history is available."
+                print(message)
+            else:
+                print(json.dumps({"status": "unavailable", "reason": reason}, sort_keys=True))
             return 1
-        print(json.dumps(records, ensure_ascii=False, sort_keys=True, indent=indent))
+        if human_output:
+            from .receipt_output import format_routing_history
+
+            print(format_routing_history(records))
+        else:
+            print(json.dumps(records, ensure_ascii=False, sort_keys=True, indent=indent))
         return 0
     if command == "stats":
         since = None
@@ -1301,7 +1319,14 @@ def _setup_cli(parser):
     setup = commands.add_parser("setup", help="Save one Jev provider key through a masked prompt")
     setup.add_argument("--provider", required=True, choices=("typesafe", "openrouter"))
     receipt = commands.add_parser("receipt", help="Show the latest automatic-routing receipt")
-    receipt.add_argument("--json", action="store_true", dest="json_output", help="Emit compact JSON")
+    receipt_output = receipt.add_mutually_exclusive_group()
+    receipt_output.add_argument("--json", action="store_true", dest="json_output", help="Emit compact JSON")
+    receipt_output.add_argument(
+        "--human",
+        action="store_true",
+        dest="human_output",
+        help="Show a readable summary of the decision and skill-load result",
+    )
     receipt.add_argument(
         "--session",
         default=None,
