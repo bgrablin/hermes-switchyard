@@ -303,6 +303,44 @@ class HookRegistrationTests(unittest.TestCase):
         self.assertEqual(receipt["reason"], "hermes_transform_tool_result_unavailable")
 
 
+    def test_stdout_field_soft_capped_keeps_exit_code(self):
+        lines = [f"build step {i}: compiled object {i}.o ok" for i in range(400)]
+        noisy = "\n".join(lines)
+        payload = json.dumps({"exit_code": 0, "stdout": noisy, "stderr": ""})
+        out = filter_tool_result_text(
+            enabled=True,
+            tool_name="terminal",
+            result=payload,
+            status="ok",
+            args={"command": "make -j4"},
+        )
+        self.assertIsInstance(out, str)
+        data = json.loads(out)
+        self.assertEqual(data["exit_code"], 0)
+        self.assertIn("switchyard: omitted", data["stdout"])
+        self.assertTrue(data.get("switchyard_output_filtered"))
+
+    def test_multimodal_full_dump_ask_is_captured(self):
+        clear_user_text_for_tests()
+        note_user_text(
+            [{"type": "text", "text": "please show the full dump of the build"}],
+            session_id="s-mm",
+            task_id="t-mm",
+        )
+        self.assertTrue(
+            user_asks_full_dump(session_id="s-mm", task_id="t-mm", args={"command": "npm test"})
+        )
+        clear_user_text_for_tests()
+
+    def test_task_scope_preferred_over_session(self):
+        clear_user_text_for_tests()
+        note_user_text("keep full dump", session_id="shared", task_id="task-a")
+        note_user_text("ordinary ask", session_id="shared", task_id="task-b")
+        self.assertTrue(user_asks_full_dump(session_id="shared", task_id="task-a"))
+        self.assertFalse(user_asks_full_dump(session_id="shared", task_id="task-b"))
+        clear_user_text_for_tests()
+
+
 class CompositionSmokeTests(unittest.TestCase):
     """Hermes first-string-wins: Switchyard must compose, not stack listeners."""
 

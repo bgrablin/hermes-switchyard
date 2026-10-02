@@ -97,7 +97,9 @@ def _args_text(args: Any) -> str:
 
 
 def _scope_key(*, session_id: Any = None, task_id: Any = None) -> str:
-    for value in (session_id, task_id):
+    # Prefer task_id so delegated/background siblings sharing a session stay isolated
+    # (matches reasoning_effort_adapter capture scope).
+    for value in (task_id, session_id):
         if isinstance(value, str) and value.strip():
             return value.strip()
         if value is not None and not isinstance(value, (bytes, bytearray)):
@@ -107,6 +109,22 @@ def _scope_key(*, session_id: Any = None, task_id: Any = None) -> str:
     return "default"
 
 
+def _clean_user_text(value: Any) -> str | None:
+    """Return text from a Hermes user_message, including multimodal text parts."""
+    if isinstance(value, str):
+        return value
+    if not isinstance(value, (list, tuple)):
+        return None
+    parts: list[str] = []
+    for block in value:
+        if isinstance(block, Mapping):
+            kind = block.get("type")
+            text = block.get("text")
+            if kind in ("text", "input_text") and isinstance(text, str):
+                parts.append(text)
+    return "\n".join(parts) if parts else None
+
+
 def note_user_text(
     user_message: Any,
     *,
@@ -114,9 +132,10 @@ def note_user_text(
     task_id: Any = None,
 ) -> None:
     """Store the turn's user message for later full-dump preserve checks."""
-    if not isinstance(user_message, str):
+    cleaned_raw = _clean_user_text(user_message)
+    if cleaned_raw is None:
         return
-    cleaned = user_message.strip()
+    cleaned = cleaned_raw.strip()
     if not cleaned:
         return
     # Bound stored text; full-dump cues appear early in ordinary asks.
@@ -171,14 +190,14 @@ def user_asks_full_dump(
 
 
 def looks_security_or_failure_relevant(text: str) -> bool:
-    """Conservative preserve: do not soft-cap security- or failure-shaped text."""
+    """Conservative preserve: do not soft-cap security- or failure-shaped text.
+
+    Scan the complete payload. Soft-cap must never omit a security/failure marker
+    that falls outside a sampled window.
+    """
     if not text:
         return False
-    # Scan a bounded window (head + mid cue + tail) for linear-time safety.
-    if len(text) <= 12_000:
-        return bool(_SECURITY_OR_FAILURE_RE.search(text))
-    sample = text[:4_000] + "\n" + text[len(text) // 2 : len(text) // 2 + 2_000] + "\n" + text[-4_000:]
-    return bool(_SECURITY_OR_FAILURE_RE.search(sample))
+    return bool(_SECURITY_OR_FAILURE_RE.search(text))
 
 
 def _structured_returncode(result: Any) -> int | None:
@@ -210,8 +229,12 @@ def _structured_returncode(result: Any) -> int | None:
     return None
 
 
-def _structured_output_field(result: Any) -> tuple[Any, str] | None:
-    """If result is JSON with an ``output`` string, return (parsed, output)."""
+def _structured_output_field(result: Any) -> tuple[Any, str, str] | None:
+    """If result is JSON with exactly one of ``output``/``stdout`` string, return it.
+
+    Matches ``output_pruning``: rewrite only the selected field and keep the rest
+    of the envelope (exit metadata, stderr, …) intact.
+    """
     parsed: Any = result
     if isinstance(result, str):
         text = result.strip()
@@ -223,10 +246,11 @@ def _structured_output_field(result: Any) -> tuple[Any, str] | None:
             return None
     if not isinstance(parsed, Mapping):
         return None
-    output = parsed.get("output")
-    if isinstance(output, str):
-        return parsed, output
-    return None
+    fields = [key for key in ("output", "stdout") if isinstance(parsed.get(key), str)]
+    if len(fields) != 1:
+        return None
+    field = fields[0]
+    return parsed, field, parsed[field]
 
 
 def soft_cap_text(
@@ -302,7 +326,7 @@ def should_filter_tool_result(
 
     # Measure the disposable payload (structured output field when present).
     structured = _structured_output_field(result)
-    payload = structured[1] if structured is not None else _as_text(result)
+    payload = structured[2] if structured is not None else _as_text(result)
     if len(payload) <= soft_cap_chars():
         return False
     if looks_security_or_failure_relevant(payload):
@@ -346,17 +370,18 @@ def filter_tool_result_text(
     cap = soft_cap_chars() if soft_cap is None else max(64, int(soft_cap))
     structured = _structured_output_field(result)
     if structured is not None:
-        parsed, output = structured
+        parsed, field, output = structured
         capped = soft_cap_text(output, soft_cap=cap)
         if capped is None:
             return None
         updated = dict(parsed)
-        updated["output"] = capped
+        updated[field] = capped
         updated["switchyard_output_filtered"] = True
         try:
             return json.dumps(updated, ensure_ascii=False)
         except (TypeError, ValueError):
-            return capped
+            # Fail open: keep the original envelope rather than dropping exit metadata.
+            return None
 
     text = _as_text(result)
     return soft_cap_text(text, soft_cap=cap)
