@@ -179,7 +179,11 @@ _DISPLAY_ASSIGN = re.compile(
 )
 _DISPLAY_FLAG = re.compile(r"(?i)(--?[\w-]*" + _DISPLAY_SECRET + r"[\w-]*\s+)" + _DISPLAY_VALUE)
 _DISPLAY_AUTH = re.compile(r"(?i)\b(?:Bearer|Basic)\s+[^\s'\";,]+")
-_DISPLAY_HEADER = re.compile(r'''(?i)((?:authorization|proxy-authorization|cookie|set-cookie)\s*:\s*)[^\r\n'"]+''')
+_HEADER_NAME = r"(?:authorization|proxy-authorization|cookie|set-cookie)\s*:\s*"
+# A quoted header value ends at its closing quote, even across lines. An unfinished
+# quote withholds the rest. Unquoted values also absorb folded continuation lines.
+_DISPLAY_QUOTED_HEADER = re.compile(r'''(?i)((['"])\s*''' + _HEADER_NAME + r''')(?:\\[\s\S]|(?!\2)[^\\])*''')
+_DISPLAY_HEADER = re.compile(r'''(?i)(''' + _HEADER_NAME + r''')[^\r\n'"]*(?:\r?\n[ \t][^\r\n'"]*)*''')
 _DISPLAY_URL = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*://[^\s'\"<>]+")
 
 
@@ -194,6 +198,7 @@ def _redact_display_text(text: str) -> str:
         return re.sub(r"[?#].*", "?[REDACTED]", value)
 
     text = _DISPLAY_URL.sub(url, text)
+    text = _DISPLAY_QUOTED_HEADER.sub(lambda m: m.group(1) + "[REDACTED]", text)
     text = _DISPLAY_HEADER.sub(lambda m: m.group(1) + "[REDACTED]", text)
     text = _DISPLAY_AUTH.sub("[REDACTED]", text)
     text = _DISPLAY_ASSIGN.sub(lambda m: m.group(1) + "[REDACTED]", text)

@@ -373,6 +373,35 @@ class ApprovalScopeTests(unittest.TestCase):
                     self.assertNotEqual(result["rule_key"], changed["rule_key"])
                     self.assertEqual(args["command"], command)
 
+    def test_multiline_header_values_are_fully_redacted(self):
+        # Synthetic values through the real host scrubber. Each canary must be hidden.
+        cases = [
+            ("fetch -H 'Cookie: first=orchid;\n second=pebble'", ["orchid", "pebble"]),
+            ("fetch -H 'Cookie: first=orchid;\r\n second=pebble'", ["orchid", "pebble"]),
+            ("fetch -H 'Authorization: Basic orchid\n pebble'", ["orchid", "pebble"]),
+            ('fetch -H "Authorization: Basic orchid\n\tpebble"', ["orchid", "pebble"]),
+            ("fetch -H 'Cookie: first=orchid;\nsecond=pebble'", ["orchid", "pebble"]),
+            ("fetch -H 'Set-Cookie: first=orchid;\n second=pebble", ["orchid", "pebble"]),
+            ("printf '%s\\n' x\nCookie: first=orchid;\n second=pebble\nnext-step", ["orchid", "pebble"]),
+            ("fetch -H 'Cookie: first=orchid; second=pebble'", ["orchid", "pebble"]),
+        ]
+        for tail, canaries in cases:
+            with self.subTest(tail=tail):
+                command = "rm cache.bin; " + tail
+                args = {"command": command, "workdir": "fixture-workspace"}
+                result = pre_tool_gate(tool_name="terminal", args=args)
+                self.assertEqual(result["action"], "approve")
+                self.assertIn("rm cache.bin", result["message"])
+                self.assertIn("fixture-workspace", result["message"])
+                for canary in canaries:
+                    self.assertNotIn(canary, result["message"])
+                self.assertEqual(args["command"], command)
+        # Lines after a folded unquoted header stay visible.
+        result = pre_tool_gate(tool_name="terminal", args={
+            "command": "rm cache.bin\nCookie: first=orchid;\n second=pebble\nnext-step",
+        })
+        self.assertIn("next-step", result["message"])
+
     def test_escaped_whitespace_secrets_stay_redacted_in_native_payload(self):
         try:
             from hermes_cli.plugins import resolve_pre_tool_block
@@ -400,7 +429,8 @@ class ApprovalScopeTests(unittest.TestCase):
             patch.object(approval, "_presence", return_value=(deny, True, False, False)),
             patch.object(approval.approval_context, "_fire_approval_hook"),
         ):
-            for secret_arg in (r"task --password violet\ lake", r"PASSWORD=violet\ lake task"):
+            for secret_arg in (r"task --password violet\ lake", r"PASSWORD=violet\ lake task",
+                               "fetch -H 'Cookie: first=violet;\r\n second=lake'"):
                 with self.subTest(secret_arg=secret_arg):
                     count = len(displayed)
                     blocked = resolve_pre_tool_block("terminal", {
