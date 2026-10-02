@@ -147,6 +147,19 @@ class ActionableSkillLintTests(unittest.TestCase):
         self.assertEqual(report["counts"]["skills"], 0)
         self.assertIn("No skills returned", skill_lint.format_report(report))
 
+    def test_combining_marks_do_not_bypass_comparison_omission(self):
+        for text in ("Inspect caf\u00e9 assets", "Inspect cafe\u0301 assets", "Inspect cafe\u0338 assets"):
+            with self.subTest(text=text):
+                rows = [{"name": name, "description": text} for name in ("one", "two")]
+                report = skill_lint.lint_catalog(rows)
+                self.assertEqual(report["diagnostics"], [])
+                self.assertEqual(report["counts"]["comparison_omitted"], 2)
+                self.assertFalse(report["comparison_complete"])
+        punctuation = skill_lint.lint_catalog([{
+            "name": "punctuation", "description": "Inspect TLS chains \u2014 check renewal failures.",
+        }])
+        self.assertTrue(punctuation["comparison_complete"])
+
     def test_limit_rejects_nonpositive_values_before_discovery(self):
         parser = argparse.ArgumentParser()
         plugin._setup_cli(parser)

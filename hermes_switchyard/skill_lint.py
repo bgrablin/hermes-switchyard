@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from collections import Counter
 from collections.abc import Mapping
 from typing import Any, cast
@@ -96,7 +97,10 @@ def lint_catalog(rows: Any, *, include_style: bool = False) -> dict[str, Any]:
         normalized[name] = " ".join(description.casefold().split())
         # Do not imply full-text comparison for descriptions the ASCII tokenizer
         # cannot represent. Still permit opt-in length/wording inspection.
-        comparable = not any(c.isalpha() and not c.isascii() for c in description)
+        comparable = not any(
+            not c.isascii() and (c.isalpha() or unicodedata.category(c).startswith("M"))
+            for c in description
+        )
         if not comparable:
             comparison_omitted += 1
         issues = []
