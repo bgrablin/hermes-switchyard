@@ -1714,7 +1714,10 @@ def _explicit_skill_override(task: Any, candidates: Any) -> str | None:
         name = candidate.get("name") if isinstance(candidate, Mapping) else candidate
         if not isinstance(name, str) or not name:
             continue
-        escaped = re.escape(name.lower())
+        lowered_name = name.lower()
+        if lowered_name not in text:
+            continue
+        escaped = re.escape(lowered_name)
         if re.search(rf"(?:^|\s)/{escaped}(?:\s|$)", text) or re.search(
             rf"\b(?:use|load)\s+(?:the\s+)?(?:skill\s+)?[`'\"]?{escaped}(?:[`'\"]|\b)",
             text,
