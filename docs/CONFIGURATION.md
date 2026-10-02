@@ -136,14 +136,6 @@ Used by the `jev_session_search_rerank` tool. Guide: [SESSION-SEARCH-RERANK.md](
 | `session_search_rerank_winning_probability_threshold` | `0.8` | Below this winning probability, keep the original order. |
 | `session_search_rerank_max_card_chars` | `360` | Maximum characters per search result sent to Jev (after redaction). |
 
-## Disposable tool-output filter (opt-in experiment)
-
-Soft-caps high-volume **exec** tool stdout before it re-enters the main model context. Default **off**. No measured win is claimed; leave it off until prove-value evidence exists. See issue [#151](https://github.com/bgrablin/hermes-switchyard/issues/151).
-
-| Key | Default | What it does |
-| --- | --- | --- |
-| `filter_disposable_tool_output` | `false` | When `true`, soft-caps successful high-volume terminal/shell/bash stdout (head + tail, with an explicit omission marker). Experimental; **not admitted for use**: head/tail truncation can drop essential facts from successful output. Bypasses recognized errors, non-zero exits, small outputs, security/failure markers, unknown JSON envelopes, and full-output requests. Does not filter read/write kinds. See the counterexample below. |
-
 ## Explicit tools and privacy
 
 | Key | Default | What it does |
@@ -154,26 +146,3 @@ Soft-caps high-volume **exec** tool stdout before it re-enters the main model co
 ## Settings that do not exist
 
 The Research Navigator (F1) and DOM Progress & Recovery (F2) prototypes failed their release evaluations and are **not** in this release. Do not copy their settings from the old pull requests.
-
-### Tool-output filter admission status
-
-`filter_disposable_tool_output` remains an unaccepted prototype, default off.
-A successful exit and absence of recognized failure markers do not establish
-that the middle of stdout is disposable. The review counterexample removes a
-required artifact digest while both unfiltered baselines retain it. The existing
-`repeated_output_compaction` alternative also retains it while reducing exact
-repetitions. Do not enable or merge this candidate as an optimization on the
-strength of fewer characters alone.
-
-Reproduce the failed essential-span gate locally with:
-
-```text
-python evaluation/tool_output_filter_counterexample.py
-```
-
-The script intentionally exits 1 when the filter loses the required fact. It
-uses synthetic data and makes no network requests. It is a falsification probe,
-not a held-out native task benchmark. Downstream latency, billed usage, and total
-cost remain unmeasured; no runtime improvement or release admission is claimed.
-A future design needs labelled essential/disposable spans and passing native
-plugin-disabled/current-release/candidate evidence under #151 before promotion.
