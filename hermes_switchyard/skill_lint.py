@@ -98,7 +98,7 @@ def lint_catalog(rows: Any, *, include_style: bool = False) -> dict[str, Any]:
         # Do not imply full-text comparison for descriptions the ASCII tokenizer
         # cannot represent. Still permit opt-in length/wording inspection.
         comparable = not any(
-            not c.isascii() and (c.isalpha() or unicodedata.category(c).startswith("M"))
+            not c.isascii() and (c.isalnum() or unicodedata.category(c).startswith("M"))
             for c in description
         )
         if not comparable:

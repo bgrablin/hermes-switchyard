@@ -160,6 +160,37 @@ class ActionableSkillLintTests(unittest.TestCase):
         }])
         self.assertTrue(punctuation["comparison_complete"])
 
+    def test_non_ascii_numbers_are_omitted_not_compared_as_fragments(self):
+        # Decimal, digit, and numeric-only Unicode forms, not just fullwidth.
+        for number in ("\uff11\uff12\uff13", "\u0661", "\u00b2", "\u00bd", "\u2163"):
+            with self.subTest(number=number):
+                rows = [{"name": name, "description": f"Inspect certificate renewal {number}"}
+                        for name in ("one", "two")]
+                code, text = self.cli(rows, "--json", "--fail-on", "warning")
+                report = json.loads(text)
+                self.assertEqual(code, 0)
+                self.assertEqual(report["pairs"], [])
+                self.assertEqual(report["diagnostics"], [])
+                self.assertEqual(report["counts"]["comparison_omitted"], 2)
+                self.assertEqual(report["counts"]["compared_skills"], 0)
+                self.assertFalse(report["comparison_complete"])
+        ascii_report = skill_lint.lint_catalog([
+            {"name": name, "description": "Inspect certificate renewal 123"} for name in ("one", "two")
+        ])
+        self.assertTrue(ascii_report["comparison_complete"])
+        self.assertEqual(len(ascii_report["pairs"]), 1)
+
+    def test_non_ascii_number_only_descriptions_are_not_mislabeled_weak(self):
+        rows = [{"name": "numbers", "description": "\uff11\uff12\uff13"}]
+        report = skill_lint.lint_catalog(rows)
+        self.assertEqual(report["diagnostics"], [])
+        self.assertEqual(report["counts"]["comparison_omitted"], 1)
+        self.assertFalse(report["comparison_complete"])
+        self.assertIn("ASCII comparison omitted 1", skill_lint.format_report(report))
+        styled = skill_lint.lint_catalog(rows, include_style=True)
+        self.assertTrue(styled["diagnostics"])
+        self.assertTrue(all(d["category"] == "style" for d in styled["diagnostics"]))
+
     def test_limit_rejects_nonpositive_values_before_discovery(self):
         parser = argparse.ArgumentParser()
         plugin._setup_cli(parser)
