@@ -26,7 +26,7 @@ The default exit code is **0**, even when findings exist. For automation, use `-
 | `invalid_rows` | Error | Some rows cannot be checked. Read the aggregate reason counts and repair the registry input. |
 | `empty_description` | Error | Empty or whitespace-only description. Add a concrete task and selection condition. |
 | `low_information_description` | Warning | Fewer than two specific ASCII tokens after stopwords and a small generic-word list are removed. Add the task or target if unclear. This is a heuristic, not a semantic assessment. |
-| `near_duplicate` | Warning | Jaccard overlap at least 0.75, with at least three shared tokens. Review scope and triggers; do not merge skills from this evidence alone. |
+| `near_duplicate` | Warning | Jaccard overlap at least 0.75, with at least three shared tokens unless the full normalized descriptions are identical. Empty/weak descriptions remain excluded. Review scope and triggers; do not merge skills from this evidence alone. |
 | `confusable` | Suggestion (`info`) | Overlap at least 0.50 but below 0.75, with at least three shared tokens. Shared vocabulary can be legitimate, especially for different tools. |
 | `short_description` | Style suggestion | **Only with `--style`:** fewer than 40 characters. Concise, specific descriptions are acceptable. |
 | `long_description` | Style suggestion | **Only with `--style`:** more than 200 characters. Prefer trigger-first wording. |

@@ -90,6 +90,19 @@ class ActionableSkillLintTests(unittest.TestCase):
         self.assertEqual(report["pairs"][0]["severity"], "info")
         self.assertEqual(self.cli(rows, "--fail-on", "warning")[0], 0)
 
+    def test_exact_concise_duplicates_bypass_only_the_pair_token_floor(self):
+        rows = [{"name": "one", "description": "Inspect certificates."},
+                {"name": "two", "description": " INSPECT   certificates. "}]
+        report = skill_lint.lint_catalog(rows)
+        self.assertEqual(len(report["pairs"]), 1)
+        self.assertEqual(report["pairs"][0]["kind"], "near_duplicate")
+        self.assertTrue(report["pairs"][0]["evidence"]["exact_description"])
+        self.assertEqual(report["pairs"][0]["evidence"]["shared_tokens"], 2)
+        self.assertEqual(self.cli(rows, "--fail-on", "warning")[0], 2)
+        # Same token set but different wording must not bypass the noise floor.
+        rows[1]["description"] = "Certificates inspect."
+        self.assertEqual(skill_lint.lint_catalog(rows)["pairs"], [])
+
     def test_single_word_overlap_does_not_claim_a_collision(self):
         rows = [{"name": name, "description": "Use when helping"} for name in ("one", "two")]
         self.assertEqual(skill_lint.lint_catalog(rows)["pairs"], [])

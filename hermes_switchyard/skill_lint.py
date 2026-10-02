@@ -126,7 +126,8 @@ def lint_catalog(rows: Any, *, include_style: bool = False) -> dict[str, Any]:
         for peer, peer_words in candidates[index + 1:]:
             union = words | peer_words
             shared = len(words & peer_words)
-            if shared < 3:
+            exact_description = normalized[name] == normalized[peer]
+            if shared < 3 and not exact_description:
                 continue
             score = shared / len(union)
             kind = "near_duplicate" if score >= 0.75 else "confusable" if score >= 0.50 else None
@@ -138,7 +139,7 @@ def lint_catalog(rows: Any, *, include_style: bool = False) -> dict[str, Any]:
                         "shared_tokens": shared, "union_tokens": len(union),
                         "left_only_tokens": len(words - peer_words),
                         "right_only_tokens": len(peer_words - words),
-                        "exact_description": normalized[name] == normalized[peer]}
+                        "exact_description": exact_description}
             diagnostic = _diagnostic(kind, [name, peer], **evidence)
             diagnostics.append(diagnostic)
             pairs.append({"names": [name, peer], "kind": kind,
