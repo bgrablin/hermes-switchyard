@@ -511,6 +511,8 @@ def clamp_effort_for_provider(
 
     Codex / Responses / Astra reject ``none`` (and often ``minimal``) on the
     wire — map those to ``low`` so adaptive effort never writes HTTP 400.
+    Enum-strict Chat Completions relays such as ``commandcode`` validate the
+    same ``low|medium|high|xhigh|max`` set and must clamp the same way (#181).
     """
     level = normalize_effort(effort)
 
@@ -536,6 +538,14 @@ def clamp_effort_for_provider(
         or "anthropic" in provider_s
     )
     is_lmstudio = provider_s in {"lmstudio", "lm-studio", "lm_studio"} or "lmstudio" in provider_s
+    # Chat Completions relays that validate reasoning_effort against the
+    # Astra/Codex wire set (low|medium|high|xhigh|max) and reject minimal/none.
+    # commandcode is the reported case (#181); match common id spellings.
+    is_enum_strict_chat = (
+        provider_s in {"commandcode", "command-code", "command_code"}
+        or "commandcode" in provider_s
+        or "command-code" in provider_s
+    )
 
     if level == "none":
         # Anthropic Messages uses output_config.effort for adaptive thinking;
@@ -543,10 +553,18 @@ def clamp_effort_for_provider(
         # carry "none". Do not change OpenRouter Chat Completions merely because
         # its model id happens to include "claude".
         is_anthropic_wire = api_mode_s in {"anthropic_messages", "anthropic"} or "anthropic" in provider_s or provider_s == "claude"
-        if is_codex_family or is_anthropic_wire:
+        if is_codex_family or is_anthropic_wire or is_enum_strict_chat:
             level = "low"
         else:
             return "none"
+
+    if is_enum_strict_chat:
+        # Same wire vocabulary as Astra/Codex Responses without minimal.
+        if level == "minimal":
+            return "low"
+        if level == "ultra":
+            return "max"
+        return level
 
     if is_codex_family:
         if is_xai and level in {"xhigh", "max", "ultra"}:

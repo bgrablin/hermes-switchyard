@@ -322,6 +322,83 @@ class ReasoningEffortAdapterTests(unittest.TestCase):
         self.assertNotIn("reasoning_effort", codex)
         self.assertNotIn("reasoning", codex)
 
+
+    def test_commandcode_maps_minimal_to_low(self):
+        # Enum-strict Chat Completions relays reject reasoning_effort=minimal (#181).
+        cases = [
+            {"provider": "commandcode", "model": "deepseek/deepseek-v4.1-flash", "api_mode": "chat_completions"},
+            {"provider": "command-code", "model": "deepseek/deepseek-v4.1-flash", "api_mode": "chat_completions"},
+            {"provider": "openrouter", "model": "deepseek/deepseek-chat", "api_mode": "chat_completions"},  # control: keeps minimal
+        ]
+        for kwargs in cases:
+            with self.subTest(**kwargs):
+                wire = wire_efforts_for_provider(**kwargs)
+                applied = apply_effort_to_request(
+                    {"model": kwargs["model"], "reasoning_effort": "high"},
+                    "minimal",
+                    **kwargs,
+                )
+                if "command" in str(kwargs["provider"]).lower():
+                    self.assertEqual(clamp_effort_for_provider("minimal", **kwargs), "low")
+                    self.assertEqual(clamp_effort_for_provider("none", **kwargs), "low")
+                    self.assertNotIn("minimal", wire)
+                    self.assertNotIn("none", wire)
+                    self.assertIn("low", wire)
+                    self.assertEqual(applied["reasoning_effort"], "low")
+                else:
+                    # Ordinary OpenAI-compat Chat Completions may still accept minimal.
+                    self.assertEqual(clamp_effort_for_provider("minimal", **kwargs), "minimal")
+                    self.assertIn("minimal", wire)
+                    self.assertEqual(applied["reasoning_effort"], "minimal")
+
+    def test_commandcode_trivial_floor_is_low(self):
+        # Local trivial bypass must send the route floor (low), never invalid minimal.
+        from hermes_switchyard.reasoning_effort_adapter import (
+            ReasoningEffortController,
+            last_receipt,
+        )
+        from tests.test_reasoning_effort_user_cap import Env, sent_effort
+
+        COMMANDCODE = {
+            "provider": "commandcode",
+            "model": "deepseek/deepseek-v4.1-flash",
+            "api_mode": "chat_completions",
+        }
+
+        class _Client:
+            def decide(self, *a, **k):  # pragma: no cover
+                raise AssertionError("trivial turns must not call Jev")
+
+        controller = ReasoningEffortController(
+            client_factory=lambda: _Client(),
+            session_env=Env(HERMES_SESSION_ID="synthetic-session"),
+        )
+        controller.build_pre_llm_call_hook()(
+            session_id="synthetic-session",
+            task_id="synthetic-session",
+            turn_id="t1",
+            user_message="hi",
+            parent_session_id="",
+        )
+        request = {
+            "model": COMMANDCODE["model"],
+            "messages": [{"role": "user", "content": "hi"}],
+            "reasoning_effort": "high",
+        }
+        result = controller.on_llm_request(
+            request,
+            session_id="synthetic-session",
+            task_id="synthetic-session",
+            turn_id="t1",
+            **COMMANDCODE,
+        )
+        self.assertEqual(sent_effort(request, result), "low")
+        receipt = last_receipt()
+        self.assertEqual(receipt["reason_code"], "local_trivial")
+        self.assertEqual(receipt["effort"], "low")
+        self.assertEqual(receipt["requested_effort"], "high")
+        self.assertIs(receipt["jev_called"], False)
+
     def test_codex_astra_maps_none_and_minimal_to_low(self):
         # openai-codex / Responses / Astra reject reasoning_effort=none (HTTP 400).
         cases = [

@@ -205,6 +205,7 @@ The captured text lives only in memory for the current turn and is cleared when 
 **Reading the cap**
 
 - Switchyard reads the level from each request: your `/reasoning` setting after Hermes' per-model clamp.
+- Before the trivial-turn floor or Jev candidate list is built, Switchyard maps internal levels onto the **route's** accepted wire set. Codex / Responses / Astra, Anthropic Messages, and enum-strict Chat Completions relays such as `commandcode` (which accept only `low|medium|high|xhigh|max`) map `none` / `minimal` to `low`, so a greeting never writes an invalid enum (#181).
 - In `auto` mode, it asks Jev to choose among the levels at or below that cap for the provider.
 - With `adaptive_reasoning_effort_allow_raise` on and the latest tool call failed, it may offer one level higher.
 
