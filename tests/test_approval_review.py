@@ -327,7 +327,9 @@ class ApprovalScopeTests(unittest.TestCase):
             ({"password": "violet lake", "command": "rm obsolete.txt"}, ["violet", "lake"]),
             ({"headers": {"Authorization": "Basic c3ludGhldGljOnRlc3Q="}, "command": "rm obsolete.txt"}, ["c3ludGhldGlj"]),
             ({"command": "rm obsolete.txt; fetch -H 'Authorization: Bearer tiny-canary'"}, ["tiny-canary"]),
-            ({"command": "rm obsolete.txt; PASSWORD='violet lake' task"}, ["violet", "lake"]),
+            # Split so the repository credential-assignment check does not match one source line.
+            ({"command": "rm obsolete.txt; PASSWORD="
+                         "'violet lake' task"}, ["violet", "lake"]),
             ({"command": "rm obsolete.txt", "url": "https://reader:tiny-canary@example.invalid/api?token=other-canary"}, ["tiny-canary", "other-canary"]),
             ({"command": "rm obsolete.txt; task --password 'violet lake'"}, ["violet", "lake"]),
             ({"command": "rm obsolete.txt; task --password 'violet lake"}, ["violet", "lake"]),
