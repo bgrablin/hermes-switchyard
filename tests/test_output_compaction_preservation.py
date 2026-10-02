@@ -13,10 +13,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from hermes_switchyard.output_pruning import OutputCompactionGuard, prune_terminal_result
-from scripts.build_release import RELEASE_FILES
-
-
 def result(**extra):
     return json.dumps({"output": "build checkpoint completed\n" * 300
                        + "artifact digest: REQUIRED_SYNTHETIC_VALUE\n"
@@ -26,6 +22,8 @@ def result(**extra):
 
 class PreservationTests(unittest.TestCase):
     def setUp(self):
+        from hermes_switchyard.output_pruning import OutputCompactionGuard
+
         self.guard = OutputCompactionGuard()
         self.scope = {"session_id": "session", "task_id": "task", "turn_id": "turn"}
         self.raw = result()
@@ -49,6 +47,7 @@ class PreservationTests(unittest.TestCase):
 
     def test_full_output_requests_preserve_original_bytes(self):
         for text in ("show full output", "keep the full dump", "show stdout verbatim",
+                     "show full stdout", "please show the stdout in full",
                      "do not compact this", "show complete output", "show raw stdout",
                      "keep the exact output", "show untruncated output", "show me everything"):
             with self.subTest(text=text):
@@ -100,6 +99,7 @@ class PreservationTests(unittest.TestCase):
     def test_command_preservation_cue_is_respected(self):
         self.capture()
         self.assertIsNone(self.prune(args={"command": "make # show full output"}))
+        self.assertIsNone(self.prune(args={"command": "make # keep full stdout"}))
 
     def test_expiry_and_eviction_preserve_uncertain_scope(self):
         with patch("hermes_switchyard.output_pruning.time.monotonic", return_value=0):
@@ -114,6 +114,8 @@ class PreservationTests(unittest.TestCase):
 
 class EnvelopeTests(unittest.TestCase):
     def prune(self, raw, **extra):
+        from hermes_switchyard.output_pruning import prune_terminal_result
+
         return prune_terminal_result(tool_name="terminal", status="ok", result=raw, **extra)
 
     def test_stdout_envelope_retains_other_fields(self):
@@ -127,7 +129,7 @@ class EnvelopeTests(unittest.TestCase):
 
     def test_ambiguous_unknown_and_failed_envelopes_are_preserved(self):
         for raw in (result(stdout=None), result(stdout="different"), result(exit_code=1),
-                    result(status="failed"), result(status=[]), result(returncode=1),
+                    result(status="failed"), result(status=None), result(status=[]), result(returncode=1),
                     result(exitcode="0"), result(stderr="warning"), result(truncated=True),
                     json.dumps({"processes": [{"output": "x" * 9000}]}),
                     "{broken JSON}", "[" * 2000 + "]" * 2000):
@@ -177,7 +179,7 @@ def _native_child(plugin: Path) -> None:
     raw = result()
     outputs = {}
     with patch("http.client.HTTPSConnection.request", side_effect=AssertionError("unexpected_request")) as wire:
-        for task, message in (("full", "Show the full output verbatim."),
+        for task, message in (("full", "Show full stdout."),
                               ("ordinary", "Report the artifact digest.")):
             scope = {"session_id": "shared", "task_id": task, "turn_id": "turn"}
             invoke_hook("pre_llm_call", user_message=message, **scope)
@@ -198,6 +200,8 @@ def _native_child(plugin: Path) -> None:
 
 class NativePreservationTests(unittest.TestCase):
     def test_installed_plugin_preserves_full_output_through_native_transform(self):
+        from scripts.build_release import RELEASE_FILES
+
         try:
             available = importlib.util.find_spec("hermes_cli.plugins") is not None
         except ModuleNotFoundError:

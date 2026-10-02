@@ -18,7 +18,7 @@ from typing import Any
 MARKER = "[Switchyard: preceding line repeated {count} additional times]"
 MAX_RESULT = 256_000
 _FULL_OUTPUT = re.compile(
-    r"\b(?:full\s+(?:dump|output)|verbatim|untruncated|"
+    r"\b(?:full\s+(?:dump|output|stdout)|(?:output|stdout)\s+in\s+full|verbatim|untruncated|"
     r"do\s+not\s+(?:truncate|compress|compact)|no\s+(?:truncation|compaction)|"
     r"(?:entire|whole|complete|raw|exact|unaltered|unmodified)\s+(?:output|stdout)|"
     r"show\s+(?:me\s+)?(?:everything|all\s+output))\b",
@@ -114,7 +114,7 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def _valid_result_status(value: Any) -> bool:
-    return value is None or isinstance(value, str) and value in {"ok", "success", "completed"}
+    return isinstance(value, str) and value in {"ok", "success", "completed"}
 
 
 def compact_repeated_lines(text: str) -> tuple[str, int]:
@@ -163,7 +163,7 @@ def prune_terminal_result(
         data.get("stderr")
         or data.get("error")
         or data.get("truncated")
-        or not _valid_result_status(data.get("status"))
+        or not _valid_result_status(data.get("status", "ok"))
         or any(
             key in data and (type(data[key]) is not int or data[key] != 0)
             for key in ("returncode", "exitcode")
