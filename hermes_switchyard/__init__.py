@@ -1631,15 +1631,18 @@ def register(ctx):
         from .approval_review import pre_tool_gate
         ctx.register_hook("pre_tool_call", pre_tool_gate)
 
-    from .output_pruning import prune_terminal_result
+    from .output_pruning import OutputCompactionGuard
     from .stuck_detection import StuckDetector
     if callable(getattr(ctx, "register_hook", None)):
         pruning = setting_bool("repeated_output_compaction", False)
         stuck = StuckDetector(client) if standing_ack and setting_bool("cross_tool_stuck_detection", False) else None
+        output_guard = OutputCompactionGuard() if pruning else None
+        if pruning:
+            ctx.register_hook("pre_llm_call", output_guard.capture)
         if pruning or stuck:
             def transform_result(**kwargs):
                 advice = stuck(**kwargs) if stuck is not None and setting_bool("cross_tool_stuck_detection", False) and setting_bool("public_or_sanitized_data_ack", True) else None
-                return advice if advice is not None else prune_terminal_result(**kwargs) if pruning else None
+                return advice if advice is not None else output_guard.prune(**kwargs) if output_guard is not None else None
             ctx.register_hook("transform_tool_result", transform_result)
 
     session_search_choice_confidence = _config_float(

@@ -101,11 +101,20 @@ opt-in until a workload-specific evaluation supports promotion. To restore nativ
 ## Output preservation and compaction
 
 The pruning switch only handles a successful terminal JSON result with integer
-exit code zero, one output field, no explicit stderr/error, and no truncation
-indicator. It processes 4,000–256,000 characters and compresses only runs of at
-least four identical complete lines. Unique lines, other JSON fields, failures,
-and repetition counts remain available. This changes the model-facing result;
-consumers expecting the exact original stdout should leave it off.
+exit code zero, exactly one `output` or `stdout` field, no explicit stderr/error,
+and no truncation indicator. It processes 4,000–256,000 characters and compresses
+only runs of at least four identical complete lines. Unique lines, other JSON
+fields, failures, and repetition counts remain available. Unknown envelopes,
+duplicate JSON keys, conflicting exit metadata, and serialization failures
+preserve the original result.
+
+Recognized requests such as "show full output", "keep stdout verbatim", or
+"do not compact" bypass compaction. Text parts in multimodal requests and cues
+after long context are inspected in full. The observer stores only the
+preservation decision and bounded session/task/turn IDs in memory; it does not
+retain request text. Missing, mismatched, evicted, or older-than-ten-minute
+captures preserve the original result. Keep the switch off when every result
+must remain byte-for-byte unchanged.
 
 Jev does not choose which evidence to keep, summarize, or drop. Switchyard does
 not replace the native `ContextCompressor` or change its mandatory threshold,
@@ -114,6 +123,14 @@ summary, tail protection, or session-search recovery. The timing probe in
 Correct topic classification alone does not establish retained recall, lower
 end-to-end latency, or a better compaction policy. Native summary/recovery remains
 the baseline for any future long-session evaluation.
+
+The rejected head/tail filter from [#196](https://github.com/bgrablin/hermes-switchyard/pull/196)
+is not shipped. The retained regression probe,
+`python evaluation/tool_output_filter_counterexample.py`, checks the synthetic
+middle-digest fixture and the full-output preservation improvement. This is
+operator utility and preservation evidence; downstream latency, billed tokens,
+total cost, and broad task success are unmeasured. The broader
+[#151](https://github.com/bgrablin/hermes-switchyard/issues/151) admission gate remains open.
 
 ## Browser cache boundaries
 
