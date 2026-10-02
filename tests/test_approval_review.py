@@ -256,7 +256,9 @@ class ApprovalScopeTests(unittest.TestCase):
             ("terminal", {"command": "python3 -c \"env = 'rm obsolete.txt; cat .env'; print(env)\""}),
             ("terminal", {"command": "python -c \"print('rm obsolete.txt')\""}),
         ]
-        with patch("hermes_switchyard.approval_review.native_hardline", return_value=False):
+        with patch("hermes_switchyard.approval_review.native_hardline", return_value=False), patch(
+            "hermes_switchyard.approval_review._posix_shell", return_value=True
+        ):
             for tool, args in cases:
                 with self.subTest(tool=tool, args=args):
                     self.assertIsNone(pre_tool_gate(tool_name=tool, args=args))
@@ -401,6 +403,53 @@ class ApprovalScopeTests(unittest.TestCase):
             "command": "rm cache.bin\nCookie: first=orchid;\n second=pebble\nnext-step",
         })
         self.assertIn("next-step", result["message"])
+
+    def test_windows_hosts_keep_approval_for_literal_shell_output(self):
+        # POSIX shlex reads `\;` as an escape and single quotes as quoting. PowerShell
+        # and cmd do not, so these can run a second statement on a Windows host.
+        commands = (
+            "echo harmless\\; Remove-Item obsolete.txt",
+            "echo 'harmless & Remove-Item obsolete.txt'",
+            "echo 'rm obsolete.txt'",
+            "python -c \"print('rm obsolete.txt')\"",
+        )
+        for posix, expect_prompt in ((False, (True, True, True, True)), (True, (False, False, False, False))):
+            for command, prompt in zip(commands, expect_prompt):
+                with self.subTest(posix=posix, command=command), patch(
+                    "hermes_switchyard.approval_review.native_hardline", return_value=False
+                ), patch("hermes_switchyard.approval_review._posix_shell", return_value=posix):
+                    result = pre_tool_gate(tool_name="terminal", args={"command": command})
+                    self.assertEqual(result is not None, prompt)
+                    if prompt:
+                        self.assertEqual(result["action"], "approve")
+
+    def test_url_redaction_keeps_following_commands_visible(self):
+        cases = [
+            ("fetch https://example.invalid/?token=orchid;rm obsolete.txt", ";rm obsolete.txt"),
+            ("fetch https://example.invalid/?token=orchid&&rm obsolete.txt", "&&rm obsolete.txt"),
+            ("fetch https://example.invalid/?token=orchid|rm obsolete.txt", "|rm obsolete.txt"),
+            ("fetch https://example.invalid/?a=1&token=orchid; rm obsolete.txt", "; rm obsolete.txt"),
+        ]
+        for command, visible in cases:
+            with self.subTest(command=command), patch(
+                "hermes_switchyard.approval_review.native_hardline", return_value=False
+            ):
+                result = pre_tool_gate(tool_name="terminal", args={"command": command})
+                self.assertEqual(result["action"], "approve")
+                self.assertIn(visible, result["message"])
+                self.assertNotIn("orchid", result["message"])
+
+    def test_equals_form_secret_flags_are_redacted_without_host_scrubber(self):
+        # The local display layer alone must hide opaque values in `--name=value` flags.
+        for flag in ("--password", "--token", "--client-secret", "--api-key", "--auth-token"):
+            with self.subTest(flag=flag), patch(
+                "hermes_switchyard.approval_review.native_hardline", return_value=False
+            ), patch("hermes_switchyard.approval_review.redact_for_jev", lambda x: (x, None)):
+                result = pre_tool_gate(tool_name="terminal", args={
+                    "command": "rm obsolete.txt; task " + flag + "=orchid",
+                })
+                self.assertIn(flag + "=[REDACTED]", result["message"])
+                self.assertNotIn("orchid", result["message"])
 
     def test_escaped_whitespace_secrets_stay_redacted_in_native_payload(self):
         try:

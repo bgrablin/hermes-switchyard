@@ -10,6 +10,7 @@ import ast
 import math
 import hashlib
 import json
+import os
 import uuid
 import re
 import shlex
@@ -184,7 +185,9 @@ _HEADER_NAME = r"(?:authorization|proxy-authorization|cookie|set-cookie)\s*:\s*"
 # quote withholds the rest. Unquoted values also absorb folded continuation lines.
 _DISPLAY_QUOTED_HEADER = re.compile(r'''(?i)((['"])\s*''' + _HEADER_NAME + r''')(?:\\[\s\S]|(?!\2)[^\\])*''')
 _DISPLAY_HEADER = re.compile(r'''(?i)(''' + _HEADER_NAME + r''')[^\r\n'"]*(?:\r?\n[ \t][^\r\n'"]*)*''')
-_DISPLAY_URL = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*://[^\s'\"<>]+")
+# Stop at unquoted shell operators so the redacted query cannot hide a following
+# command such as `;rm`. A single `&` stays inside the URL as a query separator.
+_DISPLAY_URL = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*://(?:[^\s'\"<>;|()`&]|&(?!&))+")
 
 
 def _redact_display_text(text: str) -> str:
@@ -279,9 +282,18 @@ def _literal_python(code):
         return False
 
 
+def _posix_shell():
+    """Literal-output parsing follows POSIX shell rules. PowerShell and cmd differ:
+    a backslash is not an escape there, and cmd does not treat single quotes as
+    quoting. On Windows hosts, every shell command therefore keeps its indicators."""
+    return os.name != "nt"
+
+
 def _literal_shell_output(command):
     # Expansion, redirects, compound commands and substitution are NOT inert
     # just because the leading executable prints. Unknown syntax stays gated.
+    if not _posix_shell():
+        return False
     if any(c in command for c in ("$", "`", "\n", "\r")):
         return False
     try:
