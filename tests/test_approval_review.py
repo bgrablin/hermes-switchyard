@@ -994,12 +994,19 @@ class ApprovalScopeTests(unittest.TestCase):
             self.assertIsNone(pre_tool_gate(tool_name="terminal", args={"command": "pwd", "workdir": "env"}))
 
     def test_native_floor_and_inspection_failures_remain_conservative(self):
-        for verdict, category in [(True, "native_hardline"), (None, "native_policy_unavailable")]:
-            with self.subTest(verdict=verdict), patch(
-                "hermes_switchyard.approval_review.native_hardline", return_value=verdict
-            ), patch("hermes_switchyard.approval_review.redact_for_jev", lambda x: (x, None)):
-                result = pre_tool_gate(tool_name="terminal", args={"command": "echo 'rm file'"})
-                self.assertIn(category, result["message"])
+        for posix in (True, False):
+            for verdict, category in [(True, "native_hardline"), (None, "native_policy_unavailable")]:
+                with self.subTest(posix=posix, verdict=verdict), patch(
+                    "hermes_switchyard.approval_review.native_hardline", return_value=verdict
+                ) as native, patch(
+                    "hermes_switchyard.approval_review._posix_shell", return_value=posix
+                ), patch("hermes_switchyard.approval_review.redact_for_jev", lambda x: (x, None)):
+                    result = pre_tool_gate(tool_name="terminal", args={"command": "echo 'rm file'"})
+                    self.assertIn(category if posix else "irreversible_operation", result["message"])
+                    if posix:
+                        native.assert_called_once()
+                    else:
+                        native.assert_not_called()
         for redactor in [Mock(return_value=(None, "unavailable")), Mock(side_effect=ValueError("synthetic"))]:
             with patch("hermes_switchyard.approval_review.redact_for_jev", redactor):
                 first = pre_tool_gate(tool_name="terminal", args={"command": "rm private-target"})
@@ -1092,15 +1099,25 @@ class ApprovalScopeTests(unittest.TestCase):
             ):
                 result = pre_tool_gate(tool_name=tool, args={field: text})
                 self.assertEqual(result["action"], "approve")
-        for text in ("printf '%s' 'rm file'", "echo hello", "git status"):
-            for verdict in (False, True, None):
-                with self.subTest(text=text, verdict=verdict), patch(
-                    "hermes_switchyard.approval_review.native_hardline", return_value=verdict,
-                ):
-                    result = pre_tool_gate(tool_name="terminal", args={"command": text})
-                    self.assertEqual(result is not None, verdict is not False)
-                    if verdict is None:
-                        self.assertIn("native_policy_unavailable", result["message"])
+        for posix in (True, False):
+            for text in ("printf '%s' 'rm file'", "echo hello", "git status"):
+                for verdict in (False, True, None):
+                    with self.subTest(posix=posix, text=text, verdict=verdict), patch(
+                        "hermes_switchyard.approval_review.native_hardline", return_value=verdict,
+                    ) as native, patch(
+                        "hermes_switchyard.approval_review._posix_shell", return_value=posix,
+                    ):
+                        result = pre_tool_gate(tool_name="terminal", args={"command": text})
+                        # Windows keeps the text indicator even in quoted output.
+                        local_indicator = not posix and text == "printf '%s' 'rm file'"
+                        self.assertEqual(result is not None, local_indicator or verdict is not False)
+                        if local_indicator:
+                            self.assertIn("irreversible_operation", result["message"])
+                            native.assert_not_called()
+                        else:
+                            native.assert_called_once()
+                            if verdict is None:
+                                self.assertIn("native_policy_unavailable", result["message"])
 
     def test_repeated_substitutions_have_bounded_display_cost(self):
         from hermes_switchyard.approval_review import redact_for_jev
