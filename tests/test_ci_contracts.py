@@ -54,9 +54,9 @@ class CiContractTests(unittest.TestCase):
     def test_pull_request_event_plans_exactly_one_matrix_cell(self):
         """Pin event-dependent matrix behavior without duplicating the job steps.
 
-        Pull requests use one fast combo, pushes to main cover both OSes on
-        Python 3.11, and weekly/manual runs add the full version matrix and one
-        non-required pre-qualification cell. Reads the exact JSON the `plan` job emits for
+        Pull requests use one fast combo, pushes to main use the full
+        six-cell matrix, and weekly/manual runs add one non-required
+        pre-qualification cell. Reads the exact JSON the `plan` job emits for
         each branch of its event_name guard.
         """
         workflow = self._workflow_text()
@@ -108,8 +108,8 @@ class CiContractTests(unittest.TestCase):
         )
         self.assertEqual(
             sorted(default_cells),
-            [("ubuntu-latest", "3.11"), ("windows-latest", "3.11")],
-            "push events must cover both OSes and preserve the required Ubuntu check",
+            sorted(required_cells),
+            "push events must plan the full 2 OS x 3 Python matrix",
         )
         self.assertEqual(
             sorted(prequal_cells),

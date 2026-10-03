@@ -1,10 +1,11 @@
 name: Switchyard compatibility
 
-# CI cost/signal design:
+# CI coverage and retention:
 # - Every PR retains the required Ubuntu / Python 3.11 native Hermes check.
-# - Main pushes cover both OSes on Python 3.11. Weekly and manual runs retain
-#   the full 2 OS x 3 Python matrix, non-required Python 3.14 pre-qualification,
-#   and the report-only upstream HEAD job.
+# - Main pushes retain the full 2 OS x 3 Python matrix: standard hosted runner
+#   minutes are free for this public repository.
+# - Weekly and manual runs add non-required Python 3.14 pre-qualification and
+#   the report-only upstream HEAD job.
 # - One compatibility job defines all checks; only the planned matrix varies.
 #   tests/test_ci_contracts.py protects the event -> matrix coverage contract.
 on:
@@ -54,7 +55,11 @@ jobs:
           else
             matrix='{"include":[
               {"os":"ubuntu-latest","python-version":"3.11"},
-              {"os":"windows-latest","python-version":"3.11"}
+              {"os":"ubuntu-latest","python-version":"3.12"},
+              {"os":"ubuntu-latest","python-version":"3.13"},
+              {"os":"windows-latest","python-version":"3.11"},
+              {"os":"windows-latest","python-version":"3.12"},
+              {"os":"windows-latest","python-version":"3.13"}
             ]}'
           fi
           compact="$(printf '%s' "$matrix" | tr -d '\n ')"
