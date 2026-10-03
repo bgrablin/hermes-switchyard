@@ -1,11 +1,94 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 # https://docs.coderabbit.ai/reference/configuration
-# Advisory reviews only. Drafts stay excluded. Request-changes workflow stays off
-# so comments do not block merge.
+# Features that require a Team plan, a connected account, or a secret are omitted.
+# Deprecated knowledge_base.automatic_repository_linking is omitted.
 language: en-US
+early_access: true
+enable_free_tier: true
 reviews:
-  request_changes_workflow: false
-  poem: false
-  in_progress_fortune: false
+  profile: assertive
+  request_changes_workflow: true
+  allow_author_approval: true
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  review_status: true
+  review_details: true
+  review_progress: true
+  fail_commit_status: true
+  collapse_walkthrough: true
+  changed_files_summary: true
+  sequence_diagrams: true
+  estimate_code_review_effort: true
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+  suggested_labels: true
+  auto_apply_labels: true
+  suggested_reviewers: true
+  auto_assign_reviewers: true
+  in_progress_fortune: true
+  poem: true
+  enable_prompt_for_ai_agents: true
+  abort_on_close: true
+  slop_detection:
+    enabled: true
+    include_all_authors: true
   auto_review:
     enabled: true
-    drafts: false
+    auto_incremental_review: true
+    drafts: true
+  finishing_touches:
+    docstrings:
+      enabled: true
+    unit_tests:
+      enabled: true
+    simplify:
+      enabled: true
+    autofix:
+      enabled: true
+  pre_merge_checks:
+    docstrings:
+      mode: error
+    title:
+      mode: error
+    description:
+      mode: error
+    issue_assessment:
+      mode: error
+  tools:
+    languagetool:
+      enabled: true
+      level: picky
+    fbinfer:
+      enabled: true
+      enable_java: true
+chat:
+  art: true
+  auto_reply: true
+  allow_non_org_members: true
+knowledge_base:
+  opt_out: false
+  web_search:
+    enabled: true
+  code_guidelines:
+    enabled: true
+  learnings:
+    scope: auto
+  issues:
+    scope: auto
+  pull_requests:
+    scope: auto
+  # auto links a public repo only to other public repos. enabled can read private repos.
+  automatic_linking_mode: auto
+code_generation:
+  docstrings:
+    language: en-US
+issue_enrichment:
+  auto_enrich:
+    enabled: true
+  planning:
+    enabled: true
+    auto_planning:
+      enabled: true
+  labeling:
+    auto_apply_labels: true
