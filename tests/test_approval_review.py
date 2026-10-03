@@ -561,6 +561,9 @@ class ApprovalScopeTests(unittest.TestCase):
             ("dollar-parens", "$(" + secret + ")"), ("backtick", "`" + secret + "`"),
             ("closed-marker", "[REDACTED]" + secret), ("open-marker", "[REDACTED" + secret),
             ("asterisks", "***" + secret), ("guillemets", "«redacted value»" + secret),
+            ("cut", "... [truncated]" + secret), ("cut-space", "... [truncated] " + secret),
+            ("masked-cut", "[REDACTED]... [truncated]" + secret),
+            ("lower-masked-cut", "[redacted]... [truncated]" + secret),
         ):
             data = json.dumps({"payload": json.dumps({"password": value})})
             self.assertEqual(json.loads(json.loads(data)["payload"])["password"], value)
@@ -570,6 +573,8 @@ class ApprovalScopeTests(unittest.TestCase):
                 ("single", "printf '%s' '" + data + "' > cfg.json; rm tail"),
             ):
                 cases.append((name + "-" + context, "terminal", command))
+            if "[truncated]" in value:
+                cases.append((name + "-python", "execute_code", "data = " + repr(data) + "\nprint('rm tail')"))
         for escape in ("042", "x22", "u0022", "U00000022"):
             quote = chr(92) + escape
             raw = "{" + quote + "password" + quote + ": " + quote + secret + quote + "}"
@@ -627,6 +632,40 @@ class ApprovalScopeTests(unittest.TestCase):
                         self.assertIn("Input and target withheld", captured[-1])
                         self.assertIn("only to this invocation", captured[-1])
                 self.assertEqual(args, {field: text})
+
+    def test_cut_marker_text_in_paths_is_data(self):
+        secret = "orch" + "id"
+        for value in ("... [truncated]" + secret, "... [truncated] " + secret,
+                      "[REDACTED]... [truncated]" + secret, "[redacted]... [truncated]" + secret):
+            data = json.dumps({"payload": json.dumps({"password": value})})
+            for tool, args in (
+                ("write_file", {"path": ".ssh/" + data, "content": "body"}),
+                ("patch", {"mode": "replace", "path": ".ssh/" + data, "old_string": "old", "new_string": "new"}),
+            ):
+                with self.subTest(tool=tool, value=value.replace(secret, "<secret>")):
+                    self.assert_withheld_preview(tool, args, "credential_access", "path", (secret,))
+
+    def test_appended_cut_ends_a_masked_value_but_input_marker_text_does_not(self):
+        secret = "orch" + "id"
+
+        def command(lead):
+            head = lead + "rm tail; "
+            pad = 600 - (len('{"command":"') + len(head) + len(" password=[REDACTED]"))
+            return head + "x" * pad + " password=" + secret + " " + "y" * 800
+
+        args = {"command": command("")}
+        result = pre_tool_gate(tool_name="terminal", args=args)
+        assert result is not None
+        self.assertEqual(result["action"], "approve")
+        self.assertIn("switchyard:terminal:consequential:", result["rule_key"])
+        self.assertNotIn("withheld", result["message"])
+        self.assertIn("password=[REDACTED]... [truncated]\n", result["message"])
+        for display in (result["message"], *self.display_texts(result["message"])):
+            self.assertIn("rm tail", display)
+            self.assertNotIn(secret, display)
+        self.assertEqual(args, {"command": command("")})
+        self.assert_withheld_preview("terminal", {"command": command("echo '... [truncated]'; ")},
+                                     "irreversible_operation", "command", (secret,))
 
     def test_dotted_credential_labels_bound_real_host_display_time(self):
         # Leave both host redaction layers real when Hermes is importable.
@@ -704,7 +743,14 @@ class ApprovalScopeTests(unittest.TestCase):
     def test_long_placeholder_run_gets_an_absent_marker_quickly(self):
         from hermes_switchyard import approval_review as review
 
-        text = "\ue000" * 5000 + " $(rm tail)"
+        class CountingText(str):
+            checks = 0
+
+            def __contains__(self, item):
+                CountingText.checks += 1
+                return super().__contains__(item)
+
+        text = CountingText("\ue000" * 5000 + " $(rm tail)")
         keys = []
         original = review._protect_display_substitutions
 
@@ -721,9 +767,13 @@ class ApprovalScopeTests(unittest.TestCase):
             start = time.perf_counter()
             shown = review._redact_display_text(text)
             elapsed = time.perf_counter() - start
+        # Read first: the assertions below also use `in`. One scan selects the
+        # marker; the old loop made one membership test per marker length.
+        checks = CountingText.checks
         self.assertEqual(shown, text)
         self.assertEqual(keys, ["\ue000" * 5001 + "0\ue001"])
         self.assertNotIn(keys[0], text)
+        self.assertLess(checks, 50)
         self.assertLess(elapsed, 1.0)
 
     def test_credential_preview_checks_plugin_and_host_independently(self):

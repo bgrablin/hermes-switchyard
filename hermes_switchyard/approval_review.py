@@ -682,9 +682,19 @@ _DISPLAY_CUT = "... [truncated]"
 _DISPLAY_BOUNDARY = frozenset(",;|&(){}[]<>\"'`")
 
 
+def _input_cut(shown, cache):
+    """Record displayed input that contains the cut marker text.
+
+    Such input can imitate a cut, so the residual check then trusts no cut.
+    """
+    if cache is not None and _DISPLAY_CUT in shown:
+        cache["input_cut"] = True
+    return shown
+
+
 def _display_window(value: str, cache=None) -> str:
     if len(value) <= _DISPLAY_WINDOW:
-        return _redact_display_text(value, cache)
+        return _input_cut(_redact_display_text(value, cache), cache)
     # Cut only after whitespace or a delimiter, so no partial token
     # (for example a long secret or URL) is shown.
     end = _DISPLAY_WINDOW
@@ -693,7 +703,7 @@ def _display_window(value: str, cache=None) -> str:
             end -= 1
     if cache is not None:
         cache["capped"] = True
-    return _redact_display_text(value[:end], cache) + _DISPLAY_CUT
+    return _input_cut(_redact_display_text(value[:end], cache), cache) + _DISPLAY_CUT
 
 
 def _display_value(value: Any, cache=None) -> Any:
@@ -712,7 +722,7 @@ def _display_value(value: Any, cache=None) -> Any:
 def _display_text(safe, limit: int) -> str:
     """Only already-redacted values reach escaping and truncation."""
     quoted = json.dumps(safe, ensure_ascii=True, separators=(",", ":"))
-    return quoted if len(quoted) <= limit else quoted[:limit] + "... [truncated]"
+    return quoted if len(quoted) <= limit else quoted[:limit] + _DISPLAY_CUT
 
 
 def _escaped_prefix(value: str, budget: int) -> str:
@@ -812,8 +822,11 @@ def _decode_layer(text):
     return unicodedata.normalize("NFKC", text.translate(_DECODE_TABLE))
 
 
-def _value_end(text, pos, *, words):
-    """A value ends at a line end, delimiter, quote, or the cut marker.
+def _value_end(text, pos, *, words, cut=None):
+    """A value ends at a line end, delimiter, quote, or the trusted cut token.
+
+    `cut` stands for a cut marker that this module appended. Cut marker text
+    from the input is data.
 
     Whitespace also ends it only for a shell-style NAME=value word. Elsewhere a
     masked value may be followed by spaces and a new NAME=value pair; Hermes
@@ -821,11 +834,11 @@ def _value_end(text, pos, *, words):
     """
     if words:
         return (pos >= len(text) or text[pos].isspace() or text[pos] in _SCAN_END
-                or _SCAN_QUOTE.match(text, pos) is not None or text.startswith(_DISPLAY_CUT, pos)
+                or _SCAN_QUOTE.match(text, pos) is not None or (cut is not None and text.startswith(cut, pos))
                 or _SCAN_SPACE.match(text, pos).end() > pos)
     after = _SCAN_HSPACE.match(text, pos).end()
     if (after >= len(text) or _SCAN_NEWLINE.match(text, after) is not None or text[after] in _SCAN_END
-            or _SCAN_QUOTE.match(text, after) is not None or text.startswith(_DISPLAY_CUT, after)):
+            or _SCAN_QUOTE.match(text, after) is not None or (cut is not None and text.startswith(cut, after))):
         return True
     return after > pos and _SCAN_NEXT_PAIR.match(text, after) is not None
 
@@ -904,7 +917,7 @@ def _label_counts(text):
     return counts
 
 
-def _credential_values_visible(text, renderings, word_labels):
+def _credential_values_visible(text, renderings, word_labels, cut=None):
     tokens = sorted({*renderings, *_SCAN_MASKS}, key=len, reverse=True)
     pos = 0
     while label := _SCAN_LABEL.search(text, pos):
@@ -934,25 +947,27 @@ def _credential_values_visible(text, renderings, word_labels):
             close = _SCAN_HSPACE.match(text, at).end()
             if text.startswith(quote, close):
                 at, words = close + len(quote), True
-            elif close >= len(text) or text.startswith(_DISPLAY_CUT, close):
+            elif close >= len(text) or (cut is not None and text.startswith(cut, close)):
                 at = close
             else:
                 return True
-        if not _value_end(text, at, words=words):
+        if not _value_end(text, at, words=words, cut=cut):
             return True
     return False
 
 
-def _credential_preview_incomplete(text, renderings=frozenset(), word_labels=frozenset()):
+def _credential_preview_incomplete(text, renderings=frozenset(), word_labels=frozenset(), cut=None):
     """True when a credential label is followed by anything but a complete mask.
 
     Exemptions are exact: complete mask tokens, and complete credential-context
     substitution renderings that the masker itself produced for this request.
-    A masked value ends at whitespace only for labels in word_labels.
+    A masked value ends at whitespace only for labels in word_labels. A value
+    also ends at `cut`, a per-call token for a cut marker that this module
+    appended; cut marker text itself is data.
     """
     renderings = set(renderings)
     for _ in range(_DECODE_LEVELS):
-        if _credential_values_visible(text, renderings, word_labels):
+        if _credential_values_visible(text, renderings, word_labels, cut):
             return True
         decoded = _decode_layer(text)
         if decoded == text:
@@ -989,7 +1004,7 @@ def _approval_message(tool_name, args, finding):
         raise ValueError("native_preview_incomplete")
     message = (
         f"Switchyard requires approval for {tool_name}.\n"
-        f"Trigger: {category}; field: {_display_text(_redact_display_text(field_text, cache), 100)}\n"
+        f"Trigger: {category}; field: {_display_text(_input_cut(_redact_display_text(field_text, cache), cache), 100)}\n"
         f"Matched input (redacted): {matched_view}\n"
         f"Target/context (redacted): {_display_text(targets, 200)}\n"
         f"Input preview (redacted): {preview}\n"
@@ -1016,7 +1031,17 @@ def _approval_message(tool_name, args, finding):
     if shown.count("\n") < plain.count("\n"):
         raise ValueError("host_display_incomplete")
     words = _shell_word_labels(args) if tool_name == "terminal" else frozenset()
-    if any(_credential_preview_incomplete(text, renderings, words) for text in (plain, shown)):
+    # Only a cut marker that this module appended may end a credential value.
+    # Before decoding, replace those markers with a per-call token that the
+    # input cannot contain. Marker text from the input (literal, encoded, or
+    # joined by decoding) then stays data. If displayed input contains the
+    # marker text, or Hermes shows more markers than the message has, no
+    # marker is trusted.
+    cut, scanned = None, (plain, shown)
+    if not cache.get("input_cut") and display.count(_DISPLAY_CUT) <= message.count(_DISPLAY_CUT):
+        cut = "".join(chr(0xE010 + int(digit, 16)) for digit in uuid.uuid4().hex)
+        scanned = tuple(_host_display_text(text.replace(_DISPLAY_CUT, cut)) for text in (message, display))
+    if any(_credential_preview_incomplete(text, renderings, words, cut) for text in scanned):
         raise ValueError("credential_preview_incomplete")
     for pattern in (_IRREVERSIBLE, _CREDENTIAL, _CREDENTIAL_PATH):
         if Counter(match.group().lower() for match in pattern.finditer(plain)) - Counter(
