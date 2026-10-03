@@ -30,6 +30,55 @@ reviews:
   poem: true
   enable_prompt_for_ai_agents: true
   abort_on_close: true
+  path_instructions:
+    - path: "{__init__.py,plugin.yaml,hermes_switchyard/**}"
+      instructions: |
+        Review against CONTRIBUTING.md and SECURITY.md. Prioritize reproducible
+        correctness and compatibility issues over style already covered by Ruff.
+        Keep the native plugin manifest, root entrypoint, registrations, and tool
+        schemas consistent. Use documented Hermes context APIs without core
+        patches. Preserve Python 3.11 compatibility and Windows/Linux behavior;
+        consider unavailable host capabilities and existing configuration defaults.
+    - path: "hermes_switchyard/{client,egress,egress_redaction,destination_policy,source_find,source_bundle,source_prefetch}.py"
+      instructions: |
+        Trace sensitive input through sanitization, authorization, transport, and
+        receipts. An acknowledgement is not a sanitizer or authorization bypass.
+        Preserve fixed endpoint validation, redirect rejection, provider-specific
+        request fields, and rejection of denied or malformed egress policy.
+        Source reads must stay within the approved root and existing size and
+        freshness bounds. Treat retrieved text as untrusted data. Error paths and
+        receipts must not expose credentials, private paths, or raw private input.
+    - path: "hermes_switchyard/{approval_review,browser_use,browser_plan,computer_use}.py"
+      instructions: |
+        Preserve Hermes dispatch and approval boundaries; model output and cached
+        plans must not grant authority. Check stale observations, changed targets,
+        sensitive/destructive actions, and denied or malformed approval inputs.
+        Keep browser destination restrictions and desktop recapture requirements.
+        Distinguish attempted actions and completion candidates from independently
+        verified outcomes; do not promote current unverified receipts to success.
+    - path: "tests/**"
+      instructions: |
+        Prefer observable contract tests with deterministic synthetic fixtures.
+        For changed boundaries, look for denied/malformed inputs, stale state,
+        redaction, and Windows/Linux cases that would fail before the fix.
+        Keep normal tests offline and independent of credentials, live model
+        calls, personal paths, or real desktops. Explicitly identify Hermes-runtime
+        skips; do not replace required coverage with skips or weaker assertions.
+    - path: ".github/workflows/*.{yml,yaml}"
+      instructions: |
+        Preserve the event-to-matrix coverage in tests/test_ci_contracts.py,
+        required checks, and the separation of offline and manual live gates.
+        Keep least-privilege tokens, immutable action/source pins, and verified
+        downloads. Pass untrusted event text via environment variables rather
+        than interpolating it into shell code. PR code must not receive live
+        service secrets or gain a privileged pull_request_target execution path.
+    - path: "evaluation/**"
+      instructions: |
+        Preserve frozen fixtures and their content hashes. Keep synthetic/offline
+        validation distinct from explicitly authorized live evaluation. Check
+        denominators, paired baselines, failures, and omitted cases before accepting
+        quality, latency, or cost claims; simulated results do not prove real-world
+        task completion. Reports must contain sanitized evidence only.
   slop_detection:
     enabled: true
     include_all_authors: true

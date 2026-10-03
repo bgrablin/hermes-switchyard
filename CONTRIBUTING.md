@@ -40,6 +40,20 @@ What these do:
 
 Don't commit `dist/`, test results, caches, logs, or local evidence. Keep behavior tests under `tests/`, and focus them on observable contracts rather than source-text snapshots.
 
+For GitHub Actions changes, run `actionlint -color` from the repository root with
+[actionlint 1.7.12](https://github.com/rhysd/actionlint/blob/v1.7.12/docs/install.md).
+Install ShellCheck as well to include checks of embedded shell scripts. The
+`Workflow lint` workflow checks every workflow on pull requests and main pushes
+using a version-pinned, SHA-256-verified actionlint download and the Ubuntu
+runner's ShellCheck. It complements Ruff, CodeQL, and the compatibility suite;
+it needs no model calls, service credentials, or additional GitHub App.
+
+CodeRabbit's path instructions in `.coderabbit.yaml` focus reviews on native
+plugin compatibility, authorization and redaction boundaries, offline regression
+tests, CI coverage, and honest evaluation claims. Keep this guidance aligned with
+the contracts above and `SECURITY.md`. Sourcery's pull-request review controls
+remain in its dashboard; its legacy YAML does not configure those controls.
+
 ## Pull requests
 
 In the description:
