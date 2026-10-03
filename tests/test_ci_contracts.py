@@ -299,6 +299,7 @@ class CiContractTests(unittest.TestCase):
         )
 
     def test_release_candidate_windows_job_consumes_the_ubuntu_artifact(self):
+        """The Windows release job installs the Ubuntu-built archive."""
         workflow = (
             Path(__file__).resolve().parent.parent / ".github/workflows/release-candidate.yml"
         ).read_text(encoding="utf-8")
