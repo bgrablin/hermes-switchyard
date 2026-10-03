@@ -712,6 +712,12 @@ def _display_window(value: str, cache=None) -> str:
 
 
 def _display_value(value: Any, cache=None) -> Any:
+    """Return a redacted display copy of a tool argument value.
+
+    Strings pass through ``_display_window``. Dictionary keys are cut the same
+    way, and values under credential-like keys become ``[REDACTED]``. Lists and
+    tuples are copied item by item; other values are returned unchanged.
+    """
     if isinstance(value, str):
         return _display_window(value, cache)
     if isinstance(value, dict):

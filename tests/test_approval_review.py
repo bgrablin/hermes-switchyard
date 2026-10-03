@@ -594,6 +594,7 @@ class ApprovalScopeTests(unittest.TestCase):
         return cases
 
     def test_residual_credential_data_withholds_on_both_native_surfaces(self):
+        """Residual credential data withholds the input on the CLI and gateway prompts."""
         from tools import approval
 
         secret = "orch" + "id"
@@ -672,6 +673,7 @@ class ApprovalScopeTests(unittest.TestCase):
 
     def test_dotted_credential_labels_bound_real_host_display_time(self):
         # Leave both host redaction layers real when Hermes is importable.
+        """Long dotted credential labels keep real host display redaction fast."""
         for size in (8000, 15980):
             dotted = ("password." * (size // 9 + 1))[:size]
             for tool, field, text in (
@@ -726,6 +728,7 @@ class ApprovalScopeTests(unittest.TestCase):
                                          "irreversible_operation", "command")
 
     def test_display_window_caps_strings_and_keys_at_token_boundaries(self):
+        """The display window cuts strings and keys only at token boundaries."""
         from hermes_switchyard.approval_review import _display_value
 
         cut = "... [truncated]"
@@ -782,6 +785,7 @@ class ApprovalScopeTests(unittest.TestCase):
         self.assertLess(elapsed, 1.0)
 
     def test_credential_preview_checks_plugin_and_host_independently(self):
+        """The plugin and host credential checks each run on their own display text."""
         from agent.redact import redact_sensitive_text
         from hermes_switchyard.approval_review import _approval_message
 
