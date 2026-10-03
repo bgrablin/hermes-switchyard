@@ -2,7 +2,7 @@
 
 **In short:** there are three layers of checks.
 
-1. **Offline checks on every pull request:** fast, with no network calls to Jev. The full OS and Python matrix runs on `main` and weekly.
+1. **Offline checks on every pull request:** fast, with no network calls to Jev. Main pushes cover both OSes; the full Python version matrix runs weekly and manually.
 2. **Native compatibility:** loads the plugin into a pinned, real Hermes checkout.
 3. **Live Jev checks:** manual only, behind a protected environment.
 
@@ -15,7 +15,7 @@ This repository has three separate CI boundaries. Offline checks never call Open
 `.github/workflows/switchyard-compatibility.yml` runs the plugin's Python test and hygiene surface with the pinned Hermes range `>=3.11,<3.14`. Python 3.14 runs only as non-required pre-qualification on the weekly and manual extra lane; it is not part of the pinned Hermes runtime range or the required PR gate. One `plan` job computes an event-dependent matrix; one `compatibility` job runs the exact same pinned step sequence for every planned cell, so a future dependency, security, or test-command change updates one lane instead of two that could drift apart (`tests/test_ci_contracts.py` pins this).
 
 - **Pull requests** run one fast combo: Ubuntu, Python 3.11. All 26 compatibility failures observed before this design broke identically across every matrix cell, so the other five cells bought redundant runs against a limited Actions minutes budget, not extra signal. This fast check is the required branch-protection status check on `main`.
-- **Push to `main`** runs the full six-entry matrix (Ubuntu and Windows, Python 3.11/3.12/3.13), to still catch real OS/version-specific drift without paying the 6x multiplier on every PR iteration.
+- **Push to `main`** runs Ubuntu and Windows on Python 3.11. This retains an immediate check on both OSes while avoiding four repeated version cells after each merge. Python 3.12/3.13 regressions are detected by the weekly full matrix or a manual dispatch; dispatch it before merging changes sensitive to interpreter versions.
 - **A weekly schedule (Monday 06:17 UTC) and manual `workflow_dispatch`** run the full six-entry matrix plus one Ubuntu / Python 3.14 pre-qualification cell. The 3.14 job has `continue-on-error`, is not included in the pull-request matrix, and is not a required status check. A failure is early compatibility signal while the pinned Hermes range stays `>=3.11,<3.14`.
 
 - **Lint** runs in every compatibility cell with the pinned runner and config: `uvx --from ruff==0.11.13 ruff check .` reads `ruff.toml`. Both files carry the same version, and `tests/test_ci_contracts.py` fails when the two drift.
@@ -25,7 +25,7 @@ Superseded runs for the same pull request or branch are cancelled. Maintainers c
 The `upstream-head` job in the same compatibility workflow runs only on the weekly schedule or manual dispatch, never on a pull request or push. It fetches the public Hermes default-branch HEAD, records its exact SHA, and runs the native loader, seven-handler dispatch, hygiene checks, unit suite, and evaluation validation in one Ubuntu/Python 3.14 cell. The cell uploads per-step logs and receipts and writes the upstream SHA, exit codes, and unit-test count to its summary. It has `continue-on-error`; a failure is a report to investigate, not permission to move the pin or weaken the required Ubuntu/Python 3.11 check. Dispatch `Switchyard compatibility` on the candidate ref to inspect this job before merge.
 
 - Current upstream Hermes supports only Python 3.14; its broader `requires-python` range permits legacy upgrades, while core dependencies use `python_version >= '3.14'` markers.
-- The retained pin is the last upstream revision that installs on Python 3.11–3.13; the report-only job does not test current upstream on those interpreters.
+- The retained pin is the last upstream revision that installs on Python 3.11â€“3.13; the report-only job does not test current upstream on those interpreters.
 
 Each pinned compatibility matrix job:
 
@@ -37,7 +37,7 @@ Each pinned compatibility matrix job:
 6. Runs `scripts/ci/check_native_tool_invocation.py`, which loads the same real registry entries and calls all seven registered handlers (`jev_skill_select`, `jev_skill_select_many`, `jev_model_route`, `jev_assess`, `jev_model_route_approved`, `jev_session_search_rerank`, and `jev_computer_use`). Jev decisions use a synthetic HTTPS transport; computer-use actions use an in-memory synthetic native dispatcher that rejects every unexpected target instead of forwarding it to the host. No live network call, GUI action, credential, or cost; it exercises the real handler closures and validates meaningful terminal outcomes. A synthetic fixture does not prove live Jev or desktop behavior; those remain separate manual contracts.
 7. Runs the plugin's offline tests with that native Hermes Python, so the native parser test cannot become a green import skip.
 
-The native receipt is uploaded as a workflow artifact. It contains the candidate source SHA, pinned Hermes SHA, manifest identity, registered tool names, schema fields, and interpreter version. It never contains credentials or model requests.
+Routine compatibility and upstream-HEAD receipts expire after seven days; manually built release candidates retain their existing 14-day window. The native receipt is uploaded as a workflow artifact. It contains the candidate source SHA, pinned Hermes SHA, manifest identity, registered tool names, schema fields, and interpreter version. It never contains credentials or model requests.
 
 Local equivalent from the Switchyard checkout with the pinned Hermes source at an explicit path:
 
@@ -127,3 +127,27 @@ To re-pin:
 ## Action and credential boundary
 
 Workflow actions are pinned to full commit SHAs and jobs use `contents: read`. No workflow writes GitHub secrets, environments, tags, releases, or comments. Keep local evidence outside the repository; only the declared CI receipts and candidate archive are uploaded by their respective workflows.
+
+## Conserving Actions and AI usage
+
+Keep local fixes in one tested checkpoint before pushing. Request an AI review
+on a coherent, locally validated head; request another review when a material
+change needs it. Avoid repeated AI review requests for unchanged code or routine
+CI reruns. Draft status alone may not prevent a personal automatic-review setting
+from requesting Copilot.
+
+Copilot review runs are generated by GitHub, outside these workflow files.
+Automatic draft and new-push reviews are controlled by personal Copilot settings
+or repository/organization rulesets. This change does not modify those settings,
+required reviews, branch protection, or code-scanning workflows. See GitHub's
+[automatic review configuration](https://docs.github.com/en/copilot/how-tos/copilot-on-github/set-up-copilot/configure-code-review).
+
+The October 3, 2026 audit sampled 23 main compatibility runs since October 1.
+The four version cells moved to weekly/manual execution consumed approximately
+501 runner minutes (about 67% of those matrix jobs' time). This is a retrospective
+estimate for the same workload, not a monthly forecast or bill: this repository
+is public, and standard hosted runners are free for public repositories. All
+seven weekly/manual pinned cells, the upstream report, the install scanner, and
+the required PR check remain in place. Halving routine receipt retention from
+14 to 7 days should roughly halve their steady-state storage at a stable run
+rate; existing artifacts retain their current expiration dates.

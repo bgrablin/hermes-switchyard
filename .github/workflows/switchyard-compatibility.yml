@@ -1,19 +1,12 @@
 name: Switchyard compatibility
 
 # CI cost/signal design:
-# - Pull requests get one fast combo (ubuntu-latest / Python 3.11) as the required merge
-#   gate. All 26 prior compatibility failures broke identically across every matrix cell,
-#   so running the full 6-way matrix on every PR push bought redundant runs, not extra
-#   signal, against a limited Actions minutes budget.
-# - The full 2 OS x 3 Python matrix runs after code lands on main, plus a weekly
-#   schedule and manual dispatch, to still catch real OS/version-specific drift without
-#   paying the 6x multiplier on every PR iteration. Weekly and manual runs add one
-#   non-required Ubuntu / Python 3.14 pre-qualification cell and a report-only
-#   upstream HEAD job; both are outside the PR gate.
-# - `compatibility` defines the step sequence exactly once. `plan` only decides how many
-#   matrix cells that one sequence expands into for the current event, so a future
-#   dependency/security/test-command change updates one lane, never two that can drift
-#   apart. tests/test_ci_contracts.py pins this event -> matrix-size behavior.
+# - Every PR retains the required Ubuntu / Python 3.11 native Hermes check.
+# - Main pushes cover both OSes on Python 3.11. Weekly and manual runs retain
+#   the full 2 OS x 3 Python matrix, non-required Python 3.14 pre-qualification,
+#   and the report-only upstream HEAD job.
+# - One compatibility job defines all checks; only the planned matrix varies.
+#   tests/test_ci_contracts.py protects the event -> matrix coverage contract.
 on:
   push:
     branches:
@@ -61,11 +54,7 @@ jobs:
           else
             matrix='{"include":[
               {"os":"ubuntu-latest","python-version":"3.11"},
-              {"os":"ubuntu-latest","python-version":"3.12"},
-              {"os":"ubuntu-latest","python-version":"3.13"},
-              {"os":"windows-latest","python-version":"3.11"},
-              {"os":"windows-latest","python-version":"3.12"},
-              {"os":"windows-latest","python-version":"3.13"}
+              {"os":"windows-latest","python-version":"3.11"}
             ]}'
           fi
           compact="$(printf '%s' "$matrix" | tr -d '\n ')"
@@ -230,7 +219,7 @@ jobs:
           path: ${{ runner.temp }}/switchyard-receipts/
           if-no-files-found: warn
           include-hidden-files: false
-          retention-days: 14
+          retention-days: 7
           compression-level: 9
 
   upstream-head:
@@ -367,5 +356,5 @@ jobs:
           path: ${{ runner.temp }}/upstream-head-receipts/
           if-no-files-found: warn
           include-hidden-files: false
-          retention-days: 14
+          retention-days: 7
           compression-level: 9
