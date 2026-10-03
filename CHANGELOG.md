@@ -2,59 +2,66 @@
 
 ## 0.6.0 (unreleased)
 
-Working draft for the next release. No version bump, tag, or catalog pin until this section is frozen for a drop.
+Working draft for the next release. No version bump, tag, or catalog pin until this section is frozen.
 
-There is no fixed feature-count gate for 0.6.0: land work that earns its keep, and keep **Not included** honest when candidates fail.
+There is no fixed feature-count gate. Keep **Not included** honest when a candidate fails.
 
 ### Added
 
-- [#193](https://github.com/bgrablin/hermes-switchyard/pull/193): opt-in tool review, retrieval screening, and conservative output handling (runtime switches default **off**; catalog review is an explicit command). Retrieved-text screen (`retrieved_screen_enabled`; shadow indicators when off), `hermes switchyard scan-catalog` admission review, consequential tool gate (`consequential_tool_gate`), smart approval provider (`smart_approval_provider` / `switchyard-approvals`), repeated terminal-line compaction (`repeated_output_compaction`), cross-tool stuck advice (`cross_tool_stuck_detection`), and browser plan cache (`browser_plan_cache`). See [FEATURE-EXPANSION.md](docs/FEATURE-EXPANSION.md). No measured latency, cost, or task-quality claim; runtime candidates stay off until their value is demonstrated.
+**Receipts and local reports**
 
-- Add opt-in human-readable output to `hermes switchyard receipt --human`. It shows the selected skill, decision source, verified skill-load status, Jev call or skip, and unverified task outcome. It applies to history queries and does not change the JSON default.
+- `hermes switchyard wow` and `/switchyard wow`: read-only offline aggregates from retained routing and effort receipts. Default window is 7 days; `--days N` and versioned `--json` are available. Each metric shows its denominator and window. No savings, outcome, or complete-coverage claim. (#152)
+- `hermes switchyard receipt --human`: selected skill, decision source, verified skill-load status, Jev call or skip, and unverified task outcome. JSON stays the default. History queries only. (#198)
+- Effort receipts use `always` | `auto` | `off` (default `auto`). Plain language, for example `Reasoning: high→low · 180 ms`. Status leads with the cap, the last level sent, and why. Summary labels say `cloud decisions` / `local decisions`. (#147)
+- Offline outcome labels over retained routing receipts: four evidence-censored boolean/unknown fields, per-field coverage, and a stable 20% hash split. No routing change or benefit claim. (#167)
+- Synthetic routing-value fixtures: deterministic 25-, 150-, and 600-skill catalogs for paired plugin-off checks. No comparative result yet. (#130)
 
-- Extend the opt-in source finder with bounded multi-file evidence bundles, exact per-file citations, keyed relevance questions, duplicate citation preservation, and whole-lookup fallback. The complete 80-conversation synthetic native pilot passes its correctness and efficiency gates; the feature remains opt-in. See [results and limits](docs/AWESOME-JEV-EVALUATION.md).
+**Skills, status, and opt-in tools**
 
-- Automatic source-prefetch pilot for simple natural-language requests naming a file. Exact evidence can reach Hermes before its first main-model call; unsupported requests use ordinary tools. No finder tool, schema, or discovery round. Opt-in with an absolute approved root, bounded reads, original-request guards, sanitization, and freshness verification. See [setup and limits](docs/SOURCE-FINDER.md).
+- `hermes switchyard lint-skills [--json]`: offline skill-description routability hints and name-only near-duplicate reports. It does not edit skills or replace Hermes lint. The synthetic evaluation does not establish real-catalog accuracy.
+- `hermes switchyard status --check`: opt-in. Exits 0 only when local status is `ready` (and the browser probe has started, if `--browser` is set). The default command still exits 0. It does not call a provider or prove a model works. (#203)
+- Opt-in tool review, retrieval screening, and conservative output handling. Runtime switches default **off**. Includes catalog admission review, a consequential tool gate, a smart approval provider, repeated terminal-line compaction, cross-tool stuck advice, and a browser plan cache. No measured latency, cost, or task-quality claim. (#193)
 
-- [#152](https://github.com/bgrablin/hermes-switchyard/issues/152): `hermes switchyard wow` and `/switchyard wow` show read-only, offline aggregates from retained routing and effort receipts. The default is 7 days; `--days N` and versioned `--json` are available. Every metric shows its observed denominator and window. Partial or unavailable sources remain explicit; the report makes no savings, outcome, or complete-coverage claim.
-- Synthetic routing-value fixtures for paired plugin-off comparisons: deterministic 25-, 150-, and 600-skill catalogs, hidden-fact answer checks, and offline validation (refs #130). No comparative result has been measured.
-- [#167](https://github.com/bgrablin/hermes-switchyard/issues/167): Local-only offline outcome-label generator over retained routing receipts. Four evidence-censored boolean/unknown fields, explicit per-field coverage, and a stable 20% hash split for already-retained data; no runtime holdout, routing change, or benefit claim. See [the frozen evaluation and limits](docs/OUTCOME-LABELS.md).
-- [#147](https://github.com/bgrablin/hermes-switchyard/pull/147): Phase 1 reasoning visibility UX. Receipt modes are `always` | `auto` | `off` (default **`auto`**; setting `adaptive_reasoning_effort_receipt_mode`). Legacy aliases `work` / `on` / interim `changes` map to `auto`. User-facing receipts use plain language (for example `Reasoning: high→low · 180 ms`). Status leads with `Cap … · last sent … · why: …`; raw reason codes stay in `--json` / history. Summary labels say `cloud decisions` / `local decisions` instead of `Jev calls`.
-- `hermes switchyard lint-skills [--json]`: explicit offline skill-description routability hints with bounded, name-only near-duplicate and confusable-peer reports. It does not change skills or replace Hermes standards lint; the frozen synthetic evaluation does not establish real-catalog accuracy. See [the feature guide](docs/LINT-SKILLS.md).
+**Source finder**
+
+- Opt-in multi-file evidence bundles: exact per-file citations, keyed relevance questions, duplicate citations, and whole-lookup fallback. The 80-conversation synthetic pilot passes its gates. Still opt-in.
+- Opt-in prefetch for a simple request that names a file. Exact evidence can arrive before the first main-model call. Unsupported requests use ordinary tools. (#183)
 
 ### Changed
 
-- Make `lint-skills` actionable by default: prioritize errors and warnings, show each overlap pair once with numeric evidence and a suggested action, and cap text at 20 findings with an exact remainder. Literal `Use when` and length preferences now require `--style`; add `--all`, `--limit`, and opt-in `--fail-on` CI thresholds. JSON moves to `switchyard.lint_skills.v2` with structured diagnostics, invalid-row reasons, and explicit comparison coverage. Empty/weak descriptions no longer create collision cascades; descriptions with non-ASCII alphanumeric characters or combining marks are explicitly omitted from lexical comparison. No skill edits, hosted calls, or measured routing-quality claim. See [migration and limits](docs/LINT-SKILLS.md).
+**Less work on easy turns**
 
-- Replace repeated JSON serialization with exact byte accounting in skill partition planning, multi-skill batching, and general decision batching. Partition boundaries and wire payloads are preserved, with complete validation before transport. The 600-entry component cases use approximately 94–97% less local planning time; no whole-conversation speedup is claimed. See [measurements and proposal dispositions](https://github.com/bgrablin/hermes-switchyard/blob/main/evaluation/hotpath/README.md).
+- Light turns skip hosted skill selection by default (`automatic_skill_light_turn_bypass`). Greetings and closed acknowledgements qualify; domain tasks and path-scoped listings do not. Optional early bypass before catalog discover stays **off** (#160). Optional no-skill gate stays **off**.
+- Validated skill candidates are cached in-process. Root, policy, config, and plugin-metadata changes invalidate the cache; otherwise a 30-second TTL applies. Callers receive independent dictionaries.
+- Explicit-skill patterns run only when the task text contains that skill's name. Selections stay the same. On a 600-candidate synthetic case with no skill named, local time fell from about 84 ms to about 0.1 ms. Not an end-to-end latency claim. (#205)
+- Skill partition planning counts bytes instead of serializing JSON repeatedly. Boundaries and payloads stay the same. 600-entry cases use about 94–97% less local planning time. No whole-conversation speedup is claimed.
+- Optional deferral of six Switchyard decision-tool schemas, default **off** (#158). Automatic routing, explicit tools, and `jev_computer_use` stay. No measured latency win. The cheap-shortlist experiment (#157) is excluded.
 
-- Use explicit impact descriptions for the existing record-triage severity Score, enabled whenever the library workflow runs. In a frozen live synthetic workflow comparison, correct rated priorities increased from 18/48 to 42/48; wrong accepted priorities fell from two to zero. Severity indices, priorities, thresholds, and budgets stay unchanged; mean latency rose 18.74% (median nearly unchanged) and reported cost increased. This is a library-workflow improvement, not a new automatic tool. See [scope and evidence](docs/RECORD-TRIAGE.md#severity-rubric).
+**Lint and triage**
 
-- Optional deferral of Switchyard decision-tool schemas (`defer_switchyard_tool_schemas`, default **off**; #158). Removes six decision schemas from eligible provider requests while preserving automatic skill routing, reasoning adaptation, explicit tool requests, prior tool calls, forced tool choices, and `jev_computer_use`. Supports Chat Completions, Responses, and Anthropic histories. No measured latency or capability benefit is claimed; spontaneous uncued decision calls require disabling this opt-in setting. The rejected cheap-shortlist experiment (#157) is excluded.
+- `lint-skills` leads with errors and warnings, shows each overlap once, and caps text at 20 findings. Wording preferences need `--style`. JSON is `switchyard.lint_skills.v2`. Empty descriptions no longer cascade into collisions. Non-ASCII descriptions are omitted from lexical comparison. (#199)
+- Record-triage severity uses explicit impact text whenever that library workflow runs. In a frozen synthetic comparison, correct priorities rose from 18/48 to 42/48 and wrong accepted priorities fell from 2 to 0. Mean latency rose 18.74%. Indices and budgets are unchanged.
 
-- Check current Hermes HEAD on its supported Python 3.14 every week and on manual dispatch, with report-only per-step receipts. The pinned 3.11–3.13 checks and non-required pinned 3.14 pre-qualification cell remain unchanged.
-- Optional early light-turn bypass before catalog discover (`automatic_skill_early_light_bypass_before_discover`, default **off**): when enabled with light-turn bypass, a text-only probe may skip `skills_list` / discover on greeting-class and other light turns while still emitting auditable `bypass_reason` / `source_sha` receipts. Fail-open; consequential and explicit-override turns still discover. Refs #160.
-- Cache validated skill candidates in-process for automatic routing. Observed root, policy, config, and plugin-metadata changes invalidate the cache; a 30-second TTL bounds other changes. Return independent candidate dictionaries. Hermes also caches filesystem discovery; this wrapper avoids repeated public-list serialization and candidate validation, not all cold-start work.
-- Light-turn routing tax cut (optimization-first for 0.6.0): skip hosted skill selection for closed-list acknowledgements and complete greeting/read-only **cwd** listing forms (`automatic_skill_light_turn_bypass`, default on). Unknown wording, compound tasks, and open-ended explanations keep normal routing. Optional `automatic_skill_honor_no_skill_gate` (default off) also skips hosted fan-out under `automatic_skill_jev_mode=always` when local lexical overlap is near zero. Full-request greeting forms also take the adaptive `local_trivial` path. The frozen greeting/listdir fixtures still bypass; domain tasks and path-scoped listings do not.
+**Checks**
+
+- Weekly and manual runs check current Hermes HEAD on Python 3.14 and keep report-only receipts. Pinned 3.11–3.13 checks are unchanged.
 
 ### Fixed
 
-- Opt-in repeated-output compaction now honors full/verbatim-output requests within the captured session, task, and turn. Unknown or ambiguous envelopes, conflicting exit metadata, and uncertain captures pass through unchanged. Arbitrary head/tail truncation is excluded; no downstream latency or cost improvement is claimed.
-
-- [#181](https://github.com/bgrablin/hermes-switchyard/issues/181): clamp adaptive effort for enum-strict Chat Completions relays such as `commandcode` that accept only `low|medium|high|xhigh|max`. Map `none` / `minimal` to `low` (and `ultra` to `max`) before the trivial-turn floor and Jev candidate list are derived, so a greeting no longer writes an invalid `reasoning_effort` and forces a provider 400 + retry.
-- Use a native absolute root in the source-finder unsupported-filesystem test so Windows reaches the intended filesystem check instead of rejecting a drive-less POSIX path.
-- Make the installed turn-loop timeout test verify the actual 400 ms decision wait and discard of a synchronized late answer, without treating Windows scheduling or later Hermes/provider work as part of that budget. The production timeout is unchanged.
-- Preserve archived source bytes in the evaluation tampering tests on Windows so they exercise the intended body-hash and Git-source checks without changing archive-header line endings.
-- [#182](https://github.com/bgrablin/hermes-switchyard/pull/182) (fixes [#180](https://github.com/bgrablin/hermes-switchyard/issues/180)): show one `not adapted` receipt per foreground turn when every request passes through because the host sent no effort (`no_host_effort`) or the requested level cannot be adapted on the route (`no_room`). Visible in `auto` and `always`, with no added Jev calls or effort changes; `off` suppresses it. Pinned, excluded, disabled, delegated, and background behavior is unchanged. Receipt replay stripping, command help, and documentation match the new behavior.
-- Use the installed Hermes YAML parser dependency in compatibility tests instead of assuming PyYAML is installed on current Hermes.
-- Reject substantive follow-on work in light-turn detection, preserve single-word explicit skill overrides before early bypass, and prevent callers from mutating cached candidates.
+- Approval prompts name the tool, the trigger, the matched field, redacted input and target, and what each choice covers. If masking would hide a command or the command cannot be inspected, the prompt withholds input and names the trigger. (#201)
+- The bundled `hermes-switchyard-operations` skill registers with the description from its `SKILL.md` when the host accepts that argument. Older hosts keep the previous call. (#206)
+- Enum-strict Chat Completions relays map `none` / `minimal` to `low` and `ultra` to `max` before the trivial-turn floor, so a greeting does not send an invalid effort and force a provider 400. (#181)
+- One `not adapted` receipt per foreground turn when the host sent no effort or the route cannot adapt. `off` still hides it. (#182, fixes #180)
+- Opt-in repeated-output compaction keeps full or verbatim output for the captured session, task, and turn. Uncertain captures pass through. (#196)
+- Light-turn detection rejects substantive follow-on work, keeps a single-word skill override, and does not let callers mutate cached candidates.
+- The wow report window follows receipt timestamps.
+- Windows tests use a native source-finder root, check the 400 ms decision budget without charging later work to it, and keep archive bytes for provenance checks. Production timeout and archive headers are unchanged.
 
 ### Not included
 
-- Same-turn Jev consolidation and same-provider model routing remain evaluation-only. The isolated adapters and frozen live evidence are available in [the transfer-pilot report](https://github.com/bgrablin/hermes-switchyard/pull/188); neither is registered or enabled as a product feature, and neither is generally release-qualified.
-
-- No Hermes TUI chip sync claim for wire effort (status bar / `/reasoning` remain the cap; the receipt shows what was sent).
-- [#139](https://github.com/bgrablin/hermes-switchyard/issues/139) Jev-feature redesign (replace main-model work) remains open exploration, not a release commitment.
+- Same-turn Jev consolidation and same-provider model routing stay evaluation-only. Neither is registered or release-qualified. (#188)
+- No claim that the Hermes TUI chip matches wire effort. The receipt shows what was sent; the status bar and `/reasoning` remain the cap.
+- The Jev-feature redesign (#139) is still exploration, not a release commitment.
 
 ## 0.5.6 (2026-09-28)
 

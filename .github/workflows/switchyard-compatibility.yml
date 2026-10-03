@@ -127,7 +127,7 @@ jobs:
           fi
           # The installed wire replay exercises Anthropic's SDK, which is an
           # upstream optional extra outside [all]; use its upstream version pin.
-          UV_NO_CONFIG=1 uv pip install --python "$hermes_python" -e "$hermes_root[all,dev,anthropic]"
+          UV_NO_CONFIG=1 uv pip install --python "$hermes_python" -e "${hermes_root}[all,dev,anthropic]"
           test "$(git -C "$hermes_root" rev-parse --verify HEAD)" = "$HERMES_UPSTREAM_SHA"
           export PATH="$hermes_bin:$PATH"
           command -v hermes
@@ -285,6 +285,8 @@ jobs:
           not_run() {
             printf '%s\tnot-run\n' "$1" >> "$receipts/steps.tsv"
           }
+          # Invoked by name through run_gate below.
+          # shellcheck disable=SC2317
           fetch_head() {
             local sha
             sha="$(git ls-remote https://github.com/NousResearch/hermes-agent.git HEAD | cut -f1)"
@@ -305,7 +307,7 @@ jobs:
           if [ "$last_rc" -eq 0 ] && [ -x "$hermes_venv/bin/python" ]; then
             hermes_python="$hermes_venv/bin/python"
             export PATH="$hermes_venv/bin:$PATH"
-            run_gate install uv pip install --python "$hermes_python" -e "$hermes_root[all,dev,anthropic]"
+            run_gate install uv pip install --python "$hermes_python" -e "${hermes_root}[all,dev,anthropic]"
           else
             not_run install
             last_rc=1

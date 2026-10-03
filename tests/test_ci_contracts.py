@@ -299,12 +299,13 @@ class CiContractTests(unittest.TestCase):
         )
 
     def test_release_candidate_windows_job_consumes_the_ubuntu_artifact(self):
+        """The Windows release job installs the Ubuntu-built archive."""
         workflow = (
             Path(__file__).resolve().parent.parent / ".github/workflows/release-candidate.yml"
         ).read_text(encoding="utf-8")
         ubuntu, windows = workflow.split("\n  windows-installed-archive:\n", 1)
         for job in (ubuntu, windows):
-            self.assertIn('-e "$hermes_root[all,dev,anthropic]"', job)
+            self.assertIn('-e "${hermes_root}[all,dev,anthropic]"', job)
         self.assertIn("--source-sha \"$SWITCHYARD_SOURCE_SHA\"", workflow)
         self.assertIn("--version 0.5.6", workflow)
         self.assertIn("archive-sha256.json", workflow)
