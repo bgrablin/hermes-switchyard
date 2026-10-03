@@ -31,6 +31,11 @@ class LegacyContext(BaseContext):
         self.skills.append((name, path))
 
 
+class KwargsContext(BaseContext):
+    def register_skill(self, name, path, **kwargs):
+        self.skills.append((name, path, kwargs))
+
+
 class SkillRegistrationMetadataTests(unittest.TestCase):
     def setUp(self):
         plugin.reset_runtime_status()
@@ -54,6 +59,24 @@ class SkillRegistrationMetadataTests(unittest.TestCase):
             ("hermes-switchyard-operations", SKILL_PATH, expected_description, None),
         ])
         self.assertIn("jev_assess", ctx.tools)
+
+    def test_description_is_registered_through_kwargs(self):
+        lines = SKILL_PATH.read_text(encoding="utf-8").splitlines()
+        self.assertTrue(lines)
+        self.assertEqual(lines[0], "---")
+        expected_description = ""
+        for line in lines[1:]:
+            if line == "---":
+                break
+            if line.startswith("description:"):
+                expected_description = line.partition(":")[2].strip()
+        self.assertTrue(expected_description)
+        self.assertTrue(expected_description.startswith("Use when"))
+        ctx = KwargsContext()
+        plugin.register(ctx)
+        self.assertEqual(ctx.skills, [
+            ("hermes-switchyard-operations", SKILL_PATH, {"description": expected_description}),
+        ])
 
     def test_legacy_host_keeps_two_argument_registration(self):
         ctx = LegacyContext()
