@@ -181,6 +181,7 @@ class CiContractTests(unittest.TestCase):
         self.assertEqual(actual, expected)
 
     def test_setup_uv_is_pinned_consistently_in_all_workflows(self):
+        """Keep each setup-uv use on the reviewed SHA and matching version label."""
         workflows = Path(__file__).resolve().parent.parent / ".github" / "workflows"
         self._assert_setup_uv_pins(workflows)
 
@@ -214,6 +215,7 @@ class CiContractTests(unittest.TestCase):
         return failures
 
     def test_all_workflow_dependencies_use_immutable_references(self):
+        """Reject mutable dependency references in every current workflow."""
         workflows = Path(__file__).resolve().parents[1] / ".github" / "workflows"
         self.assertEqual(self._unpinned_workflow_dependencies(workflows), [])
 
@@ -247,6 +249,7 @@ class CiContractTests(unittest.TestCase):
                 path.unlink()
 
     def test_dependency_guard_accepts_pins_local_uses_and_ignores_run_text(self):
+        """Accept supported immutable references without treating shell text as YAML uses."""
         pin = "3d3c42e5aac5ba805825da76410c181273ba90b1"
         digest = "a" * 64
         with tempfile.TemporaryDirectory() as temp:
@@ -270,6 +273,7 @@ class CiContractTests(unittest.TestCase):
             self.assertEqual(self._unpinned_workflow_dependencies(workflows), [])
 
     def test_upstream_head_report_runs_only_weekly_and_manually(self):
+        """Keep the optional upstream report out of PR and main-push usage."""
         from ruamel.yaml import YAML
 
         path = Path(__file__).resolve().parents[1] / ".github/workflows/switchyard-compatibility.yml"
