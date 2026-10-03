@@ -216,19 +216,34 @@ blind continuation. Read back the actual page/app target yourself.
 
 Keep native approval controls in charge. `consequential_tool_gate` adds a request
 for human approval on code-defined indicators; its `approve` hook directive means
-**ask the human**, not permission to execute. `smart_approval_provider` is separate:
-it must also be selected as native `auxiliary.approval` provider
-`switchyard-approvals`. It remains experimental and can escalate safe commands.
+**ask the human**, not permission to execute. `smart_approval_provider` is a separate
+opt-in. It reviews commands for native smart approval only when explicitly selected
+as `auxiliary.approval` provider `switchyard-approvals`. It remains experimental and
+can escalate safe commands.
+
+- Normal prompts name the tool, trigger category, and field. They show redacted matched input, target/context, and a bounded input preview. Each string in the preview shows at most 1,024 input characters, cut at a word boundary.
+- Allow once covers this call. Session/always covers only the same tool with identical input. Uninspectable approvals cover this invocation only; session/always cannot approve a later call.
+- Trigger categories: `irreversible_operation`, `credential_access`, `native_hardline`, and `native_policy_unavailable`.
+- The gate inspects the `terminal` command, its `workdir`/`cwd` paths, and `execute_code` code. Credential directories such as `.ssh`, `.aws`, and `.gnupg` require approval; a plain `env` directory does not. For `write_file` and `patch`, it checks target paths and patch file deletions. File bodies are withheld from previews. `delegate_task` prose is not scanned; child tool calls have their own approval.
+- On POSIX hosts, literal-only `echo`, `printf`, and `python3 -c` assignments/prints can suppress text indicators, but never the native hardline floor. Expansion, substitution, redirects, compound commands, and newlines keep their indicators.
+- On Windows hosts, every shell command keeps its indicators.
+- `execute_code` retains matched indicators even in literal-looking prints. Persistent session state can rebind `print`, so these calls still require approval. This is intentional fail-closed behavior.
+- For supported tools with a dict argument envelope, incomplete inspection asks for approval with `incomplete_inspection`. Limits include 16,000 total key/value characters, 256 visited values or collection elements, unsupported values, and missing operation targets. These limits include passive file bodies. If safe preview building fails after a finding, the prompt names the tool, category, field, and invocation-only scope, with `redaction_unavailable`; input and target are withheld.
+- Inside a credential substitution, a normal prompt keeps operation indicators and masks credential values, literal output, and heredoc bodies. It withholds the input when masking would hide interpreter code, subcommands, unknown producer operands, or any operation indicator.
+- Hermes redacts the prompt again before it shows the prompt. If that redaction would hide an indicator or merge lines, the prompt withholds the input and covers only that call.
+- In comments and heredoc data, credential labels with plain quotes are masked to the end of the line. Heredoc header continuations are also masked. Comment masks stop at their own line.
+- After a credential label, the prompt shows only a complete mask or a credential-context substitution that Switchyard masked itself. Anything else, including escaped or encoded forms, withholds the input for that call only.
+- In an unquoted shell word such as `password=value`, the next argument is separate and remains visible.
+- This is not a full shell parser. If redaction or truncation removes any indicator from view, or changes the input when the native check triggered, the prompt withholds the input and covers only that call.
+- Known gap: destructive Python standard-library calls such as `os.remove` and `shutil.rmtree` lack dedicated detection (issue #204). This gate only adds prompts and never grants execution. Native Hermes approval checks still apply.
 
 For a suspected false positive, record the exact bounded command, intended
 effects, plugin/host versions, enabled gate/provider, and returned reason without
 secrets. Inspect any referenced script locally. Distinguish a lexical indicator,
 missing context, unavailable reviewer, and an actual dangerous effect. A displayed
 flag or score is review evidence, not proof the command is malicious or safe.
-The current gate can match words inside quoted data; do not claim a parser fix
-from an unmerged change. Seek native human disposition when required. Do not
-rewrite, encode, or split the same action to evade the prompt, auto-approve it,
-or disable approvals as a workaround.
+Seek native human disposition when required. Do not rewrite, encode, or split
+the same action to evade the prompt, auto-approve it, or disable approvals as a workaround.
 
 All of these settings default **off** and need deliberate enablement:
 
