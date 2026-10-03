@@ -46,7 +46,10 @@ jobs:
             printf '## Hermes upstream pin drift\n\n'
             printf '| Field | Value |\n'
             printf '| --- | --- |\n'
+            # Markdown backticks in printf formats are literal, not commands.
+            # shellcheck disable=SC2016
             printf '| Pinned SHA | `%s` |\n' "$HERMES_UPSTREAM_SHA"
+            # shellcheck disable=SC2016
             printf '| Upstream default-branch head | `%s` |\n' "$head_sha"
             printf '| Status | %s |\n' "$status"
             printf '| Compare | %s |\n' "$compare"

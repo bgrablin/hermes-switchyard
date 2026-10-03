@@ -1,0 +1,48 @@
+name: Workflow lint
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workflow-lint-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out candidate workflows
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download and verify actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          tool_dir="$RUNNER_TEMP/actionlint"
+          mkdir -p "$tool_dir"
+          archive="$tool_dir/actionlint_1.7.12_linux_amd64.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
+            --output "$archive"
+          printf '%s  %s\n' '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8' "$archive" > "$tool_dir/checksums.txt"
+          sha256sum --check --strict "$tool_dir/checksums.txt"
+          tar -xzf "$archive" -C "$tool_dir" actionlint
+
+      - name: Check all GitHub Actions workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Ubuntu's ShellCheck also checks embedded shell scripts. No AI calls.
+          shellcheck --version
+          "$RUNNER_TEMP/actionlint/actionlint" -color
