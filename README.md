@@ -124,6 +124,8 @@ Jev is an external service. Here is what each feature sends to it:
 | **Computer use: browser** | The goal and a bounded view of the page (labels, visible text, recent steps). Values you ask it to type are masked out where they echo back (best-effort: a value copied into a host name or transformed by the page can slip through) | Your logins, cookies, files | Don't call the tool |
 | **Computer use: desktop** | The goal, app and window title, control labels, visible context, and recent actions on every step. This is **not** masked, so typed values or signed-in app content can reappear | — | Only use it on public or sanitized apps and values |
 | **Source prefetch** (off) | Your lookup question, plus text from 1–8 files you name (80,000 bytes max in total). If the scrubber would change anything, nothing is sent and Hermes handles the request normally | Anything outside the folder you approve | Leave it off |
+| **Stuck advice** (off, `cross_tool_stuck_detection`) | After three consecutive errors across at least two distinct tools: up to three redacted error excerpts (up to 500 characters each), plus generic `terminal` / `file` / `other` categories. It needs valid session, task, turn, and tool-call IDs, `public_or_sanitized_data_ack`, and working redaction. At most one check per tracked turn, with a 0.8-second budget | Scoped IDs and concrete custom/MCP tool names as metadata | Leave it off |
+| **Smart approval provider** (off, `smart_approval_provider`; also needs `auxiliary.approval.provider: switchyard-approvals`) | Your command and operator policy, each up to 4,000 characters, only after local checks pass and secret scrubbing leaves both unchanged. Uses the `OPENROUTER_API_KEY` secret and `https://openrouter.ai/api/alpha/decisions`, even when other Jev calls go directly to TypeSafe | Commands matching known credential or irreversible patterns escalate before any hosted request; inputs changed by scrubbing or over the limits are not sent | Leave it off |
 
 Some turns never reach Jev:
 
@@ -138,12 +140,16 @@ Some turns never reach Jev:
 - The acknowledgement settings (`public_or_sanitized_data_ack`, `automatic_skill_public_or_sanitized_data_ack`) record *your* promise that inputs are public or sanitized. They are not a data-loss-prevention system.
 - **Don't send secrets, credentials, payment data, or private or employer content** through Switchyard.
 
-To make everything automatic stay on your machine:
+To keep automatic Switchyard decisions local, first change the two default-on features:
 
 ```text
 hermes config set plugins.entries.hermes-switchyard.settings.automatic_skill_routing_mode local_only
 hermes config set plugins.entries.hermes-switchyard.settings.adaptive_reasoning_effort false
 ```
+
+Source prefetch (`evidence_finder_enabled`), stuck advice (`cross_tool_stuck_detection`), and the smart approval provider (`smart_approval_provider`) are off by default and can send data only when you enable them, so leave them off.
+
+The consequential-tool gate (`consequential_tool_gate`), repeated-line compaction, retrieved-text screening, and browser plan cache run only on your machine and send nothing to Jev themselves.
 
 Start a fresh session after changing settings. The full rules are in [setup](docs/SETUP.md) and [automatic routing](docs/AUTOMATIC-INTEGRATION.md).
 
