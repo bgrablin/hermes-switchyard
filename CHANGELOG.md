@@ -9,6 +9,7 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 ### Added
 
 - `.coderabbit.yaml` enables CodeRabbit's documented review features, including automatic reviews, summaries, walkthroughs, and the request-changes workflow. `.sourcery.yaml` keeps Sourcery's documented default rule set for Python 3.11.
+- `AGENTS.md` tells coding agents to comment `@coderabbitai review` on every pull request, including while the repo has fewer than 10 stars, and not to request GitHub Copilot review until 2026-11-01.
 
 - [#193](https://github.com/bgrablin/hermes-switchyard/pull/193): opt-in tool review, retrieval screening, and conservative output handling (runtime switches default **off**; catalog review is an explicit command). Retrieved-text screen (`retrieved_screen_enabled`; shadow indicators when off), `hermes switchyard scan-catalog` admission review, consequential tool gate (`consequential_tool_gate`), smart approval provider (`smart_approval_provider` / `switchyard-approvals`), repeated terminal-line compaction (`repeated_output_compaction`), cross-tool stuck advice (`cross_tool_stuck_detection`), and browser plan cache (`browser_plan_cache`). See [FEATURE-EXPANSION.md](docs/FEATURE-EXPANSION.md). No measured latency, cost, or task-quality claim; runtime candidates stay off until their value is demonstrated.
 
