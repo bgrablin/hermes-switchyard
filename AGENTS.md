@@ -28,6 +28,12 @@ exactly `@coderabbitai review` so CodeRabbit runs. Do this even when the
 repo is under 10 stars. Do not request GitHub Copilot review until
 2026-11-01.
 
+`@coderabbitai review` does not rerun a commit CodeRabbit has already
+reviewed. CodeRabbit is incremental: it reviews new commits and leaves
+already reviewed ones alone. To review the whole changeset again, comment
+`@coderabbitai full review`. That full-review command applies only when
+automatic reviews are paused.
+
 Watch the checks that start on that pull request and fix failures this
 change caused. Do not shrink or disable existing workflows to get green.
 The required check is Ubuntu / Python 3.11 / native Hermes. Workflow
