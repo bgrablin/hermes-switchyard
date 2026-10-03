@@ -184,6 +184,91 @@ class CiContractTests(unittest.TestCase):
         workflows = Path(__file__).resolve().parent.parent / ".github" / "workflows"
         self._assert_setup_uv_pins(workflows)
 
+    @staticmethod
+    def _unpinned_workflow_dependencies(workflows: Path) -> list[str]:
+        """Inspect YAML uses fields, including reusable workflows, without network access."""
+        from ruamel.yaml import YAML
+
+        failures = []
+        for path in sorted(workflows.iterdir()):
+            if path.suffix not in {".yml", ".yaml"}:
+                continue
+            workflow = YAML(typ="safe", pure=True).load(path.read_text(encoding="utf-8"))
+            for job_name, job in workflow["jobs"].items():
+                locations = [(f"jobs.{job_name}", job)]
+                locations.extend(
+                    (f"jobs.{job_name}.steps[{index}]", step)
+                    for index, step in enumerate(job.get("steps", []))
+                )
+                for location, entry in locations:
+                    if "uses" not in entry:
+                        continue
+                    ref = entry["uses"]
+                    if isinstance(ref, str) and (
+                        ref.startswith("./")
+                        or re.fullmatch(r"docker://[^\s@]+@sha256:[0-9a-f]{64}", ref)
+                        or re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", ref)
+                    ):
+                        continue
+                    failures.append(f"{path.name}: {location}.uses must be immutable: {ref!r}")
+        return failures
+
+    def test_all_workflow_dependencies_use_immutable_references(self):
+        workflows = Path(__file__).resolve().parents[1] / ".github" / "workflows"
+        self.assertEqual(self._unpinned_workflow_dependencies(workflows), [])
+
+    def test_dependency_guard_rejects_mutable_actions_and_reusable_workflows(self):
+        """A future tag/branch/short-SHA regression must fail the existing native CI gate."""
+        refs = (
+            "actions/checkout@v7",
+            "actions/checkout@main",
+            "actions/checkout@3d3c42e",
+            "owner/repo/subdir/action@v1.2.3",
+            "owner/repo/.github/workflows/build.yml@main",
+            "docker://alpine:latest",
+            "docker://alpine@sha256:1234",
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            workflows = Path(temp)
+            for suffix in ("yml", "yaml"):
+                path = workflows / f"candidate.{suffix}"
+                for ref in refs:
+                    for placement in ("step", "reusable"):
+                        with self.subTest(ref=ref, placement=placement, suffix=suffix):
+                            body = (
+                                f"    steps:\n      - 'uses': '{ref}'\n"
+                                if placement == "step"
+                                else f"    'uses': '{ref}'\n"
+                            )
+                            path.write_text("jobs:\n  candidate:\n" + body, encoding="utf-8")
+                            failures = self._unpinned_workflow_dependencies(workflows)
+                            self.assertEqual(len(failures), 1)
+                            self.assertIn(ref, failures[0])
+                path.unlink()
+
+    def test_dependency_guard_accepts_pins_local_uses_and_ignores_run_text(self):
+        pin = "3d3c42e5aac5ba805825da76410c181273ba90b1"
+        digest = "a" * 64
+        with tempfile.TemporaryDirectory() as temp:
+            workflows = Path(temp)
+            (workflows / "accepted.yaml").write_text(
+                "jobs:\n"
+                f"  reusable: {{uses: 'owner/repo/.github/workflows/build.yml@{pin}'}}\n"
+                "  local: {uses: './.github/workflows/local.yml'}\n"
+                "  candidate:\n"
+                "    steps:\n"
+                f"      - &checkout {{uses: 'actions/checkout@{pin}'}}\n"
+                "      - *checkout\n"
+                f"      - uses: owner/repo/subdir/action@{pin}\n"
+                "      - uses: ./local-action\n"
+                f"      - uses: docker://alpine@sha256:{digest}\n"
+                "      # - uses: actions/checkout@main\n"
+                "      - run: |\n"
+                "          echo 'uses: actions/checkout@main'\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(self._unpinned_workflow_dependencies(workflows), [])
+
     def test_upstream_head_report_runs_only_weekly_and_manually(self):
         from ruamel.yaml import YAML
 
