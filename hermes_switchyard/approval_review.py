@@ -693,6 +693,11 @@ def _input_cut(shown, cache):
 
 
 def _display_window(value: str, cache=None) -> str:
+    """Return a redacted display copy of one string, cut at the display window.
+
+    The cut falls only after whitespace or a delimiter, so no partial token is
+    shown. A cut appends the Switchyard cut marker and records it in ``cache``.
+    """
     if len(value) <= _DISPLAY_WINDOW:
         return _input_cut(_redact_display_text(value, cache), cache)
     # Cut only after whitespace or a delimiter, so no partial token
@@ -918,6 +923,12 @@ def _label_counts(text):
 
 
 def _credential_values_visible(text, renderings, word_labels, cut=None):
+    """Return True when text after a credential label is not a complete mask.
+
+    Each credential label must be followed only by masks or known redaction
+    renderings, then a value end. ``cut`` is the token for a Switchyard-added
+    cut; only that token, not marker text from the input, can end a value.
+    """
     tokens = sorted({*renderings, *_SCAN_MASKS}, key=len, reverse=True)
     pos = 0
     while label := _SCAN_LABEL.search(text, pos):
@@ -978,6 +989,13 @@ def _credential_preview_incomplete(text, renderings=frozenset(), word_labels=fro
 
 
 def _approval_message(tool_name, args, finding):
+    """Build the approval prompt text for one consequential tool call.
+
+    The prompt names the tool, trigger, matched field, redacted input, target,
+    and approval scope. It raises ``ValueError`` when one preview cannot both
+    hide credential values and show the operation; the caller then withholds
+    the input for this call only.
+    """
     category, field, value = finding
     cache = {}
     if tool_name in {"write_file", "patch"}:

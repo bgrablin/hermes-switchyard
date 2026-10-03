@@ -634,6 +634,7 @@ class ApprovalScopeTests(unittest.TestCase):
                 self.assertEqual(args, {field: text})
 
     def test_cut_marker_text_in_paths_is_data(self):
+        """Cut-marker text inside a write_file or patch path is data, not a cut."""
         secret = "orch" + "id"
         for value in ("... [truncated]" + secret, "... [truncated] " + secret,
                       "[REDACTED]... [truncated]" + secret, "[redacted]... [truncated]" + secret):
@@ -646,9 +647,11 @@ class ApprovalScopeTests(unittest.TestCase):
                     self.assert_withheld_preview(tool, args, "credential_access", "path", (secret,))
 
     def test_appended_cut_ends_a_masked_value_but_input_marker_text_does_not(self):
+        """A Switchyard cut after a masked value keeps a normal, reusable prompt."""
         secret = "orch" + "id"
 
         def command(lead):
+            """Return a terminal command whose display cut lands after a masked password."""
             head = lead + "rm tail; "
             pad = 600 - (len('{"command":"') + len(head) + len(" password=[REDACTED]"))
             return head + "x" * pad + " pass" "word=" + secret + " " + "y" * 800
@@ -741,12 +744,14 @@ class ApprovalScopeTests(unittest.TestCase):
         self.assertEqual(_display_value("word " * 204 + "done"), "word " * 204 + "done")
 
     def test_long_placeholder_run_gets_an_absent_marker_quickly(self):
+        """Marker selection makes one membership test, not one per placeholder."""
         from hermes_switchyard import approval_review as review
 
         class CountingText(str):
             checks = 0
 
             def __contains__(self, item):
+                """Count membership tests, then defer to ``str``."""
                 CountingText.checks += 1
                 return super().__contains__(item)
 
