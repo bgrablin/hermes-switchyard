@@ -1,0 +1,13 @@
+# https://docs.sourcery.ai/References/Legacy-Configuration/sourcery-yaml/
+# Pull-request review enablement, language, and draft handling are dashboard
+# settings, not keys in this file. The GitHub App reviews non-draft pull
+# requests by default. Rule strictness stays on the documented default tag.
+rule_settings:
+  enable:
+    - default
+  python_version: "3.11"
+github:
+  ignore_labels:
+    - sourcery-ignore
+  request_review: author
+  sourcery_branch: sourcery/{base_branch}
