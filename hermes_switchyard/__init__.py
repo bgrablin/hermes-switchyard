@@ -2033,10 +2033,33 @@ def register(ctx):
         decision_tools_available,
     )
     if hasattr(ctx, "register_skill"):
-        ctx.register_skill(
-            "hermes-switchyard-operations",
-            Path(__file__).parent / "skills" / "hermes-switchyard-operations" / "SKILL.md",
+        import inspect
+
+        skill_path = Path(__file__).parent / "skills" / "hermes-switchyard-operations" / "SKILL.md"
+        description = ""
+        try:
+            skill_text = skill_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            skill_text = ""
+        # The bundled frontmatter uses a top-level, single-line description.
+        frontmatter = re.match(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|$)", skill_text, re.DOTALL)
+        if frontmatter is not None:
+            match = re.search(r"^description:[ \t]*(.*)$", frontmatter.group(1), re.MULTILINE)
+            if match is not None:
+                description = match.group(1).strip()
+        try:
+            parameters = inspect.signature(ctx.register_skill).parameters.values()
+        except (TypeError, ValueError):
+            parameters = ()
+        supports_description = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            or (parameter.name == "description" and parameter.kind in {
+                inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY,
+            })
+            for parameter in parameters
         )
+        kwargs = {"description": description} if supports_description else {}
+        ctx.register_skill("hermes-switchyard-operations", skill_path, **kwargs)
     if sys.platform in {"win32", "darwin", "linux"} and hasattr(ctx, "register_system_prompt_section"):
         ctx.register_system_prompt_section(
             "hermes-switchyard.computer-use",
