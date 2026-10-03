@@ -128,6 +128,49 @@ To re-pin:
 
 Workflow actions are pinned to full commit SHAs and jobs use `contents: read`. No workflow writes GitHub secrets, environments, tags, releases, or comments. Keep local evidence outside the repository; only the declared CI receipts and candidate archive are uploaded by their respective workflows.
 
+## Workflow dependency pins
+
+The existing required native Hermes job runs a dependency-pin contract in
+`tests/test_ci_contracts.py`. Every remote `uses:` reference in every `.yml` and
+`.yaml` workflow must use a full 40-character commit SHA. This includes reusable
+workflows and actions in subdirectories. A Docker action must use a full
+`sha256:` image digest; local `./` references are allowed. YAML is parsed, so
+quoted keys, flow mappings, and aliases are checked without mistaking comments
+or shell text for dependencies.
+
+This catches a concrete regression: replacing `actions/checkout@<full SHA>`
+with `actions/checkout@v7` or `@main` fails the required check. The regression
+fixtures exercise mutable tags, branches, abbreviated SHAs, reusable workflows,
+and Docker tags, plus accepted immutable and local references. The contract
+runs offline inside the existing test suite: no extra runner job, API request,
+dependency installation, scheduled scan, model call, or permission is added.
+Workflow lint still validates syntax and embedded shell; the existing exact
+`setup-uv` version contract still checks consistency across jobs. Dependabot
+continues to propose GitHub Actions updates weekly, with at most five open PRs.
+
+A pin prevents a referenced tag or branch from moving underneath CI. It does
+not prove that the selected commit is trustworthy or vulnerability-free, inspect
+an action's nested dependencies, or pin tools downloaded in shell commands.
+
+### Advisory coverage boundary
+
+This repository currently has no Python dependency manifest or lockfile.
+GitHub's dependency inventory contains SHA-pinned Actions, and GitHub documents
+Actions advisory matching for semantic versions rather than SHA references.
+A successful dependency graph comparison therefore does not establish useful
+vulnerability coverage for the current dependency surface. There is no separate
+dependency-review workflow adding such a check to every Action change.
+
+CI installs Hermes from an external pinned checkout and installs tools through
+shell commands. Their resolved Python dependencies are not inventoried by this
+repository's graph. CodeQL's existing Python/Actions scans and Dependabot updates
+remain separate controls. When a supported versioned manifest or lockfile is
+introduced, evaluate dependency review against a known vulnerable dependency
+change before adding a path-filtered high/critical advisory check. Do not add a
+placeholder manifest that misrepresents the external Hermes environment.
+
+See GitHub's [dependency graph ecosystem support](https://docs.github.com/en/code-security/reference/supply-chain-security/dependency-graph-supported-package-ecosystems).
+
 ## Receipt retention and AI review usage
 
 Keep local fixes in one tested checkpoint before pushing. Request an AI review
