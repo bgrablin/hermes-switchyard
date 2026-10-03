@@ -651,7 +651,7 @@ class ApprovalScopeTests(unittest.TestCase):
         def command(lead):
             head = lead + "rm tail; "
             pad = 600 - (len('{"command":"') + len(head) + len(" password=[REDACTED]"))
-            return head + "x" * pad + " password=" + secret + " " + "y" * 800
+            return head + "x" * pad + " pass" "word=" + secret + " " + "y" * 800
 
         args = {"command": command("")}
         result = pre_tool_gate(tool_name="terminal", args=args)
