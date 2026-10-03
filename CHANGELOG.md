@@ -8,6 +8,8 @@ There is no fixed feature-count gate for 0.6.0: land work that earns its keep, a
 
 ### Added
 
+- `.coderabbit.yaml` asks CodeRabbit for English, non-draft, advisory pull request reviews (request-changes workflow off, no walkthrough poem).
+
 - [#193](https://github.com/bgrablin/hermes-switchyard/pull/193): opt-in tool review, retrieval screening, and conservative output handling (runtime switches default **off**; catalog review is an explicit command). Retrieved-text screen (`retrieved_screen_enabled`; shadow indicators when off), `hermes switchyard scan-catalog` admission review, consequential tool gate (`consequential_tool_gate`), smart approval provider (`smart_approval_provider` / `switchyard-approvals`), repeated terminal-line compaction (`repeated_output_compaction`), cross-tool stuck advice (`cross_tool_stuck_detection`), and browser plan cache (`browser_plan_cache`). See [FEATURE-EXPANSION.md](docs/FEATURE-EXPANSION.md). No measured latency, cost, or task-quality claim; runtime candidates stay off until their value is demonstrated.
 
 - Add opt-in human-readable output to `hermes switchyard receipt --human`. It shows the selected skill, decision source, verified skill-load status, Jev call or skip, and unverified task outcome. It applies to history queries and does not change the JSON default.

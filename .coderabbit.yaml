@@ -1,0 +1,11 @@
+# https://docs.coderabbit.ai/reference/configuration
+# Advisory reviews only. Drafts stay excluded. Request-changes workflow stays off
+# so comments do not block merge.
+language: en-US
+reviews:
+  request_changes_workflow: false
+  poem: false
+  in_progress_fortune: false
+  auto_review:
+    enabled: true
+    drafts: false
