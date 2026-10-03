@@ -109,7 +109,29 @@ hermes switchyard status --json                                    # a session s
 hermes switchyard status --json --toolsets computer_use,terminal   # a session started with that exact pin
 ```
 
-`status` asks Hermes' own catalog builder what a **fresh** session would get. It cannot see inside a session that's already running, so restart after changing anything. It always exits with code 0, so read the JSON. `status --json` also includes a `toolset_composition` object that names the required toolsets.
+`status` asks Hermes' own catalog builder what a **fresh** session would get. It cannot see inside a session that's already running, so restart after changing anything. Without `--check`, the status report exits with code 0, so read the JSON. `status --json` also includes a `toolset_composition` object that names the required toolsets.
+
+Use `--check` to set the exit code from the same local-readiness report:
+
+```text
+hermes switchyard status --check
+hermes switchyard status --json --check --toolsets computer_use,hermes_switchyard
+```
+
+- **0:** the top-level status is exactly `ready`.
+- **1:** the status is not ready, missing, or unknown.
+- **2:** invalid command usage, as reported by the argument parser.
+
+Text and JSON output do not change with `--check`. Legacy warnings remain advisory.
+If you also specify `--browser`, code 0 requires the browser diagnostic's outcome
+to be `started`. A failed, missing, or unknown outcome gives code 1. A fallback
+that then starts the browser passes. `--check` alone does not start a browser,
+call a provider, write configuration, or enable tools.
+
+This checks local readiness for a fresh session only. A present key does not
+prove that the key is valid or that the account has access or balance. The check
+does not verify a running session, inference quality, all feature settings,
+approval safety, or browser-task completion.
 
 The top-level `status` field names the **first** problem it found:
 

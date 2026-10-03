@@ -1067,9 +1067,18 @@ def _cli_handler(args):
             except Exception:  # noqa: BLE001 -- a probe fault must not hide the rest of status
                 browser_diagnostic = browser_use.startup_diagnostic([], reason="browser_probe_failed")
             payload["browser_startup"] = browser_diagnostic
+        exit_code = 0
+        if getattr(args, "check", False):
+            exit_code = int(
+                status != "ready"
+                or (
+                    getattr(args, "browser", False) is True
+                    and (browser_diagnostic or {}).get("outcome") != "started"
+                )
+            )
         if getattr(args, "json_output", False):
             print(json.dumps(payload, sort_keys=True))
-            return 0
+            return exit_code
         setup_hint = "Run: hermes switchyard setup --provider typesafe"
         if effective_provider is not None and credential_missing and any(credential_presence.values()):
             setup_hint = (
@@ -1097,7 +1106,7 @@ def _cli_handler(args):
                 print(line)
         for line in legacy_warnings:
             print(line)
-        return 0
+        return exit_code
     if command == "cleanup":
         try:
             result = legacy_cleanup.cleanup_legacy_artifacts(apply=getattr(args, "apply", False) is True)
@@ -1360,6 +1369,10 @@ def _setup_cli(parser):
     wow.add_argument("--json", action="store_true", dest="json_output", help="Emit schema-versioned JSON")
     status = commands.add_parser("status", help="Show local readiness without network access")
     status.add_argument("--json", action="store_true", dest="json_output")
+    status.add_argument(
+        "--check", action="store_true",
+        help="Exit 1 unless local status is ready and any requested browser probe started",
+    )
     status.add_argument(
         "--toolsets",
         default=None,
@@ -2020,10 +2033,33 @@ def register(ctx):
         decision_tools_available,
     )
     if hasattr(ctx, "register_skill"):
-        ctx.register_skill(
-            "hermes-switchyard-operations",
-            Path(__file__).parent / "skills" / "hermes-switchyard-operations" / "SKILL.md",
+        import inspect
+
+        skill_path = Path(__file__).parent / "skills" / "hermes-switchyard-operations" / "SKILL.md"
+        description = ""
+        try:
+            skill_text = skill_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            skill_text = ""
+        # The bundled frontmatter uses a top-level, single-line description.
+        frontmatter = re.match(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|$)", skill_text, re.DOTALL)
+        if frontmatter is not None:
+            match = re.search(r"^description:[ \t]*(.*)$", frontmatter.group(1), re.MULTILINE)
+            if match is not None:
+                description = match.group(1).strip()
+        try:
+            parameters = inspect.signature(ctx.register_skill).parameters.values()
+        except (TypeError, ValueError):
+            parameters = ()
+        supports_description = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            or (parameter.name == "description" and parameter.kind in {
+                inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY,
+            })
+            for parameter in parameters
         )
+        kwargs = {"description": description} if supports_description else {}
+        ctx.register_skill("hermes-switchyard-operations", skill_path, **kwargs)
     if sys.platform in {"win32", "darwin", "linux"} and hasattr(ctx, "register_system_prompt_section"):
         ctx.register_system_prompt_section(
             "hermes-switchyard.computer-use",
