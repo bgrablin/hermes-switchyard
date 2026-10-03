@@ -9,6 +9,7 @@ imported; set SWITCHYARD_REQUIRE_HERMES=1 to make a missing runtime a failure in
 from __future__ import annotations
 
 import copy
+from contextlib import ExitStack
 
 import argparse
 import io
@@ -360,15 +361,140 @@ class StatusCommandTests(unittest.TestCase):
         with mock.patch.object(hermes_switchyard, "_secret", return_value=""):
             hermes_switchyard.register(_PluginContext(self.hermes))
 
-    def run_status(self, *, json_output, toolsets=None, credential=True):
-        args = SimpleNamespace(switchyard_command="status", json_output=json_output, toolsets=toolsets)
+    def run_status(self, *, json_output, toolsets=None, credential=True, check=False,
+                   browser=False, diagnostic=None, browser_error=False, present=None):
+        args = SimpleNamespace(
+            switchyard_command="status", json_output=json_output, toolsets=toolsets,
+            check=check, browser=browser,
+        )
         stored_value = PLACEHOLDER_CREDENTIAL if credential else ""
-        with mock.patch.object(hermes_switchyard, "_secret", return_value=stored_value), \
-             mock.patch.object(hermes_switchyard, "_load_hermes_seams", return_value=self.hermes.seams()), \
-             mock.patch.object(hermes_switchyard, "DecisionClient", side_effect=AssertionError("status must stay network-free")), \
-             mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+        with ExitStack() as stack:
+            stack.enter_context(mock.patch.object(
+                hermes_switchyard, "_secret", return_value=stored_value,
+                side_effect=self.keys(*present) if present is not None else None,
+            ))
+            stack.enter_context(mock.patch.object(hermes_switchyard, "_load_hermes_seams", return_value=self.hermes.seams()))
+            stack.enter_context(mock.patch.object(
+                hermes_switchyard.legacy_cleanup, "status_warnings", return_value=["Synthetic legacy warning."]
+            ))
+            guards = [stack.enter_context(mock.patch(target, side_effect=AssertionError("unexpected side effect")))
+                      for target in (
+                          "hermes_switchyard.DecisionClient", "socket.create_connection", "socket.socket.connect",
+                          "socket.socket.connect_ex", "hermes_switchyard.ensure_platform_toolsets",
+                          "pathlib.Path.write_text", "pathlib.Path.write_bytes",
+                      )]
+            writes = []
+
+            def read_only_open(original):
+                def guarded(file, mode="r", *args, **kwargs):
+                    if any(flag in mode for flag in "wax+"):
+                        writes.append(str(file))
+                        raise AssertionError("status must not write configuration")
+                    return original(file, mode, *args, **kwargs)
+                return guarded
+
+            import builtins
+            stack.enter_context(mock.patch("builtins.open", side_effect=read_only_open(builtins.open)))
+            stack.enter_context(mock.patch("io.open", side_effect=read_only_open(io.open)))
+            probe = stack.enter_context(mock.patch.object(
+                hermes_switchyard.browser_use, "probe_browser_startup", return_value=diagnostic,
+                side_effect=RuntimeError("private probe exception") if browser_error else None,
+            ))
+            stdout = stack.enter_context(mock.patch("sys.stdout", new_callable=io.StringIO))
             code = hermes_switchyard._cli_handler(args)
+            for guard in guards:
+                guard.assert_not_called()
+            self.assertEqual(writes, [])
+            self.assertEqual(probe.call_count, int(browser))
         return code, stdout.getvalue()
+
+    def test_check_matrix_preserves_default_exits_and_output(self):
+        cases = (
+            ("ready", "ready"), ("unregistered", "tools_not_registered"),
+            ("pin", "tools_not_callable"), ("disabled", "tools_not_callable"),
+            ("keyless", "credential_required"), ("wrong_key", "credential_required"),
+            ("invalid_provider", "tools_not_callable"), ("no_catalog", "exposure_unverified"),
+            ("report_error", "exposure_unverified"),
+        )
+        for scenario, expected in cases:
+            for json_output in (False, True):
+                with self.subTest(scenario=scenario, json_output=json_output), ExitStack() as stack:
+                    settings = {"jev_provider": "not-a-provider"} if scenario == "invalid_provider" else (
+                        {"jev_provider": "openrouter"} if scenario == "wrong_key" else {}
+                    )
+                    self.register_with(settings)
+                    if scenario == "unregistered":
+                        del self.hermes.entries["jev_assess"]
+                    if scenario == "disabled":
+                        self.hermes.disabled = [PLUGIN_TOOLSET]
+                    if scenario == "no_catalog":
+                        stack.enter_context(mock.patch.object(self.hermes, "get_tool_definitions", None))
+                    if scenario == "report_error":
+                        stack.enter_context(mock.patch.object(
+                            hermes_switchyard, "_tool_exposure_report", side_effect=RuntimeError("private report exception")
+                        ))
+                    def run(check):
+                        return self.run_status(
+                            json_output=json_output, toolsets="terminal" if scenario == "pin" else None,
+                            credential=scenario != "keyless", check=check,
+                            present=("typesafe",) if scenario == "wrong_key" else None,
+                        )
+                    default_code, default_output = run(False)
+                    code, output = run(True)
+                    self.assertEqual(default_code, 0)
+                    self.assertEqual(code, 0 if expected == "ready" else 1)
+                    self.assertEqual(output, default_output)
+                    self.assertEqual(json.loads(output)["status"] if json_output else output.split()[2], expected)
+                    self.assertNotIn(PLACEHOLDER_CREDENTIAL, output)
+                    self.assertNotIn("private report exception", output)
+
+    def test_check_fails_closed_for_missing_or_unknown_status(self):
+        for status in (None, "", "future_status"):
+            for json_output in (False, True):
+                with self.subTest(status=status, json_output=json_output), mock.patch.object(
+                    hermes_switchyard, "_overall_status", return_value=status
+                ):
+                    default_code, default_output = self.run_status(json_output=json_output)
+                    code, output = self.run_status(json_output=json_output, check=True)
+                    self.assertEqual((default_code, code), (0, 1))
+                    self.assertEqual(output, default_output)
+
+    def test_check_requested_browser_matrix_and_output_equality(self):
+        cases = (
+            ({"outcome": "started"}, False, True, 0),
+            ({"outcome": "started", "fallback_used": True}, False, True, 0),
+            ({"outcome": "failed"}, False, True, 1),
+            (None, True, True, 1), (None, False, True, 1),
+            ({}, False, True, 1), ({"outcome": "unknown"}, False, True, 1),
+            ({"outcome": "started"}, False, False, 1),
+        )
+        for diagnostic, error, credential, expected in cases:
+            for json_output in (False, True):
+                with self.subTest(diagnostic=diagnostic, error=error, credential=credential, json_output=json_output):
+                    def run(check):
+                        return self.run_status(
+                            json_output=json_output, browser=True, diagnostic=diagnostic,
+                            browser_error=error, credential=credential, check=check,
+                        )
+                    default_code, default_output = run(False)
+                    code, output = run(True)
+                    self.assertEqual((default_code, code), (0, expected))
+                    self.assertEqual(output, default_output)
+                    self.assertNotIn("private probe exception", output)
+
+    def test_check_parser_and_invalid_usage(self):
+        parser = argparse.ArgumentParser()
+        hermes_switchyard._setup_cli(parser)
+        for flags in ([], ["--json"], ["--toolsets", "computer_use,hermes_switchyard"],
+                      ["--json", "--toolsets", "computer_use,hermes_switchyard", "--browser"]):
+            with self.subTest(flags=flags):
+                self.assertTrue(parser.parse_args(["status", "--check", *flags]).check)
+                self.assertFalse(parser.parse_args(["status", *flags]).check)
+        for flags in (["--unknown"], ["--check", "--unknown"], ["--check", "--toolsets"]):
+            with self.subTest(flags=flags), mock.patch("sys.stderr", new_callable=io.StringIO):
+                with self.assertRaises(SystemExit) as caught:
+                    parser.parse_args(["status", *flags])
+                self.assertEqual(caught.exception.code, 2)
 
     def test_json_status_reports_registration_and_exposure_per_tool(self):
         code, output = self.run_status(json_output=True, toolsets="terminal")
@@ -595,7 +721,7 @@ class RealHermesExposureTests(unittest.TestCase):
 
     def run_hermes(self, *, pin=None, catalog_pins=(), catalog_default=False, credential=False,
                    settings=None, extra_config="", shadows=(), command=None, expect_exit=0,
-                   parse_status=True, home=None, retain_home=False):
+                   parse_status=True, home=None, retain_home=False, catalog_error=False):
         """Run a hermes switchyard command for real and return plugin/Hermes answers.
 
         When ``retain_home`` is true, the disposable HERMES_HOME is copied to a retained
@@ -646,8 +772,22 @@ class RealHermesExposureTests(unittest.TestCase):
             scenario_path.write_text(json.dumps(scenario), encoding="utf-8")
             environment = _hermes_environment(home)
             environment.update(extra_environment)
+            probe_command = [python, str(PROBE), str(scenario_path)]
+            if catalog_error:
+                # Keep the real loader and CLI: fail only the catalog builder used by status.
+                # Deny networking before patch() imports model_tools and discovers plugins.
+                wrapper = (
+                    "import runpy, socket, sys; from unittest.mock import patch; "
+                    "sys.argv = sys.argv[1:]; probe = runpy.run_path(sys.argv[0]); "
+                    "socket.create_connection = probe['_deny_network']; "
+                    "socket.socket.connect = probe['_deny_network']; "
+                    "socket.socket.connect_ex = probe['_deny_network']; "
+                    "\nwith patch('model_tools.get_tool_definitions', side_effect=RuntimeError('synthetic catalog failure')):"
+                    "\n    raise SystemExit(probe['main']())\n"
+                )
+                probe_command = [python, "-c", wrapper, str(PROBE), str(scenario_path)]
             completed = subprocess.run(
-                [python, str(PROBE), str(scenario_path)],
+                probe_command,
                 env=environment, cwd=str(base), capture_output=True, encoding="utf-8", errors="replace",
                 timeout=300,
             )
@@ -709,6 +849,26 @@ class RealHermesExposureTests(unittest.TestCase):
             self.assertIs(state["registered"], True, name)
             self.assertEqual(state["registry_toolset"], toolset, name)
         self.assertEqual(set(outcome.registry), _manifest_tools())
+
+    def test_check_exit_codes_propagate_through_the_native_cli(self):
+        pin = f"{COMPUTER_USE_TOOLSET},{PLUGIN_TOOLSET}"
+        cases = (
+            (pin, True, False, "ready", 0),
+            (pin, False, False, "credential_required", 1),
+            ("terminal", True, False, "tools_not_callable", 1),
+            (pin, True, True, "exposure_unverified", 1),
+        )
+        for selected, credential, catalog_error, expected_status, expected_exit in cases:
+            for check in (False, True):
+                with self.subTest(status=expected_status, check=check):
+                    outcome = self.run_hermes(
+                        pin=selected, credential=credential, catalog_error=catalog_error,
+                        command=["status", "--json", *(["--check"] if check else [])],
+                        expect_exit=expected_exit if check else 0,
+                    )
+                    self.assertEqual(outcome.status["status"], expected_status)
+                    self.assertNotIn(PLACEHOLDER_CREDENTIAL, outcome.stdout)
+                    self.assertNotIn("synthetic catalog failure", outcome.stdout)
 
     def test_explicit_toolset_pins_match_hermes_own_catalog(self):
         pins = (

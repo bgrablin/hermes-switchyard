@@ -1067,9 +1067,18 @@ def _cli_handler(args):
             except Exception:  # noqa: BLE001 -- a probe fault must not hide the rest of status
                 browser_diagnostic = browser_use.startup_diagnostic([], reason="browser_probe_failed")
             payload["browser_startup"] = browser_diagnostic
+        exit_code = 0
+        if getattr(args, "check", False):
+            exit_code = int(
+                status != "ready"
+                or (
+                    getattr(args, "browser", False) is True
+                    and (browser_diagnostic or {}).get("outcome") != "started"
+                )
+            )
         if getattr(args, "json_output", False):
             print(json.dumps(payload, sort_keys=True))
-            return 0
+            return exit_code
         setup_hint = "Run: hermes switchyard setup --provider typesafe"
         if effective_provider is not None and credential_missing and any(credential_presence.values()):
             setup_hint = (
@@ -1097,7 +1106,7 @@ def _cli_handler(args):
                 print(line)
         for line in legacy_warnings:
             print(line)
-        return 0
+        return exit_code
     if command == "cleanup":
         try:
             result = legacy_cleanup.cleanup_legacy_artifacts(apply=getattr(args, "apply", False) is True)
@@ -1360,6 +1369,10 @@ def _setup_cli(parser):
     wow.add_argument("--json", action="store_true", dest="json_output", help="Emit schema-versioned JSON")
     status = commands.add_parser("status", help="Show local readiness without network access")
     status.add_argument("--json", action="store_true", dest="json_output")
+    status.add_argument(
+        "--check", action="store_true",
+        help="Exit 1 unless local status is ready and any requested browser probe started",
+    )
     status.add_argument(
         "--toolsets",
         default=None,

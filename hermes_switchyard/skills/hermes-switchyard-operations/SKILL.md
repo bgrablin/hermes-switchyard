@@ -32,6 +32,7 @@ discovery/import/registration, not tool availability in a particular session.
 
 ```python
 terminal(command="hermes switchyard status --json")
+terminal(command="hermes switchyard status --check")
 terminal(command="hermes switchyard status --toolsets computer_use,hermes_switchyard --json")
 terminal(command="hermes switchyard guide")
 ```
@@ -42,6 +43,14 @@ booleans, and `tool_exposure`. The decision tools require `hermes_switchyard`;
 by session toolset selection or disabled toolsets. Do not silently change them.
 These commands make no Jev request. `status --browser` is different: it launches
 a diagnostic browser, so do not add it to a read-only check without that scope.
+
+`--check` sets the exit code from the same report: 0 means the top-level status is
+exactly `ready`, 1 means not ready, missing, or unknown, and 2 means invalid usage.
+Output does not change; `--check` alone starts no browser, makes no provider call,
+writes no configuration, and enables no tools.
+It checks a fresh session's local readiness only, not whether a provider key
+works or a tool is callable in the current session.
+Treat exit code 1 as "read the JSON", not as an error to retry.
 
 ## Automatic versus explicit behavior
 
