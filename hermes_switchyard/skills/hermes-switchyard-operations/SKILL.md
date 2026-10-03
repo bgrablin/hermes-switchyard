@@ -221,7 +221,7 @@ opt-in. It reviews commands for native smart approval only when explicitly selec
 as `auxiliary.approval` provider `switchyard-approvals`. It remains experimental and
 can escalate safe commands.
 
-- Normal prompts name the tool, trigger category, and field. They show redacted matched input, target/context, and a bounded input preview. Each string in the preview shows at most 1,024 input characters, cut at a word boundary.
+- Normal prompts name the tool, trigger category, and field. They show redacted matched input, target/context, and a bounded input preview. Before redaction, each string in the preview keeps at most 1,024 input characters, cut at a word boundary. The matched-input and preview lines are then cut to 240 and 600 characters, and can end inside a word.
 - Allow once covers this call. Session/always covers only the same tool with identical input. Uninspectable approvals cover this invocation only; session/always cannot approve a later call.
 - Trigger categories: `irreversible_operation`, `credential_access`, `native_hardline`, and `native_policy_unavailable`.
 - The gate inspects the `terminal` command, its `workdir`/`cwd` paths, and `execute_code` code. Credential directories such as `.ssh`, `.aws`, and `.gnupg` require approval; a plain `env` directory does not. For `write_file` and `patch`, it checks target paths and patch file deletions. File bodies are withheld from previews. `delegate_task` prose is not scanned; child tool calls have their own approval.
@@ -232,7 +232,8 @@ can escalate safe commands.
 - Inside a credential substitution, a normal prompt keeps operation indicators and masks credential values, literal output, and heredoc bodies. It withholds the input when masking would hide interpreter code, subcommands, unknown producer operands, or any operation indicator.
 - Hermes redacts the prompt again before it shows the prompt. If that redaction would hide an indicator or merge lines, the prompt withholds the input and covers only that call.
 - In comments and heredoc data, credential labels with plain quotes are masked to the end of the line. Heredoc header continuations are also masked. Comment masks stop at their own line.
-- After a credential label, the prompt shows only a complete mask or a credential-context substitution that Switchyard masked itself. Anything else, including escaped or encoded forms, withholds the input for that call only.
+- After a credential label that Switchyard recognizes, the prompt shows only a complete mask, a credential-context substitution that Switchyard masked itself, or a truncation marker that Switchyard added. Anything else, including escaped or encoded forms and marker text from the input, withholds the input for that call only.
+- Obfuscated labels, such as a `\u{...}` escape or a label split by quotes or `+`, are not recognized.
 - In an unquoted shell word such as `password=value`, the next argument is separate and remains visible.
 - This is not a full shell parser. If redaction or truncation removes any indicator from view, or changes the input when the native check triggered, the prompt withholds the input and covers only that call.
 - Known gap: destructive Python standard-library calls such as `os.remove` and `shutil.rmtree` lack dedicated detection (issue #204). This gate only adds prompts and never grants execution. Native Hermes approval checks still apply.
