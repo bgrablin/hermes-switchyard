@@ -4,7 +4,7 @@
 
 There's nothing new to learn: no slash command and no tool. If your request doesn't fit the supported pattern, or the evidence is uncertain, Hermes does what it always does and uses its normal search and read tools.
 
-**Status:** off by default. It is a pilot that is still being qualified. Unreleased; planned for 0.6.0.
+**Status:** off by default. It is a pilot that is still being qualified. New in 0.6.0.
 
 ## Turn it on
 

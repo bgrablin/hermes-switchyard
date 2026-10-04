@@ -1,6 +1,6 @@
 # Local observation report (`wow`)
 
-**In short:** a quick look at what Switchyard has been doing on this machine over the last week. It shows how many turns it saw, how often it picked or loaded a skill, how often it lowered effort, how many Jev calls it made, and how fast they were. It reads only local records, makes no network calls, and changes nothing. *0.6.0 candidate; not in 0.5.6.*
+**In short:** a quick look at what Switchyard has been doing on this machine over the last week. It shows how many turns it saw, how often it picked or loaded a skill, how often it lowered effort, how many Jev calls it made, and how fast they were. It reads only local records, makes no network calls, and changes nothing. *New in 0.6.0; not in 0.5.6.*
 
 It reports **what was recorded**, not whether Switchyard made things better. Every number comes with its denominator, so you can tell "zero" from "no data."
 

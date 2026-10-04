@@ -2,7 +2,7 @@
 
 **In short:** four ideas from community Jev projects ([awesome-jev](https://github.com/yibie/awesome-jev)) were tested against Switchyard. One earned its place:
 
-- **Multi-file evidence** became an opt-in extension of [source prefetch](SOURCE-FINDER.md), a 0.6.0 candidate that is not in 0.5.6. In an 80-conversation test, it answered all 16 cases correctly, like every other arm, while cutting median time by about **53%** against Hermes without the plugin.
+- **Multi-file evidence** became an opt-in extension of [source prefetch](SOURCE-FINDER.md). It is new in 0.6.0 and is not in 0.5.6. In an 80-conversation test, it answered all 16 cases correctly, like every other arm, while cutting median time by about **53%** against Hermes without the plugin.
 - **The other three** (output pruning, batch log triage, and completion checking) didn't justify a new feature.
 
 The evidence covers this synthetic workload only and does not justify turning the feature on by default.

@@ -25,7 +25,7 @@ Find the right page for what you want to do. Pages near the top are for everyone
 | [Session search re-rank](SESSION-SEARCH-RERANK.md) | Reorders past-session search results | Tool only |
 | [Skill description lint](LINT-SKILLS.md) | Flags skills whose descriptions are too similar to tell apart | Command only |
 | [Local observation report (`wow`)](WOW-LOCAL-REPORT.md) | Summarizes what Switchyard recorded on this machine | Command only |
-| [Offline outcome labels](OUTCOME-LABELS.md) | Labels retained receipts for offline analysis (0.6.0 candidate) | Command only |
+| [Offline outcome labels](OUTCOME-LABELS.md) | Labels retained receipts for offline analysis (new in 0.6.0) | Command only |
 | [Record triage demo](RECORD-TRIAGE.md) | A library example that triages bug reports with `jev_assess` | Library only |
 
 ## Evidence and evaluation
@@ -48,6 +48,6 @@ Find the right page for what you want to do. Pages near the top are for everyone
 | [Security](../SECURITY.md) | How to report a vulnerability |
 | [Third-party references](../THIRD_PARTY.md) | Upstream guidance this plugin follows |
 
-## Experimental 0.6.0 candidates
+## Experimental opt-in features (new in 0.6.0)
 
-[Tool review, retrieval screening, output handling, browser plan caching, and catalog review](FEATURE-EXPANSION.md) describes the opt-in candidates and their limits. Native context compression remains unchanged.
+[Tool review, retrieval screening, output handling, browser plan caching, and catalog review](FEATURE-EXPANSION.md) describes these opt-in features and their limits. Native context compression remains unchanged.

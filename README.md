@@ -1,6 +1,6 @@
 # Hermes Switchyard
 
-Version: 0.5.6
+Version: 0.6.0
 
 **Switchyard makes the small decisions in a [Hermes Agent](https://github.com/NousResearch/hermes-agent) session faster and cheaper, and keeps a record of each one.**
 
@@ -163,8 +163,8 @@ The complete list of what Switchyard adds to Hermes:
 | Hooks (7) | `pre_llm_call` (skill routing and effort capture), `post_llm_call` (clears capture), `post_tool_call` (reconsiders effort), `transform_llm_output` (receipt line), `post_api_request` (token counts); optional `pre_tool_call` (requests approval) and `transform_tool_result` (output handling and stuck advice) | First five on after install; new tool hooks opt-in |
 | Middleware (1) | `llm_request` sets the reasoning effort for each request | On when your Hermes version supports it (0.21.4+) |
 | CLI | `hermes switchyard setup`, `status`, `test`, `receipt`, `stats`, `guide`, `ensure-toolsets` | Run when you want |
-| CLI (offline, 0.6.0 candidates) | `hermes switchyard lint-skills [--json]` flags ambiguous descriptions ([guide](docs/LINT-SKILLS.md)); `hermes switchyard scan-catalog PATH` reviews package/MCP content with hashes and coverage gaps ([guide](docs/FEATURE-EXPANSION.md)) | Explicit only; no network, no edits |
-| Local report (0.6.0 candidate; not in 0.5.6) | `hermes switchyard wow` and `/switchyard wow` summarize what Switchyard recorded locally ([guide](docs/WOW-LOCAL-REPORT.md)) | Last 7 days; read-only |
+| CLI (offline, new in 0.6.0) | `hermes switchyard lint-skills [--json]` flags ambiguous descriptions ([guide](docs/LINT-SKILLS.md)); `hermes switchyard scan-catalog PATH` reviews package/MCP content with hashes and coverage gaps ([guide](docs/FEATURE-EXPANSION.md)) | Explicit only; no network, no edits |
+| Local report (new in 0.6.0) | `hermes switchyard wow` and `/switchyard wow` summarize what Switchyard recorded locally ([guide](docs/WOW-LOCAL-REPORT.md)) | Last 7 days; read-only |
 
 What each tool is for:
 
@@ -282,9 +282,9 @@ Before removing, save any receipts you want from the profile's `plugin-data/herm
 
 ## What's in this release
 
-This README describes the current `main` branch, which is version 0.5.6 plus work collected under **0.6.0 (unreleased)** in the [changelog](CHANGELOG.md).
+This is version 0.6.0. The [changelog](CHANGELOG.md) lists every change and what is not included.
 
-**Version 0.5.6 includes:**
+**Features retained from 0.5.6:**
 
 - local decisions for trivial turns
 - the visible effort receipt line and session summary
@@ -292,12 +292,14 @@ This README describes the current `main` branch, which is version 0.5.6 plus wor
 
 **Not included:** Research Navigator (F1) and DOM Progress & Recovery (F2). Both failed their release evaluations ([PR #132](https://github.com/bgrablin/hermes-switchyard/pull/132), [PR #135](https://github.com/bgrablin/hermes-switchyard/pull/135)). Don't install those PRs or copy their settings. Follow-up work is tracked in [issue #139](https://github.com/bgrablin/hermes-switchyard/issues/139).
 
-**0.6.0 candidates not in 0.5.6:**
+**New in 0.6.0:**
 
 - [offline outcome labels](docs/OUTCOME-LABELS.md): local-only analysis of retained receipts. They add no hook and change no routing.
-- the `wow` local report
+- the `wow` local report and `hermes switchyard receipt --human`
+- `hermes switchyard lint-skills`, `scan-catalog`, and `status --check`
+- less hosted work on easy turns: light turns skip hosted skill selection
 - [automatic source prefetch](docs/SOURCE-FINDER.md) (opt-in pilot)
-- `hermes switchyard lint-skills`
+- opt-in tool review, all off by default: a consequential tool gate with clearer approval prompts, a smart approval provider, cross-tool stuck advice, repeated terminal-line compaction, retrieval screening, and a browser plan cache ([guide](docs/FEATURE-EXPANSION.md))
 
 The [benchmark report](docs/BENCHMARKS.md) shows where Jev measurably helped (for example, picking the right skill 12/12 times against 7/12 for simple word matching) and is explicit about its limits. It does not claim Jev improves every task.
 

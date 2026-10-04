@@ -2,28 +2,28 @@
 
 **In plain words:**
 
-- **Picking the right skill:** Jev chose correctly in **12 of 12** single-skill cases, against **7 of 12** for simple word matching. A decision took about **166 ms** at the median and cost roughly **$0.00006**.
+- **Picking the right skill:** Jev chose correctly in **12 of 12** single-skill cases, against **7 of 12** for simple word matching. A decision took about **152 ms** at the median and cost roughly **$0.00006**.
 - **Picking several skills for one task:** Jev covered **5 of 5** required sets. The single-pick tool covered none of them, as expected.
 - **Model recommendations and typed checks:** Jev passed small smoke tests (3 of 3). These are too small to generalize.
 - **Computer use:** there's no fair comparison against stock Hermes yet.
-- **What this does *not* show:** that a whole Hermes session gets better. Most rows other than skill picking date from 0.5.0.
+- **What this does *not* show:** that a whole Hermes session gets better. Rows other than single-skill and multi-skill picking date from 0.5.0.
 
 The detailed tables, sources, and reproduction steps follow.
 
-The selector value report below was collected against source commit `7dc77c8` in the 0.5.4 codebase. This report-refresh commit changes documentation and the release allowlist only, leaving the plugin and selector collector source unchanged. The other feature-battery rows below—multi-skill, model route, assess, automatic routing, and computer use—remain **0.5.0-only**: their feature-battery measurements were collected at `c8e6008c6314e182fd7b100a30efb384db542ee8`, and computer-use DOM was re-bound to tip-main commit `a8dae196b0b9892eeb627829d97363ec3d4bb9c9` after #57+#58. Those rows were **not re-collected for 0.5.1, 0.5.2, 0.5.3, or 0.5.4**. Comparison arms vary by row. Human-readable benefits first. Hashes and reproduce steps are under [Proof](#proof). This page does not claim whole-agent improvement.
+The single-skill and multi-skill rows were re-measured for 0.6.0 against source commit `dd4477a`: `04786f3` (#214) with the 0.6.0 version bump. Plugin code changed after that measurement (#215), so the release's plugin source hash differs from the measured one. The other feature-battery rows below—model route, assess, automatic routing, and computer use—remain **0.5.0-only**: their feature-battery measurements were collected at `c8e6008c6314e182fd7b100a30efb384db542ee8`, and computer-use DOM was re-bound to tip-main commit `a8dae196b0b9892eeb627829d97363ec3d4bb9c9` after #57+#58. Those rows were **not re-collected for 0.5.1 through 0.6.0**. Comparison arms vary by row. Human-readable benefits first. Hashes and reproduce steps are under [Proof](#proof). This page does not claim whole-agent improvement.
 
 ## Per-feature scorecard
 
 | Feature | What this row measures | Comparison arm | Measured arm | Latency / cost (measured) | Fair A/B? |
 | --- | --- | ---: | ---: | --- | --- |
-| Skill pick | One right specialist skill for a task (`jev_skill_select`; refreshed for 0.5.4) | Lexical: 7/12 | **12/12** | p50 **166.2 ms**, p95 **245.9 ms**; **~$0.000055**/decision | Yes — frozen 24-task lexical vs live Jev |
-| Multi-skill pick | Finish a task that needs several skills (`jev_skill_select_many`) | One-skill API (`jev_skill_select`): 0/5 sets | **5/5** sets (mean coverage 1.0) | p50 **253 ms**, p95 **352 ms**; **$0.000347** for 5 | Yes — same 5 frozen multi-skill tasks; comparison arm is still a Switchyard API |
+| Skill pick | One right specialist skill for a task (`jev_skill_select`; refreshed for 0.6.0) | Lexical: 7/12 | **12/12** | p50 **151.7 ms**, p95 **216.6 ms**; **~$0.000055**/decision | Yes — frozen 24-task lexical vs live Jev |
+| Multi-skill pick | Finish a task that needs several skills (`jev_skill_select_many`; refreshed for 0.6.0) | One-skill API (`jev_skill_select`): 0/5 sets | **5/5** sets (mean coverage 1.0) | p50 **154 ms**, p95 **338 ms**; **$0.000347** for 5 | Yes — same 5 frozen multi-skill tasks; comparison arm is still a Switchyard API |
 | Model route | Recommend a model + auditable receipt (`jev_model_route`); ships in 0.5.0 | no Switchyard recommendation | **3/3** recommend; `applied: false` (Hermes does not switch yet) | p50 **164 ms**; **$0.000067** for 3 | Partial — agrees with code-owned local filter; not a Hermes auto-picker |
 | Assess | Small typed multiple-choice check (`jev_assess`) | First-option baseline: 2/3 | **3/3** | p50 **212 ms**; **$0.000040** for 3 | Weak baseline only (n=3 smoke) |
 | Automatic skill routing | Pre-model skill hint, local match on vs off | silent when off | 1/2 needed; no-fit stays silent | ~1–2 ms local | Yes for hook on/off; not whole-agent |
 | Computer use | Browser/desktop goal progress (`jev_computer_use` DOM) | stock A/B **pending** Session-1 GUI | Felidae: 1 click; local `url_contains` ok; **`goal_verified: false`** (dual-gate) | Jev **365 ms**; ~**$0.00021** | **Unavailable** — stock Session-1 GUI arm pending; do not treat Switchyard-only as A/B |
 
-Rows kept off the install scorecard: **needed-skill failures 11→5** is reported within the refreshed selector benchmark; **false skill suggestions 0→0** is a no-delta safety check. The multi-skill, model-route, assess, automatic-routing, and computer-use measurements in the feature battery are historical **0.5.0-only** evidence. Hermes does not apply the model-route recommendation in that feature-battery measurement (`applied: false`).
+Rows kept off the install scorecard: **needed-skill failures 11→5** is reported within the refreshed selector benchmark; **false skill suggestions 0→0** is a no-delta safety check. The model-route, assess, automatic-routing, and computer-use measurements in the feature battery are historical **0.5.0-only** evidence. Hermes does not apply the model-route recommendation in that feature-battery measurement (`applied: false`).
 
 ## Skill select (frozen 24-task live value bench)
 
@@ -40,25 +40,27 @@ Rows kept off the install scorecard: **needed-skill failures 11→5** is reporte
 
 Observed Switchyard provider timing/usage (claimable; every case has a live receipt):
 
-- Provider p50: **166.2 ms** · p95: **245.9 ms**
-- Total provider time: **4,326.9 ms** · wall: **4,335.677 ms**
+- Provider p50: **151.7 ms** · p95: **216.6 ms**
+- Total provider time: **3,981.4 ms** · wall: **3,988.69 ms**
 - Tokens: **31,212** in / **3,972** out
 - Jev PAYG: **$0.0013109** for 24 cases (~**$0.000055**/decision)
 
 **Interpretation:** live Switchyard improves strict single-skill selection and reduces times a needed skill was missed versus the local lexical fallback without raising no-fit false positives. Multi-skill tasks are measured under [`jev_skill_select_many`](#multi-skill-jev_skill_select_many), not by scoring one-skill pick on set completion.
 
-The dataset hash is unchanged from the historical public freeze (`97a7702c…`). The plugin and collector hashes in [Proof](#proof) bind this refreshed selector measurement to source `7dc77c8`; the subsequent documentation/allowlist-only report-refresh commit leaves them unchanged.
+The dataset hash is unchanged from the historical public freeze (`97a7702c…`). The plugin and collector hashes in [Proof](#proof) bind this refreshed selector measurement to source `dd4477a`. The release's plugin hash differs from the one below. After the measurement, #215 changed the approval gate code (`hermes_switchyard/approval_review.py`), and the bundled operations skill (`hermes_switchyard/skills/hermes-switchyard-operations/SKILL.md`) has new body text. That skill's frontmatter description, which the plugin uses at registration, is unchanged. The benchmark's candidates come from the frozen dataset. These rows were not re-measured after #215.
 
 ## Multi-skill (`jev_skill_select_many`)
 
-Same **5** frozen required-set tasks as the selector bench.
+Same **5** frozen required-set tasks as the selector bench, measured on source `dd4477a`. The comparison arm is the `jev_skill_select` result for the same 5 tasks in the 24-task selector run, so it needs no extra provider calls.
 
 | Arm | Multi-skill sets complete | Mean coverage | p50 latency | Total cost |
 | --- | ---: | ---: | ---: | ---: |
-| Comparison: one-skill API (`jev_skill_select`, still Switchyard) | **0/5** | 0.10 | ~165–184 ms | $0.000273 |
-| Measured: `jev_skill_select_many` | **5/5** | **1.00** | **253 ms** | $0.000347 |
+| Comparison: one-skill API (`jev_skill_select`, still Switchyard) | **0/5** | 0.10 | 194 ms | $0.000273 |
+| Measured: `jev_skill_select_many` | **5/5** | **1.00** | **154 ms** | $0.000347 |
 
 **Interpretation:** when a task needs several skills together, `select_many` completes the set (**5/5**). One-skill pick is the wrong tool for that job (**0/5** on the same tasks) — that contrast is why this row exists, not a claim that one-skill pick will ever score set completion.
+
+A first live run on the same commit selected the same sets for every task. That run did not record timing or cost, so the table shows the second run.
 
 ## Model pick (`jev_model_route`)
 
@@ -125,13 +127,13 @@ A concurrent Windows validation (Hermes 0.21.x) showed `jev_computer_use` callab
 
 ## Proof
 
-### Live selector value report (source `7dc77c8`)
+### Live selector value report (source `dd4477a`)
 
 | Field | Value |
 | --- | --- |
-| Report | [`live-selector-7dc77c8.json`](benchmarks/live-selector-7dc77c8.json) |
-| Report hash | `fd2caa911d4c9bc5766558776fa809b2c27564115c496713be58a67a94938ffc` |
-| Plugin source hash | `94741a2b6762f32d01f8eb35cf221a9ea546dcc55d004e43fbdabc18266d96f4` |
+| Report | [`live-selector-dd4477a.json`](benchmarks/live-selector-dd4477a.json) |
+| Report hash | `33fdf9abc371109505df813663c8bcd6ad691f43dee651c3ecf45af898194cfd` |
+| Plugin source hash | `350abb3f31f162fc53fa352cc051ab989de4ec53f866a83c38dbd8194cff8495` |
 | Collector source hash | `f9027bc10c214ba744a1aecaeeb388a00cef28c08e0c1ba410ade4c9d539d07b` |
 | Dataset hash | `97a7702c0fa0474a8b13e8b018f4a1c86d4b9f84cbe5cba4c5d7122df73b6c28` |
 | Catalog hash | `d16e9d6e2c6850b9624083f7102004bea3ba9f6b3c0db8dd51988b544df8c070` |
@@ -139,11 +141,15 @@ A concurrent Windows validation (Hermes 0.21.x) showed `jev_computer_use` callab
 | Jev model | `typesafe/jev-1.13-20260917` via OpenRouter |
 | Provider calls | 24; report status `ok` |
 
-Earlier selector summaries remain available for historical comparison: [`live-selector-c8e6008.json`](benchmarks/live-selector-c8e6008.json) and [`live-selector-c6d9b28.json`](benchmarks/live-selector-c6d9b28.json). Each report is bound to its own plugin/collector hashes; do not mix hashes when citing results.
+Earlier selector summaries remain available for historical comparison: [`live-selector-7dc77c8.json`](benchmarks/live-selector-7dc77c8.json) (0.5.4), [`live-selector-c8e6008.json`](benchmarks/live-selector-c8e6008.json), and [`live-selector-c6d9b28.json`](benchmarks/live-selector-c6d9b28.json). Each report is bound to its own plugin/collector hashes; do not mix hashes when citing results.
+
+### Multi-skill artifact (source `dd4477a`)
+
+[`multi-skill-dd4477a.json`](benchmarks/multi-skill-dd4477a.json) holds the per-task selections, scores, provider latency, and reported cost for the 5 required-set tasks. It records the same plugin source, dataset, and catalog hashes as the selector report above. The repository has no collector script for this row. The artifact states the method: call `routing.select_skills` with the frozen 12-skill catalog and the default threshold, through the same client and secret scope as the selector collector. 5 provider calls.
 
 ### Feature battery artifact
 
-[`feature-battery-c8e6008.json`](benchmarks/feature-battery-c8e6008.json) holds the historical **0.5.0-only** multi-skill, model-route, assess, automatic, and computer-use rows. Its `plugin_tips` metadata records the selector/feature-microbench source tip as `c8e6008` and computer-use DOM tip as `a8dae19` (see the artifact). The older selector-only report at `c8e6008` is linked above; the refreshed selector-only evidence is the separate `7dc77c8` report.
+[`feature-battery-c8e6008.json`](benchmarks/feature-battery-c8e6008.json) holds the historical **0.5.0-only** multi-skill, model-route, assess, automatic, and computer-use rows. Its multi-skill row is superseded by the `dd4477a` artifact above. Its `plugin_tips` metadata records the selector/feature-microbench source tip as `c8e6008` and computer-use DOM tip as `a8dae19` (see the artifact).
 
 ### Reproduce selector value report
 
