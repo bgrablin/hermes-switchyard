@@ -312,6 +312,37 @@ class ApprovalTests(unittest.TestCase):
 
 
 
+    def test_literal_py_prints_are_exempt_on_a_non_posix_shell(self):
+        """Windows does not need a Windows runner: pass posix=False.
+
+        echo and printf stay gated. A direct py/python -c that only prints
+        does not. A py -c that calls os.remove is not literal output.
+        """
+        from hermes_switchyard.approval_review import _literal_shell_output
+
+        exempt = (
+            'py -c "print(\'rm obsolete.txt\')"',
+            '/usr/bin/py -c "print(\'rm obsolete.txt\')"',
+            'py.exe -c "print(\'rm obsolete.txt\')"',
+            'python -c "print(\'rm obsolete.txt\')"',
+            'python3 -c "print(\'hello\')"',
+        )
+        for command in exempt:
+            with self.subTest(command=command):
+                self.assertTrue(_literal_shell_output(command, posix=False))
+        gated = (
+            'py -c "import os; os.remove(\'obsolete.txt\')"',
+            "echo 'rm obsolete.txt'",
+            "printf '%s' 'rm file'",
+            "del obsolete.txt",
+            "erase obsolete.txt",
+            "rd /s /q build",
+        )
+        for command in gated:
+            with self.subTest(command=command, posix=False, expect="gated"):
+                self.assertFalse(_literal_shell_output(command, posix=False))
+
+
 class ApprovalScopeTests(unittest.TestCase):
     def test_display_masking_cost_is_bounded_on_long_label_runs(self):
         from hermes_switchyard.approval_review import _redact_display_text
@@ -1465,7 +1496,8 @@ class ApprovalScopeTests(unittest.TestCase):
             "echo 'rm obsolete.txt'",
             "python -c \"print('rm obsolete.txt')\"",
         )
-        for posix, expect_prompt in ((False, (True, True, True, True)), (True, (False, False, False, False))):
+        # echo/printf stay gated when the shell is not POSIX. A literal python -c print does not.
+        for posix, expect_prompt in ((False, (True, True, True, False)), (True, (False, False, False, False))):
             for command, prompt in zip(commands, expect_prompt):
                 with self.subTest(posix=posix, command=command), patch(
                     "hermes_switchyard.approval_review.native_hardline", return_value=False

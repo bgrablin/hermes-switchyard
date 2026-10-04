@@ -1114,17 +1114,22 @@ def _literal_python(code):
 
 
 def _posix_shell():
-    """Literal-output parsing follows POSIX shell rules. PowerShell and cmd differ:
-    a backslash is not an escape there, and cmd does not treat single quotes as
-    quoting. On Windows hosts, every shell command therefore keeps its indicators."""
+    """Whether echo and printf quoting follows POSIX shell rules.
+
+    PowerShell and cmd do not treat a backslash as an escape or single quotes
+    as quoting, so echo and printf keep their indicators on Windows. A direct
+    python, python3, or py -c of literal prints is exempt on every platform.
+    """
     return os.name != "nt"
 
 
-def _literal_shell_output(command):
+def _literal_shell_output(command, *, posix=None):
     # Expansion, redirects, compound commands and substitution are NOT inert
     # just because the leading executable prints. Unknown syntax stays gated.
-    if not _posix_shell():
-        return False
+    # ``posix=False`` is the Windows shell: echo/printf stay gated, but a
+    # direct python/python3/py -c of literal prints does not.
+    if posix is None:
+        posix = _posix_shell()
     if any(c in command for c in ("$", "`", "\n", "\r")):
         return False
     try:
@@ -1136,7 +1141,7 @@ def _literal_shell_output(command):
         return False
     if not words or any(word and set(word) <= set(";&|<>()") for word in words):
         return False
-    if words[0] in {"echo", "printf"}:
+    if posix and words[0] in {"echo", "printf"}:
         return True
     # Same executables as ``_python_executable`` (python, python3, py, paths, .exe).
     return (len(words) == 3 and _python_executable(words[0]) and words[1] == "-c"

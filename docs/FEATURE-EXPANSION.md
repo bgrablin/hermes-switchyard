@@ -57,7 +57,7 @@ The gate requests approval for a closed set of calls: `os.remove`, `os.unlink`,
 `rb`) when the path literal matches the credential-path indicator. Aliased imports
 are included. `execute_code` also requests approval for an unresolved call whose
 dotted name is in that set, because its session kernel keeps imports from an
-earlier submission. A fresh `python -c` process does not. Code that does not parse
+earlier submission. A fresh `python -c` process does not. Literal `python`, `python3`, and `py -c` prints are exempt on every platform, including Windows; `echo` and `printf` stay gated on Windows. Code that does not parse
 requests approval. This is not a sandbox. Dynamic
 dispatch (`getattr`, `exec`, `eval`), star imports, computed attributes,
 `os.path.remove`, and non-literal paths or modes are not detected. Parsed shell commands named `del`, `erase`, or `rd` request approval on every host. A Python `del` statement, or text that only mentions those words, does not.
