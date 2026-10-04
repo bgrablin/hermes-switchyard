@@ -226,7 +226,7 @@ can escalate safe commands.
 - Trigger categories: `irreversible_operation`, `credential_access`, `native_hardline`, and `native_policy_unavailable`.
 - The gate inspects the `terminal` command, its `workdir`/`cwd` paths, and `execute_code` code. Credential directories such as `.ssh`, `.aws`, and `.gnupg` require approval; a plain `env` directory does not. For `write_file` and `patch`, it checks target paths and patch file deletions. File bodies are withheld from previews. `delegate_task` prose is not scanned; child tool calls have their own approval.
 - On POSIX hosts, literal-only `echo`, `printf`, and `python3 -c` assignments/prints can suppress text indicators, but never the native hardline floor. Expansion, substitution, redirects, compound commands, and newlines keep their indicators.
-- On Windows hosts, every shell command keeps its indicators.
+- On Windows hosts, `echo` and `printf` keep their indicators. A direct `python`, `python3`, or `py -c` of literal prints does not; a `-c` payload that calls `os.remove` or another destructive call still requires approval.
 - `execute_code` retains matched indicators even in literal-looking prints. Persistent session state can rebind `print`, so these calls still require approval. This is intentional fail-closed behavior.
 - For supported tools with a dict argument envelope, incomplete inspection asks for approval with `incomplete_inspection`. Limits include 16,000 total key/value characters, 256 visited values or collection elements, unsupported values, and missing operation targets. These limits include passive file bodies. If safe preview building fails after a finding, the prompt names the tool, category, field, and invocation-only scope, with `redaction_unavailable`; input and target are withheld.
 - Inside a credential substitution, a normal prompt keeps operation indicators and masks credential values, literal output, and heredoc bodies. It withholds the input when masking would hide interpreter code, subcommands, unknown producer operands, or any operation indicator.
@@ -236,7 +236,7 @@ can escalate safe commands.
 - Obfuscated labels, such as a `\u{...}` escape or a label split by quotes or `+`, are not recognized.
 - In an unquoted shell word such as `password=value`, the next argument is separate and remains visible.
 - This is not a full shell parser. If redaction or truncation removes any indicator from view, or changes the input when the native check triggered, the prompt withholds the input and covers only that call.
-- Known gap: destructive Python standard-library calls such as `os.remove` and `shutil.rmtree` lack dedicated detection (issue #204). This gate only adds prompts and never grants execution. Native Hermes approval checks still apply.
+- `execute_code` and `python -c` request approval for a closed set that includes `os.remove` and `shutil.rmtree`. `getattr`, `exec`, `eval`, and star imports are not detected. This gate only adds prompts and never grants execution. Native Hermes approval checks still apply.
 
 For a suspected false positive, record the exact bounded command, intended
 effects, plugin/host versions, enabled gate/provider, and returned reason without
