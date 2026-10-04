@@ -5,7 +5,11 @@ redaction-failed, or timed-out reviews escalate; no command is executed here.
 
 The Python check on ``execute_code`` and ``python -c`` is a closed call list,
 not a sandbox. ``getattr``, ``exec``, ``eval``, star imports, computed
-attributes, and non-literal paths or modes are not detected.
+attributes, and non-literal paths or modes are not detected. A literal
+``open`` mode is a write when it contains ``w``, ``a``, ``x``, or ``+``;
+read-only modes such as ``r`` and ``rb`` are not. ``execute_code`` also flags
+an unresolved dotted call in the closed set, because its session kernel keeps
+imports from earlier submissions. A fresh ``python -c`` process does not.
 """
 
 from __future__ import annotations
@@ -1132,7 +1136,8 @@ def _literal_shell_output(command):
         return False
     if words[0] in {"echo", "printf"}:
         return True
-    return (len(words) == 3 and words[0] in {"python", "python3"} and words[1] == "-c"
+    # Same executables as ``_python_executable`` (python, python3, py, paths, .exe).
+    return (len(words) == 3 and _python_executable(words[0]) and words[1] == "-c"
             and _literal_python(words[2]))
 
 
@@ -1295,13 +1300,15 @@ def _executed_python_c_sources(command):
 class _PythonCallRisk(ast.NodeVisitor):
     """Resolve a closed set of destructive calls, including import aliases."""
 
-    def __init__(self):
+    def __init__(self, unresolved_destructive=False):
         self.modules = {}
         self.bound = {}
         self.paths = set()
         self.shadow = set()
         self.scopes = []
         self.found = None
+        # execute_code only. A fresh python -c process cannot see an earlier import.
+        self.unresolved_destructive = unresolved_destructive
 
     def _push(self):
         self.scopes.append((
@@ -1473,8 +1480,26 @@ class _PythonCallRisk(ast.NodeVisitor):
             if isinstance(receiver, ast.Call) and self._canon(receiver.func) == "pathlib.Path":
                 self.found = "irreversible_operation"
                 return
+        if self.unresolved_destructive and self._unresolved_closed_call(node):
+            self.found = "irreversible_operation"
+            return
         if self._sensitive_open_write(node):
             self.found = "credential_access"
+
+    def _unresolved_closed_call(self, node):
+        func = node.func
+        parts = []
+        while isinstance(func, ast.Attribute):
+            parts.append(func.attr)
+            func = func.value
+        if not isinstance(func, ast.Name):
+            return False
+        parts.append(func.id)
+        dotted = ".".join(reversed(parts))
+        if dotted not in _PY_DESTRUCTIVE:
+            return False
+        root = func.id
+        return root not in self.bound and root not in self.modules and root not in self.shadow and root not in self.paths
 
     def _sensitive_open_write(self, node):
         func = node.func
@@ -1491,27 +1516,29 @@ class _PythonCallRisk(ast.NodeVisitor):
                 path = keyword.value
         if not isinstance(mode, ast.Constant) or not isinstance(mode.value, str):
             return False
-        if mode.value[:1].lower() != "w":
+        # w/wb, append (a), exclusive create (x), and update (+) are writes. r/rb are not.
+        if not set(mode.value.lower()) & set("wax+"):
             return False
         if not isinstance(path, ast.Constant) or not isinstance(path.value, str):
             return False
         return _CREDENTIAL_PATH.search(path.value) is not None
 
 
-def _python_source_indicator(code):
+def _python_source_indicator(code, unresolved_destructive=False):
     """Flag closed-set destructive calls. Unparsed code stays gated."""
     try:
         tree = ast.parse(code)
     except (SyntaxError, ValueError, RecursionError, MemoryError):
         return "unparsed_python"
-    risk = _PythonCallRisk()
+    risk = _PythonCallRisk(unresolved_destructive=unresolved_destructive)
     risk.visit(tree)
     return risk.found
 
 
 def _structural_python_indicator(kind, value):
     if kind == "python":
-        return _python_source_indicator(value)
+        # execute_code keeps the session kernel. A missing import can still be live.
+        return _python_source_indicator(value, unresolved_destructive=True)
     if kind != "shell":
         return None
     # echo/printf and literal python -c prints are output, not destructive calls.

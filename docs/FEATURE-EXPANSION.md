@@ -52,9 +52,13 @@ not a complete authorization boundary.
 `execute_code` and direct `python -c` / `python3 -c` / `py -c` input are parsed.
 The gate requests approval for a closed set of calls: `os.remove`, `os.unlink`,
 `os.rmdir`, `os.removedirs`, `shutil.rmtree`, `shutil.move`, `pathlib.Path.unlink`,
-`pathlib.Path.rmdir`, and `open` with a write mode (`w`, including `wb`) when the
-path literal matches the credential-path indicator. Aliased imports are included.
-Code that does not parse requests approval. This is not a sandbox. Dynamic
+`pathlib.Path.rmdir`, and `open` with a literal mode containing `w`, `a`, `x`, or
+`+` (append, exclusive create, and update, including `wb`; not read-only `r` or
+`rb`) when the path literal matches the credential-path indicator. Aliased imports
+are included. `execute_code` also requests approval for an unresolved call whose
+dotted name is in that set, because its session kernel keeps imports from an
+earlier submission. A fresh `python -c` process does not. Code that does not parse
+requests approval. This is not a sandbox. Dynamic
 dispatch (`getattr`, `exec`, `eval`), star imports, computed attributes,
 `os.path.remove`, and non-literal paths or modes are not detected. Shell text
 indicators also include Windows `del`, `erase`, and `rd` on every host.

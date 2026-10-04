@@ -223,6 +223,9 @@ class ApprovalTests(unittest.TestCase):
 
         Dynamic dispatch stays out of scope: getattr, exec, eval, star imports,
         computed attributes, os.path.remove, and non-literal open paths or modes.
+        Append, exclusive-create, and update open modes are writes. Read-only
+        r/rb are not. execute_code flags an unresolved os.remove because the
+        session kernel keeps imports; a fresh python -c process does not.
         """
         gated = [
             ("terminal", "python -c \"import os; os.remove('obsolete.txt')\"", "irreversible_operation"),
@@ -239,6 +242,15 @@ class ApprovalTests(unittest.TestCase):
             ("execute_code", "from pathlib import Path as P\np = P('obsolete.txt')\np.unlink()", "irreversible_operation"),
             ("execute_code", "open('.gnupg/trustdb', 'w')", "credential_access"),
             ("execute_code", "open(file='.gnupg/trustdb', mode='wb')", "credential_access"),
+            ("execute_code", "open('.gnupg/trustdb', 'a')", "credential_access"),
+            ("execute_code", "open('.gnupg/trustdb', 'x')", "credential_access"),
+            ("execute_code", "open('.gnupg/trustdb', 'r+')", "credential_access"),
+            ("execute_code", "open('.gnupg/trustdb', 'ab')", "credential_access"),
+            ("execute_code", "open(file='.aws/config', mode='a+')", "credential_access"),
+            ("execute_code", "os.remove('obsolete.txt')", "irreversible_operation"),
+            ("execute_code", "shutil.move('a', 'b')", "irreversible_operation"),
+            ("terminal", "py -c \"import os; os.remove('obsolete.txt')\"", "irreversible_operation"),
+            ("terminal", "/usr/bin/py.exe -c \"import shutil; shutil.rmtree('build')\"", "irreversible_operation"),
             ("execute_code", "def (", "unparsed_python"),
             ("terminal", "python -c \"def (\"", "unparsed_python"),
             ("terminal", "del obsolete.txt", "irreversible_operation"),
@@ -263,6 +275,15 @@ class ApprovalTests(unittest.TestCase):
             ("execute_code", "import os as o\nprint(o.name)"),
             ("execute_code", "open('notes.txt', 'w')"),
             ("execute_code", "open('.gnupg/trustdb', 'r')"),
+            ("execute_code", "open('.gnupg/trustdb', 'rb')"),
+            ("execute_code", "open('.gnupg/trustdb', 'rt')"),
+            ("terminal", "py -c \"print('rm obsolete.txt')\""),
+            ("terminal", "/usr/bin/py -c \"print('rm obsolete.txt')\""),
+            ("terminal", "py.exe -c \"print('hello rm')\""),
+            ("terminal", "python -c \"os.remove('obsolete.txt')\""),
+            ("terminal", "python3 -c \"shutil.rmtree('build')\""),
+            ("execute_code", "os = None\nos.remove('obsolete.txt')"),
+            ("execute_code", "import json as os\nos.remove('obsolete.txt')"),
             ("execute_code", "\"\"\"os.remove('obsolete.txt')\"\"\""),
         ]
         for tool, value in quiet:
