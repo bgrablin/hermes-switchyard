@@ -1,4 +1,4 @@
-# First-run check (measured on 0.5.5)
+# First-run check (source manifest 0.5.4)
 
 **In short:** in a clean, disposable Hermes profile, installing, enabling, and checking Switchyard took about **9 seconds** of measured time, with no key and no billed calls. Typing in a key and getting a first live answer weren't timed. So "working in under two minutes" is plausible, but not proven end to end. The details follow.
 
