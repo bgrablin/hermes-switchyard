@@ -236,7 +236,7 @@ can escalate safe commands.
 - Obfuscated labels, such as a `\u{...}` escape or a label split by quotes or `+`, are not recognized.
 - In an unquoted shell word such as `password=value`, the next argument is separate and remains visible.
 - This is not a full shell parser. If redaction or truncation removes any indicator from view, or changes the input when the native check triggered, the prompt withholds the input and covers only that call.
-- Known gap: destructive Python standard-library calls such as `os.remove` and `shutil.rmtree` lack dedicated detection (issue #204). This gate only adds prompts and never grants execution. Native Hermes approval checks still apply.
+- `execute_code` and `python -c` request approval for a closed set that includes `os.remove` and `shutil.rmtree`. `getattr`, `exec`, `eval`, and star imports are not detected. This gate only adds prompts and never grants execution. Native Hermes approval checks still apply.
 
 For a suspected false positive, record the exact bounded command, intended
 effects, plugin/host versions, enabled gate/provider, and returned reason without

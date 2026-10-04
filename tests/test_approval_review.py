@@ -236,6 +236,12 @@ class ApprovalTests(unittest.TestCase):
             ("terminal", "python -c \"from shutil import rmtree; rmtree('build')\"", "irreversible_operation"),
             ("terminal", "echo ok; python -c \"import shutil; shutil.move('a', 'b')\"", "irreversible_operation"),
             ("execute_code", "import os\nos.remove('obsolete.txt')", "irreversible_operation"),
+            ("execute_code", "import os\nclass Bucket:\n    os.remove('obsolete.txt')", "irreversible_operation"),
+            ("execute_code", "import os\nclass os:\n    os.remove('obsolete.txt')", "irreversible_operation"),
+            ("terminal", "python -Wignore -c \"import shutil; shutil.rmtree('d')\"", "irreversible_operation"),
+            ("terminal", "py -Wignore -c \"import shutil; shutil.rmtree('d')\"", "irreversible_operation"),
+            ("terminal", "python -Xdev -c \"import shutil; shutil.rmtree('d')\"", "irreversible_operation"),
+            ("terminal", "python -W ignore -c \"import shutil; shutil.rmtree('d')\"", "irreversible_operation"),
             ("execute_code", "import os as o\no.unlink('obsolete.txt')", "irreversible_operation"),
             ("execute_code", "from shutil import rmtree\nrmtree('build')", "irreversible_operation"),
             ("execute_code", "from os import removedirs as rm_tree\nrm_tree('build')", "irreversible_operation"),
@@ -291,6 +297,10 @@ class ApprovalTests(unittest.TestCase):
             ("execute_code", "del temporary_variable"),
             ("execute_code", "note = 'a standalone del token is not a file delete'"),
             ("execute_code", "print('please do not del or erase or rd this')"),
+            ("execute_code", "import os\ndef os():\n    pass\nos.remove('obsolete.txt')"),
+            ("execute_code", "import os\nclass os:\n    pass\nos.remove('obsolete.txt')"),
+            ("terminal", "python -Wignore -c \"print('rm obsolete.txt')\""),
+            ("terminal", "py -Wignore -c \"print('rm obsolete.txt')\""),
         ]
         for tool, value in quiet:
             field = "command" if tool == "terminal" else "code"
@@ -326,6 +336,8 @@ class ApprovalTests(unittest.TestCase):
             'py.exe -c "print(\'rm obsolete.txt\')"',
             'python -c "print(\'rm obsolete.txt\')"',
             'python3 -c "print(\'hello\')"',
+            'python -Wignore -c "print(\'rm obsolete.txt\')"',
+            'py -Wignore -c "print(\'rm obsolete.txt\')"',
         )
         for command in exempt:
             with self.subTest(command=command):
@@ -337,6 +349,7 @@ class ApprovalTests(unittest.TestCase):
             "del obsolete.txt",
             "erase obsolete.txt",
             "rd /s /q build",
+            'python -Wignore -c "import shutil; shutil.rmtree(\'d\')"',
         )
         for command in gated:
             with self.subTest(command=command, posix=False, expect="gated"):

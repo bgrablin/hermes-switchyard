@@ -1143,9 +1143,10 @@ def _literal_shell_output(command, *, posix=None):
         return False
     if posix and words[0] in {"echo", "printf"}:
         return True
-    # Same executables as ``_python_executable`` (python, python3, py, paths, .exe).
-    return (len(words) == 3 and _python_executable(words[0]) and words[1] == "-c"
-            and _literal_python(words[2]))
+    # Options may precede -c (python -Wignore -c ...). Attached option
+    # arguments must not hide that payload; see ``_python_c_from_words``.
+    payload = _python_c_from_words(words)
+    return isinstance(payload, str) and _literal_python(payload)
 
 
 def _operation_inputs(tool_name, args):
@@ -1257,7 +1258,9 @@ def _python_c_from_words(words):
                 if index + 1 >= len(words):
                     return _MISSING_PYTHON_C
                 return words[index + 1]
-            if body[:1] in "mWXQ":
+            # Only a bare -m/-W/-X/-Q consumes the next word. -Wignore and
+            # -Xdev already include their argument and must not skip -c.
+            if body in {"m", "W", "X", "Q"}:
                 index += 2
                 continue
             index += 1
@@ -1425,12 +1428,15 @@ class _PythonCallRisk(ast.NodeVisitor):
         if args.kwarg:
             self._shadow_name(args.kwarg.arg)
 
-    def _visit_function(self, node):
+    def _visit_function(self, node, bind_name=None):
         for decorator in node.decorator_list:
             self.visit(decorator)
         for default in list(node.args.defaults) + list(node.args.kw_defaults):
             if default is not None:
                 self.visit(default)
+        # The name is bound before the body runs. Decorators still see the old name.
+        if bind_name:
+            self._shadow_name(bind_name)
         self._push()
         self._bind_args(node.args)
         for stmt in node.body:
@@ -1438,10 +1444,10 @@ class _PythonCallRisk(ast.NodeVisitor):
         self._pop()
 
     def visit_FunctionDef(self, node):
-        self._visit_function(node)
+        self._visit_function(node, bind_name=node.name)
 
     def visit_AsyncFunctionDef(self, node):
-        self._visit_function(node)
+        self._visit_function(node, bind_name=node.name)
 
     def visit_Lambda(self, node):
         for default in list(node.args.defaults) + list(node.args.kw_defaults):
@@ -1457,10 +1463,13 @@ class _PythonCallRisk(ast.NodeVisitor):
             self.visit(decorator)
         for base in node.bases:
             self.visit(base)
+        # The class body runs before the class name is bound, so it still sees
+        # the previous import. The name shadows that import for later statements.
         self._push()
         for stmt in node.body:
             self.visit(stmt)
         self._pop()
+        self._shadow_name(node.name)
 
     def visit_Call(self, node):
         self._note_call(node)
