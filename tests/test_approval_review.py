@@ -226,6 +226,8 @@ class ApprovalTests(unittest.TestCase):
         Append, exclusive-create, and update open modes are writes. Read-only
         r/rb are not. execute_code flags an unresolved os.remove because the
         session kernel keeps imports; a fresh python -c process does not.
+        Windows del, erase, and rd prompt only as parsed shell commands.
+        A Python del statement, or execute_code that only mentions del, does not.
         """
         gated = [
             ("terminal", "python -c \"import os; os.remove('obsolete.txt')\"", "irreversible_operation"),
@@ -256,6 +258,7 @@ class ApprovalTests(unittest.TestCase):
             ("terminal", "del obsolete.txt", "irreversible_operation"),
             ("terminal", "erase obsolete.txt", "irreversible_operation"),
             ("terminal", "rd /s /q build", "irreversible_operation"),
+            ("terminal", "echo ok && del obsolete.txt", "irreversible_operation"),
         ]
         for tool, value, trigger in gated:
             field = "command" if tool == "terminal" else "code"
@@ -285,6 +288,9 @@ class ApprovalTests(unittest.TestCase):
             ("execute_code", "os = None\nos.remove('obsolete.txt')"),
             ("execute_code", "import json as os\nos.remove('obsolete.txt')"),
             ("execute_code", "\"\"\"os.remove('obsolete.txt')\"\"\""),
+            ("execute_code", "del temporary_variable"),
+            ("execute_code", "note = 'a standalone del token is not a file delete'"),
+            ("execute_code", "print('please do not del or erase or rd this')"),
         ]
         for tool, value in quiet:
             field = "command" if tool == "terminal" else "code"

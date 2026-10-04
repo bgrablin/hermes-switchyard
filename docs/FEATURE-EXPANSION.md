@@ -60,8 +60,7 @@ dotted name is in that set, because its session kernel keeps imports from an
 earlier submission. A fresh `python -c` process does not. Code that does not parse
 requests approval. This is not a sandbox. Dynamic
 dispatch (`getattr`, `exec`, `eval`), star imports, computed attributes,
-`os.path.remove`, and non-literal paths or modes are not detected. Shell text
-indicators also include Windows `del`, `erase`, and `rd` on every host.
+`os.path.remove`, and non-literal paths or modes are not detected. Parsed shell commands named `del`, `erase`, or `rd` request approval on every host. A Python `del` statement, or text that only mentions those words, does not.
 
 Cross-tool advice needs nonempty session, task, turn, and tool-call IDs. Unknown
 scope abstains. It keeps at most 128 turns for ten minutes and 64 call IDs per

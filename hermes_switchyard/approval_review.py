@@ -10,6 +10,8 @@ attributes, and non-literal paths or modes are not detected. A literal
 read-only modes such as ``r`` and ``rb`` are not. ``execute_code`` also flags
 an unresolved dotted call in the closed set, because its session kernel keeps
 imports from earlier submissions. A fresh ``python -c`` process does not.
+Windows ``del``, ``erase``, and ``rd`` are parsed shell command names only.
+A Python ``del`` statement, or text that merely mentions those words, is not.
 """
 
 from __future__ import annotations
@@ -40,7 +42,7 @@ _CREDENTIAL = re.compile(
     r"(?i)(?:\.ssh[/\\]|\.aws[/\\]credentials|(?:^|[/\\\s@])\.env(?:\b|[./])|\b(?:printenv|env)\b)"
 )
 _IRREVERSIBLE = re.compile(
-    r"(?i)\b(?:shred|truncate|unlink|rmdir|rm|remove-item|clear-content|erase|del|rd)\b|"
+    r"(?i)\b(?:shred|truncate|unlink|rmdir|rm|remove-item|clear-content)\b|"
     r"\bdd\b[^\n]{0,200}\bof=/dev/|\bdrop\s+(?:database|table)\b|"
     r"\bgit\s+(?:reset\b[^\n]{0,80}--hard|clean\b[^\n]{0,80}-[a-z]*f)|"
     r"\bfind\b[^\n]{0,200}-delete\b"
@@ -61,7 +63,7 @@ def native_hardline(command):
 def local_command_policy(command: str) -> tuple[str | None, str | None]:
     if not isinstance(command, str) or not command.strip() or len(command) > 16_000:
         return "ESCALATE", "command_scope"
-    if _IRREVERSIBLE.search(command):
+    if _IRREVERSIBLE.search(command) or _windows_shell_delete(command):
         return "ESCALATE", "irreversible_operation"
     if _CREDENTIAL.search(command):
         return "ESCALATE", "credential_access"
@@ -1027,7 +1029,7 @@ def _approval_message(tool_name, args, finding):
     visible = _visible_field_prefix(tool_name, safe, field, matched, matched_view, preview)
     raw = re.sub(r"\\\r?\n", "", value)
     visible = re.sub(r"\\\r?\n", "", visible)
-    for pattern in (_IRREVERSIBLE, _CREDENTIAL, _CREDENTIAL_PATH):
+    for pattern in _preview_indicator_patterns(value):
         raw_counts = Counter(match.group().lower() for match in pattern.finditer(raw))
         visible_counts = Counter(match.group().lower() for match in pattern.finditer(visible))
         if raw_counts - visible_counts:
@@ -1075,7 +1077,7 @@ def _approval_message(tool_name, args, finding):
         scanned = tuple(_host_display_text(text.replace(_DISPLAY_CUT, cut)) for text in (message, display))
     if any(_credential_preview_incomplete(text, renderings, words, cut) for text in scanned):
         raise ValueError("credential_preview_incomplete")
-    for pattern in (_IRREVERSIBLE, _CREDENTIAL, _CREDENTIAL_PATH):
+    for pattern in _preview_indicator_patterns(value):
         if Counter(match.group().lower() for match in pattern.finditer(plain)) - Counter(
             match.group().lower() for match in pattern.finditer(shown)
         ):
@@ -1554,6 +1556,60 @@ def _structural_python_indicator(kind, value):
     return None
 
 
+_WINDOWS_SHELL_DELETE = frozenset({"del", "erase", "rd"})
+_WINDOWS_DELETE_WORD = re.compile(r"(?i)\b(?:erase|del|rd)\b")
+
+
+def _shell_command_basename(word):
+    base = word.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if base.endswith(".exe"):
+        base = base[:-4]
+    return base
+
+
+def _windows_shell_delete(command):
+    """True when a parsed shell command name is Windows del, erase, or rd.
+
+    Quoted text and other arguments do not count. This is not applied to
+    ``execute_code`` or other operation kinds. Unparsed text counts only when
+    the leading word itself is one of those commands.
+    """
+    if not isinstance(command, str) or not command.strip():
+        return False
+    try:
+        lexer = shlex.shlex(
+            _newlines_to_separators(command), posix=True, punctuation_chars=";&|<>()",
+        )
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        words = list(lexer)
+    except ValueError:
+        return _shell_command_basename(command.strip().split(None, 1)[0]) in _WINDOWS_SHELL_DELETE
+    segment = []
+
+    def hit(words):
+        index = 0
+        while index < len(words) and "=" in words[index] and not words[index].startswith("="):
+            index += 1
+        return index < len(words) and _shell_command_basename(words[index]) in _WINDOWS_SHELL_DELETE
+
+    for word in words:
+        if word and set(word) <= set(";&|<>()"):
+            if hit(segment):
+                return True
+            segment = []
+            continue
+        segment.append(word)
+    return hit(segment)
+
+
+def _preview_indicator_patterns(value):
+    patterns = (_IRREVERSIBLE, _CREDENTIAL, _CREDENTIAL_PATH)
+    if isinstance(value, str) and _windows_shell_delete(value):
+        return patterns + (_WINDOWS_DELETE_WORD,)
+    return patterns
+
+
 def _operation_indicator(kind, value):
     if kind == "delete":
         return "irreversible_operation"
@@ -1567,6 +1623,9 @@ def _operation_indicator(kind, value):
     # Only fresh shell invocations qualify for the literal-output exemption.
     if category and not (kind == "shell" and _literal_shell_output(value)):
         return category
+    # Windows del/erase/rd are shell command names, not Python statements or prose.
+    if kind == "shell" and _windows_shell_delete(value):
+        return "irreversible_operation"
     structural = _structural_python_indicator(kind, value)
     if structural:
         return structural
