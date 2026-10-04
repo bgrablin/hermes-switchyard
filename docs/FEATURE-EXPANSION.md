@@ -49,6 +49,16 @@ Native permissions still apply.
 Hermes may ignore a failed or timed-out plugin hook, so this additive check is
 not a complete authorization boundary.
 
+`execute_code` and direct `python -c` / `python3 -c` / `py -c` input are parsed.
+The gate requests approval for a closed set of calls: `os.remove`, `os.unlink`,
+`os.rmdir`, `os.removedirs`, `shutil.rmtree`, `shutil.move`, `pathlib.Path.unlink`,
+`pathlib.Path.rmdir`, and `open` with a write mode (`w`, including `wb`) when the
+path literal matches the credential-path indicator. Aliased imports are included.
+Code that does not parse requests approval. This is not a sandbox. Dynamic
+dispatch (`getattr`, `exec`, `eval`), star imports, computed attributes,
+`os.path.remove`, and non-literal paths or modes are not detected. Shell text
+indicators also include Windows `del`, `erase`, and `rd` on every host.
+
 Cross-tool advice needs nonempty session, task, turn, and tool-call IDs. Unknown
 scope abstains. It keeps at most 128 turns for ten minutes and 64 call IDs per
 turn. After three consecutive errors, up to 500 redacted characters per error

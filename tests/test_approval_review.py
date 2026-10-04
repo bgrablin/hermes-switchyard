@@ -218,6 +218,73 @@ class ApprovalTests(unittest.TestCase):
                 ApprovalClient(timeout=timeout)
 
 
+    def test_python_stdlib_calls_and_windows_delete_commands_request_approval(self):
+        """Closed-set Python calls and Windows del/erase/rd prompt.
+
+        Dynamic dispatch stays out of scope: getattr, exec, eval, star imports,
+        computed attributes, os.path.remove, and non-literal open paths or modes.
+        """
+        gated = [
+            ("terminal", "python -c \"import os; os.remove('obsolete.txt')\"", "irreversible_operation"),
+            ("terminal", "python3 -c \"import shutil; shutil.rmtree('build')\"", "irreversible_operation"),
+            ("terminal", "python -c \"import os as o; o.remove('obsolete.txt')\"", "irreversible_operation"),
+            ("terminal", "python -c \"from shutil import rmtree; rmtree('build')\"", "irreversible_operation"),
+            ("terminal", "echo ok; python -c \"import shutil; shutil.move('a', 'b')\"", "irreversible_operation"),
+            ("execute_code", "import os\nos.remove('obsolete.txt')", "irreversible_operation"),
+            ("execute_code", "import os as o\no.unlink('obsolete.txt')", "irreversible_operation"),
+            ("execute_code", "from shutil import rmtree\nrmtree('build')", "irreversible_operation"),
+            ("execute_code", "from os import removedirs as rm_tree\nrm_tree('build')", "irreversible_operation"),
+            ("execute_code", "import pathlib\npathlib.Path('build').rmdir()", "irreversible_operation"),
+            ("execute_code", "from pathlib import Path\nPath('obsolete.txt').unlink()", "irreversible_operation"),
+            ("execute_code", "from pathlib import Path as P\np = P('obsolete.txt')\np.unlink()", "irreversible_operation"),
+            ("execute_code", "open('.gnupg/trustdb', 'w')", "credential_access"),
+            ("execute_code", "open(file='.gnupg/trustdb', mode='wb')", "credential_access"),
+            ("execute_code", "def (", "unparsed_python"),
+            ("terminal", "python -c \"def (\"", "unparsed_python"),
+            ("terminal", "del obsolete.txt", "irreversible_operation"),
+            ("terminal", "erase obsolete.txt", "irreversible_operation"),
+            ("terminal", "rd /s /q build", "irreversible_operation"),
+        ]
+        for tool, value, trigger in gated:
+            field = "command" if tool == "terminal" else "code"
+            with self.subTest(tool=tool, value=value):
+                result = pre_tool_gate(tool_name=tool, args={field: value})
+                self.assertIsNotNone(result)
+                self.assertEqual(result["action"], "approve")
+                self.assertIn(trigger, result["message"])
+        # Benign literal output and ordinary commands still do not prompt.
+        quiet = [
+            ("terminal", "echo hello"),
+            ("terminal", "git status"),
+            ("terminal", "python -c \"print('hello')\""),
+            ("terminal", "python -c \"print('rm obsolete.txt')\""),
+            ("terminal", "echo 'del obsolete.txt'"),
+            ("execute_code", "print('hello')"),
+            ("execute_code", "import os as o\nprint(o.name)"),
+            ("execute_code", "open('notes.txt', 'w')"),
+            ("execute_code", "open('.gnupg/trustdb', 'r')"),
+            ("execute_code", "\"\"\"os.remove('obsolete.txt')\"\"\""),
+        ]
+        for tool, value in quiet:
+            field = "command" if tool == "terminal" else "code"
+            with self.subTest(tool=tool, value=value, expect="quiet"):
+                self.assertIsNone(pre_tool_gate(tool_name=tool, args={field: value}))
+        # These forms delete or overwrite, but the closed set does not see them.
+        out_of_scope = [
+            "import os\ngetattr(os, 'remove')('obsolete.txt')",
+            "exec(\"import os; os.remove('obsolete.txt')\")",
+            "eval(\"os.remove('obsolete.txt')\")",
+            "import os\nos.path.remove('obsolete.txt')",
+            "from os import *\nremove('obsolete.txt')",
+            "path = '.gnupg/trustdb'\nopen(path, 'w')",
+        ]
+        for code in out_of_scope:
+            with self.subTest(code=code, expect="out_of_scope"):
+                self.assertIsNone(pre_tool_gate(tool_name="execute_code", args={"code": code}))
+
+
+
+
 class ApprovalScopeTests(unittest.TestCase):
     def test_display_masking_cost_is_bounded_on_long_label_runs(self):
         from hermes_switchyard.approval_review import _redact_display_text

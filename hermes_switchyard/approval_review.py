@@ -2,6 +2,10 @@
 
 Code-owned overrides precede semantic review. Unknown, incomplete, malformed,
 redaction-failed, or timed-out reviews escalate; no command is executed here.
+
+The Python check on ``execute_code`` and ``python -c`` is a closed call list,
+not a sandbox. ``getattr``, ``exec``, ``eval``, star imports, computed
+attributes, and non-literal paths or modes are not detected.
 """
 
 from __future__ import annotations
@@ -32,7 +36,7 @@ _CREDENTIAL = re.compile(
     r"(?i)(?:\.ssh[/\\]|\.aws[/\\]credentials|(?:^|[/\\\s@])\.env(?:\b|[./])|\b(?:printenv|env)\b)"
 )
 _IRREVERSIBLE = re.compile(
-    r"(?i)\b(?:shred|truncate|unlink|rmdir|rm|remove-item|clear-content)\b|"
+    r"(?i)\b(?:shred|truncate|unlink|rmdir|rm|remove-item|clear-content|erase|del|rd)\b|"
     r"\bdd\b[^\n]{0,200}\bof=/dev/|\bdrop\s+(?:database|table)\b|"
     r"\bgit\s+(?:reset\b[^\n]{0,80}--hard|clean\b[^\n]{0,80}-[a-z]*f)|"
     r"\bfind\b[^\n]{0,200}-delete\b"
@@ -1033,7 +1037,7 @@ def _approval_message(tool_name, args, finding):
         f"Target/context (redacted): {_display_text(targets, 200)}\n"
         f"Input preview (redacted): {preview}\n"
         "Scope: Allow once covers this call; session/always covers only this tool and identical input.\n"
-        "Indicators are text matches, not proof of intent. Redacted/truncated previews are not the full input."
+        "Indicators are text matches or a closed set of parsed Python calls, not proof of intent. Redacted/truncated previews are not the full input."
     )
     try:
         from agent.redact import redact_sensitive_text
@@ -1168,6 +1172,361 @@ def _operation_inputs(tool_name, args):
     return [("path", ("path",), path)]
 
 
+
+_PY_DESTRUCTIVE = frozenset({
+    "os.remove",
+    "os.unlink",
+    "os.rmdir",
+    "os.removedirs",
+    "shutil.rmtree",
+    "shutil.move",
+    "pathlib.Path.unlink",
+    "pathlib.Path.rmdir",
+})
+_MISSING_PYTHON_C = object()
+_PYTHON_C_HINT = re.compile(
+    r"(?i)(?:^|[^\w./\\-])(?:[\w./\\-]*[/\\])?(?:python3?|py)(?:\.exe)?"
+    r"(?:\s+-\w+)*\s+-c(?:\s|$)"
+)
+
+
+def _python_executable(word):
+    base = word.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if base.endswith(".exe"):
+        base = base[:-4]
+    return base in {"python", "python3", "py"}
+
+
+def _newlines_to_separators(command):
+    """Turn unquoted newlines into command separators before shell tokenization."""
+    out = []
+    quote = ""
+    escape = False
+    for char in command:
+        if escape:
+            out.append(char)
+            escape = False
+            continue
+        if char == "\\" and quote != "'":
+            out.append(char)
+            escape = True
+            continue
+        if quote:
+            if char == quote:
+                quote = ""
+            out.append(char)
+            continue
+        if char in "\"'":
+            quote = char
+            out.append(char)
+            continue
+        out.append(";" if char in "\n\r" else char)
+    return "".join(out)
+
+
+def _python_c_from_words(words):
+    """Return the first ``python -c`` payload, None, or ``_MISSING_PYTHON_C``."""
+    if not words or not _python_executable(words[0]):
+        return None
+    index = 1
+    while index < len(words):
+        word = words[index]
+        if word == "--":
+            return None
+        if word.startswith("-") and not word.startswith("--"):
+            body = word[1:]
+            if "c" in body:
+                before, after = body.split("c", 1)
+                # -m, -W, -X, and -Q consume an argument. Do not guess past them.
+                if any(flag in before for flag in "mWXQ"):
+                    return None
+                if after:
+                    return after
+                if index + 1 >= len(words):
+                    return _MISSING_PYTHON_C
+                return words[index + 1]
+            if body[:1] in "mWXQ":
+                index += 2
+                continue
+            index += 1
+            continue
+        return None
+    return None
+
+
+def _executed_python_c_sources(command):
+    """Extract code that a direct ``python -c`` invocation would execute.
+
+    Returns ``(sources, failed)``. ``failed`` means a ``python -c`` form was
+    visible but its code could not be extracted. Quoted ``echo`` / ``printf``
+    output is not an invocation; the caller skips this when the whole command
+    is literal output.
+    """
+    try:
+        lexer = shlex.shlex(_newlines_to_separators(command), posix=True, punctuation_chars=";&|<>()")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        words = list(lexer)
+    except ValueError:
+        return [], bool(_PYTHON_C_HINT.search(command))
+    sources = []
+    segment = []
+
+    def flush(segment):
+        code = _python_c_from_words(segment)
+        if code is _MISSING_PYTHON_C:
+            return False
+        if isinstance(code, str):
+            sources.append(code)
+        return True
+
+    for word in words:
+        if word and set(word) <= set(";&|<>()"):
+            if not flush(segment):
+                return [], True
+            segment = []
+            continue
+        segment.append(word)
+    if not flush(segment):
+        return [], True
+    return sources, False
+
+
+class _PythonCallRisk(ast.NodeVisitor):
+    """Resolve a closed set of destructive calls, including import aliases."""
+
+    def __init__(self):
+        self.modules = {}
+        self.bound = {}
+        self.paths = set()
+        self.shadow = set()
+        self.scopes = []
+        self.found = None
+
+    def _push(self):
+        self.scopes.append((
+            self.modules.copy(), self.bound.copy(), self.paths.copy(), self.shadow.copy(),
+        ))
+
+    def _pop(self):
+        self.modules, self.bound, self.paths, self.shadow = self.scopes.pop()
+
+    def _shadow_name(self, name):
+        self.modules.pop(name, None)
+        self.bound.pop(name, None)
+        self.paths.discard(name)
+        self.shadow.add(name)
+
+    def _canon(self, node):
+        if isinstance(node, ast.Name):
+            if node.id in self.bound:
+                return self.bound[node.id]
+            if node.id in self.modules:
+                return self.modules[node.id]
+            return None
+        if isinstance(node, ast.Attribute):
+            base = self._canon(node.value)
+            if isinstance(base, str):
+                return base + "." + node.attr
+        return None
+
+    def _bind_target(self, target, value):
+        if isinstance(target, (ast.Tuple, ast.List)):
+            for elt in target.elts:
+                if isinstance(elt, ast.Name):
+                    self._shadow_name(elt.id)
+            return
+        if not isinstance(target, ast.Name):
+            return
+        name = target.id
+        canon = self._canon(value)
+        if canon in _PY_DESTRUCTIVE or canon == "pathlib.Path":
+            self.bound[name] = canon
+            self.modules.pop(name, None)
+            self.paths.discard(name)
+            self.shadow.discard(name)
+            return
+        if isinstance(value, ast.Call) and self._canon(value.func) == "pathlib.Path":
+            self.paths.add(name)
+            self.bound.pop(name, None)
+            self.modules.pop(name, None)
+            self.shadow.discard(name)
+            return
+        if isinstance(value, ast.Name) and value.id in self.paths:
+            self.paths.add(name)
+            self.bound.pop(name, None)
+            self.modules.pop(name, None)
+            self.shadow.discard(name)
+            return
+        self._shadow_name(name)
+
+    def visit_Import(self, node):
+        for alias in node.names:
+            if alias.asname:
+                local, qual = alias.asname, alias.name
+            else:
+                local = qual = alias.name.split(".", 1)[0]
+            self.modules[local] = qual if alias.asname else local
+            self.bound.pop(local, None)
+            self.paths.discard(local)
+            self.shadow.discard(local)
+
+    def visit_ImportFrom(self, node):
+        if not node.module or node.level:
+            return
+        for alias in node.names:
+            if alias.name == "*":
+                continue
+            local = alias.asname or alias.name
+            qual = node.module + "." + alias.name
+            self.shadow.discard(local)
+            self.paths.discard(local)
+            if qual in _PY_DESTRUCTIVE or qual == "pathlib.Path":
+                self.bound[local] = qual
+                self.modules.pop(local, None)
+            else:
+                self.modules[local] = qual
+                self.bound.pop(local, None)
+
+    def visit_Assign(self, node):
+        self.visit(node.value)
+        for target in node.targets:
+            self._bind_target(target, node.value)
+
+    def visit_AnnAssign(self, node):
+        if node.value is not None:
+            self.visit(node.value)
+            self._bind_target(node.target, node.value)
+
+    def visit_AugAssign(self, node):
+        self.visit(node.value)
+        if isinstance(node.target, ast.Name):
+            self._shadow_name(node.target.id)
+
+    def _bind_args(self, args):
+        for arg in list(args.posonlyargs) + list(args.args) + list(args.kwonlyargs):
+            self._shadow_name(arg.arg)
+        if args.vararg:
+            self._shadow_name(args.vararg.arg)
+        if args.kwarg:
+            self._shadow_name(args.kwarg.arg)
+
+    def _visit_function(self, node):
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for default in list(node.args.defaults) + list(node.args.kw_defaults):
+            if default is not None:
+                self.visit(default)
+        self._push()
+        self._bind_args(node.args)
+        for stmt in node.body:
+            self.visit(stmt)
+        self._pop()
+
+    def visit_FunctionDef(self, node):
+        self._visit_function(node)
+
+    def visit_AsyncFunctionDef(self, node):
+        self._visit_function(node)
+
+    def visit_Lambda(self, node):
+        for default in list(node.args.defaults) + list(node.args.kw_defaults):
+            if default is not None:
+                self.visit(default)
+        self._push()
+        self._bind_args(node.args)
+        self.visit(node.body)
+        self._pop()
+
+    def visit_ClassDef(self, node):
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for base in node.bases:
+            self.visit(base)
+        self._push()
+        for stmt in node.body:
+            self.visit(stmt)
+        self._pop()
+
+    def visit_Call(self, node):
+        self._note_call(node)
+        self.visit(node.func)
+        for arg in node.args:
+            self.visit(arg)
+        for keyword in node.keywords:
+            if keyword.value is not None:
+                self.visit(keyword.value)
+
+    def _note_call(self, node):
+        if self.found:
+            return
+        canon = self._canon(node.func)
+        if canon in _PY_DESTRUCTIVE:
+            self.found = "irreversible_operation"
+            return
+        func = node.func
+        if isinstance(func, ast.Attribute) and func.attr in {"unlink", "rmdir"}:
+            receiver = func.value
+            if isinstance(receiver, ast.Name) and receiver.id in self.paths:
+                self.found = "irreversible_operation"
+                return
+            if isinstance(receiver, ast.Call) and self._canon(receiver.func) == "pathlib.Path":
+                self.found = "irreversible_operation"
+                return
+        if self._sensitive_open_write(node):
+            self.found = "credential_access"
+
+    def _sensitive_open_write(self, node):
+        func = node.func
+        if not isinstance(func, ast.Name) or func.id != "open":
+            return False
+        if func.id in self.bound or func.id in self.modules or func.id in self.shadow:
+            return False
+        mode = node.args[1] if len(node.args) >= 2 else None
+        path = node.args[0] if node.args else None
+        for keyword in node.keywords:
+            if keyword.arg == "mode":
+                mode = keyword.value
+            elif keyword.arg == "file":
+                path = keyword.value
+        if not isinstance(mode, ast.Constant) or not isinstance(mode.value, str):
+            return False
+        if mode.value[:1].lower() != "w":
+            return False
+        if not isinstance(path, ast.Constant) or not isinstance(path.value, str):
+            return False
+        return _CREDENTIAL_PATH.search(path.value) is not None
+
+
+def _python_source_indicator(code):
+    """Flag closed-set destructive calls. Unparsed code stays gated."""
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return "unparsed_python"
+    risk = _PythonCallRisk()
+    risk.visit(tree)
+    return risk.found
+
+
+def _structural_python_indicator(kind, value):
+    if kind == "python":
+        return _python_source_indicator(value)
+    if kind != "shell":
+        return None
+    # echo/printf and literal python -c prints are output, not destructive calls.
+    if _literal_shell_output(value):
+        return None
+    sources, failed = _executed_python_c_sources(value)
+    if failed:
+        return "unparsed_python"
+    for source in sources:
+        found = _python_source_indicator(source)
+        if found:
+            return found
+    return None
+
+
 def _operation_indicator(kind, value):
     if kind == "delete":
         return "irreversible_operation"
@@ -1181,6 +1540,9 @@ def _operation_indicator(kind, value):
     # Only fresh shell invocations qualify for the literal-output exemption.
     if category and not (kind == "shell" and _literal_shell_output(value)):
         return category
+    structural = _structural_python_indicator(kind, value)
+    if structural:
+        return structural
     # Literal output still needs the native floor, including its unavailable case.
     hardline = native_hardline(value)
     if hardline is not False:
