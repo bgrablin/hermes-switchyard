@@ -1,7 +1,7 @@
 ---
 name: hermes-switchyard-operations
 description: Use when operating or diagnosing Switchyard.
-version: 0.5.6
+version: 0.6.0
 author: bgrablin
 license: MIT
 platforms: [linux, macos, windows]
@@ -62,10 +62,12 @@ Treat exit code 1 as "read the JSON", not as an error to retry.
 | Extra screening, approval, compaction, and cache features | Opt-in; do not assume they are active because their code is installed. |
 
 Automatic routing does not rewrite the cached system prompt or replace mandatory
-skills. Light turns can skip Jev. The two-stage selector can shortlist a large
-catalog; inspect its receipt rather than assuming every candidate reached the
-provider. A valid hosted abstention is final for that turn. A hosted failure may
-retain a local match, which is **local fallback**, not another provider call.
+skills. By default, some light turns, such as a thank-you or a greeting-only
+message, skip Jev (`automatic_skill_light_turn_bypass`). Unknown wording and
+compound requests keep normal routing. The two-stage selector can shortlist a
+large catalog; inspect its receipt rather than assuming every candidate reached
+the provider. A valid hosted abstention is final for that turn. A hosted failure
+may retain a local match, which is **local fallback**, not another provider call.
 
 ## Reasoning: a cap is not a pin
 
@@ -102,10 +104,12 @@ status chip is not proof of the level Switchyard sent.
 
 `Reasoning: high→low` reports an adjustment. `local decision` means no Jev call;
 `shape only` means metadata, not message text, went to Jev. `not adapted` means
-pass-through, not a successful downgrade. If the host already supplied `low`,
-do not blame Switchyard without a cap-to-sent receipt. Missing evidence stays
-unknown. Token savings are estimates from measured baselines, not guaranteed
-savings or evidence of equal answer quality.
+pass-through, not a successful downgrade. On some routes, Switchyard maps a level
+that the route rejects to one it accepts, for example `minimal` to `low`. This
+keeps the request valid. It is not an adaptive raise. If the host already supplied
+`low`, do not blame Switchyard without a cap-to-sent receipt. Missing evidence
+stays unknown. Token savings are estimates from measured baselines, not
+guaranteed savings or evidence of equal answer quality.
 
 On timeout, invalid output, missing acknowledgment, or an unsupported route,
 effort stays at the host-requested value. The default never raises it. The
@@ -172,6 +176,12 @@ hosted selection, hosted abstention, hosted failure/local fallback, and hosting
 skipped. `selected` does not alone prove that the skill loaded or helped.
 `wow` summarizes retained local observations, not a benchmark or task-success
 certificate. A missing receipt is unavailable evidence, not success or failure.
+
+For offline analysis, `python -m hermes_switchyard.outcome_labels` labels a copy
+of the receipt history. It needs three explicit paths (`--history-dir`,
+`--evidence`, `--output`), makes no network call, and does not change routing.
+Missing evidence stays `UNKNOWN`. The labels are not a quality score. See
+[outcome labels](../../../docs/OUTCOME-LABELS.md).
 
 On a refusal or failure, inspect its bounded reason, input scope, route, and
 tool exposure. Correct only the proven issue within authority. Do not loop on
@@ -255,7 +265,7 @@ All of these settings default **off** and need deliberate enablement:
 | `repeated_output_compaction` | Consecutive duplicate lines in eligible successful terminal output only. Recognized full-output/verbatim requests preserve output. Leave off for byte-exact evidence. |
 | `cross_tool_stuck_detection` | Bounded advisory check across tool failures; may send redacted error excerpts to Jev. Does not force retries or block tools. |
 | `browser_plan_cache` | Memory-only reuse of matching public link decisions; fresh action checks remain. Never caches DONE or certifies success. |
-| `evidence_finder_enabled` | Source-prefetch pilot requiring an approved root; not a callable search tool. |
+| `evidence_finder_enabled` | Source-prefetch pilot for a simple request that names one or more files; needs an approved root. Not a callable search tool. An uncertain lookup returns the whole request to normal tools. |
 | `defer_switchyard_tool_schemas` | Experimental reduction of decision-tool schemas; does not turn off automatic features. |
 
 Local review commands are explicit, not auto-install or approval actions:

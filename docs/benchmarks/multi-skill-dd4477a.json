@@ -1,0 +1,281 @@
+{
+  "artifact": "multi_skill_remeasure",
+  "candidate_catalog_hash": "d16e9d6e2c6850b9624083f7102004bea3ba9f6b3c0db8dd51988b544df8c070",
+  "claim_level": "live",
+  "comparison_arm": {
+    "api": "jev_skill_select",
+    "mean_coverage": 0.1,
+    "p50_latency_ms": 193.8,
+    "rows": [
+      {
+        "complete": false,
+        "cost": 5.4768e-05,
+        "coverage": 0.0,
+        "id": "multi_git_pr_review_001",
+        "provider_call_ms": 194.5,
+        "selected": [],
+        "status": "abstained"
+      },
+      {
+        "complete": false,
+        "cost": 5.4642e-05,
+        "coverage": 0.0,
+        "id": "multi_postgres_backup_001",
+        "provider_call_ms": 137.7,
+        "selected": [],
+        "status": "abstained"
+      },
+      {
+        "complete": false,
+        "cost": 5.4768e-05,
+        "coverage": 0.0,
+        "id": "multi_report_studies_001",
+        "provider_call_ms": 188.9,
+        "selected": [],
+        "status": "abstained"
+      },
+      {
+        "complete": false,
+        "cost": 5.4726e-05,
+        "coverage": 0.5,
+        "id": "multi_vlan_home_automation_001",
+        "provider_call_ms": 193.8,
+        "selected": [
+          "network-config-validation"
+        ],
+        "status": "selected"
+      },
+      {
+        "complete": false,
+        "cost": 5.4516e-05,
+        "coverage": 0.0,
+        "id": "multi_release_pr_proof_001",
+        "provider_call_ms": 216.6,
+        "selected": [],
+        "status": "abstained"
+      }
+    ],
+    "sets_complete": "0/5",
+    "source": "records for the same 5 tasks in the 24-task selector run (live-selector report with the same plugin source hash); no extra provider calls",
+    "total_cost_usd": 0.00027342
+  },
+  "dataset_hash": "97a7702c0fa0474a8b13e8b018f4a1c86d4b9f84cbe5cba4c5d7122df73b6c28",
+  "feature": "jev_skill_select_many",
+  "measured": {
+    "extra_skills_selected": 1,
+    "mean_coverage": 1.0,
+    "p50_latency_ms": 154.0,
+    "p95_latency_ms": 338.4,
+    "sets_complete": "5/5",
+    "total_cost_usd": 0.00034692
+  },
+  "method": "For each of the 5 required_set heldout fixtures in evaluation/benchmark/fixtures.json, call routing.select_skills with the frozen 12-skill candidate catalog, the default selection threshold, and the same DecisionClient and Hermes secret scope as evaluation/benchmark/collect_switchyard.py. Latency is the provider time that select_skills reports; cost is the provider-reported usage cost. Percentiles use the nearest-rank method of evaluation/benchmark/benchmark.py. The repository has no collector script for this measurement.",
+  "notes": [
+    "A first live run on the same commit selected the same sets for every task. That run did not record timing or cost, so this artifact reports the second run."
+  ],
+  "plugin_source_hash": "350abb3f31f162fc53fa352cc051ab989de4ec53f866a83c38dbd8194cff8495",
+  "provider": "openrouter",
+  "provider_calls": 5,
+  "requested_model": "typesafe/jev-1.13",
+  "rows": [
+    {
+      "candidate_count": 12,
+      "complete": true,
+      "cost_usd": 6.9468e-05,
+      "coverage": 1.0,
+      "extras": [],
+      "id": "multi_git_pr_review_001",
+      "latency_ms": 338.4,
+      "max_selections": null,
+      "required": [
+        "git-change-preparation",
+        "github-code-review"
+      ],
+      "scores": {
+        "docker-management": 0.1,
+        "document-intelligence": 0.14,
+        "git-change-preparation": 0.98,
+        "github-code-review": 0.98,
+        "kubernetes-patterns": 0.07,
+        "literature-review": 0.07,
+        "local-place-recommendations": 0.01,
+        "network-config-validation": 0.04,
+        "postgres-patterns": 0.05,
+        "smart-home-local-apis": 0.02,
+        "software-release-governance": 0.16,
+        "spreadsheet-delivery-certification": 0.02
+      },
+      "selected": [
+        "git-change-preparation",
+        "github-code-review"
+      ],
+      "selection_threshold": 0.8,
+      "status": "selected",
+      "usage": {
+        "cost": 6.9468e-05,
+        "input_tokens": 1654.0,
+        "output_tokens": 222.0
+      }
+    },
+    {
+      "candidate_count": 12,
+      "complete": true,
+      "cost_usd": 6.9342e-05,
+      "coverage": 1.0,
+      "extras": [],
+      "id": "multi_postgres_backup_001",
+      "latency_ms": 149.7,
+      "max_selections": null,
+      "required": [
+        "postgres-patterns",
+        "docker-management"
+      ],
+      "scores": {
+        "docker-management": 0.95,
+        "document-intelligence": 0.09,
+        "git-change-preparation": 0.15,
+        "github-code-review": 0.3,
+        "kubernetes-patterns": 0.66,
+        "literature-review": 0.05,
+        "local-place-recommendations": 0.01,
+        "network-config-validation": 0.16,
+        "postgres-patterns": 0.96,
+        "smart-home-local-apis": 0.03,
+        "software-release-governance": 0.24,
+        "spreadsheet-delivery-certification": 0.03
+      },
+      "selected": [
+        "postgres-patterns",
+        "docker-management"
+      ],
+      "selection_threshold": 0.8,
+      "status": "selected",
+      "usage": {
+        "cost": 6.9342e-05,
+        "input_tokens": 1651.0,
+        "output_tokens": 222.0
+      }
+    },
+    {
+      "candidate_count": 12,
+      "complete": true,
+      "cost_usd": 6.9468e-05,
+      "coverage": 1.0,
+      "extras": [],
+      "id": "multi_report_studies_001",
+      "latency_ms": 154.0,
+      "max_selections": null,
+      "required": [
+        "document-intelligence",
+        "literature-review"
+      ],
+      "scores": {
+        "docker-management": 0.05,
+        "document-intelligence": 0.95,
+        "git-change-preparation": 0.09,
+        "github-code-review": 0.05,
+        "kubernetes-patterns": 0.02,
+        "literature-review": 0.89,
+        "local-place-recommendations": 0.02,
+        "network-config-validation": 0.02,
+        "postgres-patterns": 0.05,
+        "smart-home-local-apis": 0.02,
+        "software-release-governance": 0.13,
+        "spreadsheet-delivery-certification": 0.07
+      },
+      "selected": [
+        "document-intelligence",
+        "literature-review"
+      ],
+      "selection_threshold": 0.8,
+      "status": "selected",
+      "usage": {
+        "cost": 6.9468e-05,
+        "input_tokens": 1654.0,
+        "output_tokens": 222.0
+      }
+    },
+    {
+      "candidate_count": 12,
+      "complete": true,
+      "cost_usd": 6.9426e-05,
+      "coverage": 1.0,
+      "extras": [],
+      "id": "multi_vlan_home_automation_001",
+      "latency_ms": 179.2,
+      "max_selections": null,
+      "required": [
+        "network-config-validation",
+        "smart-home-local-apis"
+      ],
+      "scores": {
+        "docker-management": 0.28,
+        "document-intelligence": 0.11,
+        "git-change-preparation": 0.1,
+        "github-code-review": 0.25,
+        "kubernetes-patterns": 0.17,
+        "literature-review": 0.04,
+        "local-place-recommendations": 0.02,
+        "network-config-validation": 0.98,
+        "postgres-patterns": 0.1,
+        "smart-home-local-apis": 0.96,
+        "software-release-governance": 0.12,
+        "spreadsheet-delivery-certification": 0.03
+      },
+      "selected": [
+        "network-config-validation",
+        "smart-home-local-apis"
+      ],
+      "selection_threshold": 0.8,
+      "status": "selected",
+      "usage": {
+        "cost": 6.9426e-05,
+        "input_tokens": 1653.0,
+        "output_tokens": 222.0
+      }
+    },
+    {
+      "candidate_count": 12,
+      "complete": true,
+      "cost_usd": 6.9216e-05,
+      "coverage": 1.0,
+      "extras": [
+        "git-change-preparation"
+      ],
+      "id": "multi_release_pr_proof_001",
+      "latency_ms": 148.7,
+      "max_selections": null,
+      "required": [
+        "github-code-review",
+        "software-release-governance"
+      ],
+      "scores": {
+        "docker-management": 0.16,
+        "document-intelligence": 0.61,
+        "git-change-preparation": 0.92,
+        "github-code-review": 0.95,
+        "kubernetes-patterns": 0.13,
+        "literature-review": 0.1,
+        "local-place-recommendations": 0.02,
+        "network-config-validation": 0.08,
+        "postgres-patterns": 0.07,
+        "smart-home-local-apis": 0.03,
+        "software-release-governance": 0.95,
+        "spreadsheet-delivery-certification": 0.05
+      },
+      "selected": [
+        "github-code-review",
+        "software-release-governance",
+        "git-change-preparation"
+      ],
+      "selection_threshold": 0.8,
+      "status": "selected",
+      "usage": {
+        "cost": 6.9216e-05,
+        "input_tokens": 1648.0,
+        "output_tokens": 222.0
+      }
+    }
+  ],
+  "source_commit": "dd4477a59533f1bde5b5f810cd6a76debe3fb1a7"
+}

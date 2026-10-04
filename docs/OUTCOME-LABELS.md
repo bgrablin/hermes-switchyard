@@ -1,4 +1,4 @@
-# Offline outcome labels (0.6.0 candidate)
+# Offline outcome labels (new in 0.6.0)
 
 **In short:** receipts say what Switchyard *did*, not whether it *helped*. This offline tool is a first step toward measuring that. It reads a copy of your routing history plus a separate evidence file, and labels each turn with a few cautious facts: was the chosen skill actually loaded, did a tool fail, did the user's next message say "no, that's not what I asked," and did the turn complete. When the evidence isn't clear, the label is `UNKNOWN` rather than a guess. It never runs inside Hermes and never sends anything anywhere.
 

@@ -1,6 +1,6 @@
 # Tool review, retrieval screening, and conservative output handling
 
-These are development candidates for 0.6.0, not a new release. Model switching
+These opt-in features are new in 0.6.0. Their runtime switches default to off. Model switching
 remains advisory. No Hermes core patch or private execution override is required. The tested
 upstream pin includes plugin-guard v8; older install scanners can reject the
 inert adversarial fixtures in this repository.
@@ -26,7 +26,7 @@ that content is trustworthy, scan unobserved page text, or replace the host's
 instruction boundary. Search receipts contain warning codes and withheld counts,
 not matched text. Benign documents demonstrating an attack may be withheld.
 
-## Enable individual candidates
+## Enable individual features
 
 Settings live under `plugins.entries.hermes-switchyard.settings`:
 

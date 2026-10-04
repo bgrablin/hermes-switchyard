@@ -1,10 +1,8 @@
 # Changelog
 
-## 0.6.0 (unreleased)
+## 0.6.0 (2026-10-04)
 
-Working draft for the next release. No version bump, tag, or catalog pin until this section is frozen.
-
-There is no fixed feature-count gate. Keep **Not included** honest when a candidate fails.
+This release adds local reports and offline skill checks, does less hosted work on easy turns, and adds opt-in tool review features that stay off by default.
 
 ### Added
 
@@ -45,11 +43,12 @@ There is no fixed feature-count gate. Keep **Not included** honest when a candid
 **Checks**
 
 - Weekly and manual runs check current Hermes HEAD on Python 3.14 and keep report-only receipts. Pinned 3.11–3.13 checks are unchanged.
+- The single-skill and multi-skill rows in `docs/BENCHMARKS.md` are re-measured on pre-release source `dd4477a` (`04786f3` with the 0.6.0 version bump): 12/12 single-skill picks and 5/5 multi-skill sets, as before. After that measurement, #215 changed the approval gate code and the bundled operations skill text changed. These rows were not re-measured after #215. The other rows remain 0.5.0-only.
 
 ### Fixed
 
-- The consequential tool gate requests approval for a closed set of destructive Python calls in `execute_code` and `python -c` (`os.remove`, `os.unlink`, `os.rmdir`, `os.removedirs`, `shutil.rmtree`, `shutil.move`, `pathlib.Path.unlink`, `pathlib.Path.rmdir`, and literal `open` modes containing `w`, `a`, `x`, or `+` on credential paths; read-only `r` and `rb` do not), including aliased imports. `execute_code` also flags an unresolved dotted call in that set because the session kernel keeps earlier imports; a fresh `python -c` process does not. Literal `python`, `python3`, and `py -c` prints are exempt on every platform, including Windows. `echo` and `printf` stay gated on Windows. Code that does not parse stays gated. `getattr`, `exec`, `eval`, star imports, and other dynamic dispatch are not detected. Parsed shell commands named `del`, `erase`, or `rd` request approval on every host. A Python `del` statement, or text that only mentions those words, does not. (#204)
-- Approval prompts name the tool, the trigger, the matched field, redacted input and target, and what each choice covers. If masking would hide a command or the command cannot be inspected, the prompt withholds input and names the trigger. (#201)
+- The consequential tool gate requests approval for a closed set of destructive Python calls in `execute_code` and `python -c` (`os.remove`, `os.unlink`, `os.rmdir`, `os.removedirs`, `shutil.rmtree`, `shutil.move`, `pathlib.Path.unlink`, `pathlib.Path.rmdir`, and literal `open` modes containing `w`, `a`, `x`, or `+` on credential paths; read-only `r` and `rb` do not), including aliased imports. `execute_code` also flags an unresolved dotted call in that set because the session kernel keeps earlier imports; a fresh `python -c` process does not. Literal `python`, `python3`, and `py -c` prints are exempt on every platform, including Windows. `echo` and `printf` stay gated on Windows. Code that does not parse stays gated. `getattr`, `exec`, `eval`, star imports, and other dynamic dispatch are not detected. Parsed shell commands named `del`, `erase`, or `rd` request approval on every host. A Python `del` statement, or text that only mentions those words, does not. (#215, fixes #204)
+- Approval prompts name the tool, the trigger, the matched field, redacted input and target, and what each choice covers. If masking would hide a command or the command cannot be inspected, the prompt withholds input and names the trigger. Input text that copies the prompt's truncation marker cannot reveal a masked value. (#201, #214)
 - The bundled `hermes-switchyard-operations` skill registers with the description from its `SKILL.md` when the host accepts that argument. Older hosts keep the previous call. (#206)
 - Enum-strict Chat Completions relays map `none` / `minimal` to `low` and `ultra` to `max` before the trivial-turn floor, so a greeting does not send an invalid effort and force a provider 400. (#181)
 - One `not adapted` receipt per foreground turn when the host sent no effort or the route cannot adapt. `off` still hides it. (#182, fixes #180)

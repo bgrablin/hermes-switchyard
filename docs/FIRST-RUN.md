@@ -1,4 +1,4 @@
-# First-run check (v0.5.5 development candidate)
+# First-run check (measured on 0.5.5)
 
 **In short:** in a clean, disposable Hermes profile, installing, enabling, and checking Switchyard took about **9 seconds** of measured time, with no key and no billed calls. Typing in a key and getting a first live answer weren't timed. So "working in under two minutes" is plausible, but not proven end to end. The details follow.
 
@@ -14,6 +14,6 @@ This check used a clean, disposable Hermes home and the pinned Python 3.11 Herme
 | Enter one provider key through the masked prompt | 20–60 s | Estimate, **not run** | Depends on the operator and provider. No key was used in this check. |
 | Start a fresh Hermes session and send a first turn | 5–15 s | Estimate, **not run** | A real answer and any hosted Jev decision are not measured here. |
 
-The **measured local steps total 8.940 s**. This is below the two-minute target for those steps, not proof of a complete under-two-minute first run. The estimated human steps and a real provider response are excluded. A separate real-profile check installed this development candidate from GitHub in 11.9 s and observed a receipt after `hi`; see the [recorded receipt rendering](assets/effort-receipts-recorded.png). That check is not a timing result for this disposable profile. A local `switchyard test` without `--live` refuses to run; its live mode needs an explicit acknowledgement and a billable key, so the offline proof used the installed plugin's local effort path instead.
+The **measured local steps total 8.940 s**. This is below the two-minute target for those steps, not proof of a complete under-two-minute first run. The estimated human steps and a real provider response are excluded. A separate real-profile check installed the v0.5.5 development candidate from GitHub in 11.9 s and observed a receipt after `hi`; see the [recorded receipt rendering](assets/effort-receipts-recorded.png). That check is not a timing result for this disposable profile. A local `switchyard test` without `--live` refuses to run; its live mode needs an explicit acknowledgement and a billable key, so the offline proof used the installed plugin's local effort path instead.
 
 For a normal installation, use the [quickstart](../README.md#quickstart). Keep the installer scan in place; review a blocked source instead of adding `--force`. A missing key is an expected status in a no-key check, not an install failure.
