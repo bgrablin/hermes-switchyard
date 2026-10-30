@@ -159,7 +159,7 @@ class CiContractTests(unittest.TestCase):
 
     def _assert_setup_uv_pins(self, workflows: Path) -> None:
         expected_pin = (
-            "astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0"
+            "astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0"
         )
         expected = {
             "live-jev.yml": [expected_pin],
@@ -315,7 +315,7 @@ class CiContractTests(unittest.TestCase):
 
     def test_setup_uv_guard_covers_quoted_new_jobs_and_yaml_files(self):
         source = Path(__file__).resolve().parent.parent / ".github" / "workflows"
-        current = "astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7"
+        current = "astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884"
         old = "astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9"
         with tempfile.TemporaryDirectory() as temp:
             workflows = Path(temp)
@@ -338,12 +338,12 @@ class CiContractTests(unittest.TestCase):
 
             live = workflows / "live-jev.yml"
             original = live.read_text(encoding="utf-8")
-            self.assertIn(f"uses: {current} # v10.2.0", original)
+            self.assertIn(f"uses: {current} # v10.3.0", original)
             for quote in ("'", '"'):
                 live.write_text(
                     original.replace(
-                        f"uses: {current} # v10.2.0",
-                        f"uses: {quote}{current}{quote} # v10.2.0",
+                        f"uses: {current} # v10.3.0",
+                        f"uses: {quote}{current}{quote} # v10.3.0",
                         1,
                     ),
                     encoding="utf-8",
